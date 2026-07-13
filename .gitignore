@@ -1,0 +1,15 @@
+.DS_Store
+
+# Secrets and local env (NEVER commit)
+.env
+.env.*
+
+# Data artifacts / build outputs
+snapshots/
+*.kuzu
+*.kuzu.bak
+data/*.json
+
+# Agent config (local, not shared)
+CLAUDE.md
+docs/agents/
