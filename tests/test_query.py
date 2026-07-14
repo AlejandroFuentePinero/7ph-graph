@@ -147,6 +147,17 @@ def test_pilot_subgraph_edges_connect_decks_to_pilot_and_cards(tmp_path, snapsho
         assert e.source in node_ids and e.target in node_ids
 
 
+def test_pilot_subgraph_labels_the_pilot_by_display_name(tmp_path, snapshot_dir):
+    conn = _connect(tmp_path, snapshot_dir)
+
+    # Keyed on the upstream id (AmberTealViper), the pilot node reads as the
+    # recovered display name (Tom S), never the pseudonym.
+    sub = pilot_subgraph(conn, "AmberTealViper")
+
+    assert [n.label for n in sub.nodes if n.kind == "Pilot"] == ["Tom S"]
+    assert [n.id for n in sub.nodes if n.kind == "Pilot"] == ["pilot:AmberTealViper"]
+
+
 def test_unknown_pilot_yields_empty_subgraph(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
 
@@ -444,19 +455,45 @@ def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path):
     assert "card:gem" not in {n.id for n in trusted.nodes}
 
 
-def test_pilot_affinity_weights_archetypes_by_deck_count(tmp_path, snapshot_dir):
+def test_pilot_affinity_weights_archetypes_by_event_count(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
 
-    # Jordan is a Grixis specialist: both his decks carry the one archetype.
+    # Jordan is a Grixis specialist: both his decks carry the one archetype, and
+    # they were played at two different events (CFWAT25, PogNov25).
     sub = pilot_affinity_subgraph(conn, "Jordan C")
 
     pilots = [n for n in sub.nodes if n.kind == "Pilot"]
     archetypes = [n for n in sub.nodes if n.kind == "Archetype"]
     assert [n.label for n in pilots] == ["Jordan C"]
     assert [n.label for n in archetypes] == ["Grixis"]
+    # The archetype node carries its event count as a weight, and the edge label
+    # shows the same count.
+    assert [n.weight for n in archetypes] == [2]
     assert [(e.source, e.target, e.label) for e in sub.edges] == [
         ("pilot:Jordan C", "arch:grixis", "PLAYS:2")
     ]
+
+
+def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path):
+    # One pilot, three decks of one archetype, all registered at the same event.
+    # The affinity is one event, not three decks: it measures showing up, not
+    # how many variants were entered on the day.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "m": ["a"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "m": ["a"]},
+            {"id": "d3", "tag": "x", "norm": 0.0, "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_affinity_subgraph(conn, "p")
+
+    arch = [n for n in sub.nodes if n.kind == "Archetype"]
+    assert [n.weight for n in arch] == [1]
+    assert [e.label for e in sub.edges] == ["PLAYS:1"]
 
 
 def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot_dir):
