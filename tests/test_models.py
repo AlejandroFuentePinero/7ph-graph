@@ -2,7 +2,27 @@ import json
 
 import pytest
 
-from graph7ph.models import Card, Deck, load_snapshot
+from graph7ph.models import Card, Deck, colours_from_mana_cost, load_snapshot
+
+
+@pytest.mark.parametrize(
+    "mana_cost, expected",
+    [
+        ("{B}", ["B"]),                       # mono
+        ("{2}{R}", ["R"]),                    # generic pips ignored
+        ("{B}{G}", ["B", "G"]),               # multicolour
+        ("{1}{U}{U}", ["U"]),                 # duplicate colour deduped
+        ("{U}{B}", ["U", "B"]),               # canonical WUBRG order, not input order
+        ("{1}{R/G}", ["R", "G"]),             # hybrid: both colours
+        ("{1}{B/P}{B/P}", ["B"]),             # Phyrexian: P is not a colour
+        ("{X}{R}", ["R"]),                    # X ignored
+        ("{0}", []),                          # colourless
+        ("{1}{G} // {1}{R}", ["R", "G"]),     # split card: both faces, WUBRG order
+        (None, []),                           # lands with no mana cost
+    ],
+)
+def test_colours_from_mana_cost(mana_cost, expected):
+    assert colours_from_mana_cost(mana_cost) == expected
 
 
 def test_parses_decks_and_cards_with_domain_fields(snapshot_dir):
@@ -33,7 +53,9 @@ def test_optional_source_fields_tolerate_nulls():
 
     deck = Deck.model_validate(
         {"deckId": "d", "name": "n", "pilot": "p", "event": "e",
-         "eventType": "Tournament", "placement": None, "placementNorm": None}
+         "eventType": "Tournament", "placement": None, "placementNorm": None,
+         "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
+         "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
     )
     assert deck.placement is None and deck.placement_norm is None
 
@@ -41,7 +63,9 @@ def test_optional_source_fields_tolerate_nulls():
 def test_out_of_range_card_id_raises_a_clear_error(tmp_path):
     (tmp_path / "decks.json").write_text(json.dumps([
         {"deckId": "d1", "name": "n", "pilot": "p", "event": "e",
-         "eventType": "Tournament", "placement": 1, "placementNorm": 0.0}
+         "eventType": "Tournament", "placement": 1, "placementNorm": 0.0,
+         "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
+         "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
     ]))
     (tmp_path / "cards_index.json").write_text(json.dumps({
         "v": 2,

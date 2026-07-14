@@ -7,7 +7,7 @@ Paths default to the repo root and are overridable by flag.
 import argparse
 from pathlib import Path
 
-from graph7ph.build import build_graph
+from graph7ph.build import build_graph, reconciliation_path
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.models import load_snapshot
 
@@ -35,8 +35,14 @@ def _build(args: argparse.Namespace) -> None:
     snap = _latest_snapshot(args.snapshots)
     counts = build_graph(load_snapshot(snap), args.db)
     print(f"Built {args.db} from {snap}:")
-    print(f"  pilots={counts.pilots} decks={counts.decks} cards={counts.cards}")
-    print(f"  piloted_by={counts.piloted_by} contains={counts.contains}")
+    print(f"  nodes: pilots={counts.pilots} decks={counts.decks} cards={counts.cards} "
+          f"events={counts.events} archetypes={counts.archetypes} "
+          f"macros={counts.macros} colours={counts.colours} cardTypes={counts.card_types}")
+    print(f"  edges: piloted_by={counts.piloted_by} contains={counts.contains} "
+          f"played_at={counts.played_at} has_archetype={counts.has_archetype} "
+          f"has_macro={counts.has_macro} deck_colour={counts.deck_colour} "
+          f"card_colour={counts.card_colour} has_type={counts.has_type}")
+    print(f"  reconciliation report: {reconciliation_path(args.db)}")
 
 
 def _app(args: argparse.Namespace) -> None:
