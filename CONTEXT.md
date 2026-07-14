@@ -80,3 +80,7 @@ _Avoid_: Accessibility deck
 **Placement**:
 A pilot's finishing rank at an event, and its normalised form for cross-event comparison.
 _Avoid_: Rank, position, result
+
+---
+
+See `docs/research-log.md` for cross-session data insights and handoffs.

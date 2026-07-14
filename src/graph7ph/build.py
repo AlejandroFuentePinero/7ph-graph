@@ -8,8 +8,9 @@ is a full rebuild into a fresh database file; counts are read back out of the
 graph so callers can assert they match the source.
 """
 
+import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import kuzu
@@ -17,9 +18,13 @@ from pydantic import BaseModel
 
 from graph7ph.db import rows
 from graph7ph.models import COLOURS, Card, Snapshot
+from graph7ph.pilots import PilotResolution, resolve_pilots
 
 _SCHEMA = [
-    "CREATE NODE TABLE Pilot(pilot STRING, PRIMARY KEY(pilot))",
+    # A Pilot is keyed on the upstream id; displayName is a recovered label and
+    # lowConfidence marks the re-keyed null-pilot decks (ADR 0004).
+    "CREATE NODE TABLE Pilot(pilot STRING, displayName STRING, "
+    "lowConfidence BOOLEAN, PRIMARY KEY(pilot))",
     """CREATE NODE TABLE Deck(
         deckId STRING, name STRING, placement INT64, placementNorm DOUBLE,
         colourIdentity STRING, PRIMARY KEY(deckId))""",
@@ -73,17 +78,31 @@ class BuildCounts:
     has_type: int
 
 
+def reconciliation_path(db_path: Path) -> Path:
+    """Where the reconciliation report is written for a graph at ``db_path``."""
+    db_path = Path(db_path)
+    return db_path.with_name(db_path.name + ".reconciliation.json")
+
+
 def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
-    """Build a fresh Kùzu database at ``db_path`` and return its counts."""
+    """Build a fresh Kùzu database at ``db_path`` and return its counts.
+
+    Pilots are resolved to keyed, named nodes and a reconciliation report is
+    written alongside the database at :func:`reconciliation_path` (ADR 0004).
+    """
     db_path = Path(db_path)
     _remove(db_path)
+
+    pilots = resolve_pilots(snapshot.decks)
 
     conn = kuzu.Connection(kuzu.Database(str(db_path)))
     for ddl in _SCHEMA:
         conn.execute(ddl)
 
-    _load_nodes(conn, snapshot)
-    _load_edges(conn, snapshot)
+    _load_nodes(conn, snapshot, pilots)
+    _load_edges(conn, snapshot, pilots)
+
+    reconciliation_path(db_path).write_text(json.dumps(asdict(pilots.report), indent=2))
 
     return BuildCounts(
         pilots=_count(conn, "MATCH (p:Pilot) RETURN count(p)"),
@@ -105,10 +124,12 @@ def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
     )
 
 
-def _load_nodes(conn: kuzu.Connection, snapshot: Snapshot) -> None:
-    pilots = sorted({d.pilot for d in snapshot.decks})
-    _load(conn, "UNWIND $rows AS r CREATE (:Pilot {pilot: r.pilot})",
-          [{"pilot": p} for p in pilots])
+def _load_nodes(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResolution) -> None:
+    _load(conn,
+          "UNWIND $rows AS r CREATE (:Pilot {pilot: r.pilot, "
+          "displayName: r.displayName, lowConfidence: r.lowConfidence})",
+          [{"pilot": p.pilot, "displayName": p.display_name,
+            "lowConfidence": p.low_confidence} for p in pilots.pilots])
 
     _load(conn,
           """UNWIND $rows AS r CREATE (:Deck {deckId: r.deckId, name: r.name,
@@ -146,12 +167,13 @@ def _load_nodes(conn: kuzu.Connection, snapshot: Snapshot) -> None:
           [{"type": t} for t in card_types])
 
 
-def _load_edges(conn: kuzu.Connection, snapshot: Snapshot) -> None:
+def _load_edges(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResolution) -> None:
     _load(conn,
           """UNWIND $rows AS r
              MATCH (d:Deck {deckId: r.deckId}), (p:Pilot {pilot: r.pilot})
              CREATE (d)-[:PILOTED_BY]->(p)""",
-          [{"deckId": d.deck_id, "pilot": d.pilot} for d in snapshot.decks])
+          [{"deckId": d.deck_id, "pilot": pilots.deck_pilot[d.deck_id]}
+           for d in snapshot.decks])
     _load(conn,
           """UNWIND $rows AS r
              MATCH (d:Deck {deckId: r.deckId}), (c:Card {canon: r.canon})

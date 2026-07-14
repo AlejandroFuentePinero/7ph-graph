@@ -7,7 +7,7 @@ Paths default to the repo root and are overridable by flag.
 import argparse
 from pathlib import Path
 
-from graph7ph.build import build_graph
+from graph7ph.build import build_graph, reconciliation_path
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.models import load_snapshot
 
@@ -42,6 +42,7 @@ def _build(args: argparse.Namespace) -> None:
           f"played_at={counts.played_at} has_archetype={counts.has_archetype} "
           f"has_macro={counts.has_macro} deck_colour={counts.deck_colour} "
           f"card_colour={counts.card_colour} has_type={counts.has_type}")
+    print(f"  reconciliation report: {reconciliation_path(args.db)}")
 
 
 def _app(args: argparse.Namespace) -> None:
