@@ -13,6 +13,9 @@ __pycache__/
 snapshots/
 *.kuzu
 *.kuzu.bak
+*.kuzu.backup/
+*.kuzu.ingest.json
+*.kuzu.reconciliation.json
 data/*.json
 
 # Agent config (local, not shared)

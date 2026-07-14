@@ -26,6 +26,9 @@ class Node:
     id: str
     label: str
     kind: Kind
+    # An optional analytic weight the renderer sizes the node by (e.g. a pilot's
+    # event count per archetype). ``None`` renders at the default size.
+    weight: int | None = None
 
 
 @dataclass(frozen=True)
@@ -93,11 +96,14 @@ QuerySpec = (
 
 
 def pilot_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
-    """The pilot, their decks, and the cards those decks contain."""
+    """The pilot, their decks, and the cards those decks contain.
+
+    The pilot is keyed on the upstream id but labelled by display name.
+    """
     res = conn.execute(
         """MATCH (p:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)
            OPTIONAL MATCH (d)-[c:CONTAINS]->(card:Card)
-           RETURN p.pilot, d.deckId, d.name,
+           RETURN p.pilot, p.displayName, d.deckId, d.name,
                   card.canon, card.name, c.board""",
         {"pilot": pilot},
     )
@@ -105,8 +111,8 @@ def pilot_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []
 
-    for pilot_name, deck_id, deck_name, canon, card_name, board in rows(res):
-        pid = f"pilot:{pilot_name}"
+    for pilot_key, pilot_name, deck_id, deck_name, canon, card_name, board in rows(res):
+        pid = f"pilot:{pilot_key}"
         did = f"deck:{deck_id}"
         nodes.setdefault(pid, Node(pid, pilot_name, "Pilot"))
         if did not in nodes:
@@ -332,33 +338,36 @@ def hidden_gems_subgraph(
 
 
 def pilot_affinity_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
-    """A pilot and the archetypes they play, weighted by deck count.
+    """A pilot and the archetypes they play, weighted by distinct events.
 
     Shows whether a pilot is a specialist or a generalist (user story 16): the
-    pilot is the hub and each edge to an archetype is labelled with how many of
-    their decks carried it. The pilot is keyed on the upstream id but labelled
-    by display name.
+    pilot is the hub and each archetype node is sized (and its edge labelled) by
+    the number of distinct events the pilot registered that archetype at. Events
+    rather than decks, so a pilot who entered several variants of one archetype
+    on a single day counts once for showing up, not once per list. The pilot is
+    keyed on the upstream id but labelled by display name.
     """
     res = conn.execute(
         """MATCH (p:Pilot {pilot: $pilot})
            OPTIONAL MATCH (p)<-[:PILOTED_BY]-(d:Deck)-[:HAS_ARCHETYPE]->(a:Archetype)
-           WITH p, a, count(DISTINCT d) AS decks
-           RETURN p.pilot, p.displayName, a.tag, a.name, decks
-           ORDER BY decks DESC, a.tag""",
+           OPTIONAL MATCH (d)-[:PLAYED_AT]->(e:Event)
+           WITH p, a, count(DISTINCT e) AS events
+           RETURN p.pilot, p.displayName, a.tag, a.name, events
+           ORDER BY events DESC, a.tag""",
         {"pilot": pilot},
     )
 
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []
 
-    for pilot_key, pilot_name, a_tag, a_name, decks in rows(res):
+    for pilot_key, pilot_name, a_tag, a_name, events in rows(res):
         pid = f"pilot:{pilot_key}"
         nodes.setdefault(pid, Node(pid, pilot_name, "Pilot"))
         if a_tag is None:
             continue
         aid = f"arch:{a_tag}"
-        nodes.setdefault(aid, Node(aid, a_name, "Archetype"))
-        edges.append(Edge(pid, aid, f"PLAYS:{decks}"))
+        nodes.setdefault(aid, Node(aid, a_name, "Archetype", weight=events))
+        edges.append(Edge(pid, aid, f"PLAYS:{events}"))
 
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
