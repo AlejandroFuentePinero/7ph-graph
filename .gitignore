@@ -4,6 +4,11 @@
 .env
 .env.*
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+
 # Data artifacts / build outputs
 snapshots/
 *.kuzu

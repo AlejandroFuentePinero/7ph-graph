@@ -1,0 +1,104 @@
+[
+ {
+  "deckId": "BsegXnsDsEWxh-vNbUrn0w",
+  "name": "05th/08th Jordan C - Grixis - CFWAT25",
+  "deckName": "Grixis",
+  "pilot": "Jordan C",
+  "event": "CFWAT25",
+  "eventId": "evt_0b62511caf78",
+  "eventType": "Tournament",
+  "placement": 5,
+  "placementNorm": 0.2222222222222222,
+  "eventSize": 19,
+  "createdAt": "2025-12-06T00:00:00+00:00",
+  "updatedAt": "2025-12-15T12:06:15.257000+00:00",
+  "url": "https://moxfield.com/decks/BsegXnsDsEWxh-vNbUrn0w",
+  "colour": "colour:UBR",
+  "macro": "macro:tempo",
+  "engineTags": [
+   "engine:grixis"
+  ],
+  "engineTagLabels": {
+   "engine:grixis": "Grixis"
+  },
+  "primaryTag": "engine:grixis",
+  "primaryTagWeights": {
+   "engine:grixis": 100
+  },
+  "spiceScore": 0.07250064611434937,
+  "pointsToday": 11,
+  "pointsAtCreation": 7,
+  "reservedCount": 5,
+  "is8pt": false,
+  "priceUsd": 2838.3200000000006,
+  "valuePerUsd": 0.32018362515336296
+ },
+ {
+  "deckId": "pkUbzmgN3UeqaWdYQYRgRg",
+  "name": "12th Jordan C - Grixis - PogNov25",
+  "deckName": "Grixis",
+  "pilot": "Jordan C",
+  "event": "PogNov25",
+  "eventId": "evt_ec3c4838ad1b",
+  "eventType": "Tournament",
+  "placement": 12,
+  "placementNorm": 0.36666666666666664,
+  "eventSize": 31,
+  "createdAt": "2025-12-01T05:33:50.087000+00:00",
+  "updatedAt": "2025-12-01T05:58:28.480000+00:00",
+  "url": "https://moxfield.com/decks/pkUbzmgN3UeqaWdYQYRgRg",
+  "colour": "colour:UBR",
+  "macro": "macro:tempo",
+  "engineTags": [
+   "engine:grixis"
+  ],
+  "engineTagLabels": {
+   "engine:grixis": "Grixis"
+  },
+  "primaryTag": "engine:grixis",
+  "primaryTagWeights": {
+   "engine:grixis": 100
+  },
+  "spiceScore": 0.07250064611434937,
+  "pointsToday": 11,
+  "pointsAtCreation": 7,
+  "reservedCount": 5,
+  "is8pt": false,
+  "priceUsd": 2838.3200000000006,
+  "valuePerUsd": 0.2622028791903286
+ },
+ {
+  "deckId": "bLaqow87tE2TCnphLvH1lg",
+  "name": "21st Tom S - Storm - PogNov25",
+  "deckName": "Storm",
+  "pilot": "AmberTealViper",
+  "event": "PogNov25",
+  "eventId": "evt_ec3c4838ad1b",
+  "eventType": "Tournament",
+  "placement": 21,
+  "placementNorm": 0.6666666666666666,
+  "eventSize": 31,
+  "createdAt": "2025-12-01T05:41:48.247000+00:00",
+  "updatedAt": "2025-12-01T05:57:57.783000+00:00",
+  "url": "https://moxfield.com/decks/bLaqow87tE2TCnphLvH1lg",
+  "colour": "colour:UBRG",
+  "macro": "macro:combo",
+  "engineTags": [
+   "engine:storm"
+  ],
+  "engineTagLabels": {
+   "engine:storm": "Storm"
+  },
+  "primaryTag": "engine:storm",
+  "primaryTagWeights": {
+   "engine:storm": 100
+  },
+  "spiceScore": 0.07583397626876831,
+  "pointsToday": 11,
+  "pointsAtCreation": 8,
+  "reservedCount": 9,
+  "is8pt": false,
+  "priceUsd": 18885.572,
+  "valuePerUsd": 0.0040600343931184914
+ }
+]

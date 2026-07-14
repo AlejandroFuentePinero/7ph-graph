@@ -1,0 +1,30 @@
+[project]
+name = "graph7ph"
+version = "0.1.0"
+description = "A knowledge graph of the Australian 7 Point Highlander MTG metagame"
+requires-python = ">=3.11"
+dependencies = [
+    "kuzu>=0.7,<0.8",
+    "gradio>=5,<6",
+    "pyvis>=0.3.2,<0.4",
+    "pydantic>=2.9,<3",
+    "requests>=2.32,<3",
+]
+
+[project.scripts]
+graph7ph = "graph7ph.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/graph7ph"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
