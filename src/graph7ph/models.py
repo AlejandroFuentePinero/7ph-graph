@@ -19,6 +19,22 @@ Board = Literal["Main", "Side"]
 
 _BOARDS: tuple[tuple[str, Board], ...] = (("m", "Main"), ("s", "Side"))
 
+# The five Magic colours, in canonical WUBRG order.
+COLOURS: tuple[str, ...] = ("W", "U", "B", "R", "G")
+
+
+def colours_from_mana_cost(mana_cost: str | None) -> list[str]:
+    """Derive a card's colours from its mana cost, in canonical WUBRG order.
+
+    A colour is any WUBRG pip in the cost (``{U}``, hybrid ``{R/G}``, Phyrexian
+    ``{B/P}``), across both faces of a split cost. Generic (``{2}``), ``{X}``,
+    ``{0}``, and colourless costs contribute none; ``None`` (e.g. lands) is
+    empty. This is the v1 approximation of ADR 0002's card-to-colour edges.
+    """
+    if mana_cost is None:
+        return []
+    return [c for c in COLOURS if c in mana_cost]
+
 
 class _Raw(BaseModel):
     """Base for models parsed from the source's camelCase JSON."""
@@ -38,15 +54,70 @@ class Card(_Raw):
     price_usd: float | None = None
     points: int
 
+    @property
+    def colours(self) -> list[str]:
+        """The card's colours, derived from its mana pips (ADR 0002)."""
+        return colours_from_mana_cost(self.mana_cost)
+
+
+class DeckArchetype(BaseModel):
+    """One archetype a deck embodies, with its weight and whether it is primary."""
+
+    tag: str
+    name: str
+    weight: int
+    primary: bool
+
 
 class Deck(_Raw):
     deck_id: str
     name: str
     pilot: str
     event: str
+    event_id: str | None = None
     event_type: str
     placement: int | None = None
     placement_norm: float | None = None
+    # Classification, carried as prefixed source codes ("colour:UBR", "macro:tempo",
+    # "engine:grixis"). The properties below strip the prefixes into domain values.
+    colour: str
+    macro: str
+    engine_tags: list[str]
+    engine_tag_labels: dict[str, str]
+    primary_tag: str
+    primary_tag_weights: dict[str, int]
+
+    @property
+    def colour_identity(self) -> str:
+        """The deck's colour identity, e.g. ``UBR`` (or ``unknown``)."""
+        return _strip_prefix(self.colour)
+
+    @property
+    def colour_atoms(self) -> list[str]:
+        """The atomic colours of the identity, in canonical WUBRG order."""
+        return [c for c in COLOURS if c in self.colour_identity]
+
+    @property
+    def macro_code(self) -> str:
+        """The deck's macro strategy, e.g. ``tempo``."""
+        return _strip_prefix(self.macro)
+
+    @property
+    def archetypes(self) -> list[DeckArchetype]:
+        return [
+            DeckArchetype(
+                tag=_strip_prefix(tag),
+                name=self.engine_tag_labels.get(tag, tag),
+                weight=self.primary_tag_weights.get(tag, 0),
+                primary=tag == self.primary_tag,
+            )
+            for tag in self.engine_tags
+        ]
+
+
+def _strip_prefix(value: str) -> str:
+    """Drop a ``kind:`` prefix from a source code (``colour:UBR`` -> ``UBR``)."""
+    return value.split(":", 1)[1] if ":" in value else value
 
 
 class Containment(BaseModel):
