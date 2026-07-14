@@ -8,7 +8,12 @@ from pyvis.network import Network
 
 from graph7ph.query import Subgraph
 
-_COLOURS = {"Pilot": "#e15759", "Deck": "#4e79a7", "Card": "#59a14f"}
+_COLOURS = {
+    "Pilot": "#e15759",
+    "Deck": "#4e79a7",
+    "Card": "#59a14f",
+    "Archetype": "#f28e2b",
+}
 
 
 def render_subgraph(subgraph: Subgraph) -> str:
