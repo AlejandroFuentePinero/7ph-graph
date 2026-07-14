@@ -7,22 +7,12 @@ Paths default to the repo root and are overridable by flag.
 import argparse
 from pathlib import Path
 
-from graph7ph.build import build_graph, reconciliation_path
+from graph7ph.build import reconciliation_path
 from graph7ph.fetch import fetch_snapshot
-from graph7ph.models import load_snapshot
+from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 
 SNAPSHOTS_ROOT = Path("snapshots")
 DB_PATH = Path("graph.kuzu")
-
-
-def _latest_snapshot(root: Path) -> Path:
-    # Ignore hidden dirs, e.g. an interrupted fetch's ".<ts>.partial-*" staging.
-    snaps = sorted(
-        p for p in root.glob("*") if p.is_dir() and not p.name.startswith(".")
-    )
-    if not snaps:
-        raise SystemExit(f"No snapshots in {root}/: run `graph7ph fetch` first.")
-    return snaps[-1]
 
 
 def _fetch(args: argparse.Namespace) -> None:
@@ -31,10 +21,14 @@ def _fetch(args: argparse.Namespace) -> None:
 
 
 def _build(args: argparse.Namespace) -> None:
-    # v1 builds the latest snapshot; unioning all snapshots is later work (ADR 0003).
-    snap = _latest_snapshot(args.snapshots)
-    counts = build_graph(load_snapshot(snap), args.db)
-    print(f"Built {args.db} from {snap}:")
+    # The build unions every snapshot and gates the newest against what we hold,
+    # then promotes atomically with a retained backup (ADR 0003).
+    try:
+        report, counts = ingest(args.snapshots, args.db)
+    except SchemaError as exc:
+        raise SystemExit(f"Build aborted, live graph untouched: {exc}")
+
+    print(f"Built {args.db} ({report.status}):")
     print(f"  nodes: pilots={counts.pilots} decks={counts.decks} cards={counts.cards} "
           f"events={counts.events} archetypes={counts.archetypes} "
           f"macros={counts.macros} colours={counts.colours} cardTypes={counts.card_types}")
@@ -42,6 +36,9 @@ def _build(args: argparse.Namespace) -> None:
           f"played_at={counts.played_at} has_archetype={counts.has_archetype} "
           f"has_macro={counts.has_macro} deck_colour={counts.deck_colour} "
           f"card_colour={counts.card_colour} has_type={counts.has_type}")
+    if report.flags:
+        print(f"  {len(report.flags)} record(s) flagged for review "
+              f"(dropped ids or changed facts): {ingest_report_path(args.db)}")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
 
 
