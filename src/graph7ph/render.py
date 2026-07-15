@@ -55,12 +55,16 @@ def render_subgraph(subgraph: Subgraph) -> str:
         weighted = {"value": node.weight} if node.weight is not None else {}
         # A grouped node takes its player colour; a plain node the kind colour.
         colour = palette[node.group] if node.group is not None else _COLOURS.get(node.kind)
+        # A shape override (e.g. "circle") draws the label inside the node; vis.js
+        # then sizes it to the text, so a shaped node ignores any weight.
+        shaped = {"shape": node.shape} if node.shape is not None else {}
         net.add_node(
             node.id,
             label=node.label,
             title=f"{node.kind}: {node.label}",
             color=colour,
             **weighted,
+            **shaped,
         )
     for edge in subgraph.edges:
         # Tint the edge to match its player so a chain reads as one colour; an
@@ -69,7 +73,9 @@ def render_subgraph(subgraph: Subgraph) -> str:
         # source-or-target is unambiguous.
         player = group_by_id.get(edge.source) or group_by_id.get(edge.target)
         tint = {"color": palette[player]} if player is not None else {}
-        net.add_edge(edge.source, edge.target, title=edge.label, **tint)
+        # A visible label is drawn on the edge; otherwise it is a hover tooltip.
+        text = {"label": edge.label} if edge.visible else {"title": edge.label}
+        net.add_edge(edge.source, edge.target, **text, **tint)
 
     meta = {
         node.id: {
