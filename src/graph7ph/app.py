@@ -20,7 +20,6 @@ from graph7ph.db import rows
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.models import COLOURS
 from graph7ph.query import (
-    ArchetypeUniqueCards,
     CardCooccurrence,
     CardUsage,
     HiddenGems,
@@ -40,7 +39,6 @@ _VIEWS: dict[str, list[str]] = {
     "Pilot archetype affinity": ["pilot"],
     "Card usage": ["card", "card_board"],
     "Card co-occurrence": ["card", "cooccur_card2", "cooccur_top_n", "cooccur_drop_lands"],
-    "Archetype unique cards": ["archetype", "unique_min_decks"],
     "Hidden gems": [
         "gem_min_decks", "gem_max_decks", "max_norm", "gem_colour", "gem_archetype"
     ],
@@ -97,12 +95,6 @@ def _spec(view: str, values: dict) -> QuerySpec | None:
                 values["cooccur_card2"] or None,
                 int(_num(values["cooccur_top_n"], 15)),
                 bool(values["cooccur_drop_lands"]),
-            )
-        case "Archetype unique cards":
-            if not values["archetype"]:
-                return None
-            return ArchetypeUniqueCards(
-                values["archetype"], int(_num(values["unique_min_decks"], 3))
             )
         case "Hidden gems":
             return HiddenGems(
@@ -172,9 +164,6 @@ def build_app(db_path: Path) -> gr.Blocks:
                 choices=[("Main or side", ""), ("Main", "Main"), ("Side", "Side")],
                 label="Board", value="", visible=False,
             ),
-            "archetype": gr.Dropdown(
-                choices=archetypes, label="Archetype", value=None, visible=False
-            ),
             "cooccur_card2": gr.Dropdown(
                 choices=cards, label="Second card (optional, for shared packages)",
                 value=None, visible=False,
@@ -186,8 +175,6 @@ def build_app(db_path: Path) -> gr.Blocks:
             "cooccur_drop_lands": gr.Checkbox(
                 value=False, label="Filter out lands", visible=False,
             ),
-            "unique_min_decks": gr.Number(value=3, precision=0, minimum=1,
-                                          label="Min decks", visible=False),
             "gem_min_decks": gr.Number(value=2, precision=0, minimum=1,
                                        label="Min decks", visible=False),
             "gem_max_decks": gr.Number(value=10, precision=0, minimum=1,
