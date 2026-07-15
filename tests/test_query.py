@@ -78,13 +78,14 @@ def _same_board_cooccurrence(snapshot_dir, seed):
     return counts
 
 
-def _write_snapshot(tmp_path, decks, canons):
+def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
     """Write a minimal hand-authored snapshot for a focused test.
 
     ``decks`` is a list of dicts: ``id``, ``tag`` (archetype), ``norm``
     (placementNorm), and ``m`` / ``s`` (main / side canon lists). Optional
     ``macro`` and ``event`` keys override the defaults (``control`` / ``E``).
-    ``canons`` is the card catalogue by name.
+    ``canons`` is the card catalogue by name; ``lands`` names those typed as
+    ``Lands`` (the rest default to ``Instants``).
     """
     idx = {c: i for i, c in enumerate(canons)}
     (tmp_path / "decks.json").write_text(json.dumps([
@@ -106,7 +107,8 @@ def _write_snapshot(tmp_path, decks, canons):
     (tmp_path / "cards_index.json").write_text(json.dumps({
         "v": 2,
         "cards": [
-            {"canon": c, "name": c.title(), "type": "Instants", "manaCost": "{U}",
+            {"canon": c, "name": c.title(),
+             "type": "Lands" if c in lands else "Instants", "manaCost": "{U}",
              "manaValue": 1.0, "reserved": False, "priceUsd": 0.0, "points": 0}
             for c in canons
         ],
@@ -347,18 +349,20 @@ def test_cooccurrence_counts_only_same_board_pairings(tmp_path, snapshot_dir):
     # A card in Jordan's two (identical) Grixis lists and no storm list.
     canon = next(c for c, ds in decks_by_card.items() if ds == JORDAN_DECKS)
 
-    sub = card_cooccurrence_subgraph(conn, canon, min_shared=2)
+    sub = card_cooccurrence_subgraph(conn, canon, top_n=200)
 
-    # Neighbours and their counts match the same-board oracle: a card in the
-    # seed's board across both Jordan lists, never a cross-board partner.
+    # Neighbours match the same-board oracle: every card in the seed's board
+    # across a Jordan list, never a cross-board partner. Each edge is labelled
+    # with the co-occurrence rate: the percent of the seed's decks that run it.
     oracle = _same_board_cooccurrence(snapshot_dir, canon)
-    expected = {c for c, n in oracle.items() if n >= 2}
-    assert expected  # the seed does have same-board partners in the fixture
+    seed_decks = len(decks_by_card[canon])
+    assert oracle  # the seed does have same-board partners in the fixture
     neighbours = {n.id for n in sub.nodes if n.kind == "Card"} - {f"card:{canon}"}
-    assert neighbours == {f"card:{c}" for c in expected}
+    assert neighbours == {f"card:{c}" for c in oracle}
     assert all(e.source == f"card:{canon}" for e in sub.edges)
     for e in sub.edges:
-        assert e.label == f"COOCCURS:{oracle[e.target.removeprefix('card:')]}"
+        shared = oracle[e.target.removeprefix("card:")]
+        assert e.label == f"{round(100 * shared / seed_decks)}%"
 
 
 def test_cooccurrence_ignores_main_versus_side_pairings(tmp_path):
@@ -371,22 +375,190 @@ def test_cooccurrence_ignores_main_versus_side_pairings(tmp_path):
     )
     conn = _connect(tmp_path, tmp_path)
 
-    sub = card_cooccurrence_subgraph(conn, "a", min_shared=1)
+    sub = card_cooccurrence_subgraph(conn, "a")
 
     neighbours = {n.label for n in sub.nodes if n.kind == "Card"} - {"A"}
     assert neighbours == {"B"}
 
 
-def test_cooccurrence_threshold_above_max_shared_yields_only_the_card(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
-    decks_by_card = _decks_by_card(snapshot_dir)
-    canon = next(c for c, ds in decks_by_card.items() if ds == JORDAN_DECKS)
+def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path):
+    # Seed "a" runs in four decks; partners co-occur at descending rates.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "m": ["a", "b", "c", "d", "e"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "m": ["a", "b", "c", "d"]},
+            {"id": "d3", "tag": "x", "norm": 0.0, "m": ["a", "b", "c"]},
+            {"id": "d4", "tag": "x", "norm": 0.0, "m": ["a", "b"]},
+        ],
+        ["a", "b", "c", "d", "e"],
+    )
+    conn = _connect(tmp_path, tmp_path)
 
-    # The card is in only 2 decks, so nothing shares 3 with it.
-    sub = card_cooccurrence_subgraph(conn, canon, min_shared=3)
+    # Top 2 by rate keeps only the two strongest partners (b at 100%, c at 75%),
+    # each labelled with the percent of the seed's four decks that run it.
+    sub = card_cooccurrence_subgraph(conn, "a", top_n=2)
+    labels = {e.target.removeprefix("card:"): e.label for e in sub.edges}
+    assert labels == {"b": "100%", "c": "75%"}
 
-    assert {n.id for n in sub.nodes} == {f"card:{canon}"}
+    # A wider limit keeps the rest, still labelled by rate; a present-but-tiny
+    # partner reads its true low rate rather than being dropped.
+    full = card_cooccurrence_subgraph(conn, "a", top_n=50)
+    labels = {e.target.removeprefix("card:"): e.label for e in full.edges}
+    assert labels == {"b": "100%", "c": "75%", "d": "50%", "e": "25%"}
+
+
+def _cooccur_fixture(tmp_path):
+    # Only d1 runs both a and b, and x with them; y sits in an a-only deck, z in a
+    # b-only deck, so neither is shared by both. Every card is in the main board.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "m": ["a", "b", "x"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "m": ["a", "y"]},
+            {"id": "d3", "tag": "x", "norm": 0.0, "m": ["b", "z"]},
+        ],
+        ["a", "b", "x", "y", "z"],
+    )
+    return _connect(tmp_path, tmp_path)
+
+
+def test_cooccurrence_two_seeds_hang_shared_cards_off_an_intersection_hub(tmp_path):
+    conn = _cooccur_fixture(tmp_path)
+
+    sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
+    hub = next(n for n in sub.nodes if n.kind == "Intersection")
+    edges = {(e.source, e.target): e.label for e in sub.edges}
+
+    # Only x lives in a deck running both a and b, so only x is kept, hung off the
+    # intersection hub with its double rate (100% of the one shared deck). Each
+    # seed links to the hub with the fraction of its decks in the intersection
+    # (50% of a's two decks, 50% of b's). y and z are dropped.
+    assert edges == {
+        ("card:a", hub.id): "50%",
+        ("card:b", hub.id): "50%",
+        (hub.id, "card:x"): "100%",
+    }
+    assert hub.label == "Both · 1 decks"
+
+
+def test_cooccurrence_second_seed_is_a_target_not_a_partner_node(tmp_path):
+    conn = _cooccur_fixture(tmp_path)
+
+    sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
+    groups = {n.id: n.group for n in sub.nodes}
+
+    # The two seeds carry distinct colour groups; every shared card shares one
+    # group, so targets and shared cards read apart. The hub is its own kind, not
+    # a card. y and z are not shared by both seeds, so they are not drawn at all.
+    assert groups["card:a"] != groups["card:b"]
+    assert groups["card:a"] != "cooccur" and groups["card:b"] != "cooccur"
+    assert groups["card:x"] == "cooccur"
+    assert next(n for n in sub.nodes if n.kind == "Intersection").group is None
+    assert "card:y" not in groups and "card:z" not in groups
+
+
+def test_cooccurrence_two_seeds_line_up_shared_cards_right_of_the_hub(tmp_path):
+    conn = _cooccur_fixture(tmp_path)
+
+    sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
+    pin = {n.id: n.pin for n in sub.nodes}
+    hub = next(n for n in sub.nodes if n.kind == "Intersection")
+
+    # Everything is pinned. The seeds sit left of the hub, which sits left of the
+    # shared-card column, so the graph reads left-to-right into a lined-up list.
+    assert all(p is not None for p in pin.values())
+    assert pin["card:a"][0] == pin["card:b"][0] < pin[hub.id][0] < pin["card:x"][0]
+
+
+def test_cooccurrence_drop_lands_excludes_land_cards_in_both_views(tmp_path):
+    # fetch is a land; bolt is not. Both share every both-deck with the seeds.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "m": ["a", "b", "fetch", "bolt"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "m": ["a", "b", "fetch"]},
+            {"id": "d3", "tag": "x", "norm": 0.0, "m": ["a", "b", "bolt"]},
+        ],
+        ["a", "b", "fetch", "bolt"],
+        lands={"fetch"},
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    # Two-seed: the land is dropped, leaving the non-land package.
+    kept = {n.id for n in card_cooccurrence_subgraph(conn, "a", "b", drop_lands=True).nodes
+            if n.group == "cooccur"}
+    assert kept == {"card:bolt"}
+    # Unfiltered, the land is kept.
+    unfiltered = {n.id for n in card_cooccurrence_subgraph(conn, "a", "b").nodes
+                  if n.group == "cooccur"}
+    assert unfiltered == {"card:bolt", "card:fetch"}
+    # The single-seed path honours the filter too.
+    solo = card_cooccurrence_subgraph(conn, "a", drop_lands=True)
+    assert all(n.id != "card:fetch" for n in solo.nodes)
+
+
+def test_cooccurrence_two_seeds_that_never_share_a_deck_show_no_hub(tmp_path):
+    # a and b never appear in the same deck, so the intersection is empty.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "m": ["a", "x"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "m": ["b", "y"]},
+        ],
+        ["a", "b", "x", "y"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = card_cooccurrence_subgraph(conn, "a", "b")
+
+    # Two disconnected seeds, no empty "Both · 0 decks" hub and no edges.
+    assert {n.id for n in sub.nodes} == {"card:a", "card:b"}
+    assert not any(n.kind == "Intersection" for n in sub.nodes)
     assert sub.edges == []
+
+
+def test_cooccurrence_single_seed_is_not_pinned(tmp_path):
+    conn = _cooccur_fixture(tmp_path)
+
+    # One seed keeps the physics layout (no fixed positions); pinning is only for
+    # separating the two-seed hubs.
+    sub = card_cooccurrence_subgraph(conn, "a", top_n=50)
+    assert all(n.pin is None for n in sub.nodes)
+
+
+def test_cooccurrence_two_seeds_rank_shared_cards_by_the_double_rate(tmp_path):
+    # Decks d1-d3 run both a and b; d4/d5 run only one. Among the both-decks, x
+    # appears in two, y and z in one each; q and w never share a both-deck.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "m": ["a", "b", "x", "y"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "m": ["a", "b", "x"]},
+            {"id": "d3", "tag": "x", "norm": 0.0, "m": ["a", "b", "z"]},
+            {"id": "d4", "tag": "x", "norm": 0.0, "m": ["a", "q"]},
+            {"id": "d5", "tag": "x", "norm": 0.0, "m": ["b", "w"]},
+        ],
+        ["a", "b", "x", "y", "z", "q", "w"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    # Three decks run both seeds. Ranked by that double rate, x (2/3) leads, then
+    # y and z tie (1/3, y first by name); top_n=2 keeps x and y. z is cut, and q
+    # and w never appear (they share no both-deck).
+    sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=2)
+    partners = {n.id for n in sub.nodes if n.group == "cooccur"}
+    assert partners == {"card:x", "card:y"}
+
+    hub = next(n for n in sub.nodes if n.kind == "Intersection")
+    labels = {(e.source, e.target): e.label for e in sub.edges}
+    assert labels[(hub.id, "card:x")] == "67%"  # 2 of the 3 both-decks
+    assert labels[(hub.id, "card:y")] == "33%"  # 1 of the 3
+
+    # The stronger card sits higher up the column (smaller y) than the weaker one.
+    pin = {n.id: n.pin for n in sub.nodes}
+    assert pin["card:x"][0] == pin["card:y"][0]
+    assert pin["card:x"][1] < pin["card:y"][1]
 
 
 def test_unique_cards_are_only_found_in_that_archetype(tmp_path, snapshot_dir):
@@ -689,8 +861,8 @@ def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
     decks_by_card = _decks_by_card(snapshot_dir)
     canon = next(c for c, ds in decks_by_card.items() if ds == JORDAN_DECKS)
 
-    assert run_query(conn, CardCooccurrence(canon, min_shared=3)) == (
-        card_cooccurrence_subgraph(conn, canon, min_shared=3)
+    assert run_query(conn, CardCooccurrence(canon, top_n=25)) == (
+        card_cooccurrence_subgraph(conn, canon, top_n=25)
     )
     assert run_query(
         conn, HiddenGems(min_decks=1, max_decks=2, max_norm=0.35, colour="G")
