@@ -13,6 +13,7 @@ co-occurrence intersection hub) so nodes of different kinds can never collide on
 a shared string.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -23,6 +24,32 @@ from graph7ph.db import rows
 Kind = Literal[
     "Pilot", "Deck", "Card", "Archetype", "Macro", "Event", "Placement", "Intersection"
 ]
+
+# The hidden-gem band, fixed rather than exposed as controls (ADR 0005): the
+# question "which rare cards overperform?" has one answer, not one per dial.
+MIN_GEM_DECKS = 5  # trust floor: an absolute count, so it holds at any slice size
+MAX_GEM_SHARE = 0.10  # rarity ceiling: a share, so it means the same in any slice
+MAX_GEM_MEAN_NORM = 0.33  # overperformance: mean placement in the slice's top third
+
+# The two bounds cross here: below this many ranked decks the ceiling falls under
+# the floor and the band is empty by construction, because "rare" and "attested
+# by 5 decks" are contradictory in a small slice (5 decks IS a quarter of a
+# 20-deck archetype). That is not a bug to paper over: the slice genuinely cannot
+# support a gem claim, so we say so rather than lower the floor and report noise.
+# Rounded UP, never to nearest: the smallest slice admitted must satisfy
+# `MIN_GEM_DECKS <= MAX_GEM_SHARE * MIN_GEM_SLICE`, and rounding down would admit
+# a slice whose band is still inverted, silently restoring the bug this prevents.
+MIN_GEM_SLICE = math.ceil(MIN_GEM_DECKS / MAX_GEM_SHARE)
+
+
+# A deck with no recorded placement cannot confirm over- or under-performance,
+# so the gem hunt ignores it. Written once and shared by every query that has to
+# agree on what "ranked" means: the slice, the band, and the offered archetypes.
+_RANKED = "d.placementNorm IS NOT NULL"
+
+
+class SliceTooSmall(ValueError):
+    """Raised when a slice has too few ranked decks to support a gem claim."""
 
 
 @dataclass(frozen=True)
@@ -98,10 +125,6 @@ class CardCooccurrence:
 
 @dataclass(frozen=True)
 class HiddenGems:
-    min_decks: int
-    max_decks: int
-    max_norm: float
-    colour: str | None = None
     archetype: str | None = None
 
 
@@ -518,37 +541,49 @@ def card_cooccurrence_subgraph(
 
 def hidden_gems_subgraph(
     conn: kuzu.Connection,
-    min_decks: int,
-    max_decks: int,
-    max_norm: float,
-    colour: str | None = None,
     archetype: str | None = None,
 ) -> Subgraph:
-    """Cards seen in a narrow band of decks that nonetheless place highly.
+    """Cards rare within their slice that nonetheless place highly.
 
-    A gem is a card in between ``min_decks`` and ``max_decks`` decks whose mean
-    placement (as a normalised rank, lower is better) is at most ``max_norm``
-    (user story 14). The band is the point: ``min_decks`` demands enough decks to
-    trust the overperformance, separating a real gem from a card that got lucky
-    in one or two lists; ``max_decks`` keeps it rare, so once a card spreads into
-    a staple it stops being a hidden gem. Both bounds and the placement are
-    measured over the decks whose rank is known: a deck with no recorded
-    placement cannot confirm over- or under-performance, so it is left out of
-    the count and the mean entirely rather than padding the band. ``colour`` and
-    ``archetype`` narrow the slice, so "gems within Grixis" means cards in that
-    band among Grixis decks, not globally rare cards that merely appear in one.
-    With no filter the slice is every deck. Returns each gem with the ranked
-    decks that run it, so its placement is visible.
+    A gem is a card in at least ``MIN_GEM_DECKS`` decks and at most
+    ``MAX_GEM_SHARE`` of the slice, whose mean placement (a normalised rank,
+    lower is better) is at most ``MAX_GEM_MEAN_NORM`` (user story 14). The two
+    bounds answer different questions, which is why only one of them is a share
+    (ADR 0005): the floor asks "is there enough evidence to trust this?", a
+    property of sample size that does not scale with the meta; the ceiling asks
+    "is this still rare?", which is meaningless except relative to the slice.
+
+    Both bounds and the placement are measured over the decks whose rank is
+    known: a deck with no recorded placement cannot confirm over- or
+    under-performance, so it is left out of the count and the mean entirely
+    rather than padding the band. ``archetype`` narrows the slice, so "gems
+    within Grixis" means cards rare among Grixis decks, not globally rare cards
+    that merely appear in one; with no filter the slice is every ranked deck.
+    Returns each gem with the ranked decks that run it, so its placement is
+    visible. A slice with fewer than ``MIN_GEM_SLICE`` ranked decks raises
+    ``SliceTooSmall``: there, the band is empty by construction, and an answer of
+    "none" would read as "no gems here" when the truth is "not enough decks to
+    tell". Callers should offer only the archetypes ``gem_archetypes`` lists.
     """
-    slice_ids = _deck_slice(conn, colour, archetype)
-    if slice_ids is not None and not slice_ids:
-        return Subgraph(nodes=[], edges=[])
+    # The slice is ranked decks only, so its length is the base the ceiling is a
+    # share of; no separate counting query, and an archetype nobody ranked in is
+    # refused below before an empty $slice can reach Kùzu (which cannot infer an
+    # empty list parameter's element type and aborts rather than raising).
+    slice_ids = _ranked_deck_slice(conn, archetype)
+    ranked_decks = len(slice_ids) if slice_ids is not None else _ranked_deck_total(conn)
+    if ranked_decks < MIN_GEM_SLICE:
+        raise SliceTooSmall(
+            f"{archetype or 'this slice'} has {ranked_decks} ranked decks; "
+            f"identifying a rare-but-winning card needs at least {MIN_GEM_SLICE}"
+        )
 
-    # Only rank-bearing decks count, optionally narrowed to the slice.
-    ranked = "d.placementNorm IS NOT NULL" + (
-        " AND d.deckId IN $slice" if slice_ids is not None else ""
-    )
-    params: dict = {"minDecks": min_decks, "maxDecks": max_decks, "maxNorm": max_norm}
+    ranked = _RANKED + (" AND d.deckId IN $slice" if slice_ids is not None else "")
+    params: dict = {
+        "minDecks": MIN_GEM_DECKS,
+        "maxNorm": MAX_GEM_MEAN_NORM,
+        # The ceiling is a share of the slice's ranked size.
+        "maxDecks": MAX_GEM_SHARE * ranked_decks,
+    }
     if slice_ids is not None:
         params["slice"] = slice_ids
 
@@ -667,32 +702,50 @@ def pilot_affinity_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
     return Subgraph(nodes=nodes, edges=edges)
 
 
-def _deck_slice(
-    conn: kuzu.Connection, colour: str | None, archetype: str | None
-) -> list[str] | None:
-    """The deck ids the gem hunt runs within, intersecting the given colour atom
-    and archetype tag. ``None`` means no filter (every deck), so the caller can
-    skip the id list rather than enumerate the whole graph."""
-    if colour is None and archetype is None:
+def gem_archetypes(conn: kuzu.Connection) -> list[tuple[str, str]]:
+    """``(name, tag)`` for the archetypes whose slice can support a gem claim.
+
+    The gem view offers these and no others, so a slice too small to answer is
+    never put to the user as though it might (ADR 0005). Ordered by name, to
+    drop straight into a dropdown. Counts the same population
+    ``_ranked_deck_slice`` does, so every tag offered is one the gem query
+    accepts; ``test_gem_archetypes_offer_only_the_slices_that_can_answer`` holds
+    the two to that promise.
+    """
+    return [(name, tag) for name, tag in rows(conn.execute(
+        f"""MATCH (d:Deck)-[:HAS_ARCHETYPE]->(a:Archetype)
+            WHERE {_RANKED}
+            WITH a, count(DISTINCT d) AS ranked
+            WHERE ranked >= $minSlice
+            RETURN a.name, a.tag ORDER BY a.name""",
+        {"minSlice": MIN_GEM_SLICE},
+    ))]
+
+
+def _ranked_deck_slice(conn: kuzu.Connection, archetype: str | None) -> list[str] | None:
+    """The ranked deck ids the gem hunt runs within, by archetype tag.
+
+    ``None`` means no filter (every ranked deck), so the caller can skip the id
+    list rather than enumerate the whole graph. Unranked decks are excluded here
+    rather than by the callers, so the slice can be counted with ``len`` and every
+    query downstream agrees on the same population.
+    """
+    if archetype is None:
         return None
-    ids: set[str] | None = None
-    if colour is not None:
-        ids = _deck_ids(
-            conn, "MATCH (d:Deck)-[:DECK_COLOUR]->(:Colour {colour: $v})", colour
-        )
-    if archetype is not None:
-        arch_ids = _deck_ids(
-            conn, "MATCH (d:Deck)-[:HAS_ARCHETYPE]->(:Archetype {tag: $v})", archetype
-        )
-        ids = arch_ids if ids is None else ids & arch_ids
-    return list(ids)
+    return [row[0] for row in rows(conn.execute(
+        f"""MATCH (d:Deck)-[:HAS_ARCHETYPE]->(:Archetype {{tag: $v}})
+            WHERE {_RANKED}
+            RETURN DISTINCT d.deckId""",
+        {"v": archetype},
+    ))]
 
 
-def _deck_ids(conn: kuzu.Connection, match: str, value: str) -> set[str]:
-    """The distinct deck ids matched by ``match`` (which binds ``d`` and ``$v``)."""
-    return {row[0] for row in rows(
-        conn.execute(f"{match} RETURN DISTINCT d.deckId", {"v": value})
-    )}
+def _ranked_deck_total(conn: kuzu.Connection) -> int:
+    """How many decks in the whole graph carry a placement: the base the gem
+    ceiling is a share of when no archetype narrows the slice."""
+    return next(rows(conn.execute(
+        f"MATCH (d:Deck) WHERE {_RANKED} RETURN count(d)"
+    )))[0]
 
 
 def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
@@ -710,10 +763,8 @@ def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
             return card_usage_subgraph(conn, canon, board)
         case CardCooccurrence(canon, canon2, top_n, drop_lands):
             return card_cooccurrence_subgraph(conn, canon, canon2, top_n, drop_lands)
-        case HiddenGems(min_decks, max_decks, max_norm, colour, archetype):
-            return hidden_gems_subgraph(
-                conn, min_decks, max_decks, max_norm, colour, archetype
-            )
+        case HiddenGems(archetype):
+            return hidden_gems_subgraph(conn, archetype)
         case PilotAffinity(pilot):
             return pilot_affinity_subgraph(conn, pilot)
         case _:

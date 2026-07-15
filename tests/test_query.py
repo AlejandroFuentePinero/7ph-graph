@@ -2,15 +2,21 @@ import json
 from collections import Counter, defaultdict
 
 import kuzu
+import pytest
 
 from graph7ph.build import build_graph
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
+    MAX_GEM_SHARE,
+    MIN_GEM_DECKS,
+    MIN_GEM_SLICE,
     CardCooccurrence,
     HiddenGems,
     PilotNeighbourhood,
+    SliceTooSmall,
     card_cooccurrence_subgraph,
     card_usage_subgraph,
+    gem_archetypes,
     hidden_gems_subgraph,
     pilot_affinity_subgraph,
     pilot_subgraph,
@@ -19,25 +25,12 @@ from graph7ph.query import (
 
 # The fixture's three decks, by pilot display name and archetype (see conftest).
 JORDAN_DECKS = {"BsegXnsDsEWxh-vNbUrn0w", "pkUbzmgN3UeqaWdYQYRgRg"}  # Jordan C, Grixis
-STORM_DECK = "bLaqow87tE2TCnphLvH1lg"  # Tom S, Storm
 
 
 def _connect(tmp_path, snapshot_dir):
     db_path = tmp_path / "graph.kuzu"
     build_graph(load_snapshot(snapshot_dir), db_path)
     return kuzu.Connection(kuzu.Database(str(db_path)))
-
-
-def _expected_cards_for(snapshot_dir, deck_ids):
-    """Independent oracle: distinct canons across the given decks, straight
-    from the raw index rather than through the graph."""
-    index = json.loads((snapshot_dir / "cards_index.json").read_text())
-    canon = [c["canon"] for c in index["cards"]]
-    cards = set()
-    for did in deck_ids:
-        for board in ("m", "s"):
-            cards.update(canon[i] for i in index["decks"][did][board])
-    return cards
 
 
 def _decks_by_card(snapshot_dir):
@@ -50,13 +43,6 @@ def _decks_by_card(snapshot_dir):
             for i in boards[board]:
                 decks[canon[i]].add(deck_id)
     return decks
-
-
-def _grixis_only(snapshot_dir):
-    """Cards in both of Jordan's Grixis lists and not the Storm list."""
-    return _expected_cards_for(snapshot_dir, JORDAN_DECKS) - _expected_cards_for(
-        snapshot_dir, {STORM_DECK}
-    )
 
 
 def _same_board_cooccurrence(snapshot_dir, seed):
@@ -563,137 +549,191 @@ def test_cooccurrence_two_seeds_rank_shared_cards_by_the_double_rate(tmp_path):
     assert pin["card:x"][1] < pin["card:y"][1]
 
 
-def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def _filler(tag, n, norm, carrying=(), start=0):
+    """``n`` decks of one archetype, each carrying ``carrying`` plus a unique pad.
 
-    # In at most 2 decks (min_decks=1 for this small fixture); high-placing =
-    # mean placementNorm <= 0.35.
-    sub = hidden_gems_subgraph(conn, min_decks=1, max_decks=2, max_norm=0.35)
-
-    # Only Jordan's Grixis-only cards qualify: in 2 decks placing 5th and 12th
-    # (mean norm 0.29). The 29 cards in all 3 decks are not rare; the Storm-only
-    # cards are rare but placed 21st (norm 0.67), so neither survives.
-    grixis_only = _grixis_only(snapshot_dir)
-    cards = {n.id for n in sub.nodes if n.kind == "Card"}
-    decks = {n.id for n in sub.nodes if n.kind == "Deck"}
-    assert cards == {f"card:{c}" for c in grixis_only}
-    assert decks == {f"deck:{d}" for d in JORDAN_DECKS}
-    # Each gem edges from the decks that run it.
-    node_ids = {n.id for n in sub.nodes}
-    assert all(e.label.startswith("CONTAINS") for e in sub.edges)
-    for e in sub.edges:
-        assert e.source in node_ids and e.target in node_ids
-
-
-def test_hidden_gems_colour_filter_narrows_to_that_colour(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
-
-    # Green appears only in the Storm deck (UBRG); the Grixis-only gems are in
-    # UBR decks, so none of them survive a Green filter.
-    sub = hidden_gems_subgraph(conn, min_decks=1, max_decks=2, max_norm=0.35, colour="G")
-
-    assert sub.nodes == []
-    assert sub.edges == []
-
-
-def test_hidden_gems_archetype_filter_scopes_rarity_to_that_archetype(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
-
-    # Rarity is measured within the slice. Unfiltered, the 29 cards in all three
-    # decks are too common (3 decks) to be gems; but within the two Grixis decks
-    # they appear in only 2, so scoping to Grixis admits every Grixis card, not
-    # just the 46 Grixis-only ones. That widening is the proof rarity is scoped.
-    grixis = hidden_gems_subgraph(
-        conn, min_decks=1, max_decks=2, max_norm=0.35, archetype="grixis"
-    )
-    storm = hidden_gems_subgraph(
-        conn, min_decks=1, max_decks=2, max_norm=0.35, archetype="storm"
-    )
-
-    grixis_cards = _expected_cards_for(snapshot_dir, JORDAN_DECKS)
-    assert {n.id for n in grixis.nodes if n.kind == "Card"} == {
-        f"card:{c}" for c in grixis_cards
-    }
-    # Storm's one deck placed 21st (norm 0.67), above the 0.35 bar: no gems.
-    assert storm.nodes == []
-
-
-def test_hidden_gems_surface_a_common_card_that_is_rare_within_an_archetype(tmp_path):
-    # `common` is in both Storm decks and one Lands deck; the Lands deck that
-    # runs it placed first, so its role there differs from its Storm staple role.
-    _write_snapshot(
-        tmp_path,
-        [
-            {"id": "s1", "tag": "storm", "norm": 0.0, "m": ["common", "storm_only"]},
-            {"id": "s2", "tag": "storm", "norm": 0.1, "m": ["common", "storm_only"]},
-            {"id": "l1", "tag": "lands", "norm": 0.0, "m": ["common", "fringe"]},
-            {"id": "l2", "tag": "lands", "norm": 0.9, "m": ["fringe", "chaff"]},
-        ],
-        ["common", "storm_only", "fringe", "chaff"],
-    )
-    conn = _connect(tmp_path, tmp_path)
-
-    # `common` is in 3 decks overall, so globally it is never rare.
-    globally = hidden_gems_subgraph(conn, min_decks=1, max_decks=1, max_norm=0.2)
-    assert "card:common" not in {n.id for n in globally.nodes}
-
-    # But within Lands it is in just one deck, which placed first: a gem there.
-    within_lands = hidden_gems_subgraph(
-        conn, min_decks=1, max_decks=1, max_norm=0.2, archetype="lands"
-    )
-    assert {n.id for n in within_lands.nodes if n.kind == "Card"} == {"card:common"}
-
-
-def test_hidden_gems_floor_separates_lucky_draws_from_real_gems(tmp_path):
-    # `steady` overperforms across five decks; `lucky` only across two. A floor
-    # of three keeps steady and rejects lucky; dropping the floor admits both.
-    decks = [
-        {"id": f"s{i}", "tag": "x", "norm": 0.1, "m": ["steady", f"pad{i}"]}
-        for i in range(5)
-    ] + [
-        {"id": f"l{i}", "tag": "x", "norm": 0.1, "m": ["lucky", f"pod{i}"]}
-        for i in range(2)
+    The pad keeps every deck non-empty without polluting the result: a card in
+    one deck is under the trust floor, so pads can never surface as gems.
+    """
+    return [
+        {"id": f"{tag}{i}", "tag": tag, "norm": norm, "m": [*carrying, f"pad_{tag}{i}"]}
+        for i in range(start, start + n)
     ]
-    canons = ["steady", "lucky"] + [f"pad{i}" for i in range(5)] + [f"pod{i}" for i in range(2)]
-    _write_snapshot(tmp_path, decks, canons)
+
+
+def _canons(decks):
+    """Every card name the decks mention, in first-seen order."""
+    return list(dict.fromkeys(c for d in decks for c in d.get("m", [])))
+
+
+def _gem_cards(sub):
+    return {n.id for n in sub.nodes if n.kind == "Card"}
+
+
+def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path):
+    # 100 ranked decks, so the ceiling is 10. `gem` is in 6 of them, all placing
+    # in the top tenth; `dud` is equally rare but places mid-field.
+    decks = (
+        _filler("x", 6, 0.1, carrying=["gem"])
+        + _filler("x", 6, 0.5, carrying=["dud"], start=6)
+        + _filler("x", 88, 0.5, start=12)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
     conn = _connect(tmp_path, tmp_path)
 
-    trusted = hidden_gems_subgraph(conn, min_decks=3, max_decks=100, max_norm=0.2)
-    assert {n.id for n in trusted.nodes if n.kind == "Card"} == {"card:steady"}
+    sub = hidden_gems_subgraph(conn)
 
-    loose = hidden_gems_subgraph(conn, min_decks=1, max_decks=100, max_norm=0.2)
-    loose_cards = {n.id for n in loose.nodes if n.kind == "Card"}
-    assert {"card:steady", "card:lucky"} <= loose_cards
+    # Rare and overperforming survives; rare but mid-field does not.
+    assert "card:gem" in _gem_cards(sub)
+    assert "card:dud" not in _gem_cards(sub)
+    # The gem edges from exactly the ranked decks that run it, so the placement
+    # behind the mean is visible.
+    assert {e.source for e in sub.edges if e.target == "card:gem"} == {
+        f"deck:x{i}" for i in range(6)
+    }
+    assert all(e.label.startswith("CONTAINS") for e in sub.edges)
 
-    # Once steady spreads past the rarity ceiling it stops being a hidden gem.
-    common = hidden_gems_subgraph(conn, min_decks=3, max_decks=4, max_norm=0.2)
-    assert "card:steady" not in {n.id for n in common.nodes}
+
+def test_hidden_gems_ceiling_is_a_share_so_rarity_means_the_same_in_any_slice(tmp_path):
+    # `edge` is in 8 decks, all of them Small. Small has 50 ranked decks, the
+    # meta has 200. The same 8 decks read as rare against the meta (ceiling 20)
+    # but as a staple within Small (ceiling 5). That flip is the point of a
+    # share: an absolute ceiling could not tell those two slices apart.
+    decks = (
+        _filler("small", 8, 0.1, carrying=["edge"])
+        + _filler("small", 42, 0.5, start=8)
+        + _filler("big", 150, 0.5)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = _connect(tmp_path, tmp_path)
+
+    assert "card:edge" in _gem_cards(hidden_gems_subgraph(conn))
+    assert "card:edge" not in _gem_cards(hidden_gems_subgraph(conn, archetype="small"))
+
+
+def test_hidden_gems_floor_is_absolute_so_trust_does_not_scale_with_the_meta(tmp_path):
+    # `four` and `five` both place perfectly; only their deck counts differ, and
+    # only across the floor. The floor is evidence, not a share, so the verdict
+    # must not move when the meta around them grows.
+    def build(meta_size):
+        decks = (
+            _filler("x", 4, 0.0, carrying=["four"])
+            + _filler("x", 5, 0.0, carrying=["five"], start=4)
+            + _filler("x", meta_size - 9, 0.5, start=9)
+        )
+        d = tmp_path / f"meta{meta_size}"
+        d.mkdir()
+        _write_snapshot(d, decks, _canons(decks))
+        return _connect(d, d)
+
+    for meta_size in (100, 400):
+        cards = _gem_cards(hidden_gems_subgraph(build(meta_size)))
+        assert "card:five" in cards, f"five-deck card lost at meta {meta_size}"
+        assert "card:four" not in cards, f"four-deck card admitted at meta {meta_size}"
+
+
+def test_hidden_gems_scope_rarity_to_the_archetype_slice(tmp_path):
+    # `common` is a Storm staple (in 30 of 50 Storm decks) but fringe tech in
+    # Lands (5 of 50), where the decks running it place first. Scoping to Lands
+    # surfaces it; against the whole meta its Storm ubiquity buries it.
+    decks = (
+        _filler("storm", 30, 0.5, carrying=["common"])
+        + _filler("storm", 20, 0.5, start=30)
+        + _filler("lands", 5, 0.0, carrying=["common"])
+        + _filler("lands", 45, 0.5, start=5)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = _connect(tmp_path, tmp_path)
+
+    # 35 of 100 decks overall: far past the meta ceiling of 10.
+    assert "card:common" not in _gem_cards(hidden_gems_subgraph(conn))
+    # Within Lands it is 5 of 50: on the floor, on the ceiling, and winning.
+    within_lands = hidden_gems_subgraph(conn, archetype="lands")
+    assert "card:common" in _gem_cards(within_lands)
+    # Scoping also restricts the decks drawn to the slice.
+    assert {e.source for e in within_lands.edges if e.target == "card:common"} == {
+        f"deck:lands{i}" for i in range(5)
+    }
+
+
+def test_min_gem_slice_is_the_smallest_slice_whose_band_is_not_inverted():
+    # The guard's whole job is to reject slices where the ceiling has fallen
+    # under the floor. It only does that if the smallest slice it admits still
+    # has room for a gem, which is a property of the three constants, not of any
+    # data. Pinned because the constants are expected to be tuned (ADR 0005) and
+    # rounding to nearest here would silently re-admit an inverted band.
+    assert MAX_GEM_SHARE * MIN_GEM_SLICE >= MIN_GEM_DECKS
+    # And it is the *smallest* such slice: one deck fewer must be inverted, or
+    # the guard is refusing slices that could in fact have answered.
+    assert MAX_GEM_SHARE * (MIN_GEM_SLICE - 1) < MIN_GEM_DECKS
+
+
+def test_hidden_gems_refuse_a_slice_too_small_to_support_the_claim(tmp_path):
+    # Below MIN_GEM_SLICE the ceiling falls under the floor, so the band is empty
+    # by construction. `tech` is in 5 of Fringe's 20 decks and wins every time:
+    # under a naive read a gem, but 5 of 20 is a quarter of that archetype, which
+    # is a staple, not a hidden gem. Refuse rather than answer "none", which would
+    # read as "no gems here" instead of "not enough decks to tell".
+    decks = (
+        _filler("fringe", 5, 0.0, carrying=["tech"])
+        + _filler("fringe", 15, 0.5, start=5)
+        + _filler("wide", 80, 0.5)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = _connect(tmp_path, tmp_path)
+
+    with pytest.raises(SliceTooSmall, match="20 ranked decks"):
+        hidden_gems_subgraph(conn, archetype="fringe")
+
+    # An archetype nothing is filed under is refused on the same grounds.
+    with pytest.raises(SliceTooSmall, match="0 ranked decks"):
+        hidden_gems_subgraph(conn, archetype="nonexistent")
+
+    # The 100-deck meta around it still answers, so the refusal is about the
+    # slice's size and not a query that has stopped working.
+    assert "card:tech" in _gem_cards(hidden_gems_subgraph(conn))
+
+
+def test_gem_archetypes_offer_only_the_slices_that_can_answer(tmp_path):
+    # `wide` clears MIN_GEM_SLICE; `fringe` does not. Only the answerable one is
+    # offered, so a slice too small is never put to the user as though it might.
+    decks = _filler("wide", 60, 0.5) + _filler("fringe", 40, 0.5)
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = _connect(tmp_path, tmp_path)
+
+    assert gem_archetypes(conn) == [("Wide", "wide")]
+
+    # And every tag offered is one the gem query will actually accept.
+    for _, tag in gem_archetypes(conn):
+        hidden_gems_subgraph(conn, archetype=tag)
 
 
 def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path):
-    # `gem` is in two ranked decks (placed well) and three with no placement.
-    # Unranked decks can't confirm overperformance, so they count for neither
-    # bound: gem is a two-deck gem, not a five-deck one.
-    decks = [
-        {"id": "r1", "tag": "x", "norm": 0.1, "m": ["gem", "p1"]},
-        {"id": "r2", "tag": "x", "norm": 0.1, "m": ["gem", "p2"]},
-        {"id": "u1", "tag": "x", "norm": None, "m": ["gem", "p3"]},
-        {"id": "u2", "tag": "x", "norm": None, "m": ["gem", "p4"]},
-        {"id": "u3", "tag": "x", "norm": None, "m": ["gem", "p5"]},
-    ]
-    _write_snapshot(tmp_path, decks, ["gem", "p1", "p2", "p3", "p4", "p5"])
+    # `gem` is in 5 ranked decks (placed well) and 3 with no placement. Unranked
+    # decks cannot confirm overperformance, so they count for neither bound: gem
+    # clears the floor of 5 on its ranked decks alone, and `short` does not
+    # reach it by padding with unranked ones.
+    decks = (
+        _filler("x", 5, 0.1, carrying=["gem"])
+        + _filler("x", 4, 0.1, carrying=["short"], start=5)
+        + [
+            {"id": f"u{i}", "tag": "x", "norm": None, "m": ["gem", "short", f"pad_u{i}"]}
+            for i in range(3)
+        ]
+        + _filler("x", 91, 0.5, start=9)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
     conn = _connect(tmp_path, tmp_path)
 
-    # Counted over ranked decks only, gem sits in a [1, 2] band, and only its
-    # two ranked decks appear (the three unranked ones are not shown).
-    band = hidden_gems_subgraph(conn, min_decks=1, max_decks=2, max_norm=0.2)
-    assert "card:gem" in {n.id for n in band.nodes if n.kind == "Card"}
-    gem_decks = {e.source for e in band.edges if e.target == "card:gem"}
-    assert gem_decks == {"deck:r1", "deck:r2"}
+    sub = hidden_gems_subgraph(conn)
 
-    # A floor of three is not satisfied by the three unranked decks.
-    trusted = hidden_gems_subgraph(conn, min_decks=3, max_decks=10, max_norm=0.2)
-    assert "card:gem" not in {n.id for n in trusted.nodes}
+    assert "card:gem" in _gem_cards(sub)
+    # Only the ranked decks appear; the unranked three are not drawn.
+    assert {e.source for e in sub.edges if e.target == "card:gem"} == {
+        f"deck:x{i}" for i in range(5)
+    }
+    # Three unranked decks do not lift a four-deck card over the floor.
+    assert "card:short" not in _gem_cards(sub)
 
 
 def test_pilot_affinity_tiers_pilot_macro_archetype_by_event_count(tmp_path, snapshot_dir):
@@ -809,6 +849,7 @@ def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
     assert run_query(conn, CardCooccurrence(canon, top_n=25)) == (
         card_cooccurrence_subgraph(conn, canon, top_n=25)
     )
-    assert run_query(
-        conn, HiddenGems(min_decks=1, max_decks=2, max_norm=0.35, colour="G")
-    ) == hidden_gems_subgraph(conn, min_decks=1, max_decks=2, max_norm=0.35, colour="G")
+    # The gem spec's archetype reaches the query function: the fixture's slice is
+    # far under MIN_GEM_SLICE, and the refusal names the archetype it was handed.
+    with pytest.raises(SliceTooSmall, match="grixis"):
+        run_query(conn, HiddenGems(archetype="grixis"))

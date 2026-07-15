@@ -18,7 +18,6 @@ import kuzu
 
 from graph7ph.db import rows
 from graph7ph.explore import RenderPlan, assess
-from graph7ph.models import COLOURS
 from graph7ph.query import (
     CardCooccurrence,
     CardUsage,
@@ -26,6 +25,8 @@ from graph7ph.query import (
     PilotAffinity,
     PilotNeighbourhood,
     QuerySpec,
+    SliceTooSmall,
+    gem_archetypes,
     run_query,
 )
 from graph7ph.render import render_subgraph
@@ -39,9 +40,7 @@ _VIEWS: dict[str, list[str]] = {
     "Pilot archetype affinity": ["pilot"],
     "Card usage": ["card", "card_board"],
     "Card co-occurrence": ["card", "cooccur_card2", "cooccur_top_n", "cooccur_drop_lands"],
-    "Hidden gems": [
-        "gem_min_decks", "gem_max_decks", "max_norm", "gem_colour", "gem_archetype"
-    ],
+    "Hidden gems": ["gem_archetype"],
 }
 
 
@@ -65,6 +64,18 @@ def _refine_alert(plan: RenderPlan) -> str:
         "and none is silently truncated).</p>"
         f"<p>The result breaks down as: {breakdown}.</p>"
         f"<p>Narrow it and try again:</p><ul>{tips}</ul></div>"
+    )
+
+
+def _note(message: str) -> str:
+    """A plain message where a graph would go, for results with nothing to draw.
+
+    An empty subgraph is under the render threshold, so it would otherwise draw
+    as a blank canvas that reads as a broken app rather than as an answer.
+    """
+    return (
+        "<div style='padding:1rem;font-family:sans-serif'>"
+        f"<p>{html.escape(message)}</p></div>"
     )
 
 
@@ -97,29 +108,27 @@ def _spec(view: str, values: dict) -> QuerySpec | None:
                 bool(values["cooccur_drop_lands"]),
             )
         case "Hidden gems":
-            return HiddenGems(
-                int(_num(values["gem_min_decks"], 2)),
-                int(_num(values["gem_max_decks"], 10)),
-                float(_num(values["max_norm"], 0.33)),
-                values["gem_colour"] or None,
-                values["gem_archetype"] or None,
-            )
+            return HiddenGems(values["gem_archetype"] or None)
     return None
 
 
-def _choices(conn: kuzu.Connection, query: str) -> list[tuple[str, str]]:
-    """(label, value) pairs for a dropdown, from a two-column query (label, value).
+def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Make (label, value) pairs safe for a dropdown.
 
     A label shared by more than one value is suffixed with its value so the
     duplicates stay distinguishable: two pilots the data could not tell apart
     (an under-merge, ADR 0004) would otherwise show as identical rows.
     """
-    pairs = [(label, value) for label, value in rows(conn.execute(query))]
     seen = Counter(label for label, _ in pairs)
     return [
         (f"{label} ({value})" if seen[label] > 1 else label, value)
         for label, value in pairs
     ]
+
+
+def _choices(conn: kuzu.Connection, query: str) -> list[tuple[str, str]]:
+    """Dropdown pairs from a two-column query returning (label, value)."""
+    return _distinguish([(label, value) for label, value in rows(conn.execute(query))])
 
 
 def build_app(db_path: Path) -> gr.Blocks:
@@ -130,14 +139,21 @@ def build_app(db_path: Path) -> gr.Blocks:
     catalogue = kuzu.Connection(db)
     pilots = _choices(catalogue, "MATCH (p:Pilot) RETURN p.displayName, p.pilot ORDER BY p.displayName")
     cards = _choices(catalogue, "MATCH (c:Card) RETURN c.name, c.canon ORDER BY c.name")
-    archetypes = _choices(catalogue, "MATCH (a:Archetype) RETURN a.name, a.tag ORDER BY a.name")
+    # Only the archetypes whose slice can actually answer the gem question; the
+    # rest would be an invitation to a result we cannot stand behind (ADR 0005).
+    archetypes = _distinguish(gem_archetypes(catalogue))
 
     def explore(view: str, *values: object) -> str:
         # Gradio passes the widget values positionally in `keys` order.
         spec = _spec(view, dict(zip(keys, values)))
         if spec is None:
             return _PROMPT
-        subgraph = run_query(kuzu.Connection(db), spec)
+        try:
+            subgraph = run_query(kuzu.Connection(db), spec)
+        except SliceTooSmall as e:
+            return _note(f"{e}, so no gem claim is made here.")
+        if not subgraph.nodes:
+            return _note("Nothing matched. The query ran and came back empty.")
         plan = assess(subgraph)
         if not plan.render:
             return _refine_alert(plan)
@@ -175,14 +191,6 @@ def build_app(db_path: Path) -> gr.Blocks:
             "cooccur_drop_lands": gr.Checkbox(
                 value=False, label="Filter out lands", visible=False,
             ),
-            "gem_min_decks": gr.Number(value=2, precision=0, minimum=1,
-                                       label="Min decks", visible=False),
-            "gem_max_decks": gr.Number(value=10, precision=0, minimum=1,
-                                       label="Max decks", visible=False),
-            "max_norm": gr.Number(value=0.33, minimum=0, maximum=1,
-                                  label="Max mean placement (0 best, 1 worst)", visible=False),
-            "gem_colour": gr.Dropdown(choices=list(COLOURS), label="Colour (optional)",
-                                      value=None, visible=False),
             "gem_archetype": gr.Dropdown(choices=archetypes, label="Archetype (optional)",
                                          value=None, visible=False),
         }
