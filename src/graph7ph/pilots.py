@@ -89,10 +89,23 @@ class UnderMerge:
 
 
 @dataclass(frozen=True)
+class EventSplit:
+    """One pilot id that entered an event more than once, split into people.
+
+    A deck is one pilot's single entry at one event, so the duplicates were
+    distinct people sharing a name; ``people`` are the numbered identities they
+    were split into (ADR 0004)."""
+
+    display_name: str
+    people: list[str]
+
+
+@dataclass(frozen=True)
 class Reconciliation:
     variant_clusters: list[VariantCluster]
     under_merges: list[UnderMerge]
     null_pilots: list[ResolvedPilot]  # the re-keyed null bucket (ADR 0004)
+    event_splits: list[EventSplit]  # ids split for same-event collisions (ADR 0004)
 
 
 @dataclass(frozen=True)
@@ -145,14 +158,84 @@ def resolve_pilots(decks) -> PilotResolution:
         for d in group:
             deck_pilot[d.deck_id] = key
 
+    # A resolved pilot with several decks at one event is several people sharing
+    # a name; split them so every pilot holds at most one deck per event (ADR 0004).
+    pilots, event_splits = _split_event_collisions(
+        decks, deck_pilot, real_pilots + null_pilots
+    )
+
     # Under-merges are scanned over real pilots only: the null bucket is already
     # surfaced separately, so including it would just double-report the noise.
-    report = Reconciliation(variant_clusters, _under_merges(real_pilots), null_pilots)
-    return PilotResolution(
-        deck_pilot=deck_pilot,
-        pilots=real_pilots + null_pilots,
-        report=report,
+    report = Reconciliation(
+        variant_clusters, _under_merges(real_pilots), null_pilots, event_splits
     )
+    return PilotResolution(deck_pilot=deck_pilot, pilots=pilots, report=report)
+
+
+def _split_event_collisions(
+    decks, deck_pilot: dict[str, str], pilots: list[ResolvedPilot]
+) -> tuple[list[ResolvedPilot], list[EventSplit]]:
+    """Split any pilot that entered one event more than once into numbered people.
+
+    A deck is one pilot's single entry at one event, so two decks under the same
+    resolved pilot at the same event are two people who share a name, not one
+    person with two lists (ADR 0004). This applies to every pilot uniformly: for
+    each one, its decks at each event are ordered (best placement first, deck id
+    to break ties) and dealt out one per identity, so identity 1 keeps a full
+    one-per-event record and only genuine same-event duplicates spin off into
+    "<name> 2", "<name> 3", ... The split is an inference the data cannot
+    confirm, so every identity in a split family is marked low confidence.
+
+    Mutates ``deck_pilot`` in place to point split decks at their new pilot key,
+    and returns the rebuilt pilot list and the splits for the reconciliation report.
+    """
+    grouped: dict[str, list] = {}
+    for deck in decks:
+        grouped.setdefault(deck_pilot[deck.deck_id], []).append(deck)
+
+    by_key = {p.pilot: p for p in pilots}
+    resolved: dict[str, ResolvedPilot] = {}
+    splits: list[EventSplit] = []
+
+    for key, group in grouped.items():
+        slot_of = _event_slots(group)
+        people_count = max(slot_of.values()) + 1
+        base = by_key[key]
+        if people_count == 1:
+            resolved[key] = base
+            continue
+        people = []
+        for slot in range(people_count):
+            pkey = key if slot == 0 else f"{key}#{slot + 1}"
+            name = f"{base.display_name} {slot + 1}"
+            resolved[pkey] = ResolvedPilot(pkey, name, low_confidence=True)
+            people.append(name)
+        splits.append(EventSplit(base.display_name, people))
+        for deck in group:
+            slot = slot_of[deck.deck_id]
+            deck_pilot[deck.deck_id] = key if slot == 0 else f"{key}#{slot + 1}"
+
+    return list(resolved.values()), splits
+
+
+def _event_slots(decks) -> dict[str, int]:
+    """Deal each deck a slot so no two decks at one event share one.
+
+    Within each event the decks are ordered (best placement first, deck id to
+    break ties) and given slots 0, 1, 2..., so a pilot's single entries all land
+    in slot 0 and only true same-event collisions reach into 1 and beyond.
+    """
+    by_event: dict[str, list] = {}
+    for deck in decks:
+        by_event.setdefault(deck.event, []).append(deck)
+    slot_of: dict[str, int] = {}
+    for event_decks in by_event.values():
+        event_decks.sort(
+            key=lambda d: (d.placement is None, d.placement or 0, d.deck_id)
+        )
+        for slot, deck in enumerate(event_decks):
+            slot_of[deck.deck_id] = slot
+    return slot_of
 
 
 def _choose_display_name(

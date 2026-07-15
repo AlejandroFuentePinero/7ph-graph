@@ -88,7 +88,8 @@ def _write_snapshot(tmp_path, decks, canons):
     idx = {c: i for i, c in enumerate(canons)}
     (tmp_path / "decks.json").write_text(json.dumps([
         {
-            "deckId": d["id"], "name": d["id"], "pilot": "p", "event": "E",
+            "deckId": d["id"], "name": d["id"], "deckName": d["id"],
+            "pilot": "p", "event": "E",
             "eventId": f"evt_{d['id']}", "eventType": "Tournament", "placement": 1,
             "placementNorm": d["norm"], "colour": "colour:U", "macro": "macro:control",
             "engineTags": [f"engine:{d['tag']}"],
@@ -112,7 +113,7 @@ def _write_snapshot(tmp_path, decks, canons):
     }))
 
 
-def test_pilot_subgraph_is_the_pilots_decks_and_their_cards(tmp_path, snapshot_dir):
+def test_pilot_subgraph_chains_events_decks_and_placements_not_cards(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
 
     sub = pilot_subgraph(conn, "Jordan C")
@@ -121,30 +122,35 @@ def test_pilot_subgraph_is_the_pilots_decks_and_their_cards(tmp_path, snapshot_d
     for n in sub.nodes:
         kinds[n.kind].append(n)
 
-    # One pilot, their two decks, and the union of cards in those decks.
+    # pilot -> event -> deck -> placement, no cards. The deck reads as its own
+    # name ("Grixis"), free of the placement and pilot in the full title.
     assert [n.label for n in kinds["Pilot"]] == ["Jordan C"]
-    assert len(kinds["Deck"]) == 2
+    assert {n.label for n in kinds["Event"]} == {"CFWAT25", "PogNov25"}
+    assert [n.label for n in kinds["Deck"]] == ["Grixis", "Grixis"]
+    assert {n.label for n in kinds["Placement"]} == {"5th", "12th"}
+    assert "Card" not in kinds
 
-    jordan_decks = {"BsegXnsDsEWxh-vNbUrn0w", "pkUbzmgN3UeqaWdYQYRgRg"}
-    expected_cards = _expected_cards_for(snapshot_dir, jordan_decks)
-    assert {n.id for n in kinds["Card"]} == {f"card:{c}" for c in expected_cards}
 
-
-def test_pilot_subgraph_edges_connect_decks_to_pilot_and_cards(tmp_path, snapshot_dir):
+def test_pilot_subgraph_edges_form_the_pilot_event_deck_placement_chain(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
 
     sub = pilot_subgraph(conn, "Jordan C")
 
-    piloted = [e for e in sub.edges if e.label == "PILOTED_BY"]
-    contains = [e for e in sub.edges if e.label.startswith("CONTAINS")]
+    by_label = {lbl: [e for e in sub.edges if e.label == lbl]
+                for lbl in ("PLAYED_AT", "ENTERED", "PLACED")}
+    kind = {n.id: n.kind for n in sub.nodes}
 
-    # Every deck links to the pilot; each of 2 decks contributes 75 card edges.
-    assert len(piloted) == 2
-    assert len(contains) == 150
-
-    node_ids = {n.id for n in sub.nodes}
-    for e in sub.edges:
-        assert e.source in node_ids and e.target in node_ids
+    # One link at each hop of the chain per deck, and each hop joins the right kinds.
+    assert len(by_label["PLAYED_AT"]) == 2  # pilot -> event
+    assert len(by_label["ENTERED"]) == 2    # event -> deck
+    assert len(by_label["PLACED"]) == 2     # deck -> placement
+    for e in by_label["PLAYED_AT"]:
+        assert kind[e.source] == "Pilot" and kind[e.target] == "Event"
+    for e in by_label["ENTERED"]:
+        assert kind[e.source] == "Event" and kind[e.target] == "Deck"
+    for e in by_label["PLACED"]:
+        assert kind[e.source] == "Deck" and kind[e.target] == "Placement"
+    assert not any(e.label.startswith("CONTAINS") for e in sub.edges)
 
 
 def test_pilot_subgraph_labels_the_pilot_by_display_name(tmp_path, snapshot_dir):

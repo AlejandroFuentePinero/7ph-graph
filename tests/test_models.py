@@ -52,7 +52,7 @@ def test_optional_source_fields_tolerate_nulls():
     assert card.price_usd is None and card.mana_cost is None
 
     deck = Deck.model_validate(
-        {"deckId": "d", "name": "n", "pilot": "p", "event": "e",
+        {"deckId": "d", "name": "n", "deckName": "n", "pilot": "p", "event": "e",
          "eventType": "Tournament", "placement": None, "placementNorm": None,
          "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
          "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
@@ -62,7 +62,7 @@ def test_optional_source_fields_tolerate_nulls():
 
 def test_out_of_range_card_id_raises_a_clear_error(tmp_path):
     (tmp_path / "decks.json").write_text(json.dumps([
-        {"deckId": "d1", "name": "n", "pilot": "p", "event": "e",
+        {"deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "e",
          "eventType": "Tournament", "placement": 1, "placementNorm": 0.0,
          "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
          "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
