@@ -289,13 +289,17 @@ def test_card_usage_reads_adoption_rate_at_each_tier(tmp_path, snapshot_dir):
 
     sub = card_usage_subgraph(conn, canon)
 
-    # The name sits inside each circle; the adoption percent rides its edge.
+    # Each tier is a named node; the adoption percent rides the edge that reaches
+    # it (card -%-> macro -%-> archetype).
     card = next(n for n in sub.nodes if n.kind == "Card")
     assert card.label.endswith("(100% of meta)")
-    names = {n.label for n in sub.nodes if n.kind in ("Macro", "Archetype")}
-    assert names == {"tempo", "combo", "Grixis", "Storm"}
+    assert {n.label for n in sub.nodes if n.kind in ("Macro", "Archetype")} == {"tempo", "combo", "Grixis", "Storm"}
+    # Everything here is 100% adopted, so every edge reads "100%".
     assert {e.label for e in sub.edges} == {"100%"}
     assert all(e.visible for e in sub.edges)
+    # Every node is a default dot: a uniform size with its name beside it, never a
+    # circle sized to fit the text.
+    assert all(n.shape is None for n in sub.nodes)
     node_ids = {n.id for n in sub.nodes}
     for e in sub.edges:
         assert e.source in node_ids and e.target in node_ids
@@ -310,7 +314,7 @@ def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, s
 
     sub = card_usage_subgraph(conn, canon)
 
-    # Only Grixis/tempo appear, each 100% on its edge; Storm/combo never do.
+    # Only Grixis/tempo appear; each is a named node, the percent rides its edge.
     assert {n.label for n in sub.nodes if n.kind in ("Macro", "Archetype")} == {"tempo", "Grixis"}
     assert {e.label for e in sub.edges} == {"100%"}
 

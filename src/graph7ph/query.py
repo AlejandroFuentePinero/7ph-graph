@@ -295,18 +295,20 @@ def card_usage_subgraph(
         key=lambda k: (-k[0], -k[1], k[3]),
     )
 
-    # The readable name sits inside each circle; the adoption percent rides the
-    # edge that reaches it, so the name stays in the node and the number outside.
+    # Each tier reads as a named default dot (card -> macro -> archetype); the
+    # adoption percent rides the edge that reaches it. Dots keep every node a
+    # uniform size with its name beside it, where a circle would stretch to fit
+    # the text and read as a bigger node for no analytic reason.
     shown_macros = {dominant[tag][1] for _, _, tag, _ in kept}
     for macro in sorted(shown_macros, key=lambda m: -pct(macro_run.get(m, 0), macro_total[m])):
         mid = f"macro:{macro}"
-        nodes.append(Node(mid, macro, "Macro", shape="circle"))
+        nodes.append(Node(mid, macro, "Macro"))
         edges.append(
             Edge(card_id, mid, _pct_label(macro_run.get(macro, 0), macro_total[macro]), visible=True)
         )
     for _p, total, tag, name in kept:
         aid = f"arch:{tag}"
-        nodes.append(Node(aid, name, "Archetype", shape="circle"))
+        nodes.append(Node(aid, name, "Archetype"))
         edges.append(
             Edge(f"macro:{dominant[tag][1]}", aid, _pct_label(arch_run.get(tag, 0), total), visible=True)
         )
