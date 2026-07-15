@@ -22,11 +22,14 @@ _COLOURS = {
     "Macro": "#edc948",
     "Event": "#b07aa1",
     "Placement": "#bab0ac",
+    "Intersection": "#9c755f",
 }
 
-# A head-to-head tints each player's chain instead of colouring by kind, so the
-# two players read apart at a glance; up to two get these distinct hues.
-_PLAYER_COLOURS = ["#4e79a7", "#f28e2b"]
+# Grouped views colour by group instead of by kind, so the groups read apart at
+# a glance: a head-to-head tints each player's chain, and card co-occurrence
+# tints each seed card and its shared partners. One hue per group present, so up
+# to three (two seeds and their partners) stay distinct.
+_GROUP_COLOURS = ["#4e79a7", "#f28e2b", "#76b7b2"]
 
 # A deck's stable id is its Moxfield public id, so its authoritative list is a
 # direct construction (confirmed against the source's own ``url`` field).
@@ -46,7 +49,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
     )
     # A stable colour per player group present, so the two chains stay distinct.
     groups = sorted({n.group for n in subgraph.nodes if n.group is not None})
-    palette = {g: _PLAYER_COLOURS[i % len(_PLAYER_COLOURS)] for i, g in enumerate(groups)}
+    palette = {g: _GROUP_COLOURS[i % len(_GROUP_COLOURS)] for i, g in enumerate(groups)}
     group_by_id = {n.id: n.group for n in subgraph.nodes}
     for node in subgraph.nodes:
         # A weighted node is sized by its value; vis.js scales the values in the
@@ -58,6 +61,13 @@ def render_subgraph(subgraph: Subgraph) -> str:
         # A shape override (e.g. "circle") draws the label inside the node; vis.js
         # then sizes it to the text, so a shaped node ignores any weight.
         shaped = {"shape": node.shape} if node.shape is not None else {}
+        # A pinned node holds a fixed position with physics off, so a deterministic
+        # layout stays put instead of being pulled into a hairball.
+        pinned = (
+            {"x": node.pin[0], "y": node.pin[1], "fixed": True, "physics": False}
+            if node.pin is not None
+            else {}
+        )
         net.add_node(
             node.id,
             label=node.label,
@@ -65,6 +75,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
             color=colour,
             **weighted,
             **shaped,
+            **pinned,
         )
     for edge in subgraph.edges:
         # Tint the edge to match its player so a chain reads as one colour; an
@@ -76,6 +87,12 @@ def render_subgraph(subgraph: Subgraph) -> str:
         # A visible label is drawn on the edge; otherwise it is a hover tooltip.
         text = {"label": edge.label} if edge.visible else {"title": edge.label}
         net.add_edge(edge.source, edge.target, **text, **tint)
+
+    # A fully pinned graph (the two-seed co-occurrence layout) has nothing for
+    # physics to solve, so turn it off: the fixed positions render as-is with no
+    # stabilisation jitter.
+    if subgraph.nodes and all(n.pin is not None for n in subgraph.nodes):
+        net.toggle_physics(False)
 
     meta = {
         node.id: {

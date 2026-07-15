@@ -8,8 +8,9 @@ and its parameters, and ``run_query`` is the single seam that maps a spec to its
 function, so v1's controls and v2's RAG agent drive the same layer.
 
 Node ids are namespaced by kind (``pilot:``/``deck:``/``card:``/``arch:``/
-``macro:``/``event:``/``placement:``) so nodes of different kinds can never
-collide on a shared string.
+``macro:``/``event:``/``placement:``, plus ``both:`` for the two-card
+co-occurrence intersection hub) so nodes of different kinds can never collide on
+a shared string.
 """
 
 from dataclasses import dataclass
@@ -19,7 +20,9 @@ import kuzu
 
 from graph7ph.db import rows
 
-Kind = Literal["Pilot", "Deck", "Card", "Archetype", "Macro", "Event", "Placement"]
+Kind = Literal[
+    "Pilot", "Deck", "Card", "Archetype", "Macro", "Event", "Placement", "Intersection"
+]
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,11 @@ class Node:
     # An optional vis.js node shape override. ``None`` is the default dot (label
     # beside it, sized by weight); ``"circle"`` draws the label inside the node.
     shape: str | None = None
+    # An optional fixed ``(x, y)`` position. ``None`` lets the physics layout place
+    # the node; set, it pins the node there (physics off) for a deterministic
+    # layout, used to separate the two co-occurrence seeds and centre their
+    # shared cards.
+    pin: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -78,7 +86,14 @@ class CardUsage:
 @dataclass(frozen=True)
 class CardCooccurrence:
     canon: str
-    min_shared: int = 2
+    # An optional second seed card; empty or unset leaves the single card's
+    # neighbourhood, set turns it into a two-card shared-package view.
+    canon2: str | None = None
+    # How many partners to keep per seed: the top ``top_n`` cards by co-occurrence
+    # rate, so a popular seed refines to its strongest packages instead of flooding.
+    top_n: int = 15
+    # Exclude land cards, which co-occur with nearly everything and read as noise.
+    drop_lands: bool = False
 
 
 @dataclass(frozen=True)
@@ -260,12 +275,6 @@ def card_usage_subgraph(
     def pct(run: int, total: int) -> int:
         return round(100 * run / total) if total else 0
 
-    def pct_label(run: int, total: int) -> str:
-        """The adoption as a label; a present-but-tiny share reads ``<1%``, not the
-        misleading ``0%`` that rounding would give."""
-        share = 100 * run / total if total else 0
-        return "<1%" if 0 < share < 0.5 else f"{round(share)}%"
-
     # Play-rate over decks directly, not summed per-macro, so it holds even if a
     # deck ever carried more than one macro.
     meta_total = next(rows(conn.execute("MATCH (d:Deck) RETURN count(d)")))[0]
@@ -276,7 +285,7 @@ def card_usage_subgraph(
 
     card_id = f"card:{canon}"
     nodes: list[Node] = [
-        Node(card_id, f"{card_name} ({pct_label(meta_run, meta_total)} of meta)", "Card")
+        Node(card_id, f"{card_name} ({_pct_label(meta_run, meta_total)} of meta)", "Card")
     ]
     edges: list[Edge] = []
 
@@ -300,52 +309,214 @@ def card_usage_subgraph(
         mid = f"macro:{macro}"
         nodes.append(Node(mid, macro, "Macro", shape="circle"))
         edges.append(
-            Edge(card_id, mid, pct_label(macro_run.get(macro, 0), macro_total[macro]), visible=True)
+            Edge(card_id, mid, _pct_label(macro_run.get(macro, 0), macro_total[macro]), visible=True)
         )
     for _p, total, tag, name in kept:
         aid = f"arch:{tag}"
         nodes.append(Node(aid, name, "Archetype", shape="circle"))
         edges.append(
-            Edge(f"macro:{dominant[tag][1]}", aid, pct_label(arch_run.get(tag, 0), total), visible=True)
+            Edge(f"macro:{dominant[tag][1]}", aid, _pct_label(arch_run.get(tag, 0), total), visible=True)
         )
 
     return Subgraph(nodes=nodes, edges=edges)
 
 
-def card_cooccurrence_subgraph(
-    conn: kuzu.Connection, canon: str, min_shared: int = 2
-) -> Subgraph:
-    """The card and the cards it shares at least ``min_shared`` decks with.
+# Lands run in nearly every deck, so they co-occur with everything and mostly
+# read as noise; the co-occurrence views can filter them out by card type.
+_LAND_TYPE = "Lands"
 
-    Surfaces card packages (user story 15): the seed card is the hub and each
-    edge is labelled with the number of decks the two share. Only same-board
-    pairings count: a card in the main and another in the side of the same deck
-    are not a functional pairing, so they do not co-occur here. ``min_shared``
-    bounds the result to genuine pairings rather than every incidental overlap.
+
+def _no_lands(alias: str, drop_lands: bool) -> str:
+    """A Cypher fragment excluding land-typed cards bound to ``alias``, or ``''``
+    to keep them."""
+    return f" AND {alias}.type <> '{_LAND_TYPE}'" if drop_lands else ""
+
+
+def _cooccurrence_partners(
+    conn: kuzu.Connection, canon: str, top_n: int, drop_lands: bool = False
+) -> list[tuple[str, str, int]]:
+    """A card's top ``top_n`` same-board co-occurrence partners, strongest first:
+    ``[(canon, name, shared), ...]``.
+
+    ``shared`` is the count of decks where the partner sits in the same board as
+    the seed. Only same-board pairings count: a card in the main and another in
+    the side of the same deck are not a functional pairing. The seed's deck count
+    is constant across partners, so ranking by ``shared`` ranks by co-occurrence
+    rate; the cut is pushed into Cypher rather than sorting every partner in
+    Python. ``drop_lands`` excludes land partners.
     """
-    centre = conn.execute(
-        "MATCH (card:Card {canon: $canon}) RETURN card.name", {"canon": canon}
-    )
-    centre_row = next(rows(centre), None)
-    if centre_row is None:
-        return Subgraph(nodes=[], edges=[])
-
-    cid = f"card:{canon}"
-    nodes: dict[str, Node] = {cid: Node(cid, centre_row[0], "Card")}
-    edges: list[Edge] = []
-
+    # Kùzu wants a literal LIMIT, not a parameter; ``top_n`` is a trusted int.
     res = conn.execute(
-        """MATCH (card:Card {canon: $canon})<-[a:CONTAINS]-(d:Deck)-[b:CONTAINS]->(other:Card)
-           WHERE other.canon <> card.canon AND a.board = b.board
+        f"""MATCH (card:Card {{canon: $canon}})<-[a:CONTAINS]-(d:Deck)-[b:CONTAINS]->(other:Card)
+           WHERE other.canon <> card.canon AND a.board = b.board{_no_lands("other", drop_lands)}
            WITH other, count(DISTINCT d) AS shared
-           WHERE shared >= $minShared
-           RETURN other.canon, other.name, shared""",
-        {"canon": canon, "minShared": min_shared},
+           RETURN other.canon, other.name, shared
+           ORDER BY shared DESC, other.name, other.canon
+           LIMIT {int(top_n)}""",
+        {"canon": canon},
     )
-    for o_canon, o_name, shared in rows(res):
+    return [(o_canon, o_name, shared) for o_canon, o_name, shared in rows(res)]
+
+
+def _card_and_deck_count(
+    conn: kuzu.Connection, canon: str
+) -> tuple[str, int] | None:
+    """``(name, deck_count)`` for a card, or ``None`` when no such card exists."""
+    return next(rows(conn.execute(
+        """MATCH (card:Card {canon: $canon})
+           OPTIONAL MATCH (card)<-[:CONTAINS]-(d:Deck)
+           RETURN card.name, count(DISTINCT d)""",
+        {"canon": canon},
+    )), None)
+
+
+def _pct_label(shared: int, total: int) -> str:
+    """A co-occurrence rate as a label; a present-but-tiny share reads ``<1%``,
+    not the misleading ``0%`` that rounding would give."""
+    share = 100 * shared / total if total else 0
+    return "<1%" if 0 < share < 0.5 else f"{round(share)}%"
+
+
+# The two-seed layout, in vis.js units. The two seeds and the intersection hub
+# anchor on the left (the seeds stacked, the hub between them and the cards); the
+# shared cards line up in a column on the right, ordered by double rate. Pinning
+# everything and hanging each card off the single hub keeps the graph readable
+# where a physics cloud overlaps into a ball. ``_SEED_X``/``_SEED_DY`` place the
+# seeds, ``_HUB_X`` the hub, ``_CARD_X`` the column, ``_COL_GAP`` the row height.
+_SEED_X, _SEED_DY = 800.0, 150.0
+_HUB_X = 350.0
+_CARD_X = 300.0
+_COL_GAP = 80.0
+
+
+def _shared_deck_cooccurrence(
+    conn: kuzu.Connection, canon_a: str, canon_b: str, top_n: int, drop_lands: bool = False
+) -> tuple[int, list[tuple[str, str, int]]]:
+    """The double co-occurrence: decks that run both seeds, and the ``top_n`` cards
+    those decks most often also run.
+
+    Returns ``(both_decks, [(canon, name, shared), ...])`` where ``both_decks`` is
+    the count of decks running both seeds (the denominator) and ``shared`` is the
+    count of those decks that also run the card, strongest first. A deck runs a
+    card when it appears in either board, so this is deck-level membership rather
+    than the same-board pairing the single-seed view uses. ``drop_lands`` excludes
+    lands (before the cut, so the cut keeps ``top_n`` non-lands), which co-occur
+    with nearly everything and mostly read as noise.
+    """
+    both = next(rows(conn.execute(
+        """MATCH (a:Card {canon: $a})<-[:CONTAINS]-(d:Deck)-[:CONTAINS]->(b:Card {canon: $b})
+           RETURN count(DISTINCT d)""",
+        {"a": canon_a, "b": canon_b},
+    )))[0]
+    if not both:
+        return 0, []
+    # Kùzu wants a literal LIMIT, not a parameter; ``top_n`` is a trusted int.
+    res = conn.execute(
+        f"""MATCH (a:Card {{canon: $a}})<-[:CONTAINS]-(d:Deck)-[:CONTAINS]->(b:Card {{canon: $b}})
+            MATCH (d)-[:CONTAINS]->(p:Card)
+            WHERE p.canon <> $a AND p.canon <> $b{_no_lands("p", drop_lands)}
+            WITH p, count(DISTINCT d) AS shared
+            RETURN p.canon, p.name, shared
+            ORDER BY shared DESC, p.name, p.canon
+            LIMIT {int(top_n)}""",
+        {"a": canon_a, "b": canon_b},
+    )
+    return both, [(c, n, s) for c, n, s in rows(res)]
+
+
+def card_cooccurrence_subgraph(
+    conn: kuzu.Connection,
+    canon: str,
+    canon2: str | None = None,
+    top_n: int = 15,
+    drop_lands: bool = False,
+) -> Subgraph:
+    """One card's top co-occurrence partners, or two cards' shared cards.
+
+    Surfaces card packages (user story 15). With one seed the hub is the card and
+    each edge is labelled with the co-occurrence rate, the percent of the seed's
+    own decks that also run the partner; the top ``top_n`` partners by that rate
+    are kept, so a popular seed refines to its strongest packages rather than
+    flooding the view with every card it ever shared a deck with.
+
+    With a second seed the view answers "what do these two cards share": it keeps
+    the top ``top_n`` cards by the *double* co-occurrence rate, the percent of the
+    decks running both seeds that also run the card. An intersection hub node
+    ("Both", labelled with that shared-deck count) anchors the graph: each seed
+    links to the hub with the fraction of its decks in the intersection, and every
+    shared card hangs off the hub with one edge (its double rate). That single hub
+    keeps the edges informative instead of a redundant fan to both seeds, lines
+    the shared cards up in a readable column, and generalises to the three-plus
+    card intersections a future agent will drive. Each seed carries its own colour
+    group and all shared cards share one, so they read apart at a glance.
+
+    ``drop_lands`` excludes land cards from the results (both views): lands run in
+    nearly every deck, so they co-occur with everything and mostly read as noise;
+    dropping them surfaces the ``top_n`` non-land packages instead.
+    """
+    seed_a = _card_and_deck_count(conn, canon)
+    if seed_a is None:
+        return Subgraph(nodes=[], edges=[])
+    name_a, decks_a = seed_a
+
+    # A second seed only when a distinct, existing card is chosen; the same card
+    # twice, or a missing one, collapses to the single-seed view.
+    seed_b = _card_and_deck_count(conn, canon2) if canon2 and canon2 != canon else None
+
+    cid_a = f"card:{canon}"
+    if seed_b is None:
+        nodes = {cid_a: Node(cid_a, name_a, "Card", group=f"seed:{canon}")}
+        edges: list[Edge] = []
+        for o_canon, o_name, shared in _cooccurrence_partners(conn, canon, top_n, drop_lands):
+            oid = f"card:{o_canon}"
+            nodes[oid] = Node(oid, o_name, "Card", group="cooccur")
+            edges.append(Edge(cid_a, oid, _pct_label(shared, decks_a)))
+        return Subgraph(nodes=list(nodes.values()), edges=edges)
+
+    name_b, decks_b = seed_b
+    cid_b = f"card:{canon2}"
+    both, shared = _shared_deck_cooccurrence(conn, canon, canon2, top_n, drop_lands)
+
+    # When the two cards never share a deck there is nothing to anchor: show them
+    # as two disconnected seeds rather than an empty "Both · 0 decks" hub.
+    if not both:
+        return Subgraph(
+            nodes=[
+                Node(cid_a, name_a, "Card", group=f"seed:{canon}"),
+                Node(cid_b, name_b, "Card", group=f"seed:{canon2}"),
+            ],
+            edges=[],
+        )
+
+    # The intersection hub is the "decks running both seeds" node that justifies a
+    # graph: each seed links to it (the fraction of that seed's decks that fall in
+    # the intersection) and every shared card hangs off it with one edge (its
+    # double rate), so edges carry information instead of a redundant double fan.
+    # The deck count on the hub is the denominator every percent is read against.
+    # Deliberately a synthetic count node, not a real macro/archetype: the decks
+    # running a given pair span many macros with no dominant one (e.g. Blood Moon +
+    # Price of Progress split aggro 48% / tempo 26% / control 12% / ...), so a real
+    # higher-level anchor misrepresents the mix. This was tried and reverted.
+    hub_id = f"both:{canon}|{canon2}"
+    nodes = {
+        cid_a: Node(cid_a, name_a, "Card", group=f"seed:{canon}", pin=(-_SEED_X, _SEED_DY)),
+        cid_b: Node(cid_b, name_b, "Card", group=f"seed:{canon2}", pin=(-_SEED_X, -_SEED_DY)),
+        hub_id: Node(
+            hub_id, f"Both · {both} decks", "Intersection",
+            shape="circle", pin=(-_HUB_X, 0.0),
+        ),
+    }
+    edges = [
+        Edge(cid_a, hub_id, _pct_label(both, decks_a)),
+        Edge(cid_b, hub_id, _pct_label(both, decks_b)),
+    ]
+    # Shared cards in a centred column (strongest at the top) so they line up and
+    # stay readable, each with a single edge from the hub.
+    for i, (o_canon, o_name, cnt) in enumerate(shared):
         oid = f"card:{o_canon}"
-        nodes.setdefault(oid, Node(oid, o_name, "Card"))
-        edges.append(Edge(cid, oid, f"COOCCURS:{shared}"))
+        y = (i - (len(shared) - 1) / 2) * _COL_GAP
+        nodes[oid] = Node(oid, o_name, "Card", group="cooccur", pin=(_CARD_X, y))
+        edges.append(Edge(hub_id, oid, _pct_label(cnt, both)))
 
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
@@ -602,8 +773,8 @@ def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
             return pilot_subgraph(conn, pilot, pilot2)
         case CardUsage(canon, board):
             return card_usage_subgraph(conn, canon, board)
-        case CardCooccurrence(canon, min_shared):
-            return card_cooccurrence_subgraph(conn, canon, min_shared)
+        case CardCooccurrence(canon, canon2, top_n, drop_lands):
+            return card_cooccurrence_subgraph(conn, canon, canon2, top_n, drop_lands)
         case ArchetypeUniqueCards(tag, min_decks):
             return archetype_unique_cards_subgraph(conn, tag, min_decks)
         case HiddenGems(min_decks, max_decks, max_norm, colour, archetype):
