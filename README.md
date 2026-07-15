@@ -19,8 +19,8 @@ uv run graph7ph app     # launch the Gradio explorer
 ```
 
 The explorer drives the query spine from simple controls: pick a view (a pilot's
-neighbourhood or archetype affinity, a card's usage or co-occurrence, an
-archetype's unique cards, or hidden gems), set filters, and see the result as an
+neighbourhood or archetype affinity, a card's usage or co-occurrence, or hidden
+gems), set filters, and see the result as an
 interactive graph. Click a node for its details; a deck links out to Moxfield. A
 result too large to read is not drawn or truncated: the app reports its node-kind
 distribution and asks you to narrow the query (the threshold is a single config

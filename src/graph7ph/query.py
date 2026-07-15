@@ -2,8 +2,8 @@
 
 Each query function turns its parameters into Cypher and returns a Subgraph the
 renderer can draw. The derived relationships ADR 0002 keeps out of the stored
-model (card usage and co-occurrence, cards unique to an archetype, hidden gems,
-pilot affinity) live here as query functions instead. A ``QuerySpec`` names one query
+model (card usage and co-occurrence, hidden gems, pilot affinity) live here as
+query functions instead. A ``QuerySpec`` names one query
 and its parameters, and ``run_query`` is the single seam that maps a spec to its
 function, so v1's controls and v2's RAG agent drive the same layer.
 
@@ -97,12 +97,6 @@ class CardCooccurrence:
 
 
 @dataclass(frozen=True)
-class ArchetypeUniqueCards:
-    tag: str
-    min_decks: int = 3
-
-
-@dataclass(frozen=True)
 class HiddenGems:
     min_decks: int
     max_decks: int
@@ -120,7 +114,6 @@ QuerySpec = (
     PilotNeighbourhood
     | CardUsage
     | CardCooccurrence
-    | ArchetypeUniqueCards
     | HiddenGems
     | PilotAffinity
 )
@@ -215,8 +208,8 @@ def card_usage_subgraph(
     the percent of that archetype's decks that run it. Adoption normalises for
     slice size, so a card that is core to an archetype stands out from one merely
     carried by a big archetype (which raw counts cannot tell apart). This owns the
-    prevalence dimension, distinct from co-occurrence (card packages), archetype
-    unique cards (exclusivity), and hidden gems (rarity times performance).
+    prevalence dimension, distinct from co-occurrence (card packages) and hidden
+    gems (rarity times performance).
 
     Because archetypes span several macros (Grixis decks are mostly tempo but also
     midrange, control, ...), each archetype hangs under the macro where its own
@@ -521,66 +514,6 @@ def card_cooccurrence_subgraph(
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
 
-def archetype_unique_cards_subgraph(
-    conn: kuzu.Connection, tag: str, min_decks: int = 3
-) -> Subgraph:
-    """The cards found only in this archetype's decks, seen in enough of them.
-
-    A card is unique to the archetype when every deck that runs it carries the
-    archetype, i.e. it appears nowhere outside it. This is exclusivity of
-    appearance, not a claim about the card's role: the same card can play very
-    differently across decks, so we assert only where it turns up, never what it
-    means. ``min_decks`` requires the card to show up in at least that many of
-    the archetype's decks, so a card that is exclusive only because a single
-    deck happened to run it is filtered out as noise. Cards run by more of the
-    archetype's decks come first, and each edge is labelled with that count.
-    """
-    name_row = next(
-        rows(conn.execute(
-            "MATCH (a:Archetype {tag: $tag}) RETURN a.name", {"tag": tag}
-        )),
-        None,
-    )
-    if name_row is None:
-        return Subgraph(nodes=[], edges=[])
-
-    in_arch = list(rows(conn.execute(
-        """MATCH (:Archetype {tag: $tag})<-[:HAS_ARCHETYPE]-(d:Deck)-[:CONTAINS]->(c:Card)
-           RETURN c.canon, c.name, count(DISTINCT d)""",
-        {"tag": tag},
-    )))
-    # Only the archetype's own cards need a global deck count, so scope the
-    # totals to them rather than scanning the whole card catalogue.
-    canons = [canon for canon, _name, _count in in_arch]
-    totals = {
-        canon: total
-        for canon, total in rows(conn.execute(
-            "MATCH (c:Card)<-[:CONTAINS]-(d:Deck) WHERE c.canon IN $canons "
-            "RETURN c.canon, count(DISTINCT d)",
-            {"canons": canons},
-        ))
-    }
-
-    # Unique = every deck holding the card is an archetype deck (none outside),
-    # and enough of them run it to be a property of the archetype, not one list.
-    unique = [
-        (arch_count, canon, card_name)
-        for canon, card_name, arch_count in in_arch
-        if totals[canon] == arch_count and arch_count >= min_decks
-    ]
-    unique.sort(key=lambda u: (-u[0], u[1]))
-
-    aid = f"arch:{tag}"
-    nodes: list[Node] = [Node(aid, name_row[0], "Archetype")]
-    edges: list[Edge] = []
-    for arch_count, canon, card_name in unique:
-        cid = f"card:{canon}"
-        nodes.append(Node(cid, card_name, "Card"))
-        edges.append(Edge(aid, cid, f"UNIQUE:{arch_count}"))
-
-    return Subgraph(nodes=nodes, edges=edges)
-
-
 def hidden_gems_subgraph(
     conn: kuzu.Connection,
     min_decks: int,
@@ -775,8 +708,6 @@ def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
             return card_usage_subgraph(conn, canon, board)
         case CardCooccurrence(canon, canon2, top_n, drop_lands):
             return card_cooccurrence_subgraph(conn, canon, canon2, top_n, drop_lands)
-        case ArchetypeUniqueCards(tag, min_decks):
-            return archetype_unique_cards_subgraph(conn, tag, min_decks)
         case HiddenGems(min_decks, max_decks, max_norm, colour, archetype):
             return hidden_gems_subgraph(
                 conn, min_decks, max_decks, max_norm, colour, archetype

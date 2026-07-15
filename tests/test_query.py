@@ -6,11 +6,9 @@ import kuzu
 from graph7ph.build import build_graph
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
-    ArchetypeUniqueCards,
     CardCooccurrence,
     HiddenGems,
     PilotNeighbourhood,
-    archetype_unique_cards_subgraph,
     card_cooccurrence_subgraph,
     card_usage_subgraph,
     hidden_gems_subgraph,
@@ -561,63 +559,6 @@ def test_cooccurrence_two_seeds_rank_shared_cards_by_the_double_rate(tmp_path):
     assert pin["card:x"][1] < pin["card:y"][1]
 
 
-def test_unique_cards_are_only_found_in_that_archetype(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
-
-    # min_decks=1 because the fixture only has two decks per archetype.
-    sub = archetype_unique_cards_subgraph(conn, "grixis", min_decks=1)
-
-    # Unique to Grixis = in both Grixis lists and nowhere else. The 29 cards also
-    # in the Storm list appear outside Grixis, so they are excluded.
-    grixis_only = _grixis_only(snapshot_dir)
-    cards = {n.id for n in sub.nodes if n.kind == "Card"}
-    assert cards == {f"card:{c}" for c in grixis_only}
-
-    archetypes = [n for n in sub.nodes if n.kind == "Archetype"]
-    assert [n.label for n in archetypes] == ["Grixis"]
-    # Every edge runs from the archetype to a card unique to it.
-    assert all(e.source == "arch:grixis" for e in sub.edges)
-    assert {e.target for e in sub.edges} == cards
-
-
-def test_unique_cards_exclude_cards_shared_with_other_archetypes(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
-
-    sub = archetype_unique_cards_subgraph(conn, "storm", min_decks=1)
-
-    # Storm has one list; the cards unique to it are those not also in Grixis.
-    storm_only = _expected_cards_for(snapshot_dir, {STORM_DECK}) - _expected_cards_for(
-        snapshot_dir, JORDAN_DECKS
-    )
-    cards = {n.id for n in sub.nodes if n.kind == "Card"}
-    assert cards == {f"card:{c}" for c in storm_only}
-
-
-def test_unique_cards_need_support_from_enough_decks(tmp_path):
-    # Archetype x runs `core` in three decks and `fringe` in one; `shared` is in
-    # an x deck and a y deck. A support floor keeps core, drops the one-off
-    # fringe as noise, and shared is never unique because it appears outside x.
-    _write_snapshot(
-        tmp_path,
-        [
-            {"id": "x1", "tag": "x", "norm": 0.0, "m": ["core", "fringe", "shared"]},
-            {"id": "x2", "tag": "x", "norm": 0.0, "m": ["core", "filler1"]},
-            {"id": "x3", "tag": "x", "norm": 0.0, "m": ["core", "filler2"]},
-            {"id": "y1", "tag": "y", "norm": 0.0, "m": ["shared", "other"]},
-        ],
-        ["core", "fringe", "shared", "filler1", "filler2", "other"],
-    )
-    conn = _connect(tmp_path, tmp_path)
-
-    strict = archetype_unique_cards_subgraph(conn, "x", min_decks=3)
-    assert {n.id for n in strict.nodes if n.kind == "Card"} == {"card:core"}
-
-    loose = archetype_unique_cards_subgraph(conn, "x", min_decks=1)
-    loose_cards = {n.id for n in loose.nodes if n.kind == "Card"}
-    assert "card:fringe" in loose_cards  # admitted once the floor drops
-    assert "card:shared" not in loose_cards  # still not unique: also in a y deck
-
-
 def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
 
@@ -867,6 +808,3 @@ def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
     assert run_query(
         conn, HiddenGems(min_decks=1, max_decks=2, max_norm=0.35, colour="G")
     ) == hidden_gems_subgraph(conn, min_decks=1, max_decks=2, max_norm=0.35, colour="G")
-    assert run_query(conn, ArchetypeUniqueCards("grixis", min_decks=1)) == (
-        archetype_unique_cards_subgraph(conn, "grixis", min_decks=1)
-    )
