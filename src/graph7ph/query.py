@@ -33,6 +33,9 @@ class Node:
     # An optional grouping the renderer colours by instead of kind, used to tint
     # a head-to-head by player. ``None`` falls back to the kind colour.
     group: str | None = None
+    # An optional vis.js node shape override. ``None`` is the default dot (label
+    # beside it, sized by weight); ``"circle"`` draws the label inside the node.
+    shape: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,9 @@ class Edge:
     source: str
     target: str
     label: str
+    # By default the label is a hover tooltip; ``True`` draws it on the edge, used
+    # where the edge carries the readable name (the node itself shows a number).
+    visible: bool = False
 
 
 @dataclass
@@ -64,6 +70,9 @@ class PilotNeighbourhood:
 @dataclass(frozen=True)
 class CardUsage:
     canon: str
+    # Which board a deck must run the card in to count: ``None`` counts it in
+    # either, ``"Main"`` or ``"Side"`` restricts to that board.
+    board: str | None = None
 
 
 @dataclass(frozen=True)
@@ -178,38 +187,129 @@ def pilot_subgraph(
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
 
-def card_usage_subgraph(conn: kuzu.Connection, canon: str) -> Subgraph:
-    """The card and every deck that runs it, each linked up to its pilot.
+def card_usage_subgraph(
+    conn: kuzu.Connection, canon: str, board: str | None = None
+) -> Subgraph:
+    """The card's prevalence in the meta, as an adoption rate at each tier.
 
-    Answers "who plays this card, and how does it place" (user story 7): the
-    card is the hub, its decks fan out, and each deck reaches its pilot so the
-    card's reach across pilots is visible. Pilots are labelled by display name.
+    Answers "how prevalent is this card, and where is it a staple" (user story 7)
+    by measuring adoption, not raw reach: card -> macro -> archetype, where every
+    node reads as one thing, "the percent of the decks at this level that run the
+    card". The card node is its share of the whole meta (its play-rate); a macro
+    node is the percent of that strategy's decks that run it; an archetype node is
+    the percent of that archetype's decks that run it. Adoption normalises for
+    slice size, so a card that is core to an archetype stands out from one merely
+    carried by a big archetype (which raw counts cannot tell apart). This owns the
+    prevalence dimension, distinct from co-occurrence (card packages), archetype
+    unique cards (exclusivity), and hidden gems (rarity times performance).
+
+    Because archetypes span several macros (Grixis decks are mostly tempo but also
+    midrange, control, ...), each archetype hangs under the macro where its own
+    card-running decks sit, so the macro above it always contains decks running the
+    card and its tier percent never reads a contradictory zero above an adopted
+    archetype; the archetype's shown adoption stays the honest archetype-wide
+    figure. Every archetype the card appears in is drawn, strongest adoption first,
+    so a staple that runs everywhere may exceed the render limit and refine rather
+    than draw. Pilot and event are left out on purpose: this is a card-level view.
+
+    ``board`` scopes the numerator: ``None`` counts a deck running the card in
+    either board, ``"Main"`` or ``"Side"`` only the decks running it there. The
+    denominator is always the slice's whole deck count. A deck running the card in
+    both boards still counts once.
     """
-    res = conn.execute(
-        """MATCH (card:Card {canon: $canon})
-           OPTIONAL MATCH (card)<-[c:CONTAINS]-(d:Deck)-[:PILOTED_BY]->(p:Pilot)
-           RETURN card.canon, card.name, d.deckId, d.name, c.board,
-                  p.pilot, p.displayName""",
-        {"canon": canon},
-    )
+    name_row = next(rows(conn.execute(
+        "MATCH (c:Card {canon: $canon}) RETURN c.name", {"canon": canon}
+    )), None)
+    if name_row is None:
+        return Subgraph(nodes=[], edges=[])  # no such card
+    card_name = name_row[0]
 
-    nodes: dict[str, Node] = {}
+    where = "WHERE cont.board = $board" if board else ""
+    params = {"canon": canon, "board": board} if board else {"canon": canon}
+
+    # Denominators: every macro's and archetype's own deck count. Numerators: the
+    # decks of that slice running the card, scoped to the chosen board.
+    macro_total = dict(rows(conn.execute(
+        "MATCH (m:`Macro`)<-[:HAS_MACRO]-(d:Deck) RETURN m.name, count(DISTINCT d)"
+    )))
+    macro_run = dict(rows(conn.execute(
+        f"""MATCH (m:`Macro`)<-[:HAS_MACRO]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
+            {where} RETURN m.name, count(DISTINCT d)""", params
+    )))
+    arch_total = {tag: (name, total) for tag, name, total in rows(conn.execute(
+        "MATCH (a:Archetype)<-[:HAS_ARCHETYPE]-(d:Deck) RETURN a.tag, a.name, count(DISTINCT d)"
+    ))}
+    arch_run = dict(rows(conn.execute(
+        f"""MATCH (a:Archetype)<-[:HAS_ARCHETYPE]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
+            {where} RETURN a.tag, count(DISTINCT d)""", params
+    )))
+    # The macro where each archetype's card-running decks sit, so the grouping
+    # macro always contains decks running the card. Ties resolve on macro name, so
+    # the choice is stable regardless of the query's row order.
+    dominant: dict[str, tuple[int, str]] = {}
+    for tag, macro, n in rows(conn.execute(
+        f"""MATCH (a:Archetype)<-[:HAS_ARCHETYPE]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
+            {where}
+            MATCH (d)-[:HAS_MACRO]->(m:`Macro`)
+            RETURN a.tag, m.name, count(DISTINCT d)""", params
+    )):
+        cur = dominant.get(tag)
+        if cur is None or n > cur[0] or (n == cur[0] and macro < cur[1]):
+            dominant[tag] = (n, macro)
+
+    def pct(run: int, total: int) -> int:
+        return round(100 * run / total) if total else 0
+
+    def pct_label(run: int, total: int) -> str:
+        """The adoption as a label; a present-but-tiny share reads ``<1%``, not the
+        misleading ``0%`` that rounding would give."""
+        share = 100 * run / total if total else 0
+        return "<1%" if 0 < share < 0.5 else f"{round(share)}%"
+
+    # Play-rate over decks directly, not summed per-macro, so it holds even if a
+    # deck ever carried more than one macro.
+    meta_total = next(rows(conn.execute("MATCH (d:Deck) RETURN count(d)")))[0]
+    meta_run = next(rows(conn.execute(
+        f"""MATCH (:Card {{canon: $canon}})<-[cont:CONTAINS]-(d:Deck)
+            {where} RETURN count(DISTINCT d)""", params
+    )))[0]
+
+    card_id = f"card:{canon}"
+    nodes: list[Node] = [
+        Node(card_id, f"{card_name} ({pct_label(meta_run, meta_total)} of meta)", "Card")
+    ]
     edges: list[Edge] = []
 
-    for canon_v, card_name, deck_id, deck_name, board, pilot_key, pilot_name in rows(res):
-        cid = f"card:{canon_v}"
-        nodes.setdefault(cid, Node(cid, card_name, "Card"))
-        if deck_id is None:
-            continue
-        did = f"deck:{deck_id}"
-        pid = f"pilot:{pilot_key}"
-        nodes.setdefault(pid, Node(pid, pilot_name, "Pilot"))
-        if did not in nodes:
-            nodes[did] = Node(did, deck_name, "Deck")
-            edges.append(Edge(did, cid, f"CONTAINS:{board}"))
-            edges.append(Edge(did, pid, "PILOTED_BY"))
+    # Every archetype the card appears in, strongest adoption first; ties broken by
+    # the larger archetype, then name. An archetype without a grouping macro (a
+    # card-running deck missing a macro) is skipped, so the edge target below is
+    # always a macro node that exists.
+    kept = sorted(
+        (
+            (pct(arch_run.get(tag, 0), total), total, tag, name)
+            for tag, (name, total) in arch_total.items()
+            if arch_run.get(tag, 0) and tag in dominant
+        ),
+        key=lambda k: (-k[0], -k[1], k[3]),
+    )
 
-    return Subgraph(nodes=list(nodes.values()), edges=edges)
+    # The readable name sits inside each circle; the adoption percent rides the
+    # edge that reaches it, so the name stays in the node and the number outside.
+    shown_macros = {dominant[tag][1] for _, _, tag, _ in kept}
+    for macro in sorted(shown_macros, key=lambda m: -pct(macro_run.get(m, 0), macro_total[m])):
+        mid = f"macro:{macro}"
+        nodes.append(Node(mid, macro, "Macro", shape="circle"))
+        edges.append(
+            Edge(card_id, mid, pct_label(macro_run.get(macro, 0), macro_total[macro]), visible=True)
+        )
+    for _p, total, tag, name in kept:
+        aid = f"arch:{tag}"
+        nodes.append(Node(aid, name, "Archetype", shape="circle"))
+        edges.append(
+            Edge(f"macro:{dominant[tag][1]}", aid, pct_label(arch_run.get(tag, 0), total), visible=True)
+        )
+
+    return Subgraph(nodes=nodes, edges=edges)
 
 
 def card_cooccurrence_subgraph(
@@ -500,8 +600,8 @@ def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
     match spec:
         case PilotNeighbourhood(pilot, pilot2):
             return pilot_subgraph(conn, pilot, pilot2)
-        case CardUsage(canon):
-            return card_usage_subgraph(conn, canon)
+        case CardUsage(canon, board):
+            return card_usage_subgraph(conn, canon, board)
         case CardCooccurrence(canon, min_shared):
             return card_cooccurrence_subgraph(conn, canon, min_shared)
         case ArchetypeUniqueCards(tag, min_decks):

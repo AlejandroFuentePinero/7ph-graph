@@ -38,7 +38,7 @@ _PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Explore.</p>
 _VIEWS: dict[str, list[str]] = {
     "Pilot head-to-head": ["pilot", "pilot2"],
     "Pilot archetype affinity": ["pilot"],
-    "Card usage": ["card"],
+    "Card usage": ["card", "card_board"],
     "Card co-occurrence": ["card", "min_shared"],
     "Archetype unique cards": ["archetype", "unique_min_decks"],
     "Hidden gems": [
@@ -86,7 +86,9 @@ def _spec(view: str, values: dict) -> QuerySpec | None:
         case "Pilot archetype affinity":
             return PilotAffinity(values["pilot"]) if values["pilot"] else None
         case "Card usage":
-            return CardUsage(values["card"]) if values["card"] else None
+            if not values["card"]:
+                return None
+            return CardUsage(values["card"], values["card_board"] or None)
         case "Card co-occurrence":
             if not values["card"]:
                 return None
@@ -161,6 +163,10 @@ def build_app(db_path: Path) -> gr.Blocks:
                 value=None,
             ),
             "card": gr.Dropdown(choices=cards, label="Card", value=None, visible=False),
+            "card_board": gr.Dropdown(
+                choices=[("Main or side", ""), ("Main", "Main"), ("Side", "Side")],
+                label="Board", value="", visible=False,
+            ),
             "archetype": gr.Dropdown(
                 choices=archetypes, label="Archetype", value=None, visible=False
             ),

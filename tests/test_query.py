@@ -280,45 +280,56 @@ def test_pilot_head_to_head_falls_back_to_one_pilot_when_second_is_empty(tmp_pat
     assert pilot_subgraph(conn, "Jordan C", "") == pilot_subgraph(conn, "Jordan C")
 
 
-def test_card_usage_lists_every_deck_and_pilot_running_the_card(tmp_path, snapshot_dir):
+def test_card_usage_reads_adoption_rate_at_each_tier(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
     decks_by_card = _decks_by_card(snapshot_dir)
-    # A card played in all three decks, i.e. across both pilots.
+    # A card in all three decks: it is 100% adopted everywhere it can be, so every
+    # tier reads 100% and the card headlines 100% of the meta.
     canon = next(c for c, ds in decks_by_card.items() if len(ds) == 3)
 
     sub = card_usage_subgraph(conn, canon)
 
-    by_kind = defaultdict(list)
-    for n in sub.nodes:
-        by_kind[n.kind].append(n)
-
-    assert {n.id for n in by_kind["Card"]} == {f"card:{canon}"}
-    assert {n.id for n in by_kind["Deck"]} == {f"deck:{d}" for d in decks_by_card[canon]}
-    # Pilots are labelled by display name, not the upstream key (AmberTealViper).
-    assert {n.label for n in by_kind["Pilot"]} == {"Jordan C", "Tom S"}
-
-    # Every deck edges to the card it runs and up to its pilot.
-    contains = [e for e in sub.edges if e.label.startswith("CONTAINS")]
-    piloted = [e for e in sub.edges if e.label == "PILOTED_BY"]
-    assert len(contains) == 3
-    assert len(piloted) == 3
+    # The name sits inside each circle; the adoption percent rides its edge.
+    card = next(n for n in sub.nodes if n.kind == "Card")
+    assert card.label.endswith("(100% of meta)")
+    names = {n.label for n in sub.nodes if n.kind in ("Macro", "Archetype")}
+    assert names == {"tempo", "combo", "Grixis", "Storm"}
+    assert {e.label for e in sub.edges} == {"100%"}
+    assert all(e.visible for e in sub.edges)
     node_ids = {n.id for n in sub.nodes}
     for e in sub.edges:
         assert e.source in node_ids and e.target in node_ids
 
 
-def test_card_usage_of_a_grixis_only_card_reaches_one_pilot(tmp_path, snapshot_dir):
+def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
+    # A card in both of Jordan's Grixis lists (tempo) but not Tom's Storm: 100%
+    # adopted in Grixis, absent from Storm, so Storm/combo never appear.
     decks_by_card = _decks_by_card(snapshot_dir)
-    # A card only in Jordan's two identical Grixis lists.
     canon = next(c for c, ds in decks_by_card.items() if ds == JORDAN_DECKS)
 
     sub = card_usage_subgraph(conn, canon)
 
-    decks = {n.id for n in sub.nodes if n.kind == "Deck"}
-    pilots = {n.label for n in sub.nodes if n.kind == "Pilot"}
-    assert decks == {f"deck:{d}" for d in JORDAN_DECKS}
-    assert pilots == {"Jordan C"}
+    # Only Grixis/tempo appear, each 100% on its edge; Storm/combo never do.
+    assert {n.label for n in sub.nodes if n.kind in ("Macro", "Archetype")} == {"tempo", "Grixis"}
+    assert {e.label for e in sub.edges} == {"100%"}
+
+
+def test_card_usage_board_scopes_which_decks_count(tmp_path, snapshot_dir):
+    conn = _connect(tmp_path, snapshot_dir)
+    # cori-steel cutter sits in the main of Jordan's two tempo Grixis decks and
+    # the side of Tom's combo Storm deck, so the board selects which archetype
+    # shows: main -> Grixis only, side -> Storm only, unset -> both.
+    canon = "cori-steel cutter"
+
+    def archetypes(board):
+        sub = card_usage_subgraph(conn, canon, board)
+        return {n.label for n in sub.nodes if n.kind == "Archetype"}
+
+    # Adoption is 100% wherever it appears; the board decides where that is.
+    assert archetypes(None) == {"Grixis", "Storm"}
+    assert archetypes("Main") == {"Grixis"}
+    assert archetypes("Side") == {"Storm"}
 
 
 def test_card_usage_of_unknown_card_is_empty(tmp_path, snapshot_dir):
