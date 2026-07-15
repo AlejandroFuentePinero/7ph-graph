@@ -6,6 +6,8 @@ Derived relationships (card co-occurrence, cards unique to an archetype, hidden 
 
 Note (issue #6): the archetype-to-card query is exclusivity ("cards found only in this archetype's decks", with a support floor), not a lift/distinctiveness "signature". A lift-based signature was tried and rejected because it presumes a card means the same thing in every deck, which does not hold: the same card plays different roles across decks. The graph can honestly assert only where a card appears, not what it does there. Any future distinctiveness metric must account for that.
 
+Note (pilot head-to-head): comparing two pilots is the shared-event overlap (events both entered), not the union of their two records. A union laid out as a top-down hierarchy (pilot -> event -> deck -> placement) was built and rejected: over a prolific pilot's full history it renders as an unreadable hairball, and the tree did not make deck ownership legible either. Narrowing the query to shared events, with each player's chain colour-tinted for attribution, is what keeps it readable. The lever is shrinking the result, not dressing up an oversized one, consistent with render-vs-refine (issue #7).
+
 ## Consequences
 
 The interesting analytics are parameterized (by colour, era, placement), so no single materialisation would serve them, and pairwise co-occurrence as edges would explode the edge count. Keeping the spine to facts keeps the model easy to expand (Scryfall attributes, subtypes and tribes, temporal eras) without re-modelling. Colour Identity is kept as a Deck property, not a node, since it is derivable from the atomic colour edges.

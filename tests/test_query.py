@@ -82,16 +82,21 @@ def _write_snapshot(tmp_path, decks, canons):
     """Write a minimal hand-authored snapshot for a focused test.
 
     ``decks`` is a list of dicts: ``id``, ``tag`` (archetype), ``norm``
-    (placementNorm), and ``m`` / ``s`` (main / side canon lists). ``canons`` is
-    the card catalogue by name.
+    (placementNorm), and ``m`` / ``s`` (main / side canon lists). Optional
+    ``macro`` and ``event`` keys override the defaults (``control`` / ``E``).
+    ``canons`` is the card catalogue by name.
     """
     idx = {c: i for i, c in enumerate(canons)}
     (tmp_path / "decks.json").write_text(json.dumps([
         {
-            "deckId": d["id"], "name": d["id"], "deckName": d["id"],
-            "pilot": "p", "event": "E",
+            # Title reads "<pilot> - <deck>" so the recovered display name is the
+            # deck's ``pilot`` key, keeping hand-authored pilots distinct.
+            "deckId": d["id"], "name": f"{d.get('pilot', 'p')} - {d['id']}",
+            "deckName": d["id"],
+            "pilot": d.get("pilot", "p"), "event": d.get("event", "E"),
             "eventId": f"evt_{d['id']}", "eventType": "Tournament", "placement": 1,
-            "placementNorm": d["norm"], "colour": "colour:U", "macro": "macro:control",
+            "placementNorm": d["norm"], "colour": "colour:U",
+            "macro": f"macro:{d.get('macro', 'control')}",
             "engineTags": [f"engine:{d['tag']}"],
             "engineTagLabels": {f"engine:{d['tag']}": d["tag"].title()},
             "primaryTag": f"engine:{d['tag']}", "primaryTagWeights": {f"engine:{d['tag']}": 100},
@@ -171,6 +176,108 @@ def test_unknown_pilot_yields_empty_subgraph(tmp_path, snapshot_dir):
 
     assert sub.nodes == []
     assert sub.edges == []
+
+
+def test_pilot_head_to_head_shares_the_event_both_played(tmp_path):
+    # Two pilots met at one event (E): each ran their own deck there. The event
+    # is the head-to-head hinge, one shared node both pilots reach, with each
+    # pilot's own deck hanging under it.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "pilot": "p1", "event": "E", "m": ["a"]},
+            {"id": "d2", "tag": "y", "norm": 0.0, "pilot": "p2", "event": "E", "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_subgraph(conn, "p1", "p2")
+
+    events = [n for n in sub.nodes if n.kind == "Event"]
+    assert [n.id for n in events] == ["event:E"]  # one shared event, not two
+    # Both pilots reach it, and both their decks hang off it.
+    assert ("pilot:p1", "event:E", "PLAYED_AT") in [
+        (e.source, e.target, e.label) for e in sub.edges
+    ]
+    assert ("pilot:p2", "event:E", "PLAYED_AT") in [
+        (e.source, e.target, e.label) for e in sub.edges
+    ]
+    assert {n.id for n in sub.nodes if n.kind == "Deck"} == {"deck:d1", "deck:d2"}
+    assert ("event:E", "deck:d1", "ENTERED") in [
+        (e.source, e.target, e.label) for e in sub.edges
+    ]
+    assert ("event:E", "deck:d2", "ENTERED") in [
+        (e.source, e.target, e.label) for e in sub.edges
+    ]
+
+
+def test_pilot_head_to_head_tags_each_node_with_its_player(tmp_path):
+    # So the render can colour each player's chain: every node a player owns
+    # carries that player's id as its group, and the shared event they both
+    # played stays ungrouped (neutral).
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "pilot": "p1", "event": "E", "m": ["a"]},
+            {"id": "d2", "tag": "y", "norm": 0.0, "pilot": "p2", "event": "E", "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_subgraph(conn, "p1", "p2")
+
+    group = {n.id: n.group for n in sub.nodes}
+    assert group["pilot:p1"] == "pilot:p1"
+    assert group["pilot:p2"] == "pilot:p2"
+    assert group["deck:d1"] == "pilot:p1"
+    assert group["deck:d2"] == "pilot:p2"
+    assert group["placement:d1"] == "pilot:p1"
+    assert group["event:E"] is None  # both played it, so it belongs to neither
+
+
+def test_pilot_single_neighbourhood_has_no_player_groups(tmp_path, snapshot_dir):
+    # One pilot has no second player to contrast, so every node stays ungrouped
+    # (coloured by kind, not by player).
+    conn = _connect(tmp_path, snapshot_dir)
+
+    sub = pilot_subgraph(conn, "Jordan C")
+
+    assert all(n.group is None for n in sub.nodes)
+
+
+def test_pilot_head_to_head_drops_events_only_one_pilot_played(tmp_path):
+    # The head-to-head is the overlap: an event only one pilot played is not a
+    # meeting, so it and its deck are dropped. Only the shared event survives.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.0, "pilot": "p1", "event": "solo1", "m": ["a"]},
+            {"id": "d2", "tag": "x", "norm": 0.0, "pilot": "p1", "event": "shared", "m": ["a"]},
+            {"id": "d3", "tag": "y", "norm": 0.0, "pilot": "p2", "event": "solo2", "m": ["a"]},
+            {"id": "d4", "tag": "y", "norm": 0.0, "pilot": "p2", "event": "shared", "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_subgraph(conn, "p1", "p2")
+
+    assert {n.id for n in sub.nodes if n.kind == "Event"} == {"event:shared"}
+    decks = {n.id for n in sub.nodes if n.kind == "Deck"}
+    assert decks == {"deck:d2", "deck:d4"}  # the solo-event decks are gone
+    # Both pilots still reach the one shared event.
+    played = {(e.source, e.target) for e in sub.edges if e.label == "PLAYED_AT"}
+    assert played == {("pilot:p1", "event:shared"), ("pilot:p2", "event:shared")}
+
+
+def test_pilot_head_to_head_falls_back_to_one_pilot_when_second_is_empty(tmp_path, snapshot_dir):
+    # An empty second pilot is the ordinary neighbourhood: the two-arg call with
+    # no second pilot matches the plain single-pilot call exactly.
+    conn = _connect(tmp_path, snapshot_dir)
+
+    assert pilot_subgraph(conn, "Jordan C", "") == pilot_subgraph(conn, "Jordan C")
 
 
 def test_card_usage_lists_every_deck_and_pilot_running_the_card(tmp_path, snapshot_dir):
@@ -461,29 +568,28 @@ def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path):
     assert "card:gem" not in {n.id for n in trusted.nodes}
 
 
-def test_pilot_affinity_weights_archetypes_by_event_count(tmp_path, snapshot_dir):
+def test_pilot_affinity_tiers_pilot_macro_archetype_by_event_count(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
 
-    # Jordan is a Grixis specialist: both his decks carry the one archetype, and
-    # they were played at two different events (CFWAT25, PogNov25).
+    # Jordan is a Grixis specialist: both decks are tempo/Grixis, played at two
+    # different events (CFWAT25, PogNov25). The macro sits between the pilot and
+    # the archetype, and both tiers count the same two events.
     sub = pilot_affinity_subgraph(conn, "Jordan C")
 
-    pilots = [n for n in sub.nodes if n.kind == "Pilot"]
-    archetypes = [n for n in sub.nodes if n.kind == "Archetype"]
-    assert [n.label for n in pilots] == ["Jordan C"]
-    assert [n.label for n in archetypes] == ["Grixis"]
-    # The archetype node carries its event count as a weight, and the edge label
-    # shows the same count.
-    assert [n.weight for n in archetypes] == [2]
+    assert [n.label for n in sub.nodes if n.kind == "Pilot"] == ["Jordan C"]
+    assert [(n.label, n.weight) for n in sub.nodes if n.kind == "Macro"] == [("tempo", 2)]
+    assert [(n.label, n.weight) for n in sub.nodes if n.kind == "Archetype"] == [("Grixis", 2)]
+    # pilot -> macro -> archetype, every edge labelled by the event count.
     assert [(e.source, e.target, e.label) for e in sub.edges] == [
-        ("pilot:Jordan C", "arch:grixis", "PLAYS:2")
+        ("pilot:Jordan C", "macro:tempo", "PLAYS:2"),
+        ("macro:tempo", "arch:grixis", "PLAYS:2"),
     ]
 
 
 def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path):
-    # One pilot, three decks of one archetype, all registered at the same event.
-    # The affinity is one event, not three decks: it measures showing up, not
-    # how many variants were entered on the day.
+    # One pilot, three decks of one macro/archetype, all at the same event. The
+    # affinity is one event, not three decks: it measures showing up, not how
+    # many variants were entered on the day. Both tiers see one event.
     _write_snapshot(
         tmp_path,
         [
@@ -497,9 +603,38 @@ def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path):
 
     sub = pilot_affinity_subgraph(conn, "p")
 
-    arch = [n for n in sub.nodes if n.kind == "Archetype"]
-    assert [n.weight for n in arch] == [1]
-    assert [e.label for e in sub.edges] == ["PLAYS:1"]
+    assert [n.weight for n in sub.nodes if n.kind == "Macro"] == [1]
+    assert [n.weight for n in sub.nodes if n.kind == "Archetype"] == [1]
+    assert [e.label for e in sub.edges] == ["PLAYS:1", "PLAYS:1"]
+
+
+def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path):
+    # A generalist: Rakdos played as both aggro (event E1) and midrange (E2),
+    # plus a Boros aggro list (E3). The archetype an already-seen name reappears
+    # under is one shared node with an edge from each macro, sized by its events
+    # across both; each macro edge carries only that macro's events.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "event": "E1", "m": ["a"]},
+            {"id": "d2", "tag": "rakdos", "norm": 0.0, "macro": "midrange", "event": "E2", "m": ["a"]},
+            {"id": "d3", "tag": "boros", "norm": 0.0, "macro": "aggro", "event": "E3", "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_affinity_subgraph(conn, "p")
+
+    # Rakdos is one node (not one per macro), weighted by its two events.
+    rakdos = [n for n in sub.nodes if n.kind == "Archetype" and n.label == "Rakdos"]
+    assert len(rakdos) == 1 and rakdos[0].weight == 2
+    macros = {n.label: n.weight for n in sub.nodes if n.kind == "Macro"}
+    assert macros == {"aggro": 2, "midrange": 1}
+    edges = {(e.source, e.target): e.label for e in sub.edges}
+    assert edges[("macro:aggro", "arch:rakdos")] == "PLAYS:1"
+    assert edges[("macro:midrange", "arch:rakdos")] == "PLAYS:1"
+    assert edges[("macro:aggro", "arch:boros")] == "PLAYS:1"
 
 
 def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot_dir):
@@ -509,7 +644,10 @@ def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot
     sub = pilot_affinity_subgraph(conn, "AmberTealViper")
 
     assert [n.label for n in sub.nodes if n.kind == "Pilot"] == ["Tom S"]
-    assert [(e.target, e.label) for e in sub.edges] == [("arch:storm", "PLAYS:1")]
+    assert [(e.source, e.target, e.label) for e in sub.edges] == [
+        ("pilot:AmberTealViper", "macro:combo", "PLAYS:1"),
+        ("macro:combo", "arch:storm", "PLAYS:1"),
+    ]
 
 
 def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir):
@@ -529,6 +667,10 @@ def test_run_query_dispatches_a_spec_to_its_query(tmp_path, snapshot_dir):
     assert run_query(conn, PilotNeighbourhood("Jordan C")) == pilot_subgraph(
         conn, "Jordan C"
     )
+    # The optional second pilot rides the same spec through to the query.
+    assert run_query(
+        conn, PilotNeighbourhood("Jordan C", "AmberTealViper")
+    ) == pilot_subgraph(conn, "Jordan C", "AmberTealViper")
 
 
 def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
