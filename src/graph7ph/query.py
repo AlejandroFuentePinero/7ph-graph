@@ -8,8 +8,8 @@ and its parameters, and ``run_query`` is the single seam that maps a spec to its
 function, so v1's controls and v2's RAG agent drive the same layer.
 
 Node ids are namespaced by kind (``pilot:``/``deck:``/``card:``/``arch:``/
-``event:``/``placement:``) so nodes of different kinds can never collide on a
-shared string.
+``macro:``/``event:``/``placement:``) so nodes of different kinds can never
+collide on a shared string.
 """
 
 from dataclasses import dataclass
@@ -19,7 +19,7 @@ import kuzu
 
 from graph7ph.db import rows
 
-Kind = Literal["Pilot", "Deck", "Card", "Archetype", "Event", "Placement"]
+Kind = Literal["Pilot", "Deck", "Card", "Archetype", "Macro", "Event", "Placement"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,9 @@ class Node:
     # An optional analytic weight the renderer sizes the node by (e.g. a pilot's
     # event count per archetype). ``None`` renders at the default size.
     weight: int | None = None
+    # An optional grouping the renderer colours by instead of kind, used to tint
+    # a head-to-head by player. ``None`` falls back to the kind colour.
+    group: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,9 @@ class Subgraph:
 @dataclass(frozen=True)
 class PilotNeighbourhood:
     pilot: str
+    # An optional second pilot turns the view into a head-to-head; empty or unset
+    # leaves it the single pilot's neighbourhood.
+    pilot2: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,41 +110,69 @@ def _ordinal(placement: int) -> str:
     return f"{placement}{suffix}"
 
 
-def pilot_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
-    """A pilot's record as a chain: pilot -> event -> deck -> placement.
+def pilot_subgraph(
+    conn: kuzu.Connection, pilot: str, pilot2: str | None = None
+) -> Subgraph:
+    """One pilot's record, or two pilots' head-to-head, as event-rooted chains.
 
-    The pilot is the hub; each event they played branches off, and off each event
+    Each pilot is a hub; every event they played branches off, and off each event
     hangs the deck they ran there and, off the deck, where it placed. The deck is
     labelled by its own name (e.g. "Grixis"), free of the placement and pilot that
     clutter the full deck title. One deck per pilot per event (ADR 0004) keeps
     every branch a clean line. Cards are left out on purpose: a pilot's whole card
-    pool floods the view without telling this story. The pilot is keyed on the
+    pool floods the view without telling this story. A pilot is keyed on the
     upstream id but labelled by display name; a placement is a leaf per deck so
     shared ranks never collapse decks together.
+
+    With ``pilot2`` the view narrows to the head-to-head: only events both pilots
+    played are kept, each a neutral node the two reach, with each pilot's own deck
+    under it (no deck is ever shared, ADR 0004). The two chains are tinted by
+    player so it reads at a glance which pilot ran which deck. Events only one of
+    them played are dropped, as they are not a head-to-head. An empty ``pilot2``
+    (or the same pilot twice) falls back to the first pilot's full record alone.
     """
+    head_to_head = bool(pilot2) and pilot2 != pilot
+    keys = [pilot, pilot2] if head_to_head else [pilot]
     res = conn.execute(
-        """MATCH (p:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE p.pilot IN $keys
            RETURN p.pilot, p.displayName, e.event, d.deckId, d.deckName,
                   d.placement""",
-        {"pilot": pilot},
+        {"keys": keys},
     )
+    records = list(rows(res))
+
+    # Which pilots played each event, so the head-to-head can keep only the ones
+    # both did and tint each kept chain by its player.
+    event_pilots: dict[str, set[str]] = {}
+    for pilot_key, _, event, *_ in records:
+        event_pilots.setdefault(f"event:{event}", set()).add(f"pilot:{pilot_key}")
+
+    def owner(pid: str) -> str | None:
+        return pid if head_to_head else None
 
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []
+    played: set[tuple[str, str]] = set()  # (pilot, event), so a shared event
 
-    for pilot_key, pilot_name, event, deck_id, deck_name, placement in rows(res):
+    for pilot_key, pilot_name, event, deck_id, deck_name, placement in records:
         pid = f"pilot:{pilot_key}"
         eid = f"event:{event}"
         did = f"deck:{deck_id}"
-        nodes.setdefault(pid, Node(pid, pilot_name, "Pilot"))
-        if eid not in nodes:
-            nodes[eid] = Node(eid, event, "Event")
+        if head_to_head and len(event_pilots[eid]) < 2:
+            continue  # only events both pilots played are a head-to-head
+        nodes.setdefault(pid, Node(pid, pilot_name, "Pilot", group=owner(pid)))
+        nodes.setdefault(eid, Node(eid, event, "Event"))  # neutral: both played it
+        if (pid, eid) not in played:  # keeps both pilots' edges to a shared event
+            played.add((pid, eid))
             edges.append(Edge(pid, eid, "PLAYED_AT"))
-        nodes.setdefault(did, Node(did, deck_name, "Deck"))
+        nodes.setdefault(did, Node(did, deck_name, "Deck", group=owner(pid)))
         edges.append(Edge(eid, did, "ENTERED"))
         if placement is not None:
             plid = f"placement:{deck_id}"
-            nodes.setdefault(plid, Node(plid, _ordinal(placement), "Placement"))
+            nodes.setdefault(
+                plid, Node(plid, _ordinal(placement), "Placement", group=owner(pid))
+            )
             edges.append(Edge(did, plid, "PLACED"))
 
     return Subgraph(nodes=list(nodes.values()), edges=edges)
@@ -355,38 +389,76 @@ def hidden_gems_subgraph(
 
 
 def pilot_affinity_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
-    """A pilot and the archetypes they play, weighted by distinct events.
+    """A pilot's play grouped through macro strategy to archetype, by events.
 
-    Shows whether a pilot is a specialist or a generalist (user story 16): the
-    pilot is the hub and each archetype node is sized (and its edge labelled) by
-    the number of distinct events the pilot registered that archetype at. Events
-    rather than decks, so a pilot who entered several variants of one archetype
-    on a single day counts once for showing up, not once per list. The pilot is
-    keyed on the upstream id but labelled by display name.
+    Shows whether a pilot is a specialist or a generalist (user story 16) with a
+    macro tier between the pilot and the noisy archetype names: pilot -> macro
+    (aggro, midrange, ...) -> archetype (Rakdos Eclipse, Grixis, ...). The macro
+    is the deck's broad strategic class, so it collapses the unstandardised
+    archetype names ("Rakdos", "Rakdos Aggro", "Rakdos Eclipse") under one
+    readable class. Every node is sized, and every edge labelled, by the number
+    of distinct events the pilot registered it at: the macro by its own events,
+    the archetype by its events across all macros, and the macro->archetype edge
+    by the events the pilot played that archetype within that macro. Events
+    rather than decks, so entering several variants on a single day counts once
+    for showing up. An archetype that a pilot played under two macros is one
+    shared node with an edge from each. The pilot is keyed on the upstream id
+    but labelled by display name.
     """
     res = conn.execute(
         """MATCH (p:Pilot {pilot: $pilot})
-           OPTIONAL MATCH (p)<-[:PILOTED_BY]-(d:Deck)-[:HAS_ARCHETYPE]->(a:Archetype)
+           OPTIONAL MATCH (p)<-[:PILOTED_BY]-(d:Deck)-[:HAS_MACRO]->(m:`Macro`)
            OPTIONAL MATCH (d)-[:PLAYED_AT]->(e:Event)
-           WITH p, a, count(DISTINCT e) AS events
-           RETURN p.pilot, p.displayName, a.tag, a.name, events
-           ORDER BY events DESC, a.tag""",
+           OPTIONAL MATCH (d)-[:HAS_ARCHETYPE]->(a:Archetype)
+           RETURN p.pilot, p.displayName, m.name, a.tag, a.name, e.event""",
         {"pilot": pilot},
     )
 
-    nodes: dict[str, Node] = {}
-    edges: list[Edge] = []
+    pilot_id: str | None = None
+    pilot_label = pilot
+    macro_events: dict[str, set[str]] = {}
+    arch_events: dict[str, set[str]] = {}
+    macro_arch_events: dict[tuple[str, str], set[str]] = {}
+    arch_names: dict[str, str] = {}
 
-    for pilot_key, pilot_name, a_tag, a_name, events in rows(res):
-        pid = f"pilot:{pilot_key}"
-        nodes.setdefault(pid, Node(pid, pilot_name, "Pilot"))
+    for pilot_key, pilot_name, macro, a_tag, a_name, event in rows(res):
+        pilot_id = f"pilot:{pilot_key}"
+        pilot_label = pilot_name
+        if macro is None:
+            continue
+        macro_events.setdefault(macro, set())
+        if event is not None:
+            macro_events[macro].add(event)
         if a_tag is None:
             continue
-        aid = f"arch:{a_tag}"
-        nodes.setdefault(aid, Node(aid, a_name, "Archetype", weight=events))
-        edges.append(Edge(pid, aid, f"PLAYS:{events}"))
+        arch_names[a_tag] = a_name
+        arch_events.setdefault(a_tag, set())
+        macro_arch_events.setdefault((macro, a_tag), set())
+        if event is not None:
+            arch_events[a_tag].add(event)
+            macro_arch_events[(macro, a_tag)].add(event)
 
-    return Subgraph(nodes=list(nodes.values()), edges=edges)
+    if pilot_id is None:  # no such pilot; MATCH bound nothing
+        return Subgraph(nodes=[], edges=[])
+
+    nodes: list[Node] = [Node(pilot_id, pilot_label, "Pilot")]
+    edges: list[Edge] = []
+
+    # Macros first, then archetypes, each biggest affinity first for a stable
+    # order the renderer can lay out consistently.
+    for macro, events in sorted(macro_events.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        mid = f"macro:{macro}"
+        nodes.append(Node(mid, macro, "Macro", weight=len(events)))
+        edges.append(Edge(pilot_id, mid, f"PLAYS:{len(events)}"))
+    for a_tag, events in sorted(arch_events.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        aid = f"arch:{a_tag}"
+        nodes.append(Node(aid, arch_names[a_tag], "Archetype", weight=len(events)))
+    for (macro, a_tag), events in sorted(
+        macro_arch_events.items(), key=lambda kv: (kv[0][0], -len(kv[1]), kv[0][1])
+    ):
+        edges.append(Edge(f"macro:{macro}", f"arch:{a_tag}", f"PLAYS:{len(events)}"))
+
+    return Subgraph(nodes=nodes, edges=edges)
 
 
 def _deck_slice(
@@ -426,8 +498,8 @@ def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
     case below.
     """
     match spec:
-        case PilotNeighbourhood(pilot):
-            return pilot_subgraph(conn, pilot)
+        case PilotNeighbourhood(pilot, pilot2):
+            return pilot_subgraph(conn, pilot, pilot2)
         case CardUsage(canon):
             return card_usage_subgraph(conn, canon)
         case CardCooccurrence(canon, min_shared):

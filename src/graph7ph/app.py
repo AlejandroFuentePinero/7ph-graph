@@ -36,7 +36,7 @@ _PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Explore.</p>
 # Each view names the query it drives and the input widgets it needs. The widget
 # keys index into the fixed widget set below; a view shows exactly its keys.
 _VIEWS: dict[str, list[str]] = {
-    "Pilot neighbourhood": ["pilot"],
+    "Pilot head-to-head": ["pilot", "pilot2"],
     "Pilot archetype affinity": ["pilot"],
     "Card usage": ["card"],
     "Card co-occurrence": ["card", "min_shared"],
@@ -79,8 +79,10 @@ def _spec(view: str, values: dict) -> QuerySpec | None:
     """Build the query spec a view's control values describe, or ``None`` when a
     required entity has not been chosen yet."""
     match view:
-        case "Pilot neighbourhood":
-            return PilotNeighbourhood(values["pilot"]) if values["pilot"] else None
+        case "Pilot head-to-head":
+            if not values["pilot"]:
+                return None
+            return PilotNeighbourhood(values["pilot"], values["pilot2"] or None)
         case "Pilot archetype affinity":
             return PilotAffinity(values["pilot"]) if values["pilot"] else None
         case "Card usage":
@@ -149,11 +151,15 @@ def build_app(db_path: Path) -> gr.Blocks:
             "result. Click a node for its details; a deck links out to Moxfield."
         )
         view = gr.Dropdown(
-            choices=list(_VIEWS), label="Explore", value="Pilot neighbourhood"
+            choices=list(_VIEWS), label="Explore", value="Pilot head-to-head"
         )
         # The fixed widget set; each view shows only the widgets it names.
         w = {
             "pilot": gr.Dropdown(choices=pilots, label="Pilot", value=None),
+            "pilot2": gr.Dropdown(
+                choices=pilots, label="Second pilot (optional, for head-to-head)",
+                value=None,
+            ),
             "card": gr.Dropdown(choices=cards, label="Card", value=None, visible=False),
             "archetype": gr.Dropdown(
                 choices=archetypes, label="Archetype", value=None, visible=False

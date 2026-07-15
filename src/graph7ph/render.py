@@ -19,9 +19,14 @@ _COLOURS = {
     "Deck": "#4e79a7",
     "Card": "#59a14f",
     "Archetype": "#f28e2b",
+    "Macro": "#edc948",
     "Event": "#b07aa1",
     "Placement": "#bab0ac",
 }
+
+# A head-to-head tints each player's chain instead of colouring by kind, so the
+# two players read apart at a glance; up to two get these distinct hues.
+_PLAYER_COLOURS = ["#4e79a7", "#f28e2b"]
 
 # A deck's stable id is its Moxfield public id, so its authoritative list is a
 # direct construction (confirmed against the source's own ``url`` field).
@@ -39,20 +44,32 @@ def render_subgraph(subgraph: Subgraph) -> str:
     net = Network(
         height="700px", width="100%", directed=True, cdn_resources="in_line"
     )
+    # A stable colour per player group present, so the two chains stay distinct.
+    groups = sorted({n.group for n in subgraph.nodes if n.group is not None})
+    palette = {g: _PLAYER_COLOURS[i % len(_PLAYER_COLOURS)] for i, g in enumerate(groups)}
+    group_by_id = {n.id: n.group for n in subgraph.nodes}
     for node in subgraph.nodes:
         # A weighted node is sized by its value; vis.js scales the values in the
         # graph between a min and max radius, so bigger weight reads as a bigger
         # node. Unweighted nodes render at the default size.
         weighted = {"value": node.weight} if node.weight is not None else {}
+        # A grouped node takes its player colour; a plain node the kind colour.
+        colour = palette[node.group] if node.group is not None else _COLOURS.get(node.kind)
         net.add_node(
             node.id,
             label=node.label,
             title=f"{node.kind}: {node.label}",
-            color=_COLOURS.get(node.kind),
+            color=colour,
             **weighted,
         )
     for edge in subgraph.edges:
-        net.add_edge(edge.source, edge.target, title=edge.label)
+        # Tint the edge to match its player so a chain reads as one colour; an
+        # edge touching the neutral shared event takes the player on its other
+        # end. The two players never share an edge (only the neutral event), so
+        # source-or-target is unambiguous.
+        player = group_by_id.get(edge.source) or group_by_id.get(edge.target)
+        tint = {"color": palette[player]} if player is not None else {}
+        net.add_edge(edge.source, edge.target, title=edge.label, **tint)
 
     meta = {
         node.id: {
