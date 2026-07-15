@@ -14,7 +14,7 @@ uv sync
 
 ```sh
 uv run graph7ph fetch   # download 7phstats data into snapshots/<timestamp>/
-uv run graph7ph build   # load the latest snapshot into graph.kuzu
+uv run graph7ph build   # load the latest snapshot into data/graph.kuzu
 uv run graph7ph app     # launch the Gradio explorer
 ```
 

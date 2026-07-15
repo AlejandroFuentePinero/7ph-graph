@@ -19,6 +19,8 @@ _COLOURS = {
     "Deck": "#4e79a7",
     "Card": "#59a14f",
     "Archetype": "#f28e2b",
+    "Event": "#b07aa1",
+    "Placement": "#bab0ac",
 }
 
 # A deck's stable id is its Moxfield public id, so its authoritative list is a

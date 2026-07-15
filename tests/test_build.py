@@ -117,7 +117,7 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
     # (CONTEXT.md / issue-3 AC #2). The shared fixture only has single-archetype
     # decks, so this hand-authored snapshot exercises the multi-archetype path.
     (tmp_path / "decks.json").write_text(json.dumps([{
-        "deckId": "d1", "name": "n", "pilot": "p", "event": "E",
+        "deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "E",
         "eventId": "evt_1", "eventType": "Tournament", "placement": 1,
         "placementNorm": 0.0, "colour": "colour:UB", "macro": "macro:control",
         "engineTags": ["engine:grixis", "engine:control"],

@@ -71,7 +71,8 @@ class DeckArchetype(BaseModel):
 
 class Deck(_Raw):
     deck_id: str
-    name: str
+    name: str  # the full deck title: "<placement> <pilot> - <deck> - <event>"
+    deck_name: str  # just the deck's name, e.g. "Grixis", clean of placement and pilot
     pilot: str
     event: str
     event_id: str | None = None

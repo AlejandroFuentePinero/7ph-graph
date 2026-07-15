@@ -12,9 +12,16 @@ import pytest
 from graph7ph.pilots import display_name_from_title, resolve_pilots
 
 
-def _deck(deck_id, pilot, title):
-    """A minimal stand-in for a Deck: resolution only reads these three fields."""
-    return SimpleNamespace(deck_id=deck_id, pilot=pilot, name=title)
+def _deck(deck_id, pilot, title, event=None, placement=1):
+    """A minimal stand-in for a Deck: resolution reads these five fields.
+
+    ``event`` defaults to the deck id so unrelated decks never collide on a
+    shared event; collision tests pass an explicit shared event.
+    """
+    return SimpleNamespace(
+        deck_id=deck_id, pilot=pilot, name=title,
+        event=event or deck_id, placement=placement,
+    )
 
 
 def _pilot(resolution, pilot_id):
@@ -155,6 +162,57 @@ def test_null_bucket_is_reported_and_excluded_from_under_merges():
     assert all(p.low_confidence for p in res.report.null_pilots)
 
 
+def test_same_event_duplicates_split_into_numbered_people():
+    # Three decks under one id at one event are three people sharing a name, not
+    # one person with three lists. They split into numbered identities.
+    decks = [
+        _deck("d1", "Daniel S", "14th Dan S - Dimir - NHC26", event="NHC26", placement=14),
+        _deck("d2", "Daniel S", "87th Dan S - Jeskai - NHC26", event="NHC26", placement=87),
+        _deck("d3", "Daniel S", "154th Dan S - Breach - NHC26", event="NHC26", placement=154),
+    ]
+
+    res = resolve_pilots(decks)
+
+    # Three distinct pilots, one deck each, numbered by placement order.
+    assert {p.display_name for p in res.pilots} == {"Dan S 1", "Dan S 2", "Dan S 3"}
+    assert len({res.deck_pilot[d.deck_id] for d in decks}) == 3
+    assert all(p.low_confidence for p in res.pilots)
+    split = next(s for s in res.report.event_splits if s.display_name == "Dan S")
+    assert split.people == ["Dan S 1", "Dan S 2", "Dan S 3"]
+
+
+def test_split_keeps_one_per_event_record_and_spins_off_only_extras():
+    # A pilot with one deck at most events and a single two-deck collision keeps
+    # a full one-per-event record on identity 1; only the extra deck spins off.
+    decks = [
+        _deck("a", "Dan S", "05th Dan S - Storm - E1", event="E1", placement=5),
+        _deck("b", "Dan S", "10th Dan S - Storm - E2", event="E2", placement=10),
+        _deck("c", "Dan S", "20th Dan S - Storm - E2", event="E2", placement=20),
+    ]
+
+    res = resolve_pilots(decks)
+
+    # Identity 1 keeps E1 and the better-placed E2 deck; identity 2 gets the rest.
+    p1, p2 = res.deck_pilot["a"], res.deck_pilot["c"]
+    assert res.deck_pilot["a"] == res.deck_pilot["b"] != res.deck_pilot["c"]
+    display = {p.pilot: p.display_name for p in res.pilots}
+    assert display[p1] == "Dan S 1"
+    assert display[p2] == "Dan S 2"
+
+
+def test_no_collision_leaves_the_pilot_untouched():
+    # One deck per event is the norm; nothing is split and no name is renumbered.
+    decks = [
+        _deck("d1", "Nick C", "05th Nick C - Izzet - CFWAT25", event="CFWAT25"),
+        _deck("d2", "Nick C", "12th Nick C - Izzet - PogNov25", event="PogNov25"),
+    ]
+
+    res = resolve_pilots(decks)
+
+    assert [p.display_name for p in res.pilots] == ["Nick C"]
+    assert res.report.event_splits == []
+
+
 def _build_snapshot(tmp_path, decks):
     """Write a minimal, buildable snapshot (one shared card) for the given decks."""
     import json
@@ -171,7 +229,8 @@ def _build_snapshot(tmp_path, decks):
 
 def _raw_deck(deck_id, pilot, title):
     return {
-        "deckId": deck_id, "name": title, "pilot": pilot, "event": "E",
+        "deckId": deck_id, "name": title, "deckName": "Grixis",
+        "pilot": pilot, "event": "E",
         "eventId": "evt_1", "eventType": "Tournament", "placement": 1,
         "placementNorm": 0.0, "colour": "colour:U", "macro": "macro:tempo",
         "engineTags": [], "engineTagLabels": {}, "primaryTag": "",

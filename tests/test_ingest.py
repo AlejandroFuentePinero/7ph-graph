@@ -26,7 +26,7 @@ from graph7ph.models import Card, Containment, Deck, Snapshot
 
 def deck(deck_id, *, pilot="pilot", event="E", placement=1, **over) -> Deck:
     fields = dict(
-        deck_id=deck_id, name=f"{deck_id} deck", pilot=pilot, event=event,
+        deck_id=deck_id, name=f"{deck_id} deck", deck_name="deck", pilot=pilot, event=event,
         event_type="Tournament", placement=placement, placement_norm=0.0,
         colour="colour:U", macro="macro:tempo", engine_tags=[],
         engine_tag_labels={}, primary_tag="", primary_tag_weights={},
@@ -131,7 +131,7 @@ def _write_snapshot_dir(path, *, decks, cards_index):
 
 
 _VALID_DECKS = json.dumps([{
-    "deckId": "d1", "name": "n", "pilot": "p", "event": "E",
+    "deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "E",
     "eventType": "Tournament", "placement": 1, "placementNorm": 0.0,
     "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
     "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
@@ -165,7 +165,7 @@ def test_html_body_hard_fails(tmp_path):
 
 def _snapshot_files(deck_ids):
     decks = json.dumps([{
-        "deckId": did, "name": "n", "pilot": "p", "event": "E",
+        "deckId": did, "name": "n", "deckName": "n", "pilot": "p", "event": "E",
         "eventId": "evt_1", "eventType": "Tournament",
         "placement": 1, "placementNorm": 0.0,
         "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],

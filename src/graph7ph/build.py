@@ -26,8 +26,8 @@ _SCHEMA = [
     "CREATE NODE TABLE Pilot(pilot STRING, displayName STRING, "
     "lowConfidence BOOLEAN, PRIMARY KEY(pilot))",
     """CREATE NODE TABLE Deck(
-        deckId STRING, name STRING, placement INT64, placementNorm DOUBLE,
-        colourIdentity STRING, PRIMARY KEY(deckId))""",
+        deckId STRING, name STRING, deckName STRING, placement INT64,
+        placementNorm DOUBLE, colourIdentity STRING, PRIMARY KEY(deckId))""",
     """CREATE NODE TABLE Card(
         canon STRING, name STRING, type STRING, manaValue DOUBLE,
         reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
@@ -91,6 +91,7 @@ def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
     written alongside the database at :func:`reconciliation_path` (ADR 0004).
     """
     db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     _remove(db_path)
 
     pilots = resolve_pilots(snapshot.decks)
@@ -133,10 +134,11 @@ def _load_nodes(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResoluti
 
     _load(conn,
           """UNWIND $rows AS r CREATE (:Deck {deckId: r.deckId, name: r.name,
-             placement: r.placement, placementNorm: r.placementNorm,
-             colourIdentity: r.colourIdentity})""",
-          [{"deckId": d.deck_id, "name": d.name, "placement": d.placement,
-            "placementNorm": d.placement_norm, "colourIdentity": d.colour_identity}
+             deckName: r.deckName, placement: r.placement,
+             placementNorm: r.placementNorm, colourIdentity: r.colourIdentity})""",
+          [{"deckId": d.deck_id, "name": d.name, "deckName": d.deck_name,
+            "placement": d.placement, "placementNorm": d.placement_norm,
+            "colourIdentity": d.colour_identity}
            for d in snapshot.decks])
     _create_nodes(conn, "Card", Card, _CARD_FIELDS, snapshot.cards)
 

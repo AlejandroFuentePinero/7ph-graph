@@ -7,8 +7,9 @@ pilot affinity) live here as query functions instead. A ``QuerySpec`` names one 
 and its parameters, and ``run_query`` is the single seam that maps a spec to its
 function, so v1's controls and v2's RAG agent drive the same layer.
 
-Node ids are namespaced by kind (``pilot:``/``deck:``/``card:``/``arch:``) so
-nodes of different kinds can never collide on a shared string.
+Node ids are namespaced by kind (``pilot:``/``deck:``/``card:``/``arch:``/
+``event:``/``placement:``) so nodes of different kinds can never collide on a
+shared string.
 """
 
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ import kuzu
 
 from graph7ph.db import rows
 
-Kind = Literal["Pilot", "Deck", "Card", "Archetype"]
+Kind = Literal["Pilot", "Deck", "Card", "Archetype", "Event", "Placement"]
 
 
 @dataclass(frozen=True)
@@ -95,34 +96,50 @@ QuerySpec = (
 )
 
 
-def pilot_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
-    """The pilot, their decks, and the cards those decks contain.
+def _ordinal(placement: int) -> str:
+    """A placement as a human ordinal: ``1`` -> ``1st``, ``12`` -> ``12th``."""
+    suffix = "th" if 10 <= placement % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(
+        placement % 10, "th"
+    )
+    return f"{placement}{suffix}"
 
-    The pilot is keyed on the upstream id but labelled by display name.
+
+def pilot_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
+    """A pilot's record as a chain: pilot -> event -> deck -> placement.
+
+    The pilot is the hub; each event they played branches off, and off each event
+    hangs the deck they ran there and, off the deck, where it placed. The deck is
+    labelled by its own name (e.g. "Grixis"), free of the placement and pilot that
+    clutter the full deck title. One deck per pilot per event (ADR 0004) keeps
+    every branch a clean line. Cards are left out on purpose: a pilot's whole card
+    pool floods the view without telling this story. The pilot is keyed on the
+    upstream id but labelled by display name; a placement is a leaf per deck so
+    shared ranks never collapse decks together.
     """
     res = conn.execute(
-        """MATCH (p:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)
-           OPTIONAL MATCH (d)-[c:CONTAINS]->(card:Card)
-           RETURN p.pilot, p.displayName, d.deckId, d.name,
-                  card.canon, card.name, c.board""",
+        """MATCH (p:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+           RETURN p.pilot, p.displayName, e.event, d.deckId, d.deckName,
+                  d.placement""",
         {"pilot": pilot},
     )
 
     nodes: dict[str, Node] = {}
     edges: list[Edge] = []
 
-    for pilot_key, pilot_name, deck_id, deck_name, canon, card_name, board in rows(res):
+    for pilot_key, pilot_name, event, deck_id, deck_name, placement in rows(res):
         pid = f"pilot:{pilot_key}"
+        eid = f"event:{event}"
         did = f"deck:{deck_id}"
         nodes.setdefault(pid, Node(pid, pilot_name, "Pilot"))
-        if did not in nodes:
-            nodes[did] = Node(did, deck_name, "Deck")
-            edges.append(Edge(did, pid, "PILOTED_BY"))
-
-        if canon is not None:
-            cid = f"card:{canon}"
-            nodes.setdefault(cid, Node(cid, card_name, "Card"))
-            edges.append(Edge(did, cid, f"CONTAINS:{board}"))
+        if eid not in nodes:
+            nodes[eid] = Node(eid, event, "Event")
+            edges.append(Edge(pid, eid, "PLAYED_AT"))
+        nodes.setdefault(did, Node(did, deck_name, "Deck"))
+        edges.append(Edge(eid, did, "ENTERED"))
+        if placement is not None:
+            plid = f"placement:{deck_id}"
+            nodes.setdefault(plid, Node(plid, _ordinal(placement), "Placement"))
+            edges.append(Edge(did, plid, "PLACED"))
 
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 

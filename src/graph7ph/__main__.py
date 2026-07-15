@@ -1,7 +1,7 @@
 """CLI: ``graph7ph fetch | build | app``.
 
 Wires the fetch, build, and app seams into the three commands issue 2 asks for.
-Paths default to the repo root and are overridable by flag.
+Paths default under the repo's ``data/`` directory and are overridable by flag.
 """
 
 import argparse
@@ -11,8 +11,10 @@ from graph7ph.build import reconciliation_path
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 
+# Build outputs live under data/, not the repo root: the graph and its sidecar
+# reports are derived artifacts, kept out of the working tree's top level.
 SNAPSHOTS_ROOT = Path("snapshots")
-DB_PATH = Path("graph.kuzu")
+DB_PATH = Path("data/graph.kuzu")
 
 
 def _fetch(args: argparse.Namespace) -> None:
