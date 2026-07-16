@@ -64,6 +64,43 @@ def test_optional_source_fields_tolerate_nulls():
     assert deck.placement is None and deck.placement_norm is None
 
 
+def _deck(**overrides):
+    return Deck.model_validate(
+        {"deckId": "d", "name": "n", "deckName": "n", "pilot": "p", "event": "e",
+         "eventType": "Tournament", "placement": None, "placementNorm": None,
+         "createdAt": "2025-06-01T00:00:00+00:00",
+         "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
+         "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}} | overrides
+    )
+
+
+@pytest.mark.parametrize(
+    "title, placement, expected",
+    [
+        # A top cut is a placement the source left null: CanBrawl2 numbers 9th
+        # and below, and records its top eight only as "Top 4" / "Top 8".
+        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", None, 8),
+        ("Top 4 Justin C - Jund - CanBrawl2", None, 4),
+        ("Top 8  Benjamin S - Jund - CanBrawl2", None, 8),
+        # Pats Birthday Brawl numbers nothing, though every title says the rank.
+        ("1st - Robert L - Pats Birthday Brawl", None, 1),
+        ("2nd - Jared A - Pats Birthday Brawl", None, 2),
+        # A range reads as its worst rank, as the source itself numbers them.
+        ("3rd/4th - Brennan C - Pats Birthday Brawl", None, 4),
+        ("5th-8th - Liam B - Pats Birthday Brawl", None, 8),
+        # A real placement always wins; the title never overrides the source.
+        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", 3, 3),
+        # A placeholder rank carries no number, so it stays unknown.
+        ("??st Andrew V - Mox Jund - CFWAT25", None, None),
+        ("XXth Jayden G - Storm - PogNov25", None, None),
+        # No placement token at all (the null-pilot titles at Area52IQ).
+        ("Darcy - Mono R - Area52IQ", None, None),
+    ],
+)
+def test_placement_recovered_from_the_title_when_source_has_none(title, placement, expected):
+    assert _deck(name=title, placement=placement).placement == expected
+
+
 def test_out_of_range_card_id_raises_a_clear_error(tmp_path):
     (tmp_path / "decks.json").write_text(json.dumps([
         {"deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "e",

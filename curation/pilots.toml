@@ -1,0 +1,1134 @@
+# Curated pilot-identity decisions (issue #9).
+#
+# The build reads this on every rebuild and applies it deterministically, so a
+# decision recorded once holds for all time. Every entry keys on a STABLE
+# upstream identifier: a pilot id or a deck id. Never key on a display name or a
+# synthetic key (nan:darcy, LunarRedFalcon#2): those shift when the data changes.
+#
+# Wave 1 policy: only decisions grounded on a hard fact go here. When two names
+# could reasonably be two different people, they stay separate and remain a
+# proposal in the reconciliation report until a human confirms them (the second
+# sweep). See docs/adr/0004-pilot-identity.md.
+#
+# Four kinds of decision:
+#
+#   [[merge]]        collapse several ids onto one person (transitive)
+#     ids = ["A", "B", "C"]   # every upstream id that is this person
+#     canonical = "A"         # the id the merged Pilot node keeps (one of `ids`)
+#
+#   [[reject]]       these ids are NOT the same person; stop re-proposing them
+#     ids = ["A", "B"]
+#
+#   [[name]]         pin a display name over the majority vote
+#     pilot = "CleverBlueWhale"
+#     display_name = "Alejandro D"
+#
+#   [[deck_pilot]]   reassign one deck to its real pilot id (e.g. a null deck)
+#     deck = "<deckId>"
+#     pilot = "<pilotId>"
+
+# --- Names pinned against the vote (no derivable relation, human-confirmed) ---
+
+[[name]]
+# The handle "alejandrofp" carries no recoverable link to the real name.
+pilot = "CleverBlueWhale"
+display_name = "Alejandro D"
+
+[[name]]
+# The source's deck name ("L Naya Initiative") swallowed the surname initial, so
+# name recovery subtracted it and lost the "L". The person is Wan Chin L; the
+# deck is Naya Initiative. (Deck name is a source field, corrected separately.)
+pilot = "FlyingMagentaLynx"
+display_name = "Wan Chin L"
+
+# --- Wave 3, pass 1: obvious duplicate joins (issue #9) ---
+# Accepted automatically only where the evidence is unambiguous: pure
+# punctuation variants, or deck overlap >= 0.90 on a shared archetype at
+# disjoint events. Near-duplicates with thinner evidence stay proposals in
+# the reconciliation report for a later, hand-adjudicated pass.
+
+[[merge]]
+# James L 1 = James LS  (initial->surname, overlap 1.00, Grixis)
+# James L-S = James LS  (punctuation, overlap 0.43)
+# canonical 'BraveJadeEagle' = 'James L 1' (13 decks, the busiest)
+ids = ["AmberCrimsonOrca", "BraveJadeEagle", "NimbleIndigoPanda"]
+canonical = "BraveJadeEagle"
+
+[[merge]]
+# May K = May KM  (initial->surname, overlap 0.97, Madness, Rakdos Eclipse, Soul Sisters)
+# May K-M = May KM  (punctuation, overlap 0.76)
+# canonical 'SolarCrimsonManta' = 'May K' (10 decks, the busiest)
+ids = ["LuckyBlueFalcon", "MistyAzureViper", "SolarCrimsonManta"]
+canonical = "SolarCrimsonManta"
+
+[[merge]]
+# Aaron Y = AarY1  (handle, overlap 0.95, Grixis)
+# canonical 'RapidGoldBadger' = 'Aaron Y' (3 decks, the busiest)
+ids = ["MistyMaroonWolf", "RapidGoldBadger"]
+canonical = "RapidGoldBadger"
+
+[[merge]]
+# Ashleigh = Ashleigh C  (first-name, overlap 1.00, Esper Midrange)
+# canonical 'SwiftVioletFox' = 'Ashleigh C' (20 decks, the busiest)
+ids = ["LuckyJadeRaven", "SwiftVioletFox"]
+canonical = "SwiftVioletFox"
+
+[[merge]]
+# Ben H 1 = Ben Hewitt  (initial->surname, overlap 0.94, Azorius Control)
+# canonical 'NimbleAzureTiger' = 'Ben H 1' (23 decks, the busiest)
+ids = ["FlyingMagentaBadger", "NimbleAzureTiger"]
+canonical = "NimbleAzureTiger"
+
+[[merge]]
+# Brandon = Brandon E  (first-name, overlap 0.96, Breach)
+# canonical 'SolarBlackLynx' = 'Brandon E' (26 decks, the busiest)
+ids = ["SolarBlackLynx", "SwiftMaroonViper"]
+canonical = "SolarBlackLynx"
+
+[[merge]]
+# Brandon O = Brnadon O  (typo, overlap 0.95, Jeskai Control)
+# canonical 'MistyBlackLynx' = 'Brandon O' (18 decks, the busiest)
+ids = ["MistyBlackLynx", "SolarIndigoPanda"]
+canonical = "MistyBlackLynx"
+
+[[merge]]
+# Chris G = Christopher G  (nickname, overlap 0.97, Initiative)
+# canonical 'SwiftGoldWhale' = 'Christopher G' (2 decks, the busiest)
+ids = ["IvoryTealHawk", "SwiftGoldWhale"]
+canonical = "SwiftGoldWhale"
+
+[[merge]]
+# Chris K = Christopher K  (nickname, overlap 0.95, Affinity, Bots, Jund)
+# canonical 'LunarMaroonWolf' = 'Chris K' (9 decks, the busiest)
+ids = ["BravePurpleFalcon", "LunarMaroonWolf"]
+canonical = "LunarMaroonWolf"
+
+[[merge]]
+# Chris K-H = Chris KH  (punctuation, overlap 0.08)
+# canonical 'SolarJadeHeron' = 'Chris KH' (3 decks, the busiest)
+ids = ["LunarIvoryCobra", "SolarJadeHeron"]
+canonical = "SolarJadeHeron"
+
+[[merge]]
+# Chris M = Chris Meli  (initial->surname, overlap 1.00, Eldrazi)
+# canonical 'ShinyVioletWhale' = 'Chris M' (17 decks, the busiest)
+ids = ["CrimsonVioletViper", "ShinyVioletWhale"]
+canonical = "ShinyVioletWhale"
+
+[[merge]]
+# Chris T 1 = Christopher T  (nickname, overlap 1.00, Grixis)
+# canonical 'SilentGreenLynx' = 'Christopher T' (14 decks, the busiest)
+ids = ["CleverTealOtter", "SilentGreenLynx"]
+canonical = "SilentGreenLynx"
+
+[[merge]]
+# CodW13 = Cody W  (handle, overlap 0.97, Scales)
+# canonical 'HiddenVioletWhale' = 'Cody W' (14 decks, the busiest)
+ids = ["HiddenVioletWhale", "ShadowBlackHeron"]
+canonical = "HiddenVioletWhale"
+
+[[merge]]
+# Cordel V = Cordell V  (nickname, overlap 1.00, Legends)
+# canonical 'WanderingAzureCobra' = 'Cordell V' (4 decks, the busiest)
+ids = ["SolarPurpleCobra", "WanderingAzureCobra"]
+canonical = "WanderingAzureCobra"
+
+[[merge]]
+# Dan P = Daniel P 1  (nickname, overlap 1.00, Walks)
+# canonical 'BraveAmberHawk' = 'Daniel P 1' (15 decks, the busiest)
+ids = ["BraveAmberHawk", "BraveGreenOrca"]
+canonical = "BraveAmberHawk"
+
+[[merge]]
+# Daniel = Daniel T  (first-name, overlap 0.95, Omnath)
+# canonical 'MistyAzureOrca' = 'Daniel T' (18 decks, the busiest)
+ids = ["MistyAzureOrca", "RapidGreenWolf"]
+canonical = "MistyAzureOrca"
+
+[[merge]]
+# Dee = Dee L  (first-name, overlap 0.97, Boros)
+# canonical 'HiddenAmberWolf' = 'Dee L' (4 decks, the busiest)
+ids = ["BraveGreenHawk", "HiddenAmberWolf"]
+canonical = "HiddenAmberWolf"
+
+[[merge]]
+# Dom P = DomP11  (handle, overlap 0.97, Grixis)
+# canonical 'RapidIndigoGecko' = 'Dom P' (7 decks, the busiest)
+ids = ["RapidIndigoGecko", "SwiftMaroonManta"]
+canonical = "RapidIndigoGecko"
+
+[[merge]]
+# Eddie L M = Eddie LM  (punctuation, overlap 0.13)
+# canonical 'SolarBlackGecko' = 'Eddie L M' (1 decks, the busiest)
+ids = ["CleverGreenFox", "SolarBlackGecko"]
+canonical = "SolarBlackGecko"
+
+[[merge]]
+# Emily P = EmiP9  (handle, overlap 0.93, Flood Moon)
+# canonical 'SilentJadeWhale' = 'Emily P' (4 decks, the busiest)
+ids = ["FrostyIvoryDolphin", "SilentJadeWhale"]
+canonical = "SilentJadeWhale"
+
+[[merge]]
+# Fraser W = Frazser W  (typo, overlap 0.97, Orzhov Taxes)
+# canonical 'SilentCyanLynx' = 'Fraser W' (4 decks, the busiest)
+ids = ["FrostyOrangeDolphin", "SilentCyanLynx"]
+canonical = "SilentCyanLynx"
+
+[[merge]]
+# Fred K = FreK4  (handle, overlap 0.97, Breach)
+# canonical 'MistyCrimsonManta' = 'Fred K' (10 decks, the busiest)
+ids = ["MistyCrimsonManta", "ShinyMaroonPanda"]
+canonical = "MistyCrimsonManta"
+
+[[merge]]
+# Jodran M = Jordan M  (typo, overlap 0.97, Breachbond)
+# canonical 'Jordan 🧑\u200d🍳' = 'Jordan M' (20 decks, the busiest)
+ids = ["CleverBronzeDolphin397", "Jordan 🧑‍🍳"]
+canonical = "Jordan 🧑‍🍳"
+
+[[merge]]
+# One person under a nested name expansion: Joe M -> Joe M C / Joe MC -> Joe Michael C.
+# JoeM54 (handle) and Joe M C (punctuation) fold in too. Shared Walks/Bots/Reanimator
+# pool; cross overlaps 0.57-0.75 (Joe MC ~ Joe Michael C 0.75 on Walks). The nested
+# initials spelling out 'Michael C' are the identity, not a bare-initial collision.
+# canonical is the full real name 'Joe Michael C'. Joe-Michael C (hyphen variant,
+# BraveCrimsonStag) folds in too.
+ids = ["AmberBronzePanda", "BraveCrimsonStag", "CrimsonBlackEagle", "CrimsonIndigoHawk", "FlyingBlackFox", "NimbleBlackEagle"]
+canonical = "FlyingBlackFox"
+
+[[merge]]
+# Jonathan W = JonW26  (handle, overlap 0.97, Jeskai Breach)
+# canonical 'SwiftIndigoBadger' = 'Jonathan W' (2 decks, the busiest)
+ids = ["FrostyOrangeManta", "SwiftIndigoBadger"]
+canonical = "SwiftIndigoBadger"
+
+[[merge]]
+# Jose G = Jose GH  (initial->surname, overlap 0.97, Grixis Oko)
+# canonical 'CleverVioletGecko8DC' = 'Jose G' (6 decks, the busiest)
+ids = ["CleverVioletGecko8DC", "ShinyBlueManta"]
+canonical = "CleverVioletGecko8DC"
+
+[[merge]]
+# Kai B = KaiB19  (handle, overlap 1.00, Jund)
+# canonical 'WildCrimsonBadgerB39' = 'Kai B' (12 decks, the busiest)
+ids = ["SwiftAmberPanda", "WildCrimsonBadgerB39"]
+canonical = "WildCrimsonBadgerB39"
+
+[[merge]]
+# Leo = Leo M  (first-name, overlap 0.97, Izzet Prowess)
+# canonical 'ShinyOrangeOrca' = 'Leo M' (5 decks, the busiest)
+ids = ["HiddenIndigoHawk", "ShinyOrangeOrca"]
+canonical = "ShinyOrangeOrca"
+
+[[merge]]
+# Michael B = Michel B  (typo, overlap 0.97, Blue Moon)
+# canonical 'Michael B' = 'Michael B' (38 decks, the busiest)
+ids = ["BraveOrangeDolphin", "Michael B"]
+canonical = "Michael B"
+
+[[merge]]
+# RilB9 = Riley B 1  (handle, overlap 0.95, Oracle, Reanimator)
+# canonical 'RapidRedStag' = 'Riley B 1' (7 decks, the busiest)
+ids = ["BraveRedDolphin", "RapidRedStag"]
+canonical = "RapidRedStag"
+
+[[merge]]
+# Rob L = Robert L  (nickname, overlap 0.97, Grixis, Omnath)
+# canonical 'SolarOrangeOtter' = 'Rob L' (7 decks, the busiest)
+ids = ["LuckyCrimsonTiger", "SolarOrangeOtter"]
+canonical = "SolarOrangeOtter"
+
+[[merge]]
+# Socrates = Socrates S  (first-name, overlap 0.95, Tinker)
+# canonical 'MistyAmberWolf' = 'Socrates S' (5 decks, the busiest)
+ids = ["MistyAmberWolf", "ShadowAmberRaven"]
+canonical = "MistyAmberWolf"
+
+[[merge]]
+# Thom B = Thomas B  (nickname, overlap 0.92, Bots)
+# canonical 'Thomas Bot' = 'Thomas B' (14 decks, the busiest)
+ids = ["IvoryPurpleWhale", "Thomas Bot"]
+canonical = "Thomas Bot"
+
+[[merge]]
+# Vincent = Vincent C  (first-name, overlap 0.97, Izzet Prowess)
+# canonical 'ShadowCyanTiger' = 'Vincent C' (20 decks, the busiest)
+ids = ["HiddenGoldWolf", "ShadowCyanTiger"]
+canonical = "ShadowCyanTiger"
+
+[[merge]]
+# Zac K = Zak K  (typo, overlap 0.97, Oracle)
+# canonical 'LuckyOrangeBadger' = 'Zak K' (4 decks, the busiest)
+ids = ["HiddenGoldLynx", "LuckyOrangeBadger"]
+canonical = "LuckyOrangeBadger"
+
+# --- Wave 3, pass 2: single-deck-slip heuristic (issue #9) ---
+# A near-duplicate name whose rarer side has exactly ONE deck is a one-time
+# data-entry slip at a single tournament; when that lone deck is >= 0.80
+# similar to a deck of the matching name, it is the same person. The high
+# overlap is the safety, excluding look-alike-but-different names.
+
+[[merge]]
+# Hamish M = HamM2  (handle, overlap 1.00)
+# canonical 'MistyGreenBadger' = 'HamM2'
+ids = ["BraveGreenTiger", "MistyGreenBadger"]
+canonical = "MistyGreenBadger"
+
+[[merge]]
+# Joseph M = JosM137  (handle, overlap 0.95)
+# canonical 'WanderingGreenFalcon' = 'Joseph M'
+ids = ["RapidBlackRaven", "WanderingGreenFalcon"]
+canonical = "WanderingGreenFalcon"
+
+[[merge]]
+# Martin P = MarP83  (handle, overlap 0.95)
+# canonical 'HiddenIndigoLynx' = 'MarP83'
+ids = ["HiddenIndigoLynx", "ShadowIvoryWhale"]
+canonical = "HiddenIndigoLynx"
+
+[[merge]]
+# Zachaery M = Zachary M 1  (typo, overlap 0.91)
+# canonical 'NimbleBlueWolf' = 'Zachary M 1'
+ids = ["LunarPurplePanda", "NimbleBlueWolf"]
+canonical = "NimbleBlueWolf"
+
+[[merge]]
+# Ed = Ed R  (first-name, overlap 0.90)
+# canonical 'IvoryJadeHeron' = 'Ed R'
+ids = ["IvoryJadeHeron", "SolarPurpleWhale"]
+canonical = "IvoryJadeHeron"
+
+[[merge]]
+# Frederick K = Fred K  (nickname, overlap 0.90)
+# canonical 'MistyCrimsonManta' = 'Fred K'
+ids = ["LunarOrangeCobra", "MistyCrimsonManta"]
+canonical = "MistyCrimsonManta"
+
+[[merge]]
+# Tom Clift = Tom C 1  (initial->surname, overlap 0.90)
+# canonical 'LunarMagentaHawk' = 'Tom C 1'
+ids = ["LunarMagentaHawk", "MistySilverLynx"]
+canonical = "LunarMagentaHawk"
+
+[[merge]]
+# Floyd = Floyd L  (first-name, overlap 0.89)
+# canonical 'LunarCyanStag' = 'Floyd L'
+ids = ["FlyingBlueGecko", "LunarCyanStag"]
+canonical = "LunarCyanStag"
+
+[[merge]]
+# Alexadner J = Alexander J  (typo, overlap 0.88)
+# canonical 'ShinyCrimsonHeron' = 'Alexander J'
+ids = ["AmberTealOrca", "ShinyCrimsonHeron"]
+canonical = "ShinyCrimsonHeron"
+
+[[merge]]
+# Kev T = Kevin T  (nickname, overlap 0.88)
+# canonical 'FlyingJadePanda' = 'Kevin T'
+ids = ["FlyingJadePanda", "LunarIvoryOtter"]
+canonical = "FlyingJadePanda"
+
+[[merge]]
+# Raymond = Raymond W  (first-name, overlap 0.88)
+# canonical 'AmberGreenHeron' = 'Raymond W'
+ids = ["AmberGreenHeron", "WildMaroonViper"]
+canonical = "AmberGreenHeron"
+
+[[merge]]
+# Drennan M = Drennen M  (typo, overlap 0.87)
+# canonical 'RapidAmberCobra' = 'Drennen M'
+ids = ["RapidAmberCobra", "SwiftMaroonViperD80"]
+canonical = "RapidAmberCobra"
+
+[[merge]]
+# Felipe = Felipe B  (first-name, overlap 0.85)
+# canonical 'SolarGoldManta' = 'Felipe B'
+ids = ["IvoryJadeDolphin", "SolarGoldManta"]
+canonical = "SolarGoldManta"
+
+[[merge]]
+# Richard Owen = Richard O  (initial->surname, overlap 0.85)
+# canonical 'Richard O' = 'Richard O'
+ids = ["Richard O", "SilentCrimsonPanda"]
+canonical = "Richard O"
+
+[[merge]]
+# Zac = Zac L  (first-name, overlap 0.85)
+# canonical 'FrostyJadeTiger' = 'Zac L'
+ids = ["FrostyJadeTiger", "WanderingSilverGecko"]
+canonical = "FrostyJadeTiger"
+
+[[merge]]
+# Jeff B = Jeffrey B  (nickname, overlap 0.83)
+# canonical 'CleverOrangeHawk' = 'Jeffrey B'
+ids = ["CleverOrangeHawk", "ShadowMagentaRaven"]
+canonical = "CleverOrangeHawk"
+
+[[merge]]
+# John Paul K = John-Paul K  (typo, overlap 0.83)
+# canonical 'AmberGoldOtter' = 'John-Paul K'
+ids = ["AmberGoldOtter", "FrostyBlueOrca"]
+canonical = "AmberGoldOtter"
+
+[[merge]]
+# Brayden Woods = Brayden W  (initial->surname, overlap 0.83)
+# canonical 'CrimsonBronzeWolf' = 'Brayden W'
+ids = ["CrimsonBronzeWolf", "MistyCyanRaven"]
+canonical = "CrimsonBronzeWolf"
+
+[[merge]]
+# JudU = Jude U  (handle, overlap 0.82)
+# canonical 'BraveIndigoFox' = 'Jude U'
+ids = ["BraveIndigoFox", "IvoryPurpleGecko"]
+canonical = "BraveIndigoFox"
+
+[[merge]]
+# Edwin J = EdwJ1  (handle, overlap 0.81)
+# canonical 'LunarTealFalcon' = 'EdwJ1'
+ids = ["IvoryBlackOtter", "LunarTealFalcon"]
+canonical = "LunarTealFalcon"
+
+[[merge]]
+# JasG18 = Jason G  (handle, overlap 0.81)
+# canonical 'RapidSilverLynx' = 'Jason G'
+ids = ["LuckyAmberWhale", "RapidSilverLynx"]
+canonical = "RapidSilverLynx"
+
+[[merge]]
+# Ezra = Ezra M  (first-name, overlap 0.80)
+# canonical 'ShadowSilverHawk' = 'Ezra M'
+ids = ["JumpingGreenGecko", "ShadowSilverHawk"]
+canonical = "ShadowSilverHawk"
+
+# --- Wave 3, pass 3: hand-adjudicated multi-deck pairs (issue #9) ---
+
+[[merge]]
+# Nicholas F = Nicolas F  (typo, missing 'h', overlap 0.87, shared Rakdos Eclipse)
+# both multi-deck; identical BR Eclipse list, disjoint events
+# canonical 'FrostyIvoryManta' = 'Nicholas F' (7 decks, the busier)
+ids = ["FrostyIvoryManta", "LunarSilverPanda"]
+canonical = "FrostyIvoryManta"
+
+[[merge]]
+# Tristan F = Tristian F  (typo, extra 'i', overlap 0.80, shared Boros Moonshine)
+# both play only Boros Moonshine, disjoint events
+# canonical 'CleverPurpleFox' = 'Tristan F' (2 decks, alphabetical tiebreak)
+ids = ["CleverPurpleFox", "LuckyAmberLynx"]
+canonical = "CleverPurpleFox"
+
+[[merge]]
+# Connor J = Conor J  (typo, double 'n', overlap 0.74, shared 4C Alluren Nadu)
+# Connor's lone deck is the same niche Alluren Nadu shell Conor plays; disjoint events
+# canonical 'FrostyBlueHawk' = 'Conor J' (10 decks, the busier)
+ids = ["CleverMaroonBadger6FB", "FrostyBlueHawk"]
+canonical = "FrostyBlueHawk"
+
+[[merge]]
+# Torin K = Torwin K  (typo, inserted 'w', overlap 0.67, shared Jund)
+# rare name; Torin plays only Jund (9/9), Torwin's lone deck is Jund; disjoint events
+# canonical 'CrimsonVioletRaven' = 'Torin K' (9 decks, the busier)
+ids = ["CrimsonVioletRaven", "IvoryTealOrca"]
+canonical = "CrimsonVioletRaven"
+
+[[merge]]
+# Gerad N = Gerard N  (typo, dropped 'r', overlap 0.65, shared Grixis Oracle)
+# same niche Grixis Thoracle combo; disjoint events
+# canonical is the correct spelling 'Gerard N', not the busier misspelling 'Gerad N'
+ids = ["BraveBlackLynxC54", "NimbleRedDolphin"]
+canonical = "BraveBlackLynxC54"
+
+[[merge]]
+# Jinghao Y = Jinhao Y  (typo, dropped 'g', overlap 0.63, shared Blue Moon)
+# distinctive full given name; both single-deck Blue Moon, disjoint events
+# canonical is the correct spelling 'Jinghao Y'
+ids = ["FrostySilverHawk", "WanderingIvoryBadger"]
+canonical = "WanderingIvoryBadger"
+
+# --- Wave 3, pass 3: null-pilot decks routed to their real owner (issue #9) ---
+
+[[deck_pilot]]
+# "5th-8th - Christopher T Rug - Tabernacle2023": title missing the name/deck
+# dash, so the pilot parsed empty. 1.00 identical to Christopher T's RUG list.
+deck = "IK_ilIXa4Eqkv2nYQgRITQ"
+pilot = "SilentGreenLynx"
+
+# --- Wave 3, pass 3 (cont.): hand-adjudicated multi-deck pairs (issue #9) ---
+
+[[merge]]
+# Gideon H = Gideon HW  (initial->surname, overlap 0.88, shared Jeskai Midrange + Bus Stop Grixis)
+# distinctive first name, consistent surname initial; canonical keeps the fuller 'Gideon HW'
+ids = ["BraveBronzeManta", "IvoryCyanDolphin"]
+canonical = "IvoryCyanDolphin"
+
+[[merge]]
+# Lee H = Lee Hung N  (initial->surname, overlap 0.84, shared Prison Shops)
+# both near-exclusive Shops/artifact-prison players; canonical is the fuller 'Lee Hung N'
+ids = ["LuckyBronzeWhale", "ShinyVioletStag56B"]
+canonical = "LuckyBronzeWhale"
+
+[[merge]]
+# Michael D = Michael DS  (initial->surname, overlap 0.83, shared BUG Reanimator)
+# both Reanimator specialists on the same shell; canonical 'Michael D' matches the
+# standard first-name + initial form used across the rest of the names
+ids = ["LunarPurpleLynx", "WanderingTealFox"]
+canonical = "LunarPurpleLynx"
+
+[[merge]]
+# Chia W = Chia Wei L  (initial->surname, overlap 0.79, shared Grixis)
+# 'Chia Wei' is the given name, 'L' the surname; 'Chia W' truncates the given name.
+# canonical is the correct given-name + surname-initial form 'Chia Wei L'
+ids = ["FlyingTealFalcon", "LunarJadeRaven"]
+canonical = "LunarJadeRaven"
+
+[[merge]]
+# Jeffrey B = Jeffrey Blancia  (initial->surname, overlap 0.67, shared Grixis)
+# Jeffrey B is a pure Grixis specialist (15/15); the lone 'Jeffrey Blancia' Grixis
+# deck is his full-name recovery. canonical keeps the standard 'Jeffrey B' form
+ids = ["CleverOrangeHawk", "CrimsonOrangeFox"]
+canonical = "CleverOrangeHawk"
+
+# --- Wave 3, pass 3: confirmed DIFFERENT people (issue #9) ---
+# The shared-event separator: two distinct upstream ids that both register at the
+# same tournament are two humans (one registration per person per event). Only
+# recorded here at high certainty -- >=2 shared events, and either reviewed by
+# deck-difference (Matt/Matthew) or low overlap (co-attendance settles it).
+
+[[reject]]
+# Matt B <-> Matthew B: 4 shared events (NHC24/NHC25/TMC25/TMCTeams25), different
+# deck + placement at each. Matt = Tokens player, Matthew = Jeskai/Jund. The lone
+# 1.00 hit is a shared list at non-shared events (ADR 0005), not one person.
+ids = ["WildGreenViper", "SilentAmberOrca"]
+
+[[reject]]
+# Bill M <-> Will M: 2 shared events (RC7, TMC24), overlap 0.28. Different
+# nicknames of William, not even sharing lists -- two different Williams.
+ids = ["WanderingGreenOtter", "LuckyCrimsonViper"]
+
+[[reject]]
+# Mat B <-> Matt B: 2 shared events (PogApr26, PogJul26), overlap 0.22. Both
+# register at the same events with unrelated decks -- two different Matt B's.
+ids = ["MistyGoldBadger", "WildGreenViper"]
+
+[[reject]]
+# Dan S <-> Danny S: 4 shared events (ETEAE/SydneyShowdown/TMC25/TMCTeams25),
+# different deck at each. Dan S = 39-deck diverse control player, Danny S = pure
+# Walks specialist. 0.72 is Walks-core overlap at non-shared events (ADR 0005).
+ids = ["Daniel S", "FlyingIndigoFox"]
+
+# The both-established separator: when BOTH sides of a near-name pair have a
+# sizeable independent deck career (>=4 decks each) yet their decks barely
+# overlap (<0.5), they are two distinct established players -- a one-time typo
+# does not accumulate its own multi-deck career, and a real same-person alias
+# would share a deck signature. High certainty only; high-overlap both-prolific
+# pairs (Ben/Benjamin 0.95, Chris K 0.70) are excluded and reviewed by hand.
+
+[[reject]]
+# Ben S <-> Benjamin S: 3 shared events, different deck at each (Ben Grixis/Jund,
+# Benjamin Temur). 0.95 is a shared UG Academy list (ADR 0005), not one person.
+ids = ["WanderingMaroonHeron", "WildPurpleHeron"]
+
+[[reject]]
+# Jose G <-> Rose G: different given names (9 vs 4 decks, overlap 0.22).
+ids = ["CleverVioletGecko8DC", "SilentVioletStag"]
+
+[[reject]]
+# Sam D <-> Samir D: two established players (11 vs 5 decks, overlap 0.20), not
+# one nickname -- a real alias would share far more than 20% of its cards.
+ids = ["ShinyRedTigerBE3", "SolarAzureViper"]
+
+[[reject]]
+# Raj T <-> Rajdeep T: two established players (7 vs 4 decks, overlap 0.11).
+ids = ["HiddenBronzeGecko", "MistyMagentaOtter"]
+
+# Wave 3 pass 4: mechanical-typo merges. The variant is a non-name scramble of
+# an established name (deck evidence confirms or the name alone decides -- a
+# misspelling that is not itself a real name cannot be an independent person),
+# or both spellings are real but the decks corroborate. Deck-checked one by one.
+
+[[merge]]
+# Daneil T = Daniel T  (transposition; overlap 0.75, both Nadu/Pod)
+ids = ["LunarJadeWolf", "MistyAzureOrca"]
+canonical = "MistyAzureOrca"
+
+[[merge]]
+# Trisitan F = Tristan F  (typo; overlap 0.49, both exclusively Boros Moonshine)
+ids = ["SolarCyanEagle", "CleverPurpleFox"]
+canonical = "CleverPurpleFox"
+
+[[merge]]
+# Niocholas F = Nicholas F  (typo; overlap 0.47, shared Mono Black)
+ids = ["FlyingAmberTiger8D4", "FrostyIvoryManta"]
+canonical = "FrostyIvoryManta"
+
+[[merge]]
+# Thiagø F = Thiago F  (diacritic; overlap 0.34, both Nadu)
+ids = ["ShinyAzurePanda", "MistyPurpleHeron"]
+canonical = "MistyPurpleHeron"
+
+[[merge]]
+# Natahan S = Nathan S  (transposition; "Natahan" is a non-name, fits Nathan's
+# 5C/Grixis range, overlap 0.39)
+ids = ["LunarJadeGecko", "LunarBlueWhale"]
+canonical = "LunarBlueWhale"
+
+[[merge]]
+# Dennis M = Denis M  (both real spellings; overlap 0.61, shared Grixis at
+# back-to-back events settles it)
+ids = ["RapidCyanOrca", "SwiftCrimsonRaven"]
+canonical = "SwiftCrimsonRaven"
+
+[[name]]
+# Thiago/Thiagø tie: pin the correct (undiacritic) spelling on the merged node.
+pilot = "MistyPurpleHeron"
+display_name = "Thiago F"
+
+# Wave 3 pass 5: substitution near-names that are two different people. Two
+# classes: (a) the differing letter is the SURNAME initial, so it is a different
+# surname and a different established career; (b) the differing letter yields a
+# different real given name (false friend) -- gender-distinct or simply distinct,
+# and the low overlaps confirm it (a real alias shares far more, ADR 0005).
+
+# (a) different surname initial
+[[reject]]
+# Matt A != Matt B: 7-deck varied player vs 34-deck Tokens specialist, overlap 0.45.
+ids = ["ShinyGreenWolf", "WildGreenViper"]
+
+[[reject]]
+# Matthew B != Matthew G: Stoneblade/Jeskai vs Grixis specialist, overlap 0.44.
+ids = ["SilentAmberOrca", "CleverMagentaViper"]
+
+[[reject]]
+# Charlie B != Charlie M: Izzet Prowess vs Orzhov Taxes specialist, overlap 0.19.
+ids = ["SwiftCrimsonDolphin", "BraveMagentaWhale"]
+
+# (b) different given name -- gender-distinct
+[[reject]]
+# Andrea C != Andrew C: 0.70 is a shared list at disjoint events (ADR 0005).
+ids = ["SilentTealEagle", "WildMaroonTiger"]
+
+[[reject]]
+# Antonia C != Antonio M: gender-distinct given names, overlap 0.67 (shared list).
+ids = ["FlyingIndigoHeron", "SolarIvoryBadger"]
+
+# (b) different given name -- distinct names, low overlap
+[[reject]]
+# Jack D != Zack D (25 vs 2 decks, overlap 0.26).
+ids = ["AmberVioletOrca", "LunarAzureEagle"]
+
+[[reject]]
+# Dan G != Ian G (overlap 0.07).
+ids = ["BraveMaroonHeron", "MistyPurpleDolphin"]
+
+[[reject]]
+# Luka B != Luke B (7 vs 1 decks, overlap 0.07).
+ids = ["SolarPurpleViper", "RapidIvoryPanda"]
+
+[[reject]]
+# Tim S != Tom S (overlap 0.22).
+ids = ["LuckyCyanWhale", "NimbleSilverLynx"]
+
+[[reject]]
+# Tim J != Tom J (overlap 0.18).
+ids = ["HiddenPurpleLynx", "WildMaroonTigerF93"]
+
+[[reject]]
+# Tim D != Tom D (overlap 0.06).
+ids = ["FrostyBronzeFalcon", "WildGoldWolf"]
+
+[[reject]]
+# Jade C != Jude C (overlap 0.23).
+ids = ["MistyAzureCobra", "AmberRedRaven"]
+
+[[reject]]
+# Jade B != Jake B (overlap 0.12).
+ids = ["FlyingBronzeRaven", "BraveSilverOrca"]
+
+[[reject]]
+# Jose H != Josh H (overlap 0.07).
+ids = ["LunarMagentaManta", "MistySilverViper"]
+
+[[reject]]
+# Dean W != Sean W (overlap 0.16).
+ids = ["RapidOrangeWolf", "FrostyMagentaFalconD91"]
+
+[[reject]]
+# Dom S != Tom S (overlap 0.13).
+ids = ["ShadowJadeDolphin", "NimbleSilverLynx"]
+
+[[reject]]
+# JD H != Jo H (38 vs 1 decks, overlap 0.15).
+ids = ["CrimsonIndigoTiger", "HiddenIndigoEagle"]
+
+# Wave 3 pass 6: autonomous deck-corroborated merges. Same-name shapes
+# (handle, nickname, bare first name) with card-overlap >= 0.5 on a shared
+# archetype at DISJOINT events. Handle collisions and shared-event pairs
+# (teammate/event-split risk) were excluded and left for review.
+
+[[merge]]
+# Zac M = Zachary M 1 (nickname, 0.67)
+# Zach M = Zachary M 1 (nickname, 0.65)
+# canonical 'NimbleBlueWolf' = 'Zachary M 1'
+ids = ["HiddenBlackFalcon", "NimbleBlueWolf", "WanderingIndigoWhale"]
+canonical = "NimbleBlueWolf"
+
+[[merge]]
+# Aaron W = AarW15 (handle, 0.57)
+# canonical 'SilentBlueOrca' = 'AarW15'
+ids = ["FlyingGoldFalcon", "SilentBlueOrca"]
+canonical = "SilentBlueOrca"
+
+[[merge]]
+# Alex D = Alexander D (nickname, 0.81)
+# canonical 'LunarSilverHawk' = 'Alex D'
+ids = ["LuckyIvoryFalcon", "LunarSilverHawk"]
+canonical = "LunarSilverHawk"
+
+[[merge]]
+# Alex J = Alexander J (nickname, 0.69)
+# canonical 'ShinyCrimsonHeron' = 'Alexander J'
+ids = ["LunarBlueHawk", "ShinyCrimsonHeron"]
+canonical = "ShinyCrimsonHeron"
+
+[[merge]]
+# Antonio M = Antonion M (nickname, 0.72)
+# canonical 'SolarIvoryBadger' = 'Antonio M'
+ids = ["HiddenCyanPanda", "SolarIvoryBadger"]
+canonical = "SolarIvoryBadger"
+
+[[merge]]
+# Ash C = Ashleigh C (nickname, 0.63)
+# canonical 'SwiftVioletFox' = 'Ashleigh C'
+ids = ["FrostyTealFalcon", "SwiftVioletFox"]
+canonical = "SwiftVioletFox"
+
+[[merge]]
+# BraW40 = Brayden W (handle, 0.53)
+# canonical 'CrimsonBronzeWolf' = 'Brayden W'
+ids = ["CrimsonBronzeWolf", "ShadowBronzeOrca"]
+canonical = "CrimsonBronzeWolf"
+
+[[merge]]
+# Brendan W = BreW23 (handle, 0.87)
+# canonical 'CrimsonPurpleWhale' = 'Brendan W'
+ids = ["CrimsonPurpleWhale", "HiddenGreenDolphin"]
+canonical = "CrimsonPurpleWhale"
+
+[[merge]]
+# Chris F = Christopher F (nickname, 0.55)
+# canonical 'WanderingIndigoLynx' = 'Christopher F'
+ids = ["JumpingCrimsonBadger", "WanderingIndigoLynx"]
+canonical = "WanderingIndigoLynx"
+
+[[merge]]
+# Chris O = Christopher O (nickname, 0.85)
+# canonical 'HiddenIvoryOtter' = 'Christopher O'
+ids = ["HiddenIvoryOtter", "RapidPurpleBadger"]
+canonical = "HiddenIvoryOtter"
+
+[[merge]]
+# Daniel T = DanT34 (handle, 0.77)
+# canonical 'MistyAzureOrca' = 'Daniel T'
+ids = ["CrimsonTealHawk", "MistyAzureOrca"]
+canonical = "MistyAzureOrca"
+
+[[merge]]
+# Dom Z = Dominic Z (nickname, 0.90)
+# canonical 'WildSilverOtter' = 'Dom Z'
+ids = ["RapidOrangeStag034", "WildSilverOtter"]
+canonical = "WildSilverOtter"
+
+[[merge]]
+# DreM10 = Drennen M (handle, 0.85)
+# canonical 'RapidAmberCobra' = 'Drennen M'
+ids = ["NimbleBronzeLynx", "RapidAmberCobra"]
+canonical = "RapidAmberCobra"
+
+[[merge]]
+# Dylan B = DylB25 (handle, 0.72)
+# canonical 'MistyAmberFox' = 'Dylan B'
+ids = ["LuckyCrimsonManta", "MistyAmberFox"]
+canonical = "MistyAmberFox"
+
+[[merge]]
+# Ed N = Edward N (nickname, 0.60)
+# canonical 'FrostyOrangeEagle' = 'Edward N'
+ids = ["AmberJadeViper", "FrostyOrangeEagle"]
+canonical = "FrostyOrangeEagle"
+
+[[merge]]
+# Filip K = FilK (handle, 0.70)
+# canonical 'LuckySilverWolf' = 'Filip K'
+ids = ["FlyingBronzeWhale", "LuckySilverWolf"]
+canonical = "LuckySilverWolf"
+
+[[merge]]
+# FreC8 = Freya C (handle, 0.80)
+# canonical 'FrostyOrangeBadger' = 'Freya C'
+ids = ["FrostyOrangeBadger", "LuckyTealOtter"]
+canonical = "FrostyOrangeBadger"
+
+[[merge]]
+# Jack K = Jackson K (nickname, 0.52)
+# canonical 'CrimsonBlackOtter' = 'Jack K'
+ids = ["CleverVioletFox", "CrimsonBlackOtter"]
+canonical = "CrimsonBlackOtter"
+
+[[merge]]
+# Jay = Jay I (first-name, 0.65)
+# canonical 'ShadowCyanLynx' = 'Jay'
+ids = ["AmberIndigoEagle", "ShadowCyanLynx"]
+canonical = "ShadowCyanLynx"
+
+[[merge]]
+# Jen J = Jenny J (nickname, 0.54)
+# canonical 'MistyAzureStagA31' = 'Jenny J'
+ids = ["MistyAzureStagA31", "SolarOrangeCobra"]
+canonical = "MistyAzureStagA31"
+
+[[merge]]
+# John O = JohO8 (handle, 0.69)
+# canonical 'ShadowOrangeCobra957' = 'John O'
+ids = ["RapidCrimsonFox", "ShadowOrangeCobra957"]
+canonical = "ShadowOrangeCobra957"
+
+[[merge]]
+# Jonah B = JonB48 (handle, 0.89)
+# canonical 'Jonah B' = 'Jonah B'
+ids = ["FlyingGreenEagle", "Jonah B"]
+canonical = "Jonah B"
+
+[[merge]]
+# Josh O = Joshua O (nickname, 0.85)
+# canonical 'RapidIndigoOrca' = 'Joshua O'
+ids = ["RapidIndigoOrca", "SilentMaroonRaven"]
+canonical = "RapidIndigoOrca"
+
+[[merge]]
+# Kyle M = kylM35 (handle, 0.74)
+# canonical 'HiddenAmberHawk' = 'Kyle M'
+ids = ["HiddenAmberHawk", "ShadowVioletHeron"]
+canonical = "HiddenAmberHawk"
+
+[[merge]]
+# Lee Hung N = Lee N (nickname, 0.77)
+# canonical 'LuckyBronzeWhale' = 'Lee Hung N'
+ids = ["LuckyBronzeWhale", "WildGreenTiger"]
+canonical = "LuckyBronzeWhale"
+
+[[merge]]
+# Lew O = Lewis O (nickname, 0.63)
+# canonical 'RapidJadeHawk' = 'Lewis O'
+ids = ["RapidJadeHawk", "SolarIvoryManta"]
+canonical = "RapidJadeHawk"
+
+[[merge]]
+# Luke S = LukS19 (handle, 0.77)
+# canonical 'LunarOrangeOrca' = 'Luke S'
+ids = ["LunarOrangeOrca", "WanderingSilverManta"]
+canonical = "LunarOrangeOrca"
+
+[[merge]]
+# MatL119 = Matthew L (handle, 0.72)
+# canonical 'ShinyIndigoViper' = 'Matthew L'
+ids = ["ShadowOrangeGecko", "ShinyIndigoViper"]
+canonical = "ShinyIndigoViper"
+
+[[merge]]
+# Nando = Nando N (first-name, 0.88)
+# canonical 'CrimsonAmberEagle' = 'Nando N'
+ids = ["CrimsonAmberEagle", "ShadowPurpleViper"]
+canonical = "CrimsonAmberEagle"
+
+[[merge]]
+# Quinci = Quinci C (first-name, 0.72)
+# canonical 'AmberMaroonViper' = 'Quinci'
+ids = ["AmberMaroonViper", "WanderingCrimsonManta"]
+canonical = "AmberMaroonViper"
+
+[[merge]]
+# Talulla = Talulla V (first-name, 0.55)
+# canonical 'WildCyanDolphin' = 'Talulla V'
+ids = ["HiddenMagentaHawk", "WildCyanDolphin"]
+canonical = "WildCyanDolphin"
+
+[[merge]]
+# ThoL36 = Thomas L (handle, 0.72)
+# canonical 'NimbleTealWhale' = 'ThoL36'
+ids = ["FlyingRedFalcon", "NimbleTealWhale"]
+canonical = "NimbleTealWhale"
+
+[[merge]]
+# Thomas S = ThoS36 (handle, 0.61)
+# canonical 'SolarMaroonStag' = 'Thomas S'
+ids = ["FrostyGoldLynx", "SolarMaroonStag"]
+canonical = "SolarMaroonStag"
+
+[[merge]]
+# Thore W = ThoW15 (handle, 0.60)
+# canonical 'FlyingGoldFox' = 'Thore W'
+ids = ["CleverBlueLynx", "FlyingGoldFox"]
+canonical = "FlyingGoldFox"
+
+[[merge]]
+# Tim E = Timothy E (nickname, 0.70)
+# canonical 'SwiftAzureLynx' = 'Tim E'
+ids = ["LunarVioletWolf9B7", "SwiftAzureLynx"]
+canonical = "SwiftAzureLynx"
+
+[[merge]]
+# Tom = Tom L (first-name, 0.77)
+# canonical 'SolarMagentaStag' = 'Tom L'
+ids = ["NimbleIvoryCobra", "SolarMagentaStag"]
+canonical = "SolarMagentaStag"
+
+[[merge]]
+# TriG15 = Tristian G (handle, 0.59)
+# canonical 'ShadowTealPanda' = 'TriG15'
+ids = ["BraveIndigoFoxF5A", "ShadowTealPanda"]
+canonical = "ShadowTealPanda"
+
+[[merge]]
+# Yida = Yida G (first-name, 0.67)
+# canonical 'NimblePurpleFox2D1' = 'Yida G'
+ids = ["FluffySilverOtter", "NimblePurpleFox2D1"]
+canonical = "NimblePurpleFox2D1"
+
+[[merge]]
+# Zack D = Zackary D (nickname, 0.69)
+# canonical 'LunarAzureEagle' = 'Zack D'
+ids = ["FlyingRedTiger", "LunarAzureEagle"]
+canonical = "LunarAzureEagle"
+
+[[merge]]
+# ZanD2 = Zane D (handle, 0.64)
+# canonical 'CleverMaroonOrca' = 'ZanD2'
+ids = ["CleverCrimsonTiger", "CleverMaroonOrca"]
+canonical = "CleverMaroonOrca"
+
+# Pass 6 display-name pins: where the merged node's name vote landed on a handle
+# or a bare first name because it carried more deck-registrations than the real
+# name. Pin the real name.
+[[name]]
+pilot = "SilentBlueOrca"
+display_name = "Aaron W"
+[[name]]
+pilot = "NimbleTealWhale"
+display_name = "Thomas L"
+[[name]]
+pilot = "FlyingGoldFox"
+display_name = "Thore W"
+[[name]]
+pilot = "ShadowTealPanda"
+display_name = "Tristian G"
+[[name]]
+pilot = "CleverMaroonOrca"
+display_name = "Zane D"
+[[name]]
+pilot = "LuckySilverWolf"
+display_name = "Filip K"
+[[name]]
+pilot = "SolarMagentaStag"
+display_name = "Tom L"
+[[name]]
+pilot = "AmberMaroonViper"
+display_name = "Quinci C"
+
+# Pass 7: the last both-established candidates. All three are different people;
+# each has an independent multi-deck career, so a nickname/surname-shape match is
+# a namesake, not one person (deck overlap where present is shared-list, ADR 0005).
+[[reject]]
+# Dom P != Dominic P: Grixis specialist (8d) vs Green Eldrazi specialist (3d), overlap 0.02.
+ids = ["RapidIndigoGecko", "RapidPurpleHeron"]
+
+[[reject]]
+# Alex B != Alexander B: both register Jund at RC6 separately; 7- and 3-deck
+# careers, overlap 0.39 is a shared Jund list.
+ids = ["IvoryCrimsonBadger", "ShinyAzureWolf"]
+
+[[reject]]
+# Chris K (Christopher K) != Chris KH (Chris K-H, hyphenated surname): different
+# surnames; 0.70 is teammate Jund list-sharing at disjoint events.
+ids = ["LunarMaroonWolf", "SolarJadeHeron"]
+
+# --- Pass 8: re-evaluation of the full candidate set against the safe-merge bar
+# (name-error/short-name/handle shape + overlap >= 0.5 + shared archetype at
+# disjoint events). Nine cleared; each real name wins the display vote unaided.
+
+[[merge]]
+# Yidao G = Yida G (nickname, 0.95, Breachbond @ disjoint events)
+ids = ["NimblePurpleFox2D1", "FrostyTealHawk"]
+canonical = "NimblePurpleFox2D1"
+
+[[merge]]
+# Jo Michael C = Joe Michael C (typo Jo/Joe, 0.81, disjoint)
+ids = ["FlyingBlackFox", "MistyCrimsonLynx"]
+canonical = "FlyingBlackFox"
+
+[[merge]]
+# Christofer G = Chris G (nickname, 0.74, disjoint)
+ids = ["SwiftGoldWhale", "WanderingIndigoRaven"]
+canonical = "SwiftGoldWhale"
+
+[[merge]]
+# David Tysoe = David T (initial->surname, 0.74, disjoint)
+ids = ["FlyingVioletHeron", "SwiftBlueFalcon"]
+canonical = "FlyingVioletHeron"
+
+[[merge]]
+# SeaL15 = Sean L (handle, 0.71, disjoint)
+ids = ["MistyMagentaWhale", "SolarBronzeWhale"]
+canonical = "MistyMagentaWhale"
+
+[[merge]]
+# OdeB = Oden B (handle, 0.56, disjoint)
+ids = ["CrimsonBronzeGecko", "ShinyVioletRaven"]
+canonical = "CrimsonBronzeGecko"
+
+[[merge]]
+# AdaD19 = Adam D (handle, 0.52, disjoint)
+ids = ["WanderingRedBadger", "AmberOrangeTiger"]
+canonical = "WanderingRedBadger"
+
+[[merge]]
+# Jenny Jay = Jenny J (initial->surname, 0.86, Goblins @ disjoint events)
+ids = ["MistyAzureStagA31", "LunarGoldWolf"]
+canonical = "MistyAzureStagA31"
+
+[[merge]]
+# NicC86 = Nick C 1 (handle, 0.76 to person 1 vs 0.14 to Nick C 2, disjoint)
+ids = ["SolarGreenPanda", "ShinyJadeWhale"]
+canonical = "SolarGreenPanda"
+
+# --- Pass 9: independent adversarial audit (blind re-derivation + skeptic verify).
+# Where the independent review diverged from our applied state, it prevailed.
+# Six over-merges undone (rejected below), corroborated and name-error merges added.
+
+# Over-merges the audit undid -> record as different people so they stay split.
+[[reject]]
+# Angus M != Angus McC: both fielded POG2501 (Pox vs Jund); the 0.64 was netdecked
+# Jund at other events. Same event, different decks = two people.
+ids = ["MistyCyanHeron", "ShinyTealHawk"]
+
+[[reject]]
+# George H != George (bare): 0.56 was netdecked Mono Red at disjoint events; a bare
+# first name with no surname is not enough to fold into George H.
+ids = ["BraveBronzeWolf", "FlyingSilverGecko"]
+
+[[reject]]
+# Ben H 1 != Benjamin H: the 0.97 Taxes list coexists at ANZSS11 under both names
+# with different decks -> Benjamin H is a distinct net-decker, not the same entrant.
+ids = ["NimbleAzureTiger", "RapidIndigoBadger"]
+
+[[reject]]
+# Sam L != SamL5, Sam L != SamL21, SamL5 != SamL21: SamL5 and SamL21 sit at one event
+# (ETEAE) with 0.03 overlap = two people, yet both ~0.73 to Sam L, so the overlap is
+# netdeck similarity, not identity. Keep all three separate.
+ids = ["CrimsonBlackFalcon", "WanderingCyanViper"]
+
+[[reject]]
+ids = ["LunarSilverManta", "WanderingCyanViper"]
+
+[[reject]]
+ids = ["CrimsonBlackFalcon", "LunarSilverManta"]
+
+[[reject]]
+# Lachlan C != LacC3: LacC3's lone Flood Moon deck is a shared community list (the
+# distinct Lachlan C 1 also overlaps it 0.94), so the archetype match is not identity.
+ids = ["HiddenGreenLynx", "SolarCrimsonLynx"]
+
+[[reject]]
+# Eddie L M != Eddie L: single-initial "Eddie L" on a 0.14 shared Time Vault is a
+# weak, colliding discriminator; keep it apart from the two-initial Eddie L M/LM.
+ids = ["AmberBronzeStag", "SolarBlackGecko"]
+
+# Corroborated merges the audit added (deck overlap + shared archetype, disjoint events).
+[[merge]]
+# Mat B = MatB161 (handle embeds "Mat B", 0.78 Jund, disjoint; disambiguates vs MatB163)
+ids = ["MistyGoldBadger", "SilentTealPanda"]
+canonical = "MistyGoldBadger"
+
+[[merge]]
+# Jono W = Jonathan W (nickname, 0.79 Breach; folds into the Jonathan W/JonW26 group)
+ids = ["SwiftIndigoBadger", "MistyPurpleTiger"]
+canonical = "SwiftIndigoBadger"
+
+[[merge]]
+# Chia L = Chia Wei L (surname initial L, 0.81 Grixis; joins Chia W/Chia Wei L group)
+ids = ["LunarJadeRaven", "LunarMaroonRaven"]
+canonical = "LunarJadeRaven"
+
+[[merge]]
+# Elliot L = Elliott L C (spelling variant + initial, 0.59 Jeskai Breach, disjoint)
+ids = ["HiddenMaroonRaven", "SolarMaroonFalcon"]
+canonical = "SolarMaroonFalcon"
+
+[[merge]]
+# Christopher KH = Chris KH (Chris/Christopher of the double-barrel KH surname)
+ids = ["SolarJadeHeron", "AmberBronzeViper"]
+canonical = "SolarJadeHeron"
+
+[[merge]]
+# JakB19 = Jake B (handle decode Jak B, 0.47, disjoint)
+ids = ["BraveSilverOrca", "SwiftIndigoOrca"]
+canonical = "BraveSilverOrca"
+
+[[merge]]
+# DimY1 = Dimitri Y (handle decode Dim Y 1, 0.45 Grixis, disjoint)
+ids = ["LunarCyanFalcon", "SwiftIvoryPanda"]
+canonical = "LunarCyanFalcon"
+
+[[merge]]
+# Seb J = Sebastian J (nickname, 0.44 Blue Moon, disjoint)
+ids = ["FrostyIvoryCobra", "IvoryAzureWhale"]
+canonical = "FrostyIvoryCobra"
+
+# Name-error merges (single-edit corruptions of a name present in the bucket);
+# the independent review merged these on the name, decks non-contradicting.
+[[merge]]
+# Geroge H = George H (letter transposition, non-name variant)
+ids = ["FlyingSilverGecko", "ShinySilverBadger"]
+canonical = "FlyingSilverGecko"
+
+[[merge]]
+# Rovert L = Rob L / Robert L (b->v substitution to a non-name; Robert L in-bucket)
+ids = ["SolarOrangeOtter", "CrimsonBlueHawk"]
+canonical = "SolarOrangeOtter"
+
+[[merge]]
+# Russel C = Russell C (single-l deletion, common misspelling)
+ids = ["SolarTealWolf", "SwiftIvoryGecko"]
+canonical = "SolarTealWolf"
+
+[[merge]]
+# Fraiser P = Fraser P (single-letter insertion; same organizer series DNAWAD)
+ids = ["FlyingCyanCobra913", "NimbleIndigoFox"]
+canonical = "FlyingCyanCobra913"
+
+[[merge]]
+# Jake K = Jake Kearney (initial->surname; same scene, no same-event conflict)
+ids = ["LunarMaroonOtter", "IvoryMaroonTiger"]
+canonical = "LunarMaroonOtter"
+
+[[merge]]
+# Sam Bailey = Sam B 1 (initial->surname; persistent Goblins signature, 0.35)
+ids = ["MistyGoldWolf", "SwiftBronzeStag"]
+canonical = "MistyGoldWolf"
+
+# Display pin: majority vote renders the misspelling "Gerad N"; pin the real spelling.
+[[name]]
+pilot = "BraveBlackLynxC54"
+display_name = "Gerard N"
+
+# Pass 9 display pins: the merge vote surfaced a handle / misspelling; pin the real name.
+[[name]]
+pilot = "BraveSilverOrca"
+display_name = "Jake B"
+
+[[name]]
+pilot = "FlyingCyanCobra913"
+display_name = "Fraser P"
+
+[[name]]
+pilot = "LunarJadeRaven"
+display_name = "Chia Wei L"

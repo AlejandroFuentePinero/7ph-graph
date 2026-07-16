@@ -17,8 +17,9 @@ from pathlib import Path
 import kuzu
 from pydantic import BaseModel
 
+from graph7ph.curation import Curation, load_curation
 from graph7ph.db import rows
-from graph7ph.models import COLOURS, Card, Deck, Snapshot
+from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
 
 _SCHEMA = [
@@ -98,17 +99,24 @@ def reconciliation_path(db_path: Path) -> Path:
     return db_path.with_name(db_path.name + ".reconciliation.json")
 
 
-def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
+def build_graph(
+    snapshot: Snapshot, db_path: Path, curation: Curation | None = None
+) -> BuildCounts:
     """Build a fresh Kùzu database at ``db_path`` and return its counts.
 
-    Pilots are resolved to keyed, named nodes and a reconciliation report is
-    written alongside the database at :func:`reconciliation_path` (ADR 0004).
+    Pilots are resolved to keyed, named nodes, applying the checked-in curation
+    dictionary (issue #9); a reconciliation report is written alongside the
+    database at :func:`reconciliation_path` (ADR 0004). Duplicate registrations
+    the resolution drops are excluded from the graph entirely.
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _remove(db_path)
 
-    pilots = resolve_pilots(snapshot.decks)
+    curation = curation if curation is not None else load_curation()
+    pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
+    if pilots.dropped_decks:
+        snapshot = _without_decks(snapshot, pilots.dropped_decks)
     years = _event_years(snapshot.decks)
 
     conn = kuzu.Connection(kuzu.Database(str(db_path)))
@@ -139,6 +147,32 @@ def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
         card_colour=_count(conn, "MATCH ()-[r:CARD_COLOUR]->() RETURN count(r)"),
         has_type=_count(conn, "MATCH ()-[r:HAS_TYPE]->() RETURN count(r)"),
         in_year=_count(conn, "MATCH ()-[r:IN_YEAR]->() RETURN count(r)"),
+    )
+
+
+def _decklists(containments: list[Containment]) -> dict[str, tuple]:
+    """Each deck's card-for-card signature, for spotting duplicate registrations.
+
+    A deck's identity for de-duplication is the set of cards on each board, so
+    two registrations with the same 75 hash equal however their rows are ordered.
+    """
+    main: dict[str, set] = {}
+    side: dict[str, set] = {}
+    for c in containments:
+        (main if c.board == "Main" else side).setdefault(c.deck_id, set()).add(c.canon)
+    ids = main.keys() | side.keys()
+    return {
+        deck_id: (frozenset(main.get(deck_id, ())), frozenset(side.get(deck_id, ())))
+        for deck_id in ids
+    }
+
+
+def _without_decks(snapshot: Snapshot, dropped: frozenset[str]) -> Snapshot:
+    """A copy of the snapshot with the dropped decks and their cards removed."""
+    return Snapshot(
+        cards=snapshot.cards,
+        decks=[d for d in snapshot.decks if d.deck_id not in dropped],
+        containments=[c for c in snapshot.containments if c.deck_id not in dropped],
     )
 
 

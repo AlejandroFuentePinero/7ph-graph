@@ -17,6 +17,7 @@ snapshots/
 *.kuzu.ingest.json
 *.kuzu.reconciliation.json
 data/*.json
+scratch/
 
 # Agent config (local, not shared)
 CLAUDE.md

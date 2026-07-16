@@ -5,6 +5,7 @@ Paths default under the repo's ``data/`` directory and are overridable by flag.
 """
 
 import argparse
+import json
 from pathlib import Path
 
 from graph7ph.build import YearStraddle, reconciliation_path
@@ -44,6 +45,17 @@ def _build(args: argparse.Namespace) -> None:
     if report.flags:
         print(f"  {len(report.flags)} record(s) flagged for review "
               f"(dropped ids or changed facts): {ingest_report_path(args.db)}")
+
+    recon = json.loads(reconciliation_path(args.db).read_text())
+    dupes, joined, candidates, curated = (
+        len(recon["dropped_duplicates"]), len(recon["joined_names"]),
+        len(recon["under_merges"]), recon["curated"],
+    )
+    if dupes:
+        print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
+    if joined:
+        print(f"  {joined} id group(s) joined on an identical display name")
+    print(f"  pilot identity: {candidates} candidate(s) to review, {curated} already curated")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
 
 

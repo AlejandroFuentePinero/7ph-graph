@@ -166,8 +166,10 @@ def test_html_body_hard_fails(tmp_path):
 
 
 def _snapshot_files(deck_ids):
+    # Each deck gets its own pilot so two decks in one snapshot are distinct
+    # registrations, not duplicate rows the build would collapse.
     decks = json.dumps([{
-        "deckId": did, "name": "n", "deckName": "n", "pilot": "p", "event": "E",
+        "deckId": did, "name": "n", "deckName": "n", "pilot": f"p_{did}", "event": "E",
         "eventId": "evt_1", "eventType": "Tournament",
         "placement": 1, "placementNorm": 0.0,
         "createdAt": "2025-06-01T00:00:00+00:00",
