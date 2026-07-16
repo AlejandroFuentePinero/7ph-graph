@@ -306,7 +306,9 @@ def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path):
             {"id": "r1", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "m": ["x"]},
             {"id": "r2", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "m": ["pad1"]},
             {"id": "r3", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "m": ["pad2"]},
-            {"id": "b1", "tag": "boros", "norm": 0.0, "macro": "aggro", "m": ["x"]},
+            # Its own pilot: a distinct registration that also runs x, not a
+            # duplicate of r1 (same card list) the build would collapse.
+            {"id": "b1", "tag": "boros", "norm": 0.0, "macro": "aggro", "pilot": "p2", "m": ["x"]},
         ]
         + [
             {"id": f"c{i}", "tag": "azorius", "norm": 0.0, "macro": "control", "m": [f"pad{i}"]}

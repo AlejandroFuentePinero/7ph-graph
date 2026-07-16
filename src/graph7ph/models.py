@@ -9,16 +9,49 @@ domain's stable identities: a Deck on its ``deckId``, a Card on its ``canon``.
 """
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from pydantic.alias_generators import to_camel
 
 Board = Literal["Main", "Side"]
 
 _BOARDS: tuple[tuple[str, Board], ...] = (("m", "Main"), ("s", "Side"))
+
+# A deck title opens with the pilot's placement: a run of digits or placeholders
+# (``?``, ``X`` for an unknown placement) with an optional ordinal suffix
+# (``st``/``nd``/``rd``/``th``, sometimes mistyped with a trailing ``h`` or
+# missing letters), optionally a ``/`` or ``-`` range, e.g. ``05th/08th``,
+# ``??st``, ``05th-8th``, ``42ndh``, ``19h``, ``XXth``. It may carry a leading
+# ``*`` ("*12th Ciaran C"), or read as a cut rather than a rank ("Top 8 Ben H").
+# Both ends of a range are captured so the rank can be read back out of it.
+#
+# This is the source's title grammar, so it lives with the source parse. Pilot
+# name recovery imports it to strip what it must not read as a name.
+PLACEMENT_TOKEN = re.compile(
+    r"^\s*\*?\s*-?\s*(?:top\s*)?([\dxX?]+)(?:st|nd|rd|th)?h?"
+    r"(?:\s*[/-]\s*([\dxX?]+)(?:st|nd|rd|th)?h?)?\s+",
+    re.IGNORECASE,
+)
+
+
+def placement_from_title(title: str | None) -> int | None:
+    """The placement a title records, or ``None`` if it records none.
+
+    A range reads as its worst rank, the same convention the source itself uses
+    when it numbers a "05th-8th" finisher 8th, and a "Top 8" cut is that range's
+    worst rank too. A placeholder rank (``??st``, ``XXth``) carries no number and
+    stays unknown. A run of four or more digits is a year or other noise, not a
+    rank (these events never seat a thousand players), so it is not read.
+    """
+    token = PLACEMENT_TOKEN.match(title or "")
+    if not token:
+        return None
+    worst = token.group(2) or token.group(1)
+    return int(worst) if worst.isdigit() and len(worst) <= 3 else None
 
 # The five Magic colours, in canonical WUBRG order.
 COLOURS: tuple[str, ...] = ("W", "U", "B", "R", "G")
@@ -89,6 +122,23 @@ class Deck(_Raw):
     engine_tag_labels: dict[str, str]
     primary_tag: str
     primary_tag_weights: dict[str, int]
+
+    @model_validator(mode="after")
+    def _placement_from_title(self) -> "Deck":
+        """Recover a placement the source left null from the deck's own title.
+
+        The source drops the placement of whole classes of entry while the title
+        still records it: CanBrawl2 numbers 9th and below but leaves its top
+        eight as "Top 4"/"Top 8", and Pats Birthday Brawl numbers nothing though
+        every title opens "1st", "3rd/4th", "5th-8th". The title is the only
+        witness, so it is read when the field is null and never otherwise.
+
+        ``placement_norm`` stays null: the source derives it against the field
+        size, which is not ours to recompute.
+        """
+        if self.placement is None:
+            self.placement = placement_from_title(self.name)
+        return self
 
     @property
     def colour_identity(self) -> str:

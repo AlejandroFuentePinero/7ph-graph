@@ -9,18 +9,26 @@ from types import SimpleNamespace
 
 import pytest
 
-from graph7ph.pilots import display_name_from_title, resolve_pilots
+from graph7ph.curation import Curation
+from graph7ph.pilots import (
+    DECIDED_RELATIONS,
+    display_name_from_title,
+    name_relation,
+    resolve_pilots,
+)
 
 
-def _deck(deck_id, pilot, title, event=None, placement=1):
-    """A minimal stand-in for a Deck: resolution reads these five fields.
+def _deck(deck_id, pilot, title, event=None, placement=1, deck_name=None):
+    """A minimal stand-in for a Deck: resolution reads these six fields.
 
     ``event`` defaults to the deck id so unrelated decks never collide on a
-    shared event; collision tests pass an explicit shared event.
+    shared event; collision tests pass an explicit shared event. ``deck_name``
+    is the source's own parse of the deck, which name recovery subtracts from
+    separator-less titles.
     """
     return SimpleNamespace(
         deck_id=deck_id, pilot=pilot, name=title,
-        event=event or deck_id, placement=placement,
+        event=event or deck_id, placement=placement, deck_name=deck_name,
     )
 
 
@@ -54,12 +62,112 @@ def _pilot(resolution, pilot_id):
         ("032nd John-Paul K - Storm - ETEAE", "John-Paul K"),
         ("019th Chris K-H - Jund - CB5", "Chris K-H"),
         ("25th Xian-Zhi L - Storm - PogAug25", "Xian-Zhi L"),
+        # A leading "*" still marks a placement, not a name.
+        ("*12th Ciaran C - 8pt Boros Legends - WAC", "Ciaran C"),
+        # A cut ("Top 8") is a placement too, however it is spaced.
+        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", "Ben H"),
+        ("Top 8  Benjamin S - Jund - CanBrawl2", "Benjamin S"),
         # No title.
         (None, None),
     ],
 )
 def test_display_name_from_title_strips_placement_and_takes_name(title, expected):
     assert display_name_from_title(title) == expected
+
+
+@pytest.mark.parametrize(
+    "title, deck_name, event, expected",
+    [
+        # Separator-less titles: subtract the source's own event and deck name
+        # from the tail, and the pilot is what is left.
+        ("1st Ben N Lurrus Breach PoGTeams2024", "Lurrus Breach", "PoGTeams2024", "Ben N"),
+        ("5th-8th Jack D Grixis Oracle PoGTeams2024", "Grixis Oracle", "PoGTeams2024", "Jack D"),
+        # The event's own name carries a hyphen, which is not a separator.
+        ("1st Luke M Goblins PoGWinaDual07-01", "Goblins", "PoGWinaDual07-01", "Luke M"),
+        # An empty pilot field leaves the deck sitting where the name belongs.
+        # Subtracting the deck name exposes a points marker, which is never a
+        # person, so the pilot is unknown rather than "8pt Blue Moon".
+        ("121st  - 8pt Blue Moon - HighlanderWorlds26", "Blue Moon", "HighlanderWorlds26", None),
+        # The source parsed the deck as the person's name (the title carries no
+        # deck at all), so subtracting it would erase the name. Keep the name.
+        ("5th-8th - Liam B - Pats Birthday Brawl", "Liam B", "Pats Birthday Brawl", "Liam B"),
+        # A normal title is unaffected by having the extra context.
+        ("05th/08th Jordan C - Grixis - CFWAT25", "Grixis", "CFWAT25", "Jordan C"),
+        # A genuinely long name survives; it is not deck noise.
+        ("24th Israel van der R - Rakdos Midrange - WAC", "Rakdos Midrange", "WAC",
+         "Israel van der R"),
+    ],
+)
+def test_display_name_subtracts_source_deck_and_event(title, deck_name, event, expected):
+    assert display_name_from_title(title, deck_name=deck_name, event=event) == expected
+
+
+@pytest.mark.parametrize(
+    "a, b, expected",
+    [
+        # Same name, different upstream ids: only the case differs.
+        ("Nathan S", "Nathan s", "exact"),
+        ("Michael B", "Michael B", "exact"),
+        # A bare first name against the regular form.
+        ("Noelle", "Noelle T", "first-name"),
+        ("Angus", "Angus M", "first-name"),
+        # A handle the title carried instead of a name: first three letters,
+        # surname initial, and an optional per-registration number.
+        ("OdeB", "Oden B", "handle"),
+        ("CalT13", "Calum T", "handle"),
+        ("JonB48", "Jonah B", "handle"),
+        # A nickname or abbreviation of the same first name.
+        ("Alex J", "Alexander J", "nickname"),
+        ("Chris T", "Christopher T", "nickname"),
+        ("Matt B", "Matthew B", "nickname"),
+        # One slip of the fingers: a transposition, or a letter added/dropped.
+        ("Alexadner J", "Alexander J", "typo"),
+        ("Jodran M", "Jordan M", "typo"),
+        ("Brnadon O", "Brandon O", "typo"),
+        ("Tristian F", "Tristan F", "typo"),
+        ("Daneil T", "Daniel T", "typo"),
+        # A different surname is a different person, however close the first name.
+        ("Jordan C", "Jordan B", None),
+        # A hyphenated double-barrel initial reads the same as its unspaced form,
+        # so the surname matches and the shared first name proposes them.
+        ("Chris K-H", "Chris KH", "nickname"),
+        # But a plain initial is not the same surname as a double-barrel one.
+        ("Chris K", "Chris K-H", None),
+        # Two edits apart is two people, not a typo: these names are too short
+        # for the shape to tell drift from difference.
+        ("Jake M", "Jack M", None),
+        ("Ramona B", "Damon B", None),
+        ("Daniel M", "Annie M", None),
+        # An opaque handle relates to nothing; only the dictionary can place it.
+        ("alejandrofp", "Alejandro D", None),
+    ],
+)
+def test_name_relation_classifies_how_two_recovered_names_relate(a, b, expected):
+    assert name_relation(a, b) == expected
+    assert name_relation(b, a) == expected  # the relation is symmetric
+
+
+def test_name_candidates_are_reported_but_never_merged_by_heuristics():
+    # The heuristics only ever propose. "Noelle"/"Noelle T" and every "Dan"
+    # pairing are surfaced as candidates, each tagged with its relation, but the
+    # ids stay separate until the dictionary says otherwise (issue #9, wave 1).
+    decks = [
+        _deck("d1", "HiddenGreenPanda", "01st Noelle - Storm - CFWAT25"),
+        _deck("d2", "FrostyIndigoStag", "02nd Noelle T - Storm - PogNov25"),
+        _deck("d3", "MistyAzureHawk", "03rd Dan - Grixis - ETEAE"),
+        _deck("d4", "BraveGreenOrca", "04th Dan P - Grixis - Area52IQ"),
+    ]
+
+    res = resolve_pilots(decks)
+
+    # Every id kept its own pilot node: nothing was merged.
+    assert {p.pilot for p in res.pilots} == {
+        "HiddenGreenPanda", "FrostyIndigoStag", "MistyAzureHawk", "BraveGreenOrca"
+    }
+    by_name = {u.display_name: u for u in res.report.under_merges}
+    assert by_name["Noelle"].relation == "first-name"
+    assert set(DECIDED_RELATIONS) == {"exact", "first-name", "handle"}
+    assert res.report.curated == 0
 
 
 def test_pilot_is_keyed_on_upstream_id_with_majority_display_name():
@@ -128,9 +236,10 @@ def test_fuzzy_spelling_variants_consolidate_and_are_reported():
     assert cluster.variants == {"Dan S": 3, "Daniel S": 1}
 
 
-def test_shared_display_name_across_ids_flagged_as_under_merge():
-    # One display name under two distinct upstream ids: a candidate under-merge
-    # the data cannot resolve on its own (ADR 0004). Never merged automatically.
+def test_identical_display_names_join_into_one_person():
+    # Display name is the primary player identity (ADR 0007): two ids that
+    # recover the same name are the same person and are joined onto the busier
+    # id, carrying every deck. Logged, and no longer an under-merge candidate.
     decks = [
         _deck("d1", "BraveCyanWolf", "01st Tom M - Lands - CFWAT25"),
         _deck("d2", "BraveCyanWolf", "05th Tom M - Lands - PogNov25"),
@@ -139,12 +248,14 @@ def test_shared_display_name_across_ids_flagged_as_under_merge():
 
     res = resolve_pilots(decks)
 
-    # Both pilots survive as separate nodes.
-    assert {p.pilot for p in res.pilots} == {"BraveCyanWolf", "Tom M"}
-    under = res.report.under_merges
-    assert len(under) == 1
-    assert under[0].display_name == "Tom M"
-    assert set(under[0].pilots) == {"BraveCyanWolf", "Tom M"}
+    assert {p.pilot for p in res.pilots} == {"BraveCyanWolf"}
+    assert {res.deck_pilot[d] for d in ("d1", "d2", "d3")} == {"BraveCyanWolf"}
+    assert res.report.under_merges == []
+    joined = res.report.joined_names
+    assert len(joined) == 1
+    assert joined[0].canonical == "BraveCyanWolf"
+    assert joined[0].display_name == "Tom M"
+    assert joined[0].merged == ["BraveCyanWolf", "Tom M"]
 
 
 def test_null_bucket_is_reported_and_excluded_from_under_merges():
@@ -160,6 +271,38 @@ def test_null_bucket_is_reported_and_excluded_from_under_merges():
     assert res.report.under_merges == []
     assert [p.display_name for p in res.report.null_pilots] == ["Kyle G"]
     assert all(p.low_confidence for p in res.report.null_pilots)
+
+
+def test_null_orphan_joins_into_the_real_pilot_of_that_name():
+    # A registration whose upstream id the source lost lands in the null bucket
+    # under its recovered name. It shares that name with a real pilot, so it is
+    # the same person: the orphan deck joins onto the real (canonical) id.
+    decks = [
+        _deck("d1", "AmberRedGecko", "01st Kyle G - Jund - CFWAT25"),
+        _deck("d2", "nan", "05th Kyle G - Burn - Area52IQ"),
+    ]
+
+    res = resolve_pilots(decks)
+
+    assert {p.pilot for p in res.pilots} == {"AmberRedGecko"}
+    assert res.deck_pilot["d2"] == "AmberRedGecko"
+    joined = next(j for j in res.report.joined_names if j.display_name == "Kyle G")
+    assert joined.canonical == "AmberRedGecko"
+
+
+def test_same_name_ids_colliding_at_one_event_are_reseparated():
+    # Joining is unconditional on name, but the one-deck-per-event invariant is
+    # not lost: two same-name ids that both entered one event join, then the
+    # event split deals them back into numbered people for that event.
+    decks = [
+        _deck("d1", "BraveCyanWolf", "10th Tom M - Lands - NHC26", event="NHC26", placement=10),
+        _deck("d2", "Tom M", "20th Tom M - Storm - NHC26", event="NHC26", placement=20),
+    ]
+
+    res = resolve_pilots(decks)
+
+    assert res.deck_pilot["d1"] != res.deck_pilot["d2"]
+    assert {p.display_name for p in res.pilots} == {"Tom M 1", "Tom M 2"}
 
 
 def test_same_event_duplicates_split_into_numbered_people():
@@ -211,6 +354,117 @@ def test_no_collision_leaves_the_pilot_untouched():
 
     assert [p.display_name for p in res.pilots] == ["Nick C"]
     assert res.report.event_splits == []
+
+
+# --- Curation: the human-decision dictionary the build applies (issue #9) ---
+
+
+def test_curated_merge_collapses_ids_carrying_every_deck():
+    # Two upstream ids a human confirmed are one person. They collapse onto the
+    # chosen canonical id, and every deck of both follows, none dropped.
+    decks = [
+        _deck("d1", "ShinyCrimsonHeron", "01st Alexander J - Jeskai - E1", event="E1"),
+        _deck("d2", "AmberTealOrca", "02nd Alexadner J - Jeskai - E2", event="E2"),
+        _deck("d3", "AmberTealOrca", "03rd Alexadner J - Jeskai - E3", event="E3"),
+    ]
+    curation = Curation(
+        merges={"AmberTealOrca": "ShinyCrimsonHeron"},
+        rejected=frozenset(), names={}, deck_pilots={},
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert [p.pilot for p in res.pilots] == ["ShinyCrimsonHeron"]
+    assert set(res.deck_pilot.values()) == {"ShinyCrimsonHeron"}  # all three decks
+    # The merged pair no longer appears as a candidate to decide again.
+    assert res.report.under_merges == []
+    assert res.report.curated == 1  # the confirmed merge counts as a decision made
+
+
+def test_pinned_display_name_beats_the_majority_vote():
+    # The vote would pick the opaque handle "alejandrofp"; the dictionary pins
+    # the real name against it.
+    decks = [_deck("d1", "CleverBlueWhale", "91st alejandrofp - Blue Moon - E")]
+    curation = Curation(
+        merges={}, rejected=frozenset(),
+        names={"CleverBlueWhale": "Alejandro D"}, deck_pilots={},
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert _pilot(res, "CleverBlueWhale").display_name == "Alejandro D"
+
+
+def test_rejected_candidate_stays_suppressed_across_a_rebuild():
+    # "Joe M" and "Joel M" look like one person by shape but are two people. Once
+    # rejected, the pair never returns to the review list.
+    decks = [
+        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
+        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Grixis - E2", event="E2"),
+    ]
+    rejected = frozenset({frozenset({"NimbleBlackEagle", "FrostyBlueOtter"})})
+    curation = Curation(merges={}, rejected=rejected, names={}, deck_pilots={})
+
+    res = resolve_pilots(decks, curation)
+
+    assert res.report.under_merges == []       # suppressed
+    assert res.report.curated == 1             # and counted, so the list shrinks
+    # Without the rejection it would be a live candidate.
+    assert resolve_pilots(decks).report.under_merges != []
+
+
+def test_null_deck_resolved_to_a_real_pilot_via_override():
+    # A null-pilot deck a human traced to its real owner is reassigned before the
+    # name vote, so it strengthens that pilot rather than minting a lone node.
+    decks = [
+        _deck("d1", "LuckyTealLynx", "01st Brennan C - Lurrus Breach - E1", event="E1"),
+        _deck("d2", "nan", "5th-8th - Brennan C - Pats Birthday Brawl",
+              event="Pats", deck_name="Brennan C"),
+    ]
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={},
+        deck_pilots={"d2": "LuckyTealLynx"},
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert res.deck_pilot["d2"] == "LuckyTealLynx"
+    assert all(p.pilot != "nan" and not p.pilot.startswith("nan:") for p in res.pilots)
+    assert res.report.null_pilots == []
+
+
+def test_identical_registration_is_dropped_and_logged():
+    # Same id, event, name, and card-for-card list: one entry submitted twice.
+    # The best placement is kept; the drop is recorded, never silent.
+    decks = [
+        _deck("d1", "BravePurpleFalcon", "132nd Christopher K - Bots - NHC26",
+              event="NHC26", placement=132),
+        _deck("d2", "BravePurpleFalcon", "133rd Christopher K - Bots - NHC26",
+              event="NHC26", placement=133),
+    ]
+    decklists = {"d1": ("bots",), "d2": ("bots",)}  # identical signatures
+
+    res = resolve_pilots(decks, decklists=decklists)
+
+    assert res.dropped_decks == frozenset({"d2"})     # worse placement dropped
+    assert res.deck_pilot == {"d1": "BravePurpleFalcon"}
+    [dup] = res.report.dropped_duplicates
+    assert (dup.dropped_deck, dup.kept_deck, dup.display_name) == ("d2", "d1", "Christopher K")
+
+
+def test_teammates_sharing_a_list_are_not_treated_as_duplicates():
+    # Same event and identical decklist but different names: two teammates who
+    # played the same list, not one duplicated entry. Both are kept.
+    decks = [
+        _deck("d1", "nan", "3rd/4th - Brennan C - Pats", event="Pats", deck_name="Brennan C"),
+        _deck("d2", "nan", "5th-8th - Cody K - Pats", event="Pats", deck_name="Cody K"),
+    ]
+    decklists = {"d1": ("same",), "d2": ("same",)}
+
+    res = resolve_pilots(decks, decklists=decklists)
+
+    assert res.dropped_decks == frozenset()
+    assert res.report.dropped_duplicates == []
 
 
 def _build_snapshot(tmp_path, decks):
