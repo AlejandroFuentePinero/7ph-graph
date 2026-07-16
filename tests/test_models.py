@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -35,6 +36,8 @@ def test_parses_decks_and_cards_with_domain_fields(snapshot_dir):
     assert deck.pilot == "Jordan C"
     assert deck.event == "CFWAT25"
     assert deck.placement == 5
+    # The only date the source carries for a deck (issue-26, ADR 0006).
+    assert deck.created_at == datetime(2025, 12, 6, tzinfo=timezone.utc)
 
     card = next(c for c in snap.cards if c.canon == "arid mesa")
     assert card.name == "Arid Mesa"
@@ -54,6 +57,7 @@ def test_optional_source_fields_tolerate_nulls():
     deck = Deck.model_validate(
         {"deckId": "d", "name": "n", "deckName": "n", "pilot": "p", "event": "e",
          "eventType": "Tournament", "placement": None, "placementNorm": None,
+         "createdAt": "2025-06-01T00:00:00+00:00",
          "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
          "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
     )
@@ -64,6 +68,7 @@ def test_out_of_range_card_id_raises_a_clear_error(tmp_path):
     (tmp_path / "decks.json").write_text(json.dumps([
         {"deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "e",
          "eventType": "Tournament", "placement": 1, "placementNorm": 0.0,
+         "createdAt": "2025-06-01T00:00:00+00:00",
          "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
          "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
     ]))

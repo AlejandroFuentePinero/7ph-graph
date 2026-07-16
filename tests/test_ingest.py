@@ -28,6 +28,7 @@ def deck(deck_id, *, pilot="pilot", event="E", placement=1, **over) -> Deck:
     fields = dict(
         deck_id=deck_id, name=f"{deck_id} deck", deck_name="deck", pilot=pilot, event=event,
         event_type="Tournament", placement=placement, placement_norm=0.0,
+        created_at="2025-06-01T00:00:00+00:00",
         colour="colour:U", macro="macro:tempo", engine_tags=[],
         engine_tag_labels={}, primary_tag="", primary_tag_weights={},
     )
@@ -133,6 +134,7 @@ def _write_snapshot_dir(path, *, decks, cards_index):
 _VALID_DECKS = json.dumps([{
     "deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "E",
     "eventType": "Tournament", "placement": 1, "placementNorm": 0.0,
+    "createdAt": "2025-06-01T00:00:00+00:00",
     "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
     "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
 }])
@@ -168,6 +170,7 @@ def _snapshot_files(deck_ids):
         "deckId": did, "name": "n", "deckName": "n", "pilot": "p", "event": "E",
         "eventId": "evt_1", "eventType": "Tournament",
         "placement": 1, "placementNorm": 0.0,
+        "createdAt": "2025-06-01T00:00:00+00:00",
         "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
         "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
     } for did in deck_ids])

@@ -7,7 +7,7 @@ Paths default under the repo's ``data/`` directory and are overridable by flag.
 import argparse
 from pathlib import Path
 
-from graph7ph.build import reconciliation_path
+from graph7ph.build import YearStraddle, reconciliation_path
 from graph7ph.db import artifact_path
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
@@ -28,17 +28,19 @@ def _build(args: argparse.Namespace) -> None:
     # then promotes atomically with a retained backup (ADR 0003).
     try:
         report, counts = ingest(args.snapshots, args.db)
-    except SchemaError as exc:
+    except (SchemaError, YearStraddle) as exc:
         raise SystemExit(f"Build aborted, live graph untouched: {exc}")
 
     print(f"Built {args.db} ({report.status}):")
     print(f"  nodes: pilots={counts.pilots} decks={counts.decks} cards={counts.cards} "
           f"events={counts.events} archetypes={counts.archetypes} "
-          f"macros={counts.macros} colours={counts.colours} cardTypes={counts.card_types}")
+          f"macros={counts.macros} colours={counts.colours} "
+          f"cardTypes={counts.card_types} years={counts.years}")
     print(f"  edges: piloted_by={counts.piloted_by} contains={counts.contains} "
           f"played_at={counts.played_at} has_archetype={counts.has_archetype} "
           f"has_macro={counts.has_macro} deck_colour={counts.deck_colour} "
-          f"card_colour={counts.card_colour} has_type={counts.has_type}")
+          f"card_colour={counts.card_colour} has_type={counts.has_type} "
+          f"in_year={counts.in_year}")
     if report.flags:
         print(f"  {len(report.flags)} record(s) flagged for review "
               f"(dropped ids or changed facts): {ingest_report_path(args.db)}")
