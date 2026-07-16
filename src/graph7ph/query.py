@@ -71,6 +71,13 @@ class Node:
     # layout, used to separate the two co-occurrence seeds and centre their
     # shared cards.
     pin: tuple[float, float] | None = None
+    # The analytic values behind the node, kept as numbers rather than folded
+    # into the label: how many decks it counts (a gem's rarity, an intersection's
+    # size) and, for a gem, its mean placement. The renderer ignores them; a
+    # label is for display, these are for a consumer that wants the value, so
+    # v2's tool layer need not re-derive what was computed here (issue #12).
+    decks: int | None = None
+    mean_norm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,14 @@ class Edge:
     # By default the label is a hover tooltip; ``True`` draws it on the edge, used
     # where the edge carries the readable name (the node itself shows a number).
     visible: bool = False
+    # The analytic values behind the edge, kept as numbers rather than folded
+    # into the label: a co-occurrence count and the base it is a share of, or a
+    # pilot's event count. A label like ``"75%"`` is a rounded rendering of the
+    # first pair; a consumer that wants the value reads it here rather than
+    # parsing display text (issue #12).
+    shared_decks: int | None = None
+    total_decks: int | None = None
+    events: int | None = None
 
 
 @dataclass
@@ -395,6 +410,23 @@ def _pct_label(shared: int, total: int) -> str:
     return "<1%" if 0 < share < 0.5 else f"{round(share)}%"
 
 
+def _rate_edge(source: str, target: str, shared: int, total: int) -> Edge:
+    """A co-occurrence edge: the rate as its label, both its terms as numbers.
+
+    Built in one place so the numbers a consumer reads and the percent the
+    renderer draws can never disagree about which ratio they describe.
+    """
+    return Edge(
+        source, target, _pct_label(shared, total),
+        shared_decks=shared, total_decks=total,
+    )
+
+
+def _plays_edge(source: str, target: str, events: int) -> Edge:
+    """A pilot-affinity edge: the event count as its label, and as a number."""
+    return Edge(source, target, f"PLAYS:{events}", events=events)
+
+
 # The two-seed layout, in vis.js units. The two seeds and the intersection hub
 # anchor on the left (the seeds stacked, the hub between them and the cards); the
 # shared cards line up in a column on the right, ordered by double rate. Pinning
@@ -488,7 +520,7 @@ def card_cooccurrence_subgraph(
         for o_canon, o_name, shared in _cooccurrence_partners(conn, canon, top_n, drop_lands):
             oid = f"card:{o_canon}"
             nodes[oid] = Node(oid, o_name, "Card", group="cooccur")
-            edges.append(Edge(cid_a, oid, _pct_label(shared, decks_a)))
+            edges.append(_rate_edge(cid_a, oid, shared, decks_a))
         return Subgraph(nodes=list(nodes.values()), edges=edges)
 
     name_b, decks_b = seed_b
@@ -521,12 +553,12 @@ def card_cooccurrence_subgraph(
         cid_b: Node(cid_b, name_b, "Card", group=f"seed:{canon2}", pin=(-_SEED_X, -_SEED_DY)),
         hub_id: Node(
             hub_id, f"Both · {both} decks", "Intersection",
-            shape="circle", pin=(-_HUB_X, 0.0),
+            shape="circle", pin=(-_HUB_X, 0.0), decks=both,
         ),
     }
     edges = [
-        Edge(cid_a, hub_id, _pct_label(both, decks_a)),
-        Edge(cid_b, hub_id, _pct_label(both, decks_b)),
+        _rate_edge(cid_a, hub_id, both, decks_a),
+        _rate_edge(cid_b, hub_id, both, decks_b),
     ]
     # Shared cards in a centred column (strongest at the top) so they line up and
     # stay readable, each with a single edge from the hub.
@@ -534,7 +566,7 @@ def card_cooccurrence_subgraph(
         oid = f"card:{o_canon}"
         y = (i - (len(shared) - 1) / 2) * _COL_GAP
         nodes[oid] = Node(oid, o_name, "Card", group="cooccur", pin=(_CARD_X, y))
-        edges.append(Edge(hub_id, oid, _pct_label(cnt, both)))
+        edges.append(_rate_edge(hub_id, oid, cnt, both))
 
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
@@ -587,29 +619,31 @@ def hidden_gems_subgraph(
     if slice_ids is not None:
         params["slice"] = slice_ids
 
-    gems = {
-        canon: name
-        for canon, name in rows(conn.execute(
-            f"""MATCH (d:Deck)-[:CONTAINS]->(c:Card)
-               WHERE {ranked}
-               WITH DISTINCT c, d
-               WITH c, count(d) AS decks, avg(d.placementNorm) AS meanNorm
-               WHERE decks >= $minDecks AND decks <= $maxDecks
-                     AND meanNorm <= $maxNorm
-               RETURN c.canon, c.name""",
-            params,
-        ))
-    }
+    # The rarity and the mean placement are returned, not just filtered on: they
+    # are the answer to "which gems, and how well do they place", so they ride
+    # out on the node rather than being recomputed downstream (issue #12).
+    gems = list(rows(conn.execute(
+        f"""MATCH (d:Deck)-[:CONTAINS]->(c:Card)
+           WHERE {ranked}
+           WITH DISTINCT c, d
+           WITH c, count(d) AS decks, avg(d.placementNorm) AS meanNorm
+           WHERE decks >= $minDecks AND decks <= $maxDecks
+                 AND meanNorm <= $maxNorm
+           RETURN c.canon, c.name, decks, meanNorm""",
+        params,
+    )))
     if not gems:
         return Subgraph(nodes=[], edges=[])
 
     nodes: dict[str, Node] = {
-        f"card:{canon}": Node(f"card:{canon}", name, "Card")
-        for canon, name in gems.items()
+        f"card:{canon}": Node(
+            f"card:{canon}", name, "Card", decks=decks, mean_norm=mean_norm
+        )
+        for canon, name, decks, mean_norm in gems
     }
     edges: list[Edge] = []
     seen: set[tuple[str, str]] = set()
-    edge_params: dict = {"gems": list(gems)}
+    edge_params: dict = {"gems": [canon for canon, *_ in gems]}
     if slice_ids is not None:
         edge_params["slice"] = slice_ids
     res = conn.execute(
@@ -690,14 +724,14 @@ def pilot_affinity_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
     for macro, events in sorted(macro_events.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         mid = f"macro:{macro}"
         nodes.append(Node(mid, macro, "Macro", weight=len(events)))
-        edges.append(Edge(pilot_id, mid, f"PLAYS:{len(events)}"))
+        edges.append(_plays_edge(pilot_id, mid, len(events)))
     for a_tag, events in sorted(arch_events.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         aid = f"arch:{a_tag}"
         nodes.append(Node(aid, arch_names[a_tag], "Archetype", weight=len(events)))
     for (macro, a_tag), events in sorted(
         macro_arch_events.items(), key=lambda kv: (kv[0][0], -len(kv[1]), kv[0][1])
     ):
-        edges.append(Edge(f"macro:{macro}", f"arch:{a_tag}", f"PLAYS:{len(events)}"))
+        edges.append(_plays_edge(f"macro:{macro}", f"arch:{a_tag}", len(events)))
 
     return Subgraph(nodes=nodes, edges=edges)
 

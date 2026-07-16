@@ -396,6 +396,32 @@ def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path):
     labels = {e.target.removeprefix("card:"): e.label for e in full.edges}
     assert labels == {"b": "100%", "c": "75%", "d": "50%", "e": "25%"}
 
+    # The percent is a rounded display of a ratio, so both of its terms survive
+    # as numbers: a consumer reads the count and the base it is a share of
+    # rather than parsing "75%" back into an approximation of them.
+    counts = {
+        e.target.removeprefix("card:"): (e.shared_decks, e.total_decks)
+        for e in full.edges
+    }
+    assert counts == {"b": (4, 4), "c": (3, 4), "d": (2, 4), "e": (1, 4)}
+
+
+def test_cooccurrence_two_seeds_carry_the_intersection_counts_as_numbers(tmp_path):
+    conn = _cooccur_fixture(tmp_path)
+
+    sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
+    hub = next(n for n in sub.nodes if n.kind == "Intersection")
+    counts = {(e.source, e.target): (e.shared_decks, e.total_decks) for e in sub.edges}
+
+    # The hub's deck count is the denominator every percent below it is read
+    # against, so it is a number and not only the "Both · 1 decks" label.
+    assert hub.decks == 1
+    # Each seed's share of its own decks that fall in the intersection, and the
+    # shared card's count out of the both-decks base.
+    assert counts[("card:a", hub.id)] == (1, 2)
+    assert counts[("card:b", hub.id)] == (1, 2)
+    assert counts[(hub.id, "card:x")] == (1, 1)
+
 
 def _cooccur_fixture(tmp_path):
     # Only d1 runs both a and b, and x with them; y sits in an a-only deck, z in a
@@ -593,6 +619,28 @@ def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path):
         f"deck:x{i}" for i in range(6)
     }
     assert all(e.label.startswith("CONTAINS") for e in sub.edges)
+
+
+def test_hidden_gems_carry_their_rarity_and_placement_as_numbers(tmp_path):
+    # The two numbers that decide a gem are the answer to "which gems, and what
+    # is their mean placement", so they survive on the result as values rather
+    # than only as the filter that produced it. `gem` is in 6 decks placing at
+    # 0.0, 0.1, 0.2, 0.3, 0.4 and 0.5: a mean of 0.25, which no single deck has,
+    # so a mean that was never computed cannot pass by luck.
+    decks = [
+        {"id": f"x{i}", "tag": "x", "norm": i / 10, "m": ["gem", f"pad_x{i}"]}
+        for i in range(6)
+    ] + _filler("x", 94, 0.9, start=6)
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = hidden_gems_subgraph(conn)
+
+    gem = next(n for n in sub.nodes if n.id == "card:gem")
+    assert gem.decks == 6
+    assert gem.mean_norm == pytest.approx(0.25)
+    # The label is untouched: the numbers ride alongside it, not inside it.
+    assert gem.label == "Gem"
 
 
 def test_hidden_gems_ceiling_is_a_share_so_rarity_means_the_same_in_any_slice(tmp_path):
@@ -817,6 +865,36 @@ def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot
         ("pilot:AmberTealViper", "macro:combo", "PLAYS:1"),
         ("macro:combo", "arch:storm", "PLAYS:1"),
     ]
+
+
+def test_pilot_affinity_carries_its_event_counts_as_numbers(tmp_path):
+    # "PLAYS:1" is display text. The count behind it survives as a number, so
+    # reading a pilot's affinity never means parsing a label. The generalist
+    # fixture distinguishes the three tiers: aggro's 2 events, Rakdos's 2 across
+    # both macros, and 1 on each macro->archetype edge.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "event": "E1", "m": ["a"]},
+            {"id": "d2", "tag": "rakdos", "norm": 0.0, "macro": "midrange", "event": "E2", "m": ["a"]},
+            {"id": "d3", "tag": "boros", "norm": 0.0, "macro": "aggro", "event": "E3", "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_affinity_subgraph(conn, "p")
+
+    events = {(e.source, e.target): e.events for e in sub.edges}
+    assert events[("pilot:p", "macro:aggro")] == 2
+    assert events[("pilot:p", "macro:midrange")] == 1
+    assert events[("macro:aggro", "arch:rakdos")] == 1
+    # The node weight is already a number, so the whole tier is readable without
+    # touching a label.
+    assert {n.label: n.weight for n in sub.nodes if n.kind == "Archetype"} == {
+        "Rakdos": 2,
+        "Boros": 1,
+    }
 
 
 def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir):
