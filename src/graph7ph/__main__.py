@@ -8,13 +8,14 @@ import argparse
 from pathlib import Path
 
 from graph7ph.build import reconciliation_path
+from graph7ph.db import artifact_path
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 
 # Build outputs live under data/, not the repo root: the graph and its sidecar
 # reports are derived artifacts, kept out of the working tree's top level.
 SNAPSHOTS_ROOT = Path("snapshots")
-DB_PATH = Path("data/graph.kuzu")
+DB_PATH = artifact_path()
 
 
 def _fetch(args: argparse.Namespace) -> None:
