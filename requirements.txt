@@ -1,11 +1,14 @@
-# Hugging Face Spaces and Colab install from here, not from uv.lock.
+# What a Hugging Face Space installs. It cannot install this project itself:
+# Spaces mount only this file into the build and run pip before the repo exists,
+# so a `.` line resolves to an empty directory and fails. The deploy therefore
+# stages the package at the Space's root, where Python imports it without an
+# install, and this file lists what that package needs at runtime.
 #
-# kuzu is pinned to an exact version, not to pyproject's range: a Kùzu release
-# can change the on-disk storage format, and the deployed app must read an
-# artifact built by the same version it was built with. gradio is pinned to the
-# version the Space card declares as its SDK, so installing this file cannot
-# quietly resolve a different one. Both must move together with uv.lock.
+# Only the app's own import path (graph7ph.app -> db, explore, query, render) is
+# needed here. pydantic and requests belong to fetch and build, which the Space
+# never runs. Versions are exact and must move with uv.lock: a Kùzu release can
+# change the on-disk storage format, and the app has to read an artifact the same
+# version built. gradio matches the version the Space card declares as its SDK.
 kuzu==0.7.1
 gradio==5.50.0
-# The project itself, so pyproject.toml stays the source of truth for the rest.
-.
+pyvis==0.3.2

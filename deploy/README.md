@@ -3,9 +3,12 @@ title: 7 Point Highlander Graph
 emoji: 🕸️
 colorFrom: purple
 colorTo: blue
+short_description: Explore the Australian 7 Point Highlander MTG metagame
 sdk: gradio
 sdk_version: 5.50.0
-python_version: "3.12"
+# Pinned exactly, like the requirements: the interpreter the artifact and the
+# wheels were built against, rather than whatever 3.12.x the image would pick.
+python_version: "3.12.12"
 app_file: app.py
 pinned: false
 ---
