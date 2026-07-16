@@ -15,8 +15,12 @@ The human-readable name for a Pilot, recovered from deck titles. A label only, n
 _Avoid_: Real name, player name (as a key)
 
 **Event**:
-A 7PH tournament or teams competition on a given date, at which pilots register decks.
+A 7PH tournament or teams competition at which pilots register decks. It happened at some point in time, but the source records no date for it, so the graph places it no more precisely than its Year.
 _Avoid_: Meet, comp
+
+**Year**:
+The calendar year an Event took place, derived from the earliest deck creation among its decks. The graph's temporal dimension: the axis for slicing the metagame over time. A proxy, since the source carries no event date, and the finest granularity that proxy honestly supports (ADR 0006).
+_Avoid_: Era (a rules period, not a calendar one), season, date
 
 ### Decks and cards
 
@@ -67,8 +71,8 @@ A dated revision of the points list. Card point values change over time as versi
 _Avoid_: Update
 
 **Era**:
-The period between two Points Versions, during which point values are fixed. Defines what was legal when a deck was built.
-_Avoid_: Season, period
+The period between two Points Versions, during which point values are fixed. Defines what was legal when a deck was built. Not a Year: an Era is bounded by points-list revisions, so its boundaries fall wherever a version lands, and one year may hold several Eras.
+_Avoid_: Season, period, year
 
 **Reserved**:
 Whether a card is on Magic's Reserved List. A deck running none of them earns the accessibility bonus.

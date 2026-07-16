@@ -1,6 +1,7 @@
 import json
 
 import kuzu
+import pytest
 
 from graph7ph.build import build_graph
 from graph7ph.models import load_snapshot
@@ -14,6 +15,26 @@ def _connect(tmp_path, snapshot_dir):
 
 def _scalar(conn, query, params=None):
     return conn.execute(query, params or {}).get_next()[0]
+
+
+def _deck(deck_id, event, created_at):
+    """A minimal deck record, for snapshots crafted to exercise one behaviour."""
+    return {"deckId": deck_id, "name": "n", "deckName": "n", "pilot": deck_id,
+            "event": event, "eventId": f"evt_{event}", "eventType": "Tournament",
+            "placement": 1, "placementNorm": 0.0, "createdAt": created_at,
+            "colour": "colour:U", "macro": "macro:control", "engineTags": [],
+            "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
+
+
+def _write_snapshot(path, decks):
+    (path / "decks.json").write_text(json.dumps(decks))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaCost": None, "manaValue": 0.0, "reserved": False,
+                   "priceUsd": 0.5, "points": 0}],
+        "decks": {d["deckId"]: {"m": [0], "s": []} for d in decks},
+    }))
 
 
 def test_build_loads_nodes_and_edges_with_source_counts(snapshot_dir, tmp_path):
@@ -43,6 +64,75 @@ def test_build_loads_nodes_and_edges_with_source_counts(snapshot_dir, tmp_path):
     assert counts.deck_colour == 10    # UBR + UBR + UBRG
     assert counts.card_colour == 95    # colours derived from mana pips
     assert counts.has_type == 121      # one per card
+
+    # The temporal dimension (issue-26 AC #3): both fixture events sit in 2025.
+    assert counts.years == 1
+    assert counts.in_year == 2         # one per event
+
+
+def test_event_links_to_the_year_its_decks_were_created_in(tmp_path, snapshot_dir):
+    conn = _connect(tmp_path, snapshot_dir)
+
+    assert _scalar(
+        conn, "MATCH (:Event {event: 'PogNov25'})-[:IN_YEAR]->(y:Year) RETURN y.year"
+    ) == 2025
+
+    # Every Event links to exactly one Year (issue-26 AC #1): min and max both,
+    # since min alone would miss an Event that had picked up two.
+    assert list(_iter(
+        conn,
+        "MATCH (e:Event) OPTIONAL MATCH (e)-[:IN_YEAR]->(y:Year) "
+        "WITH e, count(y) AS n RETURN min(n), max(n)",
+    )) == [[1, 1]]
+
+
+def test_event_spanning_several_days_resolves_to_one_year(tmp_path):
+    # An event's decks trickle in over days, and often across a month boundary;
+    # they still collapse to the single Year the event ran in (issue-26 AC #7).
+    # Shaped after PogNov25, whose real decks span 2025-11-29 to 2025-12-01.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "PogNov25", "2025-11-29T13:01:51+00:00"),
+        _deck("d2", "PogNov25", "2025-11-30T12:00:00+00:00"),
+        _deck("d3", "PogNov25", "2025-12-01T05:41:48+00:00"),
+    ])
+
+    counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph.kuzu")
+    conn = kuzu.Connection(kuzu.Database(str(tmp_path / "graph.kuzu")))
+
+    assert counts.years == 1
+    assert counts.in_year == 1
+    assert _scalar(
+        conn, "MATCH (:Event {event: 'PogNov25'})-[:IN_YEAR]->(y:Year) RETURN y.year"
+    ) == 2025
+
+
+def test_events_in_different_years_get_distinct_year_nodes(tmp_path):
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E2024", "2024-03-01T00:00:00+00:00"),
+        _deck("d2", "E2026", "2026-02-01T00:00:00+00:00"),
+    ])
+
+    counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph.kuzu")
+    conn = kuzu.Connection(kuzu.Database(str(tmp_path / "graph.kuzu")))
+
+    assert counts.years == 2
+    assert counts.in_year == 2
+    assert dict(_iter(conn,
+        "MATCH (e:Event)-[:IN_YEAR]->(y:Year) RETURN e.event, y.year")) == {
+        "E2024": 2024, "E2026": 2026}
+
+
+def test_event_straddling_two_calendar_years_fails_the_build(tmp_path):
+    # createdAt only dates an event while its decks share one calendar year, so
+    # a straddle must fail loudly rather than silently take the earlier year
+    # (issue-26 AC #4, ADR 0006).
+    _write_snapshot(tmp_path, [
+        _deck("d1", "NYE", "2025-12-31T00:00:00+00:00"),
+        _deck("d2", "NYE", "2026-01-01T00:00:00+00:00"),
+    ])
+
+    with pytest.raises(ValueError, match="NYE"):
+        build_graph(load_snapshot(tmp_path), tmp_path / "graph.kuzu")
 
 
 def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir):
@@ -119,7 +209,8 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
     (tmp_path / "decks.json").write_text(json.dumps([{
         "deckId": "d1", "name": "n", "deckName": "n", "pilot": "p", "event": "E",
         "eventId": "evt_1", "eventType": "Tournament", "placement": 1,
-        "placementNorm": 0.0, "colour": "colour:UB", "macro": "macro:control",
+        "placementNorm": 0.0, "createdAt": "2025-06-01T00:00:00+00:00",
+        "colour": "colour:UB", "macro": "macro:control",
         "engineTags": ["engine:grixis", "engine:control"],
         "engineTagLabels": {"engine:grixis": "Grixis", "engine:control": "Control"},
         "primaryTag": "engine:grixis",

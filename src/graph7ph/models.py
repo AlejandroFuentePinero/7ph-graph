@@ -9,6 +9,7 @@ domain's stable identities: a Deck on its ``deckId``, a Card on its ``canon``.
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -79,6 +80,7 @@ class Deck(_Raw):
     event_type: str
     placement: int | None = None
     placement_norm: float | None = None
+    created_at: datetime  # when the list was registered; the proxy for the event's date (ADR 0006)
     # Classification, carried as prefixed source codes ("colour:UBR", "macro:tempo",
     # "engine:grixis"). The properties below strip the prefixes into domain values.
     colour: str

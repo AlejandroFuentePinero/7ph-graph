@@ -232,7 +232,8 @@ def _raw_deck(deck_id, pilot, title):
         "deckId": deck_id, "name": title, "deckName": "Grixis",
         "pilot": pilot, "event": "E",
         "eventId": "evt_1", "eventType": "Tournament", "placement": 1,
-        "placementNorm": 0.0, "colour": "colour:U", "macro": "macro:tempo",
+        "placementNorm": 0.0, "createdAt": "2025-06-01T00:00:00+00:00",
+        "colour": "colour:U", "macro": "macro:tempo",
         "engineTags": [], "engineTagLabels": {}, "primaryTag": "",
         "primaryTagWeights": {},
     }

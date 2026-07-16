@@ -1,11 +1,12 @@
 """Load a parsed Snapshot into a Kùzu graph.
 
 The graph is the fact spine of ADR 0002. Entity nodes (Pilot, Deck, Card) and
-dimension nodes (Event, Archetype, Macro, Colour, CardType) are joined by edges
-for irreducible facts only: who piloted a deck, where it was played, which cards
-it runs, its archetypes/macro/colours, and each card's type and colours. A build
-is a full rebuild into a fresh database file; counts are read back out of the
-graph so callers can assert they match the source.
+dimension nodes (Event, Archetype, Macro, Colour, CardType, Year) are joined by
+edges for irreducible facts only: who piloted a deck, where and when it was
+played, which cards it runs, its archetypes/macro/colours, and each card's type
+and colours. Year is the one derived dimension (ADR 0006). A build is a full
+rebuild into a fresh database file; counts are read back out of the graph so
+callers can assert they match the source.
 """
 
 import json
@@ -17,7 +18,7 @@ import kuzu
 from pydantic import BaseModel
 
 from graph7ph.db import rows
-from graph7ph.models import COLOURS, Card, Snapshot
+from graph7ph.models import COLOURS, Card, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
 
 _SCHEMA = [
@@ -38,6 +39,7 @@ _SCHEMA = [
     "CREATE NODE TABLE `Macro`(name STRING, PRIMARY KEY(name))",
     "CREATE NODE TABLE Colour(colour STRING, PRIMARY KEY(colour))",
     "CREATE NODE TABLE CardType(type STRING, PRIMARY KEY(type))",
+    "CREATE NODE TABLE Year(year INT64, PRIMARY KEY(year))",
     "CREATE REL TABLE PILOTED_BY(FROM Deck TO Pilot)",
     "CREATE REL TABLE CONTAINS(FROM Deck TO Card, board STRING)",
     "CREATE REL TABLE PLAYED_AT(FROM Deck TO Event)",
@@ -47,7 +49,17 @@ _SCHEMA = [
     "CREATE REL TABLE DECK_COLOUR(FROM Deck TO Colour)",
     "CREATE REL TABLE CARD_COLOUR(FROM Card TO Colour)",
     "CREATE REL TABLE HAS_TYPE(FROM Card TO CardType)",
+    "CREATE REL TABLE IN_YEAR(FROM Event TO Year)",
 ]
+
+class YearStraddle(ValueError):
+    """An event's decks span more than one calendar year, so it cannot be dated.
+
+    Raised before anything is written, so the live graph is untouched. The CLI
+    reports it as an abort rather than a crash, alongside ``SchemaError``: both
+    mean the snapshot cannot honestly be built (ADR 0003, ADR 0006).
+    """
+
 
 _BATCH = 5000
 
@@ -68,6 +80,7 @@ class BuildCounts:
     macros: int
     colours: int
     card_types: int
+    years: int
     piloted_by: int
     contains: int
     played_at: int
@@ -76,6 +89,7 @@ class BuildCounts:
     deck_colour: int
     card_colour: int
     has_type: int
+    in_year: int
 
 
 def reconciliation_path(db_path: Path) -> Path:
@@ -95,13 +109,14 @@ def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
     _remove(db_path)
 
     pilots = resolve_pilots(snapshot.decks)
+    years = _event_years(snapshot.decks)
 
     conn = kuzu.Connection(kuzu.Database(str(db_path)))
     for ddl in _SCHEMA:
         conn.execute(ddl)
 
-    _load_nodes(conn, snapshot, pilots)
-    _load_edges(conn, snapshot, pilots)
+    _load_nodes(conn, snapshot, pilots, years)
+    _load_edges(conn, snapshot, pilots, years)
 
     reconciliation_path(db_path).write_text(json.dumps(asdict(pilots.report), indent=2))
 
@@ -114,6 +129,7 @@ def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
         macros=_count(conn, "MATCH (m:`Macro`) RETURN count(m)"),
         colours=_count(conn, "MATCH (c:Colour) RETURN count(c)"),
         card_types=_count(conn, "MATCH (t:CardType) RETURN count(t)"),
+        years=_count(conn, "MATCH (y:Year) RETURN count(y)"),
         piloted_by=_count(conn, "MATCH ()-[r:PILOTED_BY]->() RETURN count(r)"),
         contains=_count(conn, "MATCH ()-[r:CONTAINS]->() RETURN count(r)"),
         played_at=_count(conn, "MATCH ()-[r:PLAYED_AT]->() RETURN count(r)"),
@@ -122,10 +138,42 @@ def build_graph(snapshot: Snapshot, db_path: Path) -> BuildCounts:
         deck_colour=_count(conn, "MATCH ()-[r:DECK_COLOUR]->() RETURN count(r)"),
         card_colour=_count(conn, "MATCH ()-[r:CARD_COLOUR]->() RETURN count(r)"),
         has_type=_count(conn, "MATCH ()-[r:HAS_TYPE]->() RETURN count(r)"),
+        in_year=_count(conn, "MATCH ()-[r:IN_YEAR]->() RETURN count(r)"),
     )
 
 
-def _load_nodes(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResolution) -> None:
+def _event_years(decks: list[Deck]) -> dict[str, int]:
+    """Each event's year, derived from the ``createdAt`` of its decks.
+
+    There is no event date in the source, so deck creation is the proxy for when
+    an event happened, and year is the granularity that proxy supports (ADR
+    0006). ``createdAt`` is UTC throughout the source, so these are UTC years.
+
+    The derivation is only honest while an event's decks all fall in one
+    calendar year, so a straddling event raises :class:`YearStraddle` rather
+    than silently picking one. That guard is what makes the read-out below a
+    read-out: every set it sees holds exactly one year, and ``min`` only spells
+    out which year that is when the set is a singleton.
+    """
+    seen: dict[str, set[int]] = {}
+    for deck in decks:
+        seen.setdefault(deck.event, set()).add(deck.created_at.year)
+    straddling = {e: sorted(ys) for e, ys in seen.items() if len(ys) > 1}
+    if straddling:
+        raise YearStraddle(
+            "events span more than one calendar year, so createdAt cannot date "
+            "them: " + ", ".join(f"{e} ({'/'.join(str(y) for y in ys)})"
+                                 for e, ys in sorted(straddling.items()))
+        )
+    return {event: min(ys) for event, ys in seen.items()}
+
+
+def _load_nodes(
+    conn: kuzu.Connection,
+    snapshot: Snapshot,
+    pilots: PilotResolution,
+    years: dict[str, int],
+) -> None:
     _load(conn,
           "UNWIND $rows AS r CREATE (:Pilot {pilot: r.pilot, "
           "displayName: r.displayName, lowConfidence: r.lowConfidence})",
@@ -168,8 +216,16 @@ def _load_nodes(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResoluti
     _load(conn, "UNWIND $rows AS r CREATE (:CardType {type: r.type})",
           [{"type": t} for t in card_types])
 
+    _load(conn, "UNWIND $rows AS r CREATE (:Year {year: r.year})",
+          [{"year": y} for y in sorted(set(years.values()))])
 
-def _load_edges(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResolution) -> None:
+
+def _load_edges(
+    conn: kuzu.Connection,
+    snapshot: Snapshot,
+    pilots: PilotResolution,
+    years: dict[str, int],
+) -> None:
     _load(conn,
           """UNWIND $rows AS r
              MATCH (d:Deck {deckId: r.deckId}), (p:Pilot {pilot: r.pilot})
@@ -215,6 +271,11 @@ def _load_edges(conn: kuzu.Connection, snapshot: Snapshot, pilots: PilotResoluti
              MATCH (card:Card {canon: r.canon}), (t:CardType {type: r.type})
              CREATE (card)-[:HAS_TYPE]->(t)""",
           [{"canon": c.canon, "type": c.type} for c in snapshot.cards])
+    _load(conn,
+          """UNWIND $rows AS r
+             MATCH (e:Event {event: r.event}), (y:Year {year: r.year})
+             CREATE (e)-[:IN_YEAR]->(y)""",
+          [{"event": e, "year": y} for e, y in years.items()])
 
 
 def _create_nodes(
