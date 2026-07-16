@@ -292,6 +292,50 @@ def test_card_usage_reads_adoption_rate_at_each_tier(tmp_path, snapshot_dir):
         assert e.source in node_ids and e.target in node_ids
 
 
+def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path):
+    # A percent is a rounded display of a ratio, and the ratio's base is what
+    # says whether to trust it: 1 of 1 and 1 of 3 are both real, and only the
+    # counts tell them apart. Every tier here has its own base, so a swapped
+    # numerator and denominator, or one tier borrowing another's base, fails.
+    #
+    # `x` runs in 1 of Rakdos's 3 decks and Boros's only deck. Both archetypes
+    # are aggro, so aggro is 2 of 4; the meta is 10 decks, so the card is 2 of 10.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "r1", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "m": ["x"]},
+            {"id": "r2", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "m": ["pad1"]},
+            {"id": "r3", "tag": "rakdos", "norm": 0.0, "macro": "aggro", "m": ["pad2"]},
+            {"id": "b1", "tag": "boros", "norm": 0.0, "macro": "aggro", "m": ["x"]},
+        ]
+        + [
+            {"id": f"c{i}", "tag": "azorius", "norm": 0.0, "macro": "control", "m": [f"pad{i}"]}
+            for i in range(3, 9)
+        ],
+        ["x", "pad1", "pad2", *(f"pad{i}" for i in range(3, 9))],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = card_usage_subgraph(conn, "x")
+
+    # The card's meta play-rate: 2 of the 10 decks, no longer only readable out
+    # of the "(20% of meta)" label it is welded into.
+    card = next(n for n in sub.nodes if n.kind == "Card")
+    assert (card.decks, card.total_decks) == (2, 10)
+    assert card.label == "X (20% of meta)"
+
+    counts = {(e.source, e.target): (e.decks, e.total_decks) for e in sub.edges}
+    labels = {(e.source, e.target): e.label for e in sub.edges}
+    # Aggro: 2 of its 4 decks run the card. Each archetype keeps its own base.
+    assert counts[("card:x", "macro:aggro")] == (2, 4)
+    assert counts[("macro:aggro", "arch:rakdos")] == (1, 3)
+    assert counts[("macro:aggro", "arch:boros")] == (1, 1)
+    # The labels are untouched, and 33% is a rounding the counts survive.
+    assert labels[("card:x", "macro:aggro")] == "50%"
+    assert labels[("macro:aggro", "arch:rakdos")] == "33%"
+    assert labels[("macro:aggro", "arch:boros")] == "100%"
+
+
 def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, snapshot_dir):
     conn = _connect(tmp_path, snapshot_dir)
     # A card in both of Jordan's Grixis lists (tempo) but not Tom's Storm: 100%
@@ -400,7 +444,7 @@ def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path):
     # as numbers: a consumer reads the count and the base it is a share of
     # rather than parsing "75%" back into an approximation of them.
     counts = {
-        e.target.removeprefix("card:"): (e.shared_decks, e.total_decks)
+        e.target.removeprefix("card:"): (e.decks, e.total_decks)
         for e in full.edges
     }
     assert counts == {"b": (4, 4), "c": (3, 4), "d": (2, 4), "e": (1, 4)}
@@ -411,7 +455,7 @@ def test_cooccurrence_two_seeds_carry_the_intersection_counts_as_numbers(tmp_pat
 
     sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
     hub = next(n for n in sub.nodes if n.kind == "Intersection")
-    counts = {(e.source, e.target): (e.shared_decks, e.total_decks) for e in sub.edges}
+    counts = {(e.source, e.target): (e.decks, e.total_decks) for e in sub.edges}
 
     # The hub's deck count is the denominator every percent below it is read
     # against, so it is a number and not only the "Both · 1 decks" label.
