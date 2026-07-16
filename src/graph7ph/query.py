@@ -73,10 +73,12 @@ class Node:
     pin: tuple[float, float] | None = None
     # The analytic values behind the node, kept as numbers rather than folded
     # into the label: how many decks it counts (a gem's rarity, an intersection's
-    # size) and, for a gem, its mean placement. The renderer ignores them; a
-    # label is for display, these are for a consumer that wants the value, so
-    # v2's tool layer need not re-derive what was computed here (issue #12).
+    # size, a card's play-rate), the base that count is a share of where it is
+    # one, and a gem's mean placement. The renderer ignores them; a label is for
+    # display, these are for a consumer that wants the value, so v2's tool layer
+    # need not re-derive what was computed here (issue #12).
     decks: int | None = None
+    total_decks: int | None = None
     mean_norm: float | None = None
 
 
@@ -89,11 +91,14 @@ class Edge:
     # where the edge carries the readable name (the node itself shows a number).
     visible: bool = False
     # The analytic values behind the edge, kept as numbers rather than folded
-    # into the label: a co-occurrence count and the base it is a share of, or a
-    # pilot's event count. A label like ``"75%"`` is a rounded rendering of the
-    # first pair; a consumer that wants the value reads it here rather than
+    # into the label: how many decks it counts (shared by two cards, or running
+    # a card at this tier), the base that count is a share of, and a pilot's
+    # event count. Named as on ``Node``, so ``decks`` is the count and
+    # ``total_decks`` the base wherever it appears. A label like ``"75%"`` is a
+    # rounded rendering of the first pair, and ``"<1%"`` erases the ratio
+    # entirely; a consumer that wants the value reads it here rather than
     # parsing display text (issue #12).
-    shared_decks: int | None = None
+    decks: int | None = None
     total_decks: int | None = None
     events: int | None = None
 
@@ -316,7 +321,10 @@ def card_usage_subgraph(
 
     card_id = f"card:{canon}"
     nodes: list[Node] = [
-        Node(card_id, f"{card_name} ({_pct_label(meta_run, meta_total)} of meta)", "Card")
+        Node(
+            card_id, f"{card_name} ({_pct_label(meta_run, meta_total)} of meta)", "Card",
+            decks=meta_run, total_decks=meta_total,
+        )
     ]
     edges: list[Edge] = []
 
@@ -342,13 +350,13 @@ def card_usage_subgraph(
         mid = f"macro:{macro}"
         nodes.append(Node(mid, macro, "Macro"))
         edges.append(
-            Edge(card_id, mid, _pct_label(macro_run.get(macro, 0), macro_total[macro]), visible=True)
+            _rate_edge(card_id, mid, macro_run.get(macro, 0), macro_total[macro], visible=True)
         )
     for _p, total, tag, name in kept:
         aid = f"arch:{tag}"
         nodes.append(Node(aid, name, "Archetype"))
         edges.append(
-            Edge(f"macro:{dominant[tag][1]}", aid, _pct_label(arch_run.get(tag, 0), total), visible=True)
+            _rate_edge(f"macro:{dominant[tag][1]}", aid, arch_run.get(tag, 0), total, visible=True)
         )
 
     return Subgraph(nodes=nodes, edges=edges)
@@ -410,15 +418,20 @@ def _pct_label(shared: int, total: int) -> str:
     return "<1%" if 0 < share < 0.5 else f"{round(share)}%"
 
 
-def _rate_edge(source: str, target: str, shared: int, total: int) -> Edge:
-    """A co-occurrence edge: the rate as its label, both its terms as numbers.
+def _rate_edge(
+    source: str, target: str, decks: int, total: int, visible: bool = False
+) -> Edge:
+    """An edge showing a deck rate: the percent as its label, both its terms as
+    numbers.
 
     Built in one place so the numbers a consumer reads and the percent the
-    renderer draws can never disagree about which ratio they describe.
+    renderer draws can never disagree about which ratio they describe. Shared by
+    the two rates the library draws, co-occurrence and adoption, which differ in
+    what they count but not in how they read.
     """
     return Edge(
-        source, target, _pct_label(shared, total),
-        shared_decks=shared, total_decks=total,
+        source, target, _pct_label(decks, total),
+        visible=visible, decks=decks, total_decks=total,
     )
 
 
