@@ -1,0 +1,11 @@
+# Hugging Face Spaces and Colab install from here, not from uv.lock.
+#
+# kuzu is pinned to an exact version, not to pyproject's range: a Kùzu release
+# can change the on-disk storage format, and the deployed app must read an
+# artifact built by the same version it was built with. gradio is pinned to the
+# version the Space card declares as its SDK, so installing this file cannot
+# quietly resolve a different one. Both must move together with uv.lock.
+kuzu==0.7.1
+gradio==5.50.0
+# The project itself, so pyproject.toml stays the source of truth for the rest.
+.
