@@ -114,6 +114,7 @@ def build_graph(
     _remove(db_path)
 
     curation = curation if curation is not None else load_curation()
+    snapshot = _apply_deck_archetypes(snapshot, curation)
     pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
     if pilots.dropped_decks:
         snapshot = _without_decks(snapshot, pilots.dropped_decks)
@@ -165,6 +166,36 @@ def _decklists(containments: list[Containment]) -> dict[str, tuple]:
         deck_id: (frozenset(main.get(deck_id, ())), frozenset(side.get(deck_id, ())))
         for deck_id in ids
     }
+
+
+def _apply_deck_archetypes(snapshot: Snapshot, curation: Curation) -> Snapshot:
+    """Reclassify decks the curation dictionary corrects (issue #9).
+
+    The source tags a deck's archetype off its title, so a mistitled list (e.g.
+    "Blue Moon" for what the cards show is UR Prowess) lands on the wrong
+    archetype. A ``[[deck_archetype]]`` entry replaces that classification with
+    the human-confirmed one, collapsing the deck onto the single corrected
+    engine so it joins that archetype's convention.
+    """
+    overrides = curation.deck_archetypes
+    if not overrides:
+        return snapshot
+    decks = []
+    for d in snapshot.decks:
+        override = overrides.get(d.deck_id)
+        if override is None:
+            decks.append(d)
+            continue
+        decks.append(d.model_copy(update={
+            "deck_name": override.deck_name,
+            "engine_tags": [override.engine],
+            "engine_tag_labels": {override.engine: override.engine_label},
+            "primary_tag": override.engine,
+            "primary_tag_weights": {override.engine: 100},
+        }))
+    return Snapshot(
+        cards=snapshot.cards, decks=decks, containments=snapshot.containments
+    )
 
 
 def _without_decks(snapshot: Snapshot, dropped: frozenset[str]) -> Snapshot:
