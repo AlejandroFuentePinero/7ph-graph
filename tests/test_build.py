@@ -4,6 +4,7 @@ import kuzu
 import pytest
 
 from graph7ph.build import build_graph
+from graph7ph.curation import ArchetypeOverride, Curation
 from graph7ph.models import load_snapshot
 
 
@@ -236,6 +237,52 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
     }
     # Each archetype keeps its own weight; only the primary tag is flagged.
     assert edges == {"Grixis": (70, True), "Control": (30, False)}
+
+
+def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
+    # A deck the source mistitled ("Blue Moon", so engine:blue_moon won primary
+    # over the izzet_prowess the cards show) is corrected by a [[deck_archetype]]
+    # entry, which collapses it onto the single corrected engine (issue #9).
+    (tmp_path / "decks.json").write_text(json.dumps([{
+        "deckId": "d1", "name": "n", "deckName": "Blue Moon", "pilot": "p",
+        "event": "E", "eventId": "evt_1", "eventType": "Tournament",
+        "placement": 1, "placementNorm": 0.0,
+        "createdAt": "2026-04-25T00:00:00+00:00",
+        "colour": "colour:UR", "macro": "macro:tempo",
+        "engineTags": ["engine:blue_moon", "engine:izzet_prowess"],
+        "engineTagLabels": {"engine:blue_moon": "Blue Moon",
+                            "engine:izzet_prowess": "Izzet Prowess"},
+        "primaryTag": "engine:blue_moon",
+        "primaryTagWeights": {"engine:blue_moon": 85, "engine:izzet_prowess": 15},
+    }]))
+    (tmp_path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaCost": None, "manaValue": 0.0, "reserved": False,
+                   "priceUsd": 0.5, "points": 0}],
+        "decks": {"d1": {"m": [0], "s": []}},
+    }))
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        deck_archetypes={"d1": ArchetypeOverride(
+            deck_name="UR Prowess", engine="engine:izzet_prowess",
+            engine_label="Izzet Prowess")},
+    )
+
+    db_path = tmp_path / "graph.kuzu"
+    build_graph(load_snapshot(tmp_path), db_path, curation)
+    conn = kuzu.Connection(kuzu.Database(str(db_path)))
+
+    # The deck now carries the corrected name and a single Izzet Prowess
+    # archetype at full weight; the mistitled Blue Moon tag is gone entirely.
+    assert _scalar(conn, "MATCH (d:Deck {deckId: 'd1'}) RETURN d.deckName") == "UR Prowess"
+    edges = {
+        name: (weight, is_primary)
+        for name, weight, is_primary in _iter(conn,
+            """MATCH (:Deck {deckId: 'd1'})-[r:HAS_ARCHETYPE]->(a:Archetype)
+               RETURN a.name, r.weight, r.isPrimary""")
+    }
+    assert edges == {"Izzet Prowess": (100, True)}
 
 
 def _iter(conn, query, params=None):

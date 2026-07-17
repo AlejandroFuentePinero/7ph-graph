@@ -15,7 +15,7 @@ in the standard library, so reading it costs no dependency.
 """
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # The dictionary is checked in, and lives apart from `snapshots/` (immutable
@@ -28,6 +28,21 @@ class CurationError(Exception):
 
 
 @dataclass(frozen=True)
+class ArchetypeOverride:
+    """A corrected archetype classification for one deck, keyed on its deck id.
+
+    The source tags a deck's archetype off its title, so a mistitled list lands
+    on the wrong archetype. This replaces that classification with the
+    human-confirmed one: a display name and the single engine the deck belongs
+    to (its code and label).
+    """
+
+    deck_name: str
+    engine: str  # the engine code, e.g. "engine:izzet_prowess"
+    engine_label: str  # its display label, e.g. "Izzet Prowess"
+
+
+@dataclass(frozen=True)
 class Curation:
     """Human decisions the build applies on every rebuild.
 
@@ -37,17 +52,19 @@ class Curation:
     same person, which suppresses them from the candidate report for good.
     ``names`` pins a display name against the majority vote. ``deck_pilots``
     reassigns one deck to an upstream pilot id, which is how a null-pilot deck
-    reaches its real owner.
+    reaches its real owner. ``deck_archetypes`` reclassifies one deck whose
+    source title mislabelled its archetype.
     """
 
     merges: dict[str, str]
     rejected: frozenset[frozenset[str]]
     names: dict[str, str]
     deck_pilots: dict[str, str]
+    deck_archetypes: dict[str, ArchetypeOverride] = field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "Curation":
-        return cls({}, frozenset(), {}, {})
+        return cls({}, frozenset(), {}, {}, {})
 
     def canonical(self, pilot_id: str) -> str:
         """The id ``pilot_id`` was merged into, or itself."""
@@ -79,6 +96,7 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
         ),
         names=_names(raw.get("name", []), path),
         deck_pilots=_deck_pilots(raw.get("deck_pilot", []), path),
+        deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
     )
 
 
@@ -156,4 +174,22 @@ def _deck_pilots(entries: list[dict], path: Path) -> dict[str, str]:
         if not deck or not pilot:
             raise CurationError(f"{path}: a [[deck_pilot]] entry needs `deck` and `pilot`")
         decks[deck] = pilot
+    return decks
+
+
+def _deck_archetypes(entries: list[dict], path: Path) -> dict[str, ArchetypeOverride]:
+    decks: dict[str, ArchetypeOverride] = {}
+    for entry in entries:
+        deck = entry.get("deck")
+        deck_name = entry.get("deck_name")
+        engine = entry.get("engine")
+        engine_label = entry.get("engine_label")
+        if not (deck and deck_name and engine and engine_label):
+            raise CurationError(
+                f"{path}: a [[deck_archetype]] entry needs `deck`, `deck_name`, "
+                "`engine`, and `engine_label`"
+            )
+        decks[deck] = ArchetypeOverride(
+            deck_name=deck_name, engine=engine, engine_label=engine_label
+        )
     return decks
