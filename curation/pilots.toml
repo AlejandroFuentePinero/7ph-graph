@@ -26,6 +26,12 @@
 #   [[deck_pilot]]   reassign one deck to its real pilot id (e.g. a null deck)
 #     deck = "<deckId>"
 #     pilot = "<pilotId>"
+#
+#   [[deck_archetype]] reclassify one deck whose source title mislabelled it
+#     deck = "<deckId>"
+#     deck_name = "UR Prowess"          # the corrected display name
+#     engine = "engine:izzet_prowess"   # the single engine it belongs to
+#     engine_label = "Izzet Prowess"    # that engine's label
 
 # --- Names pinned against the vote (no derivable relation, human-confirmed) ---
 
@@ -159,9 +165,12 @@ canonical = "RapidIndigoGecko"
 
 [[merge]]
 # Eddie L M = Eddie LM  (punctuation, overlap 0.13)
-# canonical 'SolarBlackGecko' = 'Eddie L M' (1 decks, the busiest)
-ids = ["CleverGreenFox", "SolarBlackGecko"]
-canonical = "SolarBlackGecko"
+# Eddie L M / LM / Eddie L are one artifact Time Vault/Shops/Bots player;
+# canonical is Eddie L (AmberBronzeStag, the busiest at 4 decks). This flips an
+# earlier reject: the shared signature is the narrow prison family, not one
+# 0.14 Time Vault, and the timelines are sequential with no same-day conflict.
+ids = ["CleverGreenFox", "SolarBlackGecko", "AmberBronzeStag"]
+canonical = "AmberBronzeStag"
 
 [[merge]]
 # Emily P = EmiP9  (handle, overlap 0.93, Flood Moon)
@@ -453,6 +462,15 @@ canonical = "WanderingIvoryBadger"
 deck = "IK_ilIXa4Eqkv2nYQgRITQ"
 pilot = "SilentGreenLynx"
 
+[[deck_pilot]]
+# Pseudonym SolarAmberViper is shared by two people: Connor P (4C Kiki Pod) and
+# Jake P (4C Midrange), both at Area52IQ. The title says "Jake P", a distinct
+# player with no other decks. Split it onto its own id so it leaves Connor P;
+# with it gone SolarAmberViper holds one Area52IQ deck and the #2 thread split
+# collapses, unifying Connor P's three Kiki Pod decks into one node.
+deck = "VQBHAQS_IkGWUYgfC5_2lQ"
+pilot = "VQBHAQS_IkGWUYgfC5_2lQ"
+
 # --- Wave 3, pass 3 (cont.): hand-adjudicated multi-deck pairs (issue #9) ---
 
 [[merge]]
@@ -607,9 +625,6 @@ ids = ["SwiftCrimsonDolphin", "BraveMagentaWhale"]
 # Andrea C != Andrew C: 0.70 is a shared list at disjoint events (ADR 0005).
 ids = ["SilentTealEagle", "WildMaroonTiger"]
 
-[[reject]]
-# Antonia C != Antonio M: gender-distinct given names, overlap 0.67 (shared list).
-ids = ["FlyingIndigoHeron", "SolarIvoryBadger"]
 
 # (b) different given name -- distinct names, low overlap
 [[reject]]
@@ -695,6 +710,47 @@ canonical = "ShinyCrimsonHeron"
 # canonical 'SolarIvoryBadger' = 'Antonio M'
 ids = ["HiddenCyanPanda", "SolarIvoryBadger"]
 canonical = "SolarIvoryBadger"
+
+[[merge]]
+# Antonia M = Antonio M (one-char typo; fills NHC25 gap between his NHC24/NHC26
+# Bant Aggro runs; overrides earlier reject, human confirms same person)
+ids = ["FlyingIndigoHeron", "SolarIvoryBadger"]
+canonical = "SolarIvoryBadger"
+
+[[merge]]
+# Ari Steel = Ari S (initial->surname "Steel"; Mono Red fits his Mardu/red-burn
+# signature; predates his run, no same-event conflict)
+# canonical 'IvoryCrimsonFox' = 'Ari S' (9 decks, the busiest)
+ids = ["CleverBronzeDolphin", "IvoryCrimsonFox"]
+canonical = "IvoryCrimsonFox"
+
+[[merge]]
+# Ashley C = Ashleigh C (spelling variant, same surname C; UW Yorion fits her
+# Yorion/control signature; no same-event conflict)
+# canonical 'SwiftVioletFox' = 'Ashleigh C' (the busiest)
+ids = ["CleverGreenViper", "SwiftVioletFox"]
+canonical = "SwiftVioletFox"
+
+[[merge]]
+# Axexander G = Alexander G (typo l->x, same surname G; no same-event conflict)
+# canonical 'CrimsonRedWolf0D0' = 'Alexander G' (3 decks, correct spelling)
+ids = ["ShinyBluePanda", "CrimsonRedWolf0D0"]
+canonical = "CrimsonRedWolf0D0"
+
+[[merge]]
+# BaldyP = Baldy P (whitespace variant of one handle; both Mono G Eldrazi,
+# consecutive events, no conflict)
+# canonical 'ShinyPurpleEagle' = 'Baldy P' (2 decks)
+ids = ["ShadowCyanCobra", "ShinyPurpleEagle"]
+canonical = "ShinyPurpleEagle"
+
+[[merge]]
+# Christpher = Christopher O (typo, surname dropped; RNIQ Jund list 0.81 to his
+# RadClaus Jund, top match above the Jund baseline; not at RNIQ so no conflict;
+# Chris K / Chris B ruled out, both at RNIQ with other decks)
+# canonical 'HiddenIvoryOtter' = 'Christopher O'
+ids = ["SilentTealFalcon", "HiddenIvoryOtter"]
+canonical = "HiddenIvoryOtter"
 
 [[merge]]
 # Ash C = Ashleigh C (nickname, 0.63)
@@ -1037,10 +1093,6 @@ ids = ["CrimsonBlackFalcon", "LunarSilverManta"]
 # distinct Lachlan C 1 also overlaps it 0.94), so the archetype match is not identity.
 ids = ["HiddenGreenLynx", "SolarCrimsonLynx"]
 
-[[reject]]
-# Eddie L M != Eddie L: single-initial "Eddie L" on a 0.14 shared Time Vault is a
-# weak, colliding discriminator; keep it apart from the two-initial Eddie L M/LM.
-ids = ["AmberBronzeStag", "SolarBlackGecko"]
 
 # Corroborated merges the audit added (deck overlap + shared archetype, disjoint events).
 [[merge]]
@@ -1115,6 +1167,13 @@ canonical = "LunarMaroonOtter"
 ids = ["MistyGoldWolf", "SwiftBronzeStag"]
 canonical = "MistyGoldWolf"
 
+[[merge]]
+# Angus McC = Angus M (initial->surname "McC" starts with M; both Jund/BRG;
+# POG2501 co-occurrence is a two-day event, not a same-day conflict)
+# canonical 'ShinyTealHawk' = 'Angus M' (29 decks, the busiest)
+ids = ["ShinyTealHawk", "MistyCyanHeron"]
+canonical = "ShinyTealHawk"
+
 # Display pin: majority vote renders the misspelling "Gerad N"; pin the real spelling.
 [[name]]
 pilot = "BraveBlackLynxC54"
@@ -1132,3 +1191,274 @@ display_name = "Fraser P"
 [[name]]
 pilot = "LunarJadeRaven"
 display_name = "Chia Wei L"
+
+[[merge]]
+# DanS109 = Dan S 2 (the Breach specialist). Its lone 4cBreach deck
+# (SydneyShowdown 2025-11-20) is a 1.00 decklist match to the Breach lists
+# threaded under Dan S 2 at adjacent events (Brightglass Breach ETEAE 11-19,
+# Breachbond PogNov25 12-01). Folds into the "Daniel S" pool; threading places
+# the identical Breach list on the Dan S 2 career.
+ids = ["IvoryIndigoDolphin", "Daniel S"]
+canonical = "Daniel S"
+
+[[merge]]
+# Darrian R = Darian R (spelling variant, same surname initial) = DarR17
+# (same name + initial with a numeric handle). Three single-deck nodes, no
+# same-day conflict; multicolor archetypes differ but give no signature.
+ids = ["FrostyBlueDolphin", "ShadowMaroonWolf1A3", "WanderingGreenLynx"]
+canonical = "FrostyBlueDolphin"
+
+[[name]]
+pilot = "FrostyBlueDolphin"
+display_name = "Darrian R"
+
+[[merge]]
+# Dillion K = Dillon K (spelling variant, same surname initial). Dillon K is a
+# 5-deck Grixis specialist; Dillion K's lone Naya Initiative (CB4 2024-10-06) is
+# off-archetype but a single deck with no same-day conflict. Name outweighs it.
+ids = ["NimblePurpleWolf", "FlyingBlackTiger"]
+canonical = "NimblePurpleWolf"
+
+[[merge]]
+# DomS22 = Dom S (same name + surname initial with a numeric handle). Two
+# single-deck nodes, no same-day conflict; both aggressive white-based decks.
+ids = ["ShadowJadeDolphin", "RapidAzureStag"]
+canonical = "ShadowJadeDolphin"
+
+[[name]]
+pilot = "ShadowJadeDolphin"
+display_name = "Dom S"
+
+[[merge]]
+# EdwF4 = Ed F (same name + surname initial with a numeric handle). EdwF4's lone
+# Jeskai Affinity matches Ed F's artifact signature (Jeskai Affinity, Kitten
+# Prison, Lurrus Welder); sequential timelines, no same-day conflict.
+ids = ["SilentVioletFox", "BraveMagentaStag"]
+canonical = "SilentVioletFox"
+
+[[merge]]
+# Eliott B = Elliot B (spelling variant, same surname initial). Both pure Blue
+# Moon specialists; sequential timelines, no same-day conflict.
+ids = ["SwiftPurpleWhale", "SolarAmberEagle"]
+canonical = "SwiftPurpleWhale"
+
+[[merge]]
+# Elliott L = Elliot L (spelling variant, same surname initial). Elliott L's lone
+# UR Prowess is off-archetype vs Elliot L's Breach/Lands but a single deck;
+# timelines sequential, no same-day conflict.
+ids = ["SolarMaroonFalcon", "LuckyIndigoWolf"]
+canonical = "SolarMaroonFalcon"
+
+[[merge]]
+# Elliott R = Elliot R (spelling variant, same surname initial). Same DNAWAD
+# local scene; both green lands/ramp (Cradle Control, RG Lands); no same-day clash.
+ids = ["CleverAmberTiger", "HiddenCyanBadger"]
+canonical = "CleverAmberTiger"
+
+[[merge]]
+# bare George = George H (archetype attribution): its lone Mono Red matches George
+# H's red-aggro signature (Mono Red / Mono R / RW Aggro); no same-day conflict.
+# Ruled out George B by same-day co-occurrence at PogMar26 2026-03-07.
+ids = ["FlyingSilverGecko", "BraveBronzeWolf"]
+canonical = "FlyingSilverGecko"
+
+[[merge]]
+# Han N = Hannah N ("Han" truncates "Hannah", same surname initial). Han N's
+# Nature's Jund fits Hannah N's BG green-creature signature (GB Elves, Jund
+# Survival, BG Cradle); no same-day conflict, timeline consistent.
+ids = ["WildSilverGecko", "WildTealFox"]
+canonical = "WildSilverGecko"
+
+[[merge]]
+# JamL9 = James L 2 (the Walks James L). JamL9's 5c Walks (2025-11-20) is a 1.00
+# decklist match to James L 2's Walks (BazaarInvi 2025-11-17), 0.33 to James L 1
+# (Grixis). Folds into the "James L" pool; threading places it on the Walks career.
+ids = ["BraveJadeEagle", "AmberVioletWolf"]
+canonical = "BraveJadeEagle"
+
+[[merge]]
+# Jonathan P = Jonathon P (spelling variant, same surname initial) = JonP31 (short
+# form "Jon P" + numeric handle). Three single-deck nodes, no same-day conflict;
+# archetypes differ (Prowess/Jund/Eldrazi) but are one-offs with no signature.
+ids = ["ShinyMaroonRaven", "HiddenCrimsonWolf1D5", "SolarCrimsonHawk"]
+canonical = "ShinyMaroonRaven"
+
+[[name]]
+pilot = "ShinyMaroonRaven"
+display_name = "Jonathan P"
+
+[[merge]]
+# KieC3 = Kieran C ("Kie C" + numeric handle, same surname initial). Only Kieran
+# with initial C (Kieran T/D are different surnames). Single decks, no same-day
+# conflict; archetypes differ (Jund/Cat Flash) but are one-offs with no signature.
+ids = ["NimbleTealLynx", "MistyAmberManta"]
+canonical = "NimbleTealLynx"
+
+[[name]]
+pilot = "NimbleTealLynx"
+display_name = "Kieran C"
+
+[[merge]]
+# Kiran W = Kiran WM ("WM" is "W" plus a second initial, same first name). Both
+# established (3 decks each) but with disjoint event sets and a clean temporal
+# handoff (WM ends 2025-01, W begins 2025-09), consistent with one person who
+# changed how they registered their name. No same-day conflict.
+ids = ["IvoryPurpleGecko522", "BraveAmberOtter"]
+canonical = "IvoryPurpleGecko522"
+
+[[merge]]
+# Lachlan S = Lauchlan S ("Lauchlan" is a spelling variant of "Lachlan", same
+# surname initial). Lauchlan S's lone deck sits at an event Lachlan S never
+# attended; no same-day conflict.
+ids = ["CrimsonSilverStag", "ShinyIndigoFalcon"]
+canonical = "CrimsonSilverStag"
+
+[[merge]]
+# Losy Bug = Losybug (same handle, only a space differs). Both single combo decks,
+# different events, no same-day conflict.
+ids = ["NimbleGoldOtter", "SwiftVioletWolf"]
+canonical = "NimbleGoldOtter"
+
+[[merge]]
+# Luke Jones = Luke J ("Luke J" is the initial form of "Luke Jones", same first
+# name). Only Luke with surname initial J; compatible midrange signature, no
+# same-day conflict.
+ids = ["MistyCyanTiger", "CleverMaroonBadger"]
+canonical = "MistyCyanTiger"
+
+[[name]]
+pilot = "MistyCyanTiger"
+display_name = "Luke Jones"
+
+[[merge]]
+# MatB163 = Matt B 1 ("Mat B" + numeric handle 163, the alternate-registration
+# pattern). Single aggro deck; proven != Mat B (both at evt_5d62 same day), and by
+# elimination among aggro-B players with no conflict it folds into Matt B 1.
+ids = ["WildGreenViper", "SwiftMagentaBadger"]
+canonical = "WildGreenViper"
+
+[[merge]]
+# Nick O'B = Nick O ("O'B"/O'Brien abbreviated to surname initial O, same first
+# name). Nick O'B's lone UBG combo deck fits Nick O's Sultai green-black
+# midrange/combo signature; no same-day conflict.
+ids = ["Nick O", "BraveGoldRaven"]
+canonical = "Nick O"
+
+[[merge]]
+# Noelle = Noelle T (bare first name; Noelle T is the only surnamed Noelle in the
+# data). Noelle's BG combo fits Noelle T's combo signature; no same-day conflict.
+ids = ["FrostyIndigoStag", "HiddenGreenPanda"]
+canonical = "FrostyIndigoStag"
+
+[[name]]
+pilot = "FrostyIndigoStag"
+display_name = "Noelle T"
+
+[[merge]]
+# Oblivion = oblivion434 (same handle, one with numeric suffix). Identical WBR
+# aggro signature; no shared event, no same-day conflict.
+ids = ["WanderingPurpleWolf", "SilentIndigoDolphin"]
+canonical = "WanderingPurpleWolf"
+
+[[name]]
+pilot = "WanderingPurpleWolf"
+display_name = "Oblivion"
+
+[[merge]]
+# Paras P = parasisnotcool (username on the uncommon name "Paras"; same person per
+# owner's personal knowledge). No same-day conflict (Paras P never attended
+# parasisnotcool's lone event).
+ids = ["SolarBlueStag99A", "SolarCyanDolphin"]
+canonical = "SolarBlueStag99A"
+
+[[merge]]
+# Rashad = Brandon R (same person per owner's personal knowledge). No name link,
+# but no same-day conflict and the signatures support it: both play WUBRG 5c ramp
+# and WBR/BR Rakdos aggro.
+ids = ["AmberAzurePanda", "MistyBlueFox"]
+canonical = "AmberAzurePanda"
+
+# Rob L = Robert L ("Rob" short for "Robert", same surname initial L). Robert L's
+# lone 2023-11 WURG midrange deck (null upstream pilot) precedes Rob L's career
+# (starts 2024-01) and fits his 4c/5c multicolour signature; no same-day conflict.
+[[deck_pilot]]
+deck = "yl1BHV41hUyvQeoPcpGc2g"
+pilot = "SolarOrangeOtter"
+
+[[merge]]
+# Ryan L-J = Ryan L = Ryan Johns (double-barrelled surname "L-J", whose halves are
+# "L" (Ryan L) and "Johns" (Ryan Johns); one person registered three ways). Three
+# lone decks, no same-day conflict among any pair. Inference from name structure.
+ids = ["FrostyTealFox", "WanderingBlueRavenFA9", "IvoryJadeHawk"]
+canonical = "FrostyTealFox"
+
+[[name]]
+pilot = "FrostyTealFox"
+display_name = "Ryan L-J"
+
+[[merge]]
+# SamL21 = Sam L ("Sam L" + numeric handle 21). No event clash with Sam L, and
+# SamL21's WUBG control fits Sam L's multicolour-control facet. Distinct from SamL5
+# (SamL21 and SamL5 co-occur at evt_5d62, so SamL5 is a different Sam L).
+ids = ["WanderingCyanViper", "LunarSilverManta"]
+canonical = "WanderingCyanViper"
+
+[[merge]]
+# SteN24 = Steven N ("Ste[ven] N" + numeric handle 24, same surname initial N,
+# only Steven N in the data). No event clash; both blue-black (UB tempo / UBG-UBR
+# midrange).
+ids = ["HiddenVioletDolphin", "WildGreenDolphin"]
+canonical = "HiddenVioletDolphin"
+
+[[merge]]
+# Tim R = Timothy R ("Tim" short for "Timothy", same surname initial R). No event
+# clash; shared WUG control signature.
+ids = ["BraveIvoryStagD63", "HiddenAzureWhale"]
+canonical = "BraveIvoryStagD63"
+
+[[merge]]
+# Tim S = Timothy S ("Tim" short for "Timothy", same surname initial S). No event
+# clash; shared WBR aggro signature.
+ids = ["LuckyCyanWhale", "CleverSilverGecko"]
+canonical = "LuckyCyanWhale"
+
+[[merge]]
+# Tristan G = Tristian G ("Tristian" is a spelling variant of "Tristan", same
+# surname initial G). No event clash; both black-red (UBR tempo / BRG midrange).
+ids = ["ShadowTealPanda", "ShadowBronzePanda"]
+canonical = "ShadowTealPanda"
+
+[[name]]
+pilot = "ShadowTealPanda"
+display_name = "Tristan G"
+
+[[merge]]
+# Troy H = Troi H ("Troi" is a spelling variant of "Troy", same surname initial H).
+# No event clash. Owner-confirmed despite low deck affinity (UBR tempo / WUBG
+# control).
+ids = ["SilentMaroonViper", "WildBronzeLynx"]
+canonical = "SilentMaroonViper"
+
+[[name]]
+pilot = "SilentMaroonViper"
+display_name = "Troy H"
+
+[[merge]]
+# Vi L = Voltie L (owner-confirmed same person). No event clash; Vi L's WUB control
+# and WR aggro sit within Voltie L's wide multi-archetype signature.
+ids = ["Voltie", "CleverIndigoLynx"]
+canonical = "Voltie"
+
+# --- Deck archetype corrections (mistitled lists, owner-confirmed) ---
+
+[[deck_archetype]]
+# Alejandro D's HighlanderWorlds26 deck (8pt, 91st): the source title read
+# "Blue Moon", so the classifier made engine:blue_moon primary (85) over
+# engine:izzet_prowess (15). The list is UR Izzet Prowess (Monastery Swiftspear,
+# Dragon's Rage Channeler, Sprite Dragon, Slickshot Show-Off, Stormwing Entity,
+# Cori-Steel Cutter, Ragavan, Murktide), owner-confirmed. Reclassify to the
+# UR Prowess convention.
+deck = "NEAr5sy1kEy5cwFUGhEa_A"
+deck_name = "UR Prowess"
+engine = "engine:izzet_prowess"
+engine_label = "Izzet Prowess"
