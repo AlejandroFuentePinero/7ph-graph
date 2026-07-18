@@ -17,6 +17,11 @@ in the standard library, so reading it costs no dependency.
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+# The five kinds of recorded decision, one per TOML entry type (repo idiom:
+# ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
+DeadKind = Literal["merge", "reject", "name", "deck_pilot", "deck_archetype"]
 
 # The dictionary is checked in, and lives apart from `snapshots/` (immutable
 # source) and `data/` (derived artifacts): it is neither, it is human judgement.
@@ -40,6 +45,21 @@ class ArchetypeOverride:
     deck_name: str
     engine: str  # the engine code, e.g. "engine:izzet_prowess"
     engine_label: str  # its display label, e.g. "Izzet Prowess"
+
+
+@dataclass(frozen=True)
+class DeadEntry:
+    """A recorded decision that matches no id or deck in the current snapshot.
+
+    The dictionary is append-only and outlives the snapshots it was written
+    against, so a typo'd id or an upstream-reissued pseudonym leaves an entry
+    that silently fires nothing (ADR 0005). Surfaced in the reconciliation
+    report -- never fatal -- so a maintainer can retire or repair it.
+    """
+
+    kind: DeadKind
+    key: str  # the pilot id or deck id absent from the snapshot
+    detail: str  # what the dead entry was trying to do
 
 
 @dataclass(frozen=True)
@@ -89,15 +109,64 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
     except tomllib.TOMLDecodeError as exc:
         raise CurationError(f"{path} is not valid TOML: {exc}") from exc
 
+    merges = _merges(raw.get("merge", []), path)
+    names = _names(raw.get("name", []), path)
+    # A pin is looked up by the canonical bucket id, so pinning a name on an id
+    # that merges away can never fire -- an authoring contradiction, not a dead
+    # entry the report can absorb. (`merges` holds only non-canonical members.)
+    for pilot in names:
+        if pilot in merges:
+            raise CurationError(
+                f"{path}: [[name]] pins a display name on {pilot!r}, which "
+                f"merges into {merges[pilot]!r}; pin the canonical id instead"
+            )
     return Curation(
-        merges=_merges(raw.get("merge", []), path),
-        rejected=frozenset(
-            frozenset(_ids(entry, path, "reject")) for entry in raw.get("reject", [])
-        ),
-        names=_names(raw.get("name", []), path),
+        merges=merges,
+        rejected=_reject_pairs(raw.get("reject", []), path),
+        names=names,
         deck_pilots=_deck_pilots(raw.get("deck_pilot", []), path),
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
     )
+
+
+def dead_entries(
+    curation: Curation, pilot_ids: set[str], deck_ids: set[str]
+) -> list[DeadEntry]:
+    """Recorded decisions that key on an id or deck absent from the snapshot.
+
+    ``pilot_ids`` is every id resolution can key on: the raw upstream pilot ids
+    *and* the canonical bucket ids they merge into, so a name pinned on a live
+    canonical whose members carry all the decks is not misread as dead. Merge
+    members are checked against the same set; an absent member fired nothing.
+    ``deck_ids`` are post-dedup, so an override stranded on a deduped-away deck
+    is caught too. Nothing here raises, since one stale entry among many must
+    never break a rebuild. The result is sorted so the report diffs cleanly.
+    """
+    dead: list[DeadEntry] = []
+    for member, canon in curation.merges.items():
+        if member not in pilot_ids:
+            dead.append(DeadEntry("merge", member, f"merges into {canon}"))
+    # One row per absent id, carrying the partners it was rejected against so a
+    # maintainer can find the offending [[reject]] block(s).
+    reject_partners: dict[str, set[str]] = {}
+    for pair in curation.rejected:
+        for pid in pair:
+            if pid not in pilot_ids:
+                reject_partners.setdefault(pid, set()).update(pair - {pid})
+    for pid, partners in reject_partners.items():
+        dead.append(DeadEntry("reject", pid, f"rejected against {sorted(partners)}"))
+    for pilot, display in curation.names.items():
+        if pilot not in pilot_ids:
+            dead.append(DeadEntry("name", pilot, f"pins {display!r}"))
+    for deck, pilot in curation.deck_pilots.items():
+        if deck not in deck_ids:
+            dead.append(DeadEntry("deck_pilot", deck, f"reassigns to {pilot}"))
+    for deck, override in curation.deck_archetypes.items():
+        if deck not in deck_ids:
+            dead.append(
+                DeadEntry("deck_archetype", deck, f"reclassifies as {override.deck_name}")
+            )
+    return sorted(dead, key=lambda d: (d.kind, d.key))
 
 
 def _merges(entries: list[dict], path: Path) -> dict[str, str]:
@@ -148,6 +217,23 @@ def _merges(entries: list[dict], path: Path) -> dict[str, str]:
         for pilot_id in parent
         if chosen[find(pilot_id)] != pilot_id
     }
+
+
+def _reject_pairs(entries: list[dict], path: Path) -> frozenset[frozenset[str]]:
+    """Every pairwise "not the same person" judgement, as size-2 frozensets.
+
+    ``is_rejected`` tests a pair, so a reject of three or more ids is expanded
+    into all of its pairs: the ids are mutually distinct people, so every pair
+    among them is suppressed. A two-id reject is just its single pair. (Storing
+    the raw set instead would leave a 3-id reject matching no pair at all.)
+    """
+    pairs: set[frozenset[str]] = set()
+    for entry in entries:
+        ids = _ids(entry, path, "reject")
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                pairs.add(frozenset({a, b}))
+    return frozenset(pairs)
 
 
 def _ids(entry: dict, path: Path, kind: str) -> list[str]:

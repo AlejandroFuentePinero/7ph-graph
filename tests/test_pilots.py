@@ -531,3 +531,34 @@ def test_build_pilot_nodes_carry_display_name_and_rekey_nulls(tmp_path):
     report = json.loads(reconciliation_path(db_path).read_text())
     assert {"variant_clusters", "under_merges", "null_pilots"} <= report.keys()
     assert [p["display_name"] for p in report["null_pilots"]] == ["Darcy"]
+
+
+def test_dead_curation_entry_is_reported_not_fatal():
+    # A merge keyed on an id that appears in no deck (a typo, or an
+    # upstream-reissued pseudonym) fires nothing. It must surface in the report's
+    # dead_entries, never break the build (issue #37).
+    decks = [_deck("d1", "P1", "1st Alice A - Storm - E1")]
+    curation = Curation(
+        merges={"ghost": "P1"}, rejected=frozenset(),
+        names={}, deck_pilots={}, deck_archetypes={},
+    )
+    res = resolve_pilots(decks, curation)
+
+    assert [p.display_name for p in res.pilots] == ["Alice A"]  # build still succeeds
+    assert any(d.kind == "merge" and d.key == "ghost"
+               for d in res.report.dead_entries)
+
+
+def test_name_pin_on_live_canonical_not_reported_dead():
+    # B merges into A, and only B carries decks, so A never appears as a raw
+    # pilot id. The pin on A still fires (A is the resolved bucket), so it must
+    # not be reported dead: dead-detection resolves through the merges (#37).
+    decks = [_deck("d1", "B", "1st Alice A - Storm - E1")]
+    curation = Curation(
+        merges={"B": "A"}, rejected=frozenset(),
+        names={"A": "Alice A"}, deck_pilots={}, deck_archetypes={},
+    )
+    res = resolve_pilots(decks, curation)
+
+    assert next(p for p in res.pilots).display_name == "Alice A"  # pin fired
+    assert res.report.dead_entries == []
