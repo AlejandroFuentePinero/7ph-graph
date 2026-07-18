@@ -10,10 +10,10 @@ the data cannot resolve on its own.
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
-from graph7ph.curation import Curation
+from graph7ph.curation import Curation, DeadEntry, dead_entries
 from graph7ph.models import PLACEMENT_TOKEN
 
 # A deck title reads "<placement> <name> - <deck> - <event>". The name is what
@@ -173,6 +173,7 @@ class Reconciliation:
     dropped_duplicates: list[DroppedDuplicate]  # removed duplicate registrations
     joined_names: list[JoinedName]  # ids collapsed for sharing a display name
     curated: int  # decided pairs off the review list: rejections plus applied merges
+    dead_entries: list[DeadEntry] = field(default_factory=list)  # entries matching no id (issue #37)
 
 
 @dataclass(frozen=True)
@@ -265,9 +266,14 @@ def resolve_pilots(
     # ids present in the data are counted here to complete the "already decided".
     candidates, rejected = _under_merges(real_joined, curation)
     merged = sum(1 for pid in {d.pilot for d in decks} if curation.canonical(pid) != pid)
+    # Raw ids plus the buckets they resolve into (the real/null keys are exactly
+    # those resolved ids), so a decision keyed on a live canonical is not misread
+    # as dead; deck ids are post-dedup (issue #37).
+    live_ids = {d.pilot for d in decks} | set(real) | set(null)
+    dead = dead_entries(curation, live_ids, {d.deck_id for d in decks})
     report = Reconciliation(
         variant_clusters, candidates, null_pilots, event_splits, dropped,
-        joined_names, rejected + merged,
+        joined_names, rejected + merged, dead,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
