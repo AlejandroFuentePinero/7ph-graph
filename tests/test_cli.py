@@ -9,7 +9,7 @@ from graph7ph.__main__ import _build
 def _snapshot(path, decks):
     path.mkdir(parents=True)
     (path / "decks.json").write_text(json.dumps([
-        {"deckId": d, "name": "n", "deckName": "n", "pilot": d, "event": "NYE",
+        {"deckId": d, "name": d, "deckName": "n", "pilot": d, "event": "NYE",
          "eventId": "evt_1", "eventType": "Tournament", "placement": 1,
          "placementNorm": 0.0, "createdAt": created, "colour": "colour:U",
          "macro": "macro:control", "engineTags": [], "engineTagLabels": {},

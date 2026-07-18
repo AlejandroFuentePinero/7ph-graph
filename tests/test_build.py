@@ -19,8 +19,13 @@ def _scalar(conn, query, params=None):
 
 
 def _deck(deck_id, event, created_at):
-    """A minimal deck record, for snapshots crafted to exercise one behaviour."""
-    return {"deckId": deck_id, "name": "n", "deckName": "n", "pilot": deck_id,
+    """A minimal deck record, for snapshots crafted to exercise one behaviour.
+
+    The title carries the deck id so each recovers a distinct name: same-named
+    decks join on identity (ADR 0007) and a card-identical pair then collapses,
+    which would silently merge fixtures meant to stay separate registrations.
+    """
+    return {"deckId": deck_id, "name": deck_id, "deckName": "n", "pilot": deck_id,
             "event": event, "eventId": f"evt_{event}", "eventType": "Tournament",
             "placement": 1, "placementNorm": 0.0, "createdAt": created_at,
             "colour": "colour:U", "macro": "macro:control", "engineTags": [],

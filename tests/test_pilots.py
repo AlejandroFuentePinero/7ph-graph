@@ -11,7 +11,6 @@ import pytest
 
 from graph7ph.curation import Curation
 from graph7ph.pilots import (
-    DECIDED_RELATIONS,
     display_name_from_title,
     name_relation,
     resolve_pilots,
@@ -96,6 +95,11 @@ def test_display_name_from_title_strips_placement_and_takes_name(title, expected
         # A genuinely long name survives; it is not deck noise.
         ("24th Israel van der R - Rakdos Midrange - WAC", "Rakdos Midrange", "WAC",
          "Israel van der R"),
+        # A separator already isolates the name segment, so a surname that
+        # happens to equal the deck archetype ("Storm") must not be subtracted:
+        # the name is "John Storm", not the bare "John" that would false-join to
+        # any other John (F11).
+        ("5th John Storm - Storm - E", "Storm", "E", "John Storm"),
     ],
 )
 def test_display_name_subtracts_source_deck_and_event(title, deck_name, event, expected):
@@ -164,10 +168,24 @@ def test_name_candidates_are_reported_but_never_merged_by_heuristics():
     assert {p.pilot for p in res.pilots} == {
         "HiddenGreenPanda", "FrostyIndigoStag", "MistyAzureHawk", "BraveGreenOrca"
     }
+    # Every relation, "first-name" included, is only ever surfaced as a
+    # candidate for a human -- none is auto-applied by the heuristics (F12).
     by_name = {u.display_name: u for u in res.report.under_merges}
     assert by_name["Noelle"].relation == "first-name"
-    assert set(DECIDED_RELATIONS) == {"exact", "first-name", "handle"}
     assert res.report.curated == 0
+
+
+def test_display_name_tiebreak_is_deterministic_on_name_not_source_order():
+    # Two equally-voted spellings under one id: the winner must be fixed by the
+    # name string, so a re-export that reorders the decks cannot flip which
+    # identity the id resolves to (F7).
+    d1 = _deck("d1", "P", "1st Aaron B - Storm - E1", event="E1")
+    d2 = _deck("d2", "P", "2nd Zoe B - Storm - E2", event="E2")
+
+    forward = _pilot(resolve_pilots([d1, d2]), "P").display_name
+    reverse = _pilot(resolve_pilots([d2, d1]), "P").display_name
+
+    assert forward == reverse == "Zoe B"  # max name string, not deck order
 
 
 def test_pilot_is_keyed_on_upstream_id_with_majority_display_name():
@@ -188,6 +206,52 @@ def test_pilot_is_keyed_on_upstream_id_with_majority_display_name():
     assert res.deck_pilot == {d.deck_id: "SolarGreenPanda" for d in decks}
 
 
+def test_multi_name_id_is_reported_when_decks_span_two_surname_families():
+    # One upstream id whose decks recover two different surname initials (H, M)
+    # is likely two people reusing one id. The majority name wins the node, but
+    # the minority must not vanish silently: the id surfaces for a human (F7).
+    decks = [
+        _deck("d1", "P", "1st Tom H - Storm - E1", event="E1"),
+        _deck("d2", "P", "2nd Tom H - Storm - E2", event="E2"),
+        _deck("d3", "P", "3rd Tom M - Lands - E3", event="E3"),
+    ]
+
+    res = resolve_pilots(decks)
+
+    [entry] = res.report.multi_name_ids
+    assert entry.pilot == "P"
+    assert entry.display_name == "Tom H"  # majority still wins the node
+    assert set(entry.names) == {"Tom H", "Tom M"}
+
+
+def test_two_surnames_at_one_event_are_a_split_not_a_multi_name_id():
+    # Two surnames confined to a single event are a same-event collision the
+    # event split already separates into numbered people; only surnames recurring
+    # across disjoint events point to one id reused by two people (F7).
+    decks = [
+        _deck("d1", "P", "1st Tom H - Storm - E1", event="E1", placement=1),
+        _deck("d2", "P", "2nd Tom M - Lands - E1", event="E1", placement=2),
+    ]
+
+    res = resolve_pilots(decks)
+
+    assert res.report.multi_name_ids == []
+    assert len(res.report.event_splits) == 1  # separated as a collision instead
+
+
+def test_single_surname_family_is_not_a_multi_name_id():
+    # First-name spelling drift under one surname ("Dan S"/"Daniel S") is a
+    # variant cluster, not two people: it must not be reported as a multi-name id.
+    decks = [
+        _deck("d1", "Q", "1st Dan S - Storm - E1", event="E1"),
+        _deck("d2", "Q", "2nd Daniel S - Storm - E2", event="E2"),
+    ]
+
+    res = resolve_pilots(decks)
+
+    assert res.report.multi_name_ids == []
+
+
 def test_null_pilot_decks_rekeyed_per_name_not_collapsed():
     # The 26 nan-pilot decks must not collapse into one bogus node; each distinct
     # recovered name becomes its own low-confidence pilot (ADR 0004).
@@ -205,6 +269,25 @@ def test_null_pilot_decks_rekeyed_per_name_not_collapsed():
     assert all(p.low_confidence for p in res.pilots)
     # Both Darcy decks land on the same synthetic pilot; Jed on its own.
     assert res.deck_pilot["d1"] == res.deck_pilot["d3"] != res.deck_pilot["d2"]
+
+
+@pytest.mark.parametrize("sentinel", ["", "None", "N/A", "null", "NaN", "none"])
+def test_null_sentinels_beyond_literal_nan_are_rekeyed_not_collapsed(sentinel):
+    # The lost-pilot sentinel is a serializer artifact, not just literal "nan":
+    # ''/'None'/'N/A'/'null' (any case) are pilotless too. Two such decks at
+    # distinct events must re-key per recovered name, not collapse into one node
+    # keyed on the sentinel (the ADR-0004 collapse; F8).
+    decks = [
+        _deck("d1", sentinel, "Darcy - Mono R - E1", event="E1"),
+        _deck("d2", sentinel, "Jed - Oath - E2", event="E2"),
+    ]
+
+    res = resolve_pilots(decks)
+
+    assert all(p.pilot != sentinel for p in res.pilots)
+    assert {p.display_name for p in res.pilots} == {"Darcy", "Jed"}
+    assert all(p.low_confidence for p in res.pilots)
+    assert res.deck_pilot["d1"] != res.deck_pilot["d2"]
 
 
 def test_untitled_null_decks_stay_separate_not_collapsed():
@@ -450,6 +533,65 @@ def test_identical_registration_is_dropped_and_logged():
     assert res.deck_pilot == {"d1": "BravePurpleFalcon"}
     [dup] = res.report.dropped_duplicates
     assert (dup.dropped_deck, dup.kept_deck, dup.display_name) == ("d2", "d1", "Christopher K")
+
+
+def test_duplicate_that_unifies_only_after_a_merge_is_dropped_not_split():
+    # Two ids a human merged are one person. Their decks at one event carry an
+    # identical list: one registration entered under two ids, not two people.
+    # Keyed on the merged (canonical) id, the copy is dropped, never split into
+    # numbered phantoms on an un-curable "#2" key (F4).
+    decks = [
+        _deck("d1", "A", "10th Tom H - Storm - E", event="E", placement=10),
+        _deck("d2", "B", "20th Tom H - Storm - E", event="E", placement=20),
+    ]
+    curation = Curation(merges={"B": "A"}, rejected=frozenset(), names={}, deck_pilots={})
+    decklists = {"d1": ("storm",), "d2": ("storm",)}
+
+    res = resolve_pilots(decks, curation, decklists)
+
+    assert res.dropped_decks == frozenset({"d2"})     # the copy, worse placement
+    assert {p.display_name for p in res.pilots} == {"Tom H"}  # not "Tom H 1"/"Tom H 2"
+    assert res.report.event_splits == []
+    [dup] = res.report.dropped_duplicates
+    assert dup.dropped_deck == "d2" and dup.kept_deck == "d1"
+
+
+def test_duplicate_that_unifies_only_after_the_null_join_is_dropped_not_split():
+    # A lost-id copy sits in the null bucket, sharing a recovered name and an
+    # identical list with a real pilot at one event. Dedup ran before the join,
+    # so it survived; the event split must collapse the card-identical pair
+    # rather than number them into two phantoms (F4).
+    decks = [
+        _deck("d1", "AmberRedGecko", "10th Kyle G - Burn - E", event="E", placement=10),
+        _deck("d2", "nan", "20th Kyle G - Burn - E", event="E", placement=20),
+    ]
+    decklists = {"d1": ("burn",), "d2": ("burn",)}
+
+    res = resolve_pilots(decks, decklists=decklists)
+
+    assert res.dropped_decks == frozenset({"d2"})
+    assert {p.display_name for p in res.pilots} == {"Kyle G"}  # one person, not two
+    assert res.report.event_splits == []
+    [dup] = res.report.dropped_duplicates
+    assert dup.dropped_deck == "d2" and dup.kept_deck == "d1"
+
+
+def test_two_people_under_one_id_sharing_a_list_at_one_event_are_kept_not_collapsed():
+    # Two distinct people share one upstream id and an identical list at one event
+    # (a shared account or a data error). The collapse is for copies unified from
+    # DIFFERENT ids by a merge or the null-join, not for a same-id collision:
+    # teammates share a list but never a name, so both survive and the event split
+    # numbers them (F4 guard).
+    decks = [
+        _deck("d1", "R", "10th Alice A - Storm - E", event="E", placement=10),
+        _deck("d2", "R", "20th Bob B - Storm - E", event="E", placement=20),
+    ]
+    decklists = {"d1": ("storm",), "d2": ("storm",)}
+
+    res = resolve_pilots(decks, decklists=decklists)
+
+    assert res.dropped_decks == frozenset()  # neither dropped
+    assert len({res.deck_pilot["d1"], res.deck_pilot["d2"]}) == 2  # split into two people
 
 
 def test_teammates_sharing_a_list_are_not_treated_as_duplicates():
