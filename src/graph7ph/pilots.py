@@ -50,11 +50,19 @@ def display_name_from_title(
     stripped = PLACEMENT_TOKEN.sub("", title, count=1)
     # A placement token is sometimes followed by its own separator
     # ("05th-8th - Kyle G - ..."), so take the first non-empty segment.
-    for segment in _SEPARATOR.split(stripped):
+    segments = _SEPARATOR.split(stripped)
+    # The deck and event are subtracted only on the separator-less fallback
+    # ("1st Ben N Lurrus Breach PoGTeams2024"), where the name is not otherwise
+    # isolated. When a separator already delimits the name segment, subtracting
+    # them would clip a real surname that equals the deck ("John Storm" ->
+    # "John") and false-join it to any other first name (F11).
+    isolated = len(segments) > 1
+    for segment in segments:
         name = segment.strip()
         if not name:
             continue
-        name = _drop_suffix(_drop_suffix(name, event), deck_name)
+        if not isolated:
+            name = _drop_suffix(_drop_suffix(name, event), deck_name)
         return None if _POINTS_MARKER.match(name) else name
     return None
 
@@ -79,7 +87,16 @@ def _drop_suffix(name: str, suffix: str | None) -> str:
 
 
 # Pilots whose upstream id is a null placeholder rather than a real identity.
-NULL_PILOT_IDS = frozenset({"nan"})
+# "nan" is a pandas/numpy stringification artifact from an untrusted upstream
+# serializer (ADR 0003), so it is not the only shape a lost id takes: '', 'none',
+# 'null', 'n/a' all mean "no pilot" too. Matched case-insensitively so a
+# serializer change cannot silently collapse pilotless decks into one node (F8).
+NULL_PILOT_IDS = frozenset({"", "nan", "none", "null", "n/a"})
+
+
+def _is_null_pilot(pilot_id: str) -> bool:
+    """Whether an upstream id is a null placeholder, not a real identity."""
+    return pilot_id.casefold() in NULL_PILOT_IDS
 
 # Recovered names are shaped "<first...> <surname initial>". Two are treated as
 # spelling variants of one person only above these similarities. Deliberately
@@ -165,6 +182,20 @@ class EventSplit:
 
 
 @dataclass(frozen=True)
+class MultiNameId:
+    """One upstream id whose decks recovered more than one surname family.
+
+    A single id is one identity, so decks that recover two different surnames
+    (e.g. "Tom H" and "Tom M") are likely two people reusing one id. The majority
+    name wins the node and the minority would otherwise vanish, so the id is
+    surfaced here for a human (ADR 0007, issue #39)."""
+
+    pilot: str
+    display_name: str  # the majority name that won the node
+    names: list[str]  # every distinct recovered name, the minorities included
+
+
+@dataclass(frozen=True)
 class Reconciliation:
     variant_clusters: list[VariantCluster]
     under_merges: list[UnderMerge]  # UNCURATED candidates only; curated ones drop off
@@ -174,6 +205,7 @@ class Reconciliation:
     joined_names: list[JoinedName]  # ids collapsed for sharing a display name
     curated: int  # decided pairs off the review list: rejections plus applied merges
     dead_entries: list[DeadEntry] = field(default_factory=list)  # entries matching no id (issue #37)
+    multi_name_ids: list[MultiNameId] = field(default_factory=list)  # ids spanning >1 surname (issue #39)
 
 
 @dataclass(frozen=True)
@@ -203,7 +235,13 @@ def resolve_pilots(
     merged, the re-keyed null bucket, and the uncurated under-merge candidates.
     """
     curation = curation or Curation.empty()
-    dropped = _drop_duplicates(decks, decklists) if decklists else []
+
+    # A deck's pilot is its upstream id, unless the dictionary reassigns the deck
+    # (a null-pilot deck to its real owner) or merges the id onto a canonical one.
+    def resolved_id(deck) -> str:
+        return curation.canonical(curation.deck_pilots.get(deck.deck_id, deck.pilot))
+
+    dropped = _drop_duplicates(decks, decklists, resolved_id) if decklists else []
     gone = {d.dropped_deck for d in dropped}
     decks = [d for d in decks if d.deck_id not in gone]
 
@@ -211,17 +249,13 @@ def resolve_pilots(
     real_pilots: list[ResolvedPilot] = []
     null_pilots: list[ResolvedPilot] = []
     variant_clusters: list[VariantCluster] = []
-
-    # A deck's pilot is its upstream id, unless the dictionary reassigns the deck
-    # (a null-pilot deck to its real owner) or merges the id onto a canonical one.
-    def resolved_id(deck) -> str:
-        return curation.canonical(curation.deck_pilots.get(deck.deck_id, deck.pilot))
+    multi_name_ids: list[MultiNameId] = []
 
     real: dict[str, list] = {}
     null: dict[str, list] = {}
     for deck in decks:
         pid = resolved_id(deck)
-        bucket = null if pid in NULL_PILOT_IDS else real
+        bucket = null if _is_null_pilot(pid) else real
         bucket.setdefault(pid, []).append(deck)
 
     for pilot_id, group in real.items():
@@ -233,6 +267,9 @@ def resolve_pilots(
             deck_pilot[d.deck_id] = pilot_id
         if len(merged) > 1:
             variant_clusters.append(VariantCluster(pilot_id, display, merged))
+        multi = _multi_name_id(pilot_id, display, group, names)
+        if multi:
+            multi_name_ids.append(multi)
 
     # Null decks: one synthetic, low-confidence pilot per distinct recovered
     # name. A deck whose title yields no name is keyed on its own deck id, so
@@ -257,7 +294,16 @@ def resolve_pilots(
 
     # A resolved pilot with several decks at one event is several people sharing
     # a name; split them so every pilot holds at most one deck per event (ADR 0004).
-    pilots, event_splits = _split_event_collisions(decks, deck_pilot, pilots)
+    # A card-identical pair that only reached one id after the merge or null-join
+    # above is one registration, so it collapses here rather than splitting into
+    # numbered phantoms (F4).
+    pilots, event_splits, late_dropped = _split_event_collisions(
+        decks, deck_pilot, pilots, decklists
+    )
+    if late_dropped:
+        gone |= {d.dropped_deck for d in late_dropped}
+        decks = [d for d in decks if d.deck_id not in gone]
+        dropped = dropped + late_dropped
 
     # Under-merges are scanned over real pilots only: the null bucket is already
     # surfaced separately, so including it would just double-report the noise.
@@ -273,7 +319,7 @@ def resolve_pilots(
     dead = dead_entries(curation, live_ids, {d.deck_id for d in decks})
     report = Reconciliation(
         variant_clusters, candidates, null_pilots, event_splits, dropped,
-        joined_names, rejected + merged, dead,
+        joined_names, rejected + merged, dead, multi_name_ids,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
@@ -281,14 +327,44 @@ def resolve_pilots(
     )
 
 
-def _drop_duplicates(decks, decklists: dict[str, object]) -> list[DroppedDuplicate]:
+def _multi_name_id(
+    pilot: str, display: str, group, names: list[str | None]
+) -> "MultiNameId | None":
+    """A report entry if the id's decks recover >1 surname across >1 event.
+
+    Two surnames confined to a single event are just a same-event collision the
+    event split already separates; only surnames recurring across disjoint events
+    point to one id reused by two different people, which the majority vote would
+    hide (issue #39). ``names`` is the caller's already-recovered name per deck.
+    """
+    families: set[str] = set()
+    events: set[str] = set()
+    distinct: set[str] = set()
+    for deck, name in zip(group, names):
+        if not name:
+            continue
+        distinct.add(name)
+        if family := _surname_family(name):
+            families.add(family)
+            events.add(deck.event)
+    if len(families) > 1 and len(events) > 1:
+        return MultiNameId(pilot, display, sorted(distinct))
+    return None
+
+
+def _drop_duplicates(
+    decks, decklists: dict[str, object], resolved_id
+) -> list[DroppedDuplicate]:
     """Find duplicate registrations: same id, event, name, and identical list.
 
-    Under one-entry-per-player, two decks that share an upstream id, an event, a
+    Under one-entry-per-player, two decks that share a *resolved* id, an event, a
     recovered name, and a card-for-card identical list are one registration
     entered twice, not two people (teammates share a list but never a name). The
-    best placement is kept; the rest are returned for the log. A pilot's two
-    genuinely different decks at one event are left for the collision split.
+    id is resolved through the dictionary (``resolved_id``) so a copy entered
+    under two ids a human has merged is caught here, not split into numbered
+    phantoms downstream (F4). The best placement is kept; the rest are returned
+    for the log. A pilot's two genuinely different decks at one event are left
+    for the collision split.
     """
     groups: dict[tuple, list] = {}
     for deck in decks:
@@ -296,22 +372,34 @@ def _drop_duplicates(decks, decklists: dict[str, object]) -> list[DroppedDuplica
         # A deck with no card signature (none should reach here) keys on its own
         # id, so it never reads as a duplicate of another.
         signature = decklists.get(deck.deck_id, deck.deck_id)
-        key = (deck.pilot, deck.event, (name or "").casefold(), signature)
+        key = (resolved_id(deck), deck.event, (name or "").casefold(), signature)
         groups.setdefault(key, []).append(deck)
 
     dropped: list[DroppedDuplicate] = []
-    for (pilot, event, _, _), group in groups.items():
-        if len(group) < 2:
-            continue
-        keep, *extra = sorted(
-            group, key=lambda d: (d.placement is None, d.placement or 0, d.deck_id)
-        )
-        for d in extra:
-            dropped.append(DroppedDuplicate(
-                dropped_deck=d.deck_id, kept_deck=keep.deck_id, pilot=pilot,
-                event=event, display_name=_display_name(keep) or keep.deck_id,
-            ))
+    for (pilot, _, _, _), group in groups.items():
+        if len(group) >= 2:
+            dropped.extend(_pick_survivor(group, pilot)[1])
     return dropped
+
+
+def _pick_survivor(members, pilot: str) -> tuple[object, list[DroppedDuplicate]]:
+    """Keep the best-placed deck of a duplicate group; log the rest as drops.
+
+    Members share a resolved pilot, an event, and a card signature, so they are
+    one registration entered more than once. The best placement (deck id to break
+    ties) is kept; each other is returned as a :class:`DroppedDuplicate`.
+    """
+    keep, *extra = sorted(
+        members, key=lambda d: (d.placement is None, d.placement or 0, d.deck_id)
+    )
+    dropped = [
+        DroppedDuplicate(
+            dropped_deck=d.deck_id, kept_deck=keep.deck_id, pilot=pilot,
+            event=keep.event, display_name=_display_name(keep) or keep.deck_id,
+        )
+        for d in extra
+    ]
+    return keep, dropped
 
 
 def _join_identical_names(
@@ -363,8 +451,9 @@ def _join_identical_names(
 
 
 def _split_event_collisions(
-    decks, deck_pilot: dict[str, str], pilots: list[ResolvedPilot]
-) -> tuple[list[ResolvedPilot], list[EventSplit]]:
+    decks, deck_pilot: dict[str, str], pilots: list[ResolvedPilot],
+    decklists: dict[str, object] | None,
+) -> tuple[list[ResolvedPilot], list[EventSplit], list[DroppedDuplicate]]:
     """Split any pilot that entered one event more than once into numbered people.
 
     A deck is one pilot's single entry at one event, so two decks under the same
@@ -376,8 +465,14 @@ def _split_event_collisions(
     "<name> 2", "<name> 3", ... The split is an inference the data cannot
     confirm, so every identity in a split family is marked low confidence.
 
+    Before splitting, a card-identical pair under one resolved id at one event is
+    collapsed, not numbered: it only reached one id after a merge or the null-bucket
+    join, so it is one registration entered twice, not two people (F4). The drops
+    are removed from ``deck_pilot`` and returned for the log.
+
     Mutates ``deck_pilot`` in place to point split decks at their new pilot key,
-    and returns the rebuilt pilot list and the splits for the reconciliation report.
+    and returns the rebuilt pilot list, the splits, and any collapsed duplicates
+    for the reconciliation report.
     """
     grouped: dict[str, list] = {}
     for deck in decks:
@@ -386,8 +481,14 @@ def _split_event_collisions(
     by_key = {p.pilot: p for p in pilots}
     resolved: dict[str, ResolvedPilot] = {}
     splits: list[EventSplit] = []
+    dropped: list[DroppedDuplicate] = []
 
     for key, group in grouped.items():
+        if decklists:
+            group, extra = _collapse_identical(group, key, decklists)
+            for d in extra:
+                del deck_pilot[d.dropped_deck]
+            dropped.extend(extra)
         slot_of = _event_slots(group)
         people_count = max(slot_of.values()) + 1
         base = by_key[key]
@@ -405,7 +506,38 @@ def _split_event_collisions(
             slot = slot_of[deck.deck_id]
             deck_pilot[deck.deck_id] = key if slot == 0 else f"{key}#{slot + 1}"
 
-    return list(resolved.values()), splits
+    return list(resolved.values()), splits, dropped
+
+
+def _collapse_identical(
+    group, pilot: str, decklists: dict[str, object]
+) -> tuple[list, list[DroppedDuplicate]]:
+    """Drop card-identical copies unified from different ids at one event (F4).
+
+    Two decks with an identical list at one event that reached this one resolved
+    pilot from *different* upstream ids were unified by a merge or the null-bucket
+    join: one registration entered twice, so the worse placement is dropped. Decks
+    that share an upstream id are left for the event split instead -- teammates
+    share a list but never a name, so a same-id collision is two people, not a
+    copy (same-id, same-name copies were already dropped before resolution).
+    """
+    by_sig: dict[tuple, list] = {}
+    for deck in group:
+        signature = decklists.get(deck.deck_id, deck.deck_id)
+        by_sig.setdefault((deck.event, signature), []).append(deck)
+
+    kept, dropped = [], []
+    for members in by_sig.values():
+        keep = min(
+            members, key=lambda d: (d.placement is None, d.placement or 0, d.deck_id)
+        )
+        # Same-id decks are kept (a collision the split handles); copies unified
+        # from another id are dropped against the best-placed survivor.
+        kept.extend(d for d in members if d.pilot == keep.pilot)
+        copies = [d for d in members if d.pilot != keep.pilot]
+        if copies:
+            dropped.extend(_pick_survivor([keep, *copies], pilot)[1])
+    return kept, dropped
 
 
 def _event_slots(decks) -> dict[str, int]:
@@ -453,9 +585,16 @@ def _choose_display_name(
         else:
             clusters.append({name: count})
 
-    winner = max(clusters, key=lambda c: (sum(c.values()), -_rank(c, counts)))
-    display = max(winner, key=lambda n: (winner[n], n == _mode(counts)))
+    # Ties are broken on the name string, never on cluster/deck order, so a
+    # re-export that reorders the source cannot flip the resolved identity (F7).
+    ranked = [(c, _cluster_display(c)) for c in clusters]
+    winner, display = max(ranked, key=lambda cd: (sum(cd[0].values()), cd[1]))
     return display, dict(winner)
+
+
+def _cluster_display(cluster: dict[str, int]) -> str:
+    """The cluster's representative spelling: most-used, name string to break ties."""
+    return max(cluster, key=lambda n: (cluster[n], n))
 
 
 def _under_merges(
@@ -522,6 +661,16 @@ def _candidate_pairs(names: dict[str, str]) -> set[tuple[str, str]]:
 _FIRST_INITIAL = re.compile(r"^(.+)\s+([^\s]+)$")
 
 
+def _surname_family(name: str) -> str | None:
+    """The surname identity of a recovered name, or ``None`` if it has no surname.
+
+    A bare first name or an opaque handle carries no surname to compare, so it
+    cannot mark an id as spanning two families (issue #39).
+    """
+    m = _FIRST_INITIAL.match(name)
+    return _surname_key(m.group(2)) if m else None
+
+
 def _surname_key(surname: str) -> str:
     """A surname's identity for matching: letters and digits only, casefolded.
 
@@ -541,22 +690,20 @@ _HANDLE = re.compile(r"^([A-Za-z]{3})([A-Z])(\d*)$")
 # dropped. See :func:`_edits` for why the threshold cannot be loosened.
 _TYPO_EDITS = 1
 
-# Relations strong enough to stand on their own. The other two only ever propose:
-# the shape cannot tell "Chris"/"Christopher" (one person) from "Joe"/"Joel"
-# (two), nor "Cordel"/"Cordell" (one) from "Ramona"/"Damon" (two). Deck overlap
-# cannot break the tie either, since teammates play each other's lists, so those
-# go to a human and are remembered in the dictionary.
-DECIDED_RELATIONS = frozenset({"exact", "first-name", "handle"})
-
 
 def name_relation(a: str, b: str) -> str | None:
     """How two recovered names relate, or ``None`` if they do not.
 
     Each relation is a class of evidence the data carries on its own, in
-    descending confidence. ``exact`` and ``first-name`` and ``handle`` are
-    decided; ``nickname`` and ``typo`` only ever propose, because the shape
-    cannot tell "Chris"/"Christopher" (one person) from "Joe"/"Joel" (two), nor
-    "Cordel"/"Cordell" (one) from "Ramona"/"Damon" (two).
+    descending confidence, and every one is only ever surfaced as an under-merge
+    candidate for a human to decide -- none is auto-applied. The heuristics merge
+    nothing; only the curation dictionary does (issue #9). The shape alone cannot
+    tell "Chris"/"Christopher" (one person) from "Joe"/"Joel" (two), nor
+    "Cordel"/"Cordell" (one) from "Ramona"/"Damon" (two), and deck overlap cannot
+    break the tie either (teammates play each other's lists). ``exact`` never
+    reaches the sole caller (:func:`_under_merges`): case-only duplicates are
+    already folded by the display-name join upstream; it is kept here so the
+    classifier stays complete for direct use.
     """
     if a.casefold() == b.casefold():
         return "exact"  # differs only in case: "Nathan S" / "Nathan s"
@@ -639,13 +786,3 @@ def _has_initial(tokens: list[str]) -> bool:
 
 def _ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, a.casefold(), b.casefold()).ratio()
-
-
-def _mode(counts: Counter) -> str:
-    return counts.most_common(1)[0][0]
-
-
-def _rank(cluster: dict[str, int], counts: Counter) -> int:
-    """Position of the cluster's top spelling in the overall order (tie-break)."""
-    ordered = [n for n, _ in counts.most_common()]
-    return min(ordered.index(n) for n in cluster)
