@@ -14,6 +14,7 @@ from graph7ph.ingest import (
     Flag,
     SchemaError,
     gate,
+    gate_sequence,
     ingest,
     ingest_report_path,
     load_checked,
@@ -113,6 +114,90 @@ def test_changed_decklist_flags_a_deck():
     assert result.report.flags == [Flag("changed", "deck", "d1")]
 
 
+def test_gate_sequence_flags_an_interior_immutable_fact_rewrite():
+    # F2: the alice->bob pilot rewrite happens in an interior transition. A gate
+    # that only compared union(s0,s1)=bob against s2=bob would call this a clean
+    # promote and silently absorb the rewrite. The fold over adjacent transitions
+    # must catch it.
+    s0 = snap(decks=[deck("d1", pilot="alice")])
+    s1 = snap(decks=[deck("d1", pilot="bob")])  # rewrite here, interior
+    s2 = snap(decks=[deck("d1", pilot="bob")])
+
+    result = gate_sequence([s0, s1, s2])
+
+    assert result.status == "flag"
+    assert result.report.flags == [Flag("changed", "deck", "d1")]
+
+
+def test_gate_sequence_flags_a_change_across_a_drop_and_reappear():
+    # A deck vanishes from an interim fetch, then returns with a rewritten pilot.
+    # Comparing only raw adjacent snapshots sees s0->s1 as a plain drop and s1->s2
+    # as a fresh addition, missing the alice->bob rewrite. Gating against the
+    # accumulated union (which retains the dropped deck) catches it as a changed
+    # fact and retain-old pins the pre-change pilot.
+    s0 = snap(decks=[deck("d1", pilot="alice")])
+    s1 = snap(decks=[])  # d1 absent from this fetch
+    s2 = snap(decks=[deck("d1", pilot="bob")])  # returns, rewritten
+
+    result = gate_sequence([s0, s1, s2])
+
+    assert result.status == "flag"
+    assert Flag("changed", "deck", "d1") in result.report.flags
+    assert one(result.snapshot.decks, "d1").pilot == "alice"  # old value retained
+
+
+def test_gate_sequence_retains_the_old_value_of_a_flagged_immutable_fact():
+    # F9: a flagged immutable-fact rewrite must not silently reach the live graph.
+    # The contract is retain-old: the union pins the flagged deck to its first-seen
+    # (pre-change) pilot until a human resolves it, rather than taking the rewrite.
+    s0 = snap(decks=[deck("d1", pilot="alice")])
+    s1 = snap(decks=[deck("d1", pilot="bob")])
+
+    result = gate_sequence([s0, s1])
+
+    assert result.status == "flag"
+    assert one(result.snapshot.decks, "d1").pilot == "alice"  # old value retained
+
+
+def test_gate_sequence_retains_the_old_decklist_of_a_flagged_deck():
+    s0 = snap(
+        decks=[deck("d1")],
+        conts=[Containment(deck_id="d1", canon="island", board="Main")],
+    )
+    s1 = snap(
+        decks=[deck("d1")],
+        conts=[Containment(deck_id="d1", canon="swamp", board="Main")],  # swapped
+    )
+
+    result = gate_sequence([s0, s1])
+
+    cards = {c.canon for c in result.snapshot.containments if c.deck_id == "d1"}
+    assert cards == {"island"}  # the pre-change decklist is retained
+
+
+def test_gate_sequence_takes_latest_volatile_value_without_flagging():
+    # A volatile change (points) is not flagged, so retain-old never fires: the
+    # union still takes the latest value.
+    s0 = snap(cards=[card("island", points=0)])
+    s1 = snap(cards=[card("island", points=4)])
+
+    result = gate_sequence([s0, s1])
+
+    assert result.status == "promote"
+    assert one(result.snapshot.cards, "island").points == 4
+
+
+def test_gate_sequence_over_a_clean_sequence_promotes():
+    s0 = snap(decks=[deck("d1")], cards=[card("island")])
+    s1 = snap(decks=[deck("d1"), deck("d2")], cards=[card("island")])  # pure addition
+
+    result = gate_sequence([s0, s1])
+
+    assert result.status == "promote"
+    assert result.report.flags == []
+    assert {d.deck_id for d in result.snapshot.decks} == {"d1", "d2"}
+
+
 def test_changed_volatile_field_is_silent_and_takes_the_latest_value():
     # Points move between points versions: volatile, not a historical fact.
     prior = snap(cards=[card("island", points=0)])
@@ -165,12 +250,13 @@ def test_html_body_hard_fails(tmp_path):
         load_checked(tmp_path)
 
 
-def _snapshot_files(deck_ids):
+def _snapshot_files(deck_ids, pilot=None):
     # Each deck gets its own pilot and its own recovered name (from the title) so
     # two decks in one snapshot stay distinct registrations: same-named decks
-    # join on identity (ADR 0007) and a card-identical pair then collapses.
+    # join on identity (ADR 0007) and a card-identical pair then collapses. Pass
+    # ``pilot`` to give every deck the same pilot (for immutable-fact tests).
     decks = json.dumps([{
-        "deckId": did, "name": did, "deckName": "n", "pilot": f"p_{did}", "event": "E",
+        "deckId": did, "name": did, "deckName": "n", "pilot": pilot or f"p_{did}", "event": "E",
         "eventId": "evt_1", "eventType": "Tournament",
         "placement": 1, "placementNorm": 0.0,
         "createdAt": "2025-06-01T00:00:00+00:00",
@@ -226,6 +312,62 @@ def test_ingest_unions_all_snapshots_and_promotes_with_a_backup(tmp_path):
     backup = tmp_path / "graph.kuzu.backup"
     assert json.loads(ingest_report_path(backup).read_text())["status"] == "promote"
     assert reconciliation_path(backup).exists()
+
+
+def test_promote_moves_the_graph_and_its_reports_as_one_bundle(tmp_path):
+    # F13: the reports live inside the graph directory, so the single directory
+    # rename promotes graph + both reports together. A promote can never leave a
+    # new graph paired with stale reports, because there is no separate report
+    # rename that could be interrupted between them.
+    db = tmp_path / "graph.kuzu"
+    backup = tmp_path / "graph.kuzu.backup"
+    assert db == ingest_report_path(db).parent == reconciliation_path(db).parent
+
+    live = _db(db, "old graph")
+    ingest_report_path(live).write_text('{"gen": "old"}')
+    reconciliation_path(live).write_text('{"gen": "old"}')
+    incoming = _db(tmp_path / "graph.kuzu.incoming", "new graph")
+    ingest_report_path(incoming).write_text('{"gen": "new"}')
+    reconciliation_path(incoming).write_text('{"gen": "new"}')
+
+    promote(incoming, db, backup)
+
+    # The live graph and both its reports are the new generation, together.
+    assert (db / "data").read_text() == "new graph"
+    assert json.loads(ingest_report_path(db).read_text())["gen"] == "new"
+    assert json.loads(reconciliation_path(db).read_text())["gen"] == "new"
+    # The backup keeps its own matching (old) reports for a consistent rollback.
+    assert (backup / "data").read_text() == "old graph"
+    assert json.loads(ingest_report_path(backup).read_text())["gen"] == "old"
+    # No report was promoted on its own: none left orphaned beside the graph dirs.
+    assert not (tmp_path / "graph.kuzu.ingest.json").exists()
+    assert not (tmp_path / "graph.kuzu.reconciliation.json").exists()
+
+
+def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_path):
+    # End to end (F2 + F9): three snapshots where the interior one rewrites deck
+    # d1's pilot from Alice to Bob. The build must flag the change and keep the
+    # pre-change pilot, not silently absorb the rewrite the old single-transition
+    # gate would have missed.
+    root = tmp_path / "snapshots"
+    db = tmp_path / "graph.kuzu"
+
+    for name, pilot in [("20260101T000000Z", "Alice"),
+                        ("20260201T000000Z", "Bob"),   # interior rewrite
+                        ("20260301T000000Z", "Bob")]:
+        d, i = _snapshot_files(["d1"], pilot=pilot)
+        _write_snapshot_dir(root / name, decks=d, cards_index=i)
+
+    report, _ = ingest(root, db)
+
+    assert report.status == "flag"
+    assert Flag("changed", "deck", "d1") in report.flags
+    conn = kuzu.Connection(kuzu.Database(str(db)))
+    res = conn.execute("MATCH (p:Pilot) RETURN p.pilot")
+    pilots = set()
+    while res.has_next():
+        pilots.add(res.get_next()[0])
+    assert pilots == {"Alice"}  # pre-change pilot retained, not the Bob rewrite
 
 
 def test_ingest_hard_fails_on_a_corrupt_snapshot_without_touching_the_graph(tmp_path):

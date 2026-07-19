@@ -17,7 +17,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from graph7ph.build import BuildCounts, build_graph, reconciliation_path
+from graph7ph.build import BuildCounts, build_graph
 from graph7ph.models import Card, Containment, Deck, Snapshot, load_snapshot
 
 # The gate's closed vocabularies, following the repo idiom (models.py `Board`).
@@ -153,6 +153,78 @@ def gate(prior: Snapshot, incoming: Snapshot) -> GateResult:
     return GateResult(status, union_snapshots([prior, incoming]), GateReport(status, flags))
 
 
+def gate_sequence(snapshots: list[Snapshot]) -> GateResult:
+    """Gate a whole ordered snapshot sequence, folding across every transition.
+
+    ``gate`` alone only compares one prior against one incoming, so a rewrite
+    buried in an interior snapshot is collapsed into the prior union and passes
+    with a false clean promote (issue #38, F2). Gating each snapshot against the
+    union of everything held before it, and accumulating flags, restores ADR
+    0003's promise for multi-snapshot builds: an immutable-fact rewrite in *any*
+    snapshot is flagged, not just one in the very last. The prior side is the
+    accumulated union, not the raw previous snapshot, so a fact that changes while
+    its id is briefly absent (dropped by one fetch, back in the next) is still
+    caught, since the union retains the dropped id at its old value.
+    """
+    flags: list[Flag] = []
+    seen: set[tuple[str, str, str]] = set()
+    acc = union_snapshots(snapshots[:1])
+    for incoming in snapshots[1:]:
+        result = gate(acc, incoming)
+        for f in result.report.flags:
+            key = (f.kind, f.entity, f.id)
+            if key not in seen:
+                seen.add(key)
+                flags.append(f)
+        acc = result.snapshot  # the union so far; reused as the next prior
+
+    union = _retain_old(acc, snapshots, flags)
+    status: GateStatus = "flag" if flags else "promote"
+    return GateResult(status, union, GateReport(status, flags))
+
+
+def _retain_old(
+    union: Snapshot, snapshots: list[Snapshot], flags: list[Flag]
+) -> Snapshot:
+    """Pin every ``changed``-flagged entity to its first-seen (pre-change) value.
+
+    The flag contract (issue #38, F9; ADR 0003): a rewritten immutable fact must
+    not silently reach the live graph. Rather than block the build or guess-merge,
+    the union retains the record as we first knew it and leaves the flag for a
+    human to resolve. Volatile fields ride along frozen on a contested record;
+    unflagged entities keep the ordinary latest-value union. A ``dropped`` flag is
+    the benign windowing case ADR 0003 already handles, so it is not pinned.
+    """
+    changed_decks = {f.id for f in flags if f.kind == "changed" and f.entity == "deck"}
+    changed_cards = {f.id for f in flags if f.kind == "changed" and f.entity == "card"}
+    if not changed_decks and not changed_cards:
+        return union
+
+    first_deck: dict[str, Deck] = {}
+    first_conts: dict[str, list[Containment]] = {}
+    first_card: dict[str, Card] = {}
+    for snap in snapshots:  # oldest -> newest; keep the first occurrence
+        by_deck = _conts_by_deck(snap)
+        for d in snap.decks:
+            if d.deck_id in changed_decks and d.deck_id not in first_deck:
+                first_deck[d.deck_id] = d
+                first_conts[d.deck_id] = by_deck.get(d.deck_id, [])
+        for c in snap.cards:
+            if c.canon in changed_cards and c.canon not in first_card:
+                first_card[c.canon] = c
+
+    union_conts = _conts_by_deck(union)
+    decks = [first_deck.get(d.deck_id, d) for d in union.decks]
+    conts = [
+        c
+        for d in decks
+        for c in (first_conts[d.deck_id] if d.deck_id in changed_decks
+                  else union_conts.get(d.deck_id, []))
+    ]
+    cards = [first_card.get(c.canon, c) for c in union.cards]
+    return Snapshot(cards=cards, decks=decks, containments=conts)
+
+
 def _remove(path: Path) -> None:
     if path.is_dir():
         shutil.rmtree(path)
@@ -166,9 +238,9 @@ def promote(incoming: Path, live: Path, backup: Path) -> None:
     The current live artifact (if any) is moved aside to ``backup`` for rollback,
     then the rebuilt one is renamed into the live path. Renames are atomic on the
     same filesystem, and the backup guarantees the previous artifact survives. A
-    first build has no live artifact, so no backup is produced. Used for the graph
-    directory and for each of its sidecar reports, so a rollback to ``backup``
-    carries its own matching reports.
+    first build has no live artifact, so no backup is produced. The graph
+    directory holds its reports inside it, so this one rename promotes the whole
+    bundle and a rollback to ``backup`` carries its own matching reports.
     """
     if live.exists():
         _remove(backup)
@@ -177,9 +249,12 @@ def promote(incoming: Path, live: Path, backup: Path) -> None:
 
 
 def ingest_report_path(db_path: Path) -> Path:
-    """Where the gate's review report is written for a graph at ``db_path``."""
-    db_path = Path(db_path)
-    return db_path.with_name(db_path.name + ".ingest.json")
+    """Where the gate's review report is written for a graph at ``db_path``.
+
+    Inside the graph directory (not a sibling) so it promotes and rolls back
+    atomically with the graph as one bundle (issue #38, F13).
+    """
+    return Path(db_path) / "ingest.json"
 
 
 def _snapshot_dirs(root: Path) -> list[Path]:
@@ -193,22 +268,26 @@ def _snapshot_dirs(root: Path) -> list[Path]:
 def ingest(snapshots_root: Path, db_path: Path) -> tuple[GateReport, BuildCounts]:
     """Build the live graph from every snapshot, gated and atomically promoted.
 
-    All snapshots are schema-validated and unioned by stable id; the newest is
-    gated against everything held before it. A corrupt snapshot raises
+    All snapshots are schema-validated and unioned by stable id; the gate folds
+    across the sequence, gating each snapshot against the union held before it, so
+    an immutable-fact rewrite in any snapshot is flagged and its old value
+    retained (ADR 0008). A corrupt snapshot raises
     :class:`SchemaError` before anything is built, leaving the live graph
-    untouched. Otherwise the union is built into a temporary graph and swapped in
-    with its sidecar reports, retaining the previous graph and its reports as a
-    self-consistent backup for rollback (ADR 0003).
+    untouched. Otherwise the union is built into a temporary graph whose reports
+    live inside it, and swapped in with a single directory rename, retaining the
+    previous graph and its reports as a self-consistent backup for rollback.
     """
     db_path = Path(db_path)
     snapshots = [load_checked(d) for d in _snapshot_dirs(snapshots_root)]
     if not snapshots:
         raise SchemaError(f"no snapshots in {Path(snapshots_root)}/")
 
-    result = gate(union_snapshots(snapshots[:-1]), snapshots[-1])
+    result = gate_sequence(snapshots)
 
-    # Build the graph and both sidecar reports at the temp location first, then
-    # promote them as a bundle so a rollback finds reports matching its graph.
+    # Build the graph and both reports inside one incoming directory, then promote
+    # the whole directory with a single rename. Because the reports live inside the
+    # graph directory, graph and reports promote (and roll back) as one atomic
+    # bundle: an interrupted promote can never pair a new graph with stale reports.
     incoming_db = db_path.with_name(db_path.name + ".incoming")
     _remove(incoming_db)
     counts = build_graph(result.snapshot, incoming_db)  # writes reconciliation_path(incoming_db)
@@ -216,9 +295,5 @@ def ingest(snapshots_root: Path, db_path: Path) -> tuple[GateReport, BuildCounts
 
     backup_db = db_path.with_name(db_path.name + ".backup")
     promote(incoming_db, db_path, backup_db)
-    promote(reconciliation_path(incoming_db), reconciliation_path(db_path),
-            reconciliation_path(backup_db))
-    promote(ingest_report_path(incoming_db), ingest_report_path(db_path),
-            ingest_report_path(backup_db))
 
     return result.report, counts
