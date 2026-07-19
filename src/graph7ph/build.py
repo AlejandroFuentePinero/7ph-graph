@@ -94,9 +94,12 @@ class BuildCounts:
 
 
 def reconciliation_path(db_path: Path) -> Path:
-    """Where the reconciliation report is written for a graph at ``db_path``."""
-    db_path = Path(db_path)
-    return db_path.with_name(db_path.name + ".reconciliation.json")
+    """Where the reconciliation report is written for a graph at ``db_path``.
+
+    Inside the graph directory (not a sibling) so it promotes and rolls back
+    atomically with the graph as one bundle (issue #38, F13).
+    """
+    return Path(db_path) / "reconciliation.json"
 
 
 def build_graph(
