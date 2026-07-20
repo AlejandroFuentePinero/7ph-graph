@@ -32,6 +32,17 @@ These come from our actual constraints, not from a generic feature comparison.
 
 - PyPI `ladybug` 0.18.2, released 2026-07-15. Wheels cp310 through cp314,
   `requires_python >=3.10,<3.15`. MIT, retaining the original Kùzu copyright.
+
+  Note (issue #48, found while implementing the swap): that wheel coverage is
+  Python coverage, and the macOS floor moved with it. Ladybug 0.18.2 publishes
+  only `macosx_15_0` wheels where `kuzu` 0.7.1 published `macosx_11_0`, so macOS
+  12, 13 and 14 lose a binary install and fall back to a C++ source build. That
+  is the same failure shape this ADR's "Migration urgency" section names as the
+  eventual cost of staying on Kùzu, arriving now on older macOS instead of later
+  on Python 3.14. It does not affect the Space (Linux, cp312 manylinux, glibc
+  2.27+) and did not affect the machine the migration was run on, so nothing in
+  the build or the test suite detects it. It binds only if a contributor runs an
+  older macOS; revisit the pin if that happens.
 - 392 commits and 17 distinct contributors in the trailing 90 days; repo pushed
   2026-07-19.
 - A 35-repo org with bindings for eight languages, a docs site, packaging,

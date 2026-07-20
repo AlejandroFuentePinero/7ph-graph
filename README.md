@@ -74,7 +74,7 @@ Space. Redeploy after a refresh by re-running the script.
 alone rather than installing this project: a Space mounts only that file and runs
 `pip` before the repo exists, so it cannot pip install the package. The deploy
 instead stages the package at the Space's root, where Python imports it without
-an install. The pins are exact and must move with `uv.lock`: a Kùzu release can
+an install. The pins are exact and must move with `uv.lock`: a Ladybug release can
 change the on-disk storage format, and the app must read an artifact built by the
 same version. `gradio` and `python_version` match what the Space card declares
 (see [deploy/README.md](deploy/README.md)).

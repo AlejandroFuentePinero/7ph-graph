@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 import gradio as gr
-import kuzu
+import ladybug
 
 from graph7ph.db import database_path
 from graph7ph.explore import RenderPlan, assess
@@ -129,12 +129,12 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 
 def build_app(artifact: Path) -> gr.Blocks:
-    # The Database is shared, but a Kùzu Connection is not thread-safe, so each
+    # The Database is shared, but a Ladybug Connection is not thread-safe, so each
     # request opens its own over Gradio's worker threads. Read-only lets several
     # readers (and a separate build process) share the file. The artifact is the
     # bundle directory; the database sits inside it (issue #47).
-    db = kuzu.Database(str(database_path(artifact)), read_only=True)
-    catalogue = kuzu.Connection(db)
+    db = ladybug.Database(str(database_path(artifact)), read_only=True)
+    catalogue = ladybug.Connection(db)
     pilots = _distinguish(pilot_catalogue(catalogue))
     cards = _distinguish(card_catalogue(catalogue))
     # Only the archetypes whose slice can actually answer the gem question; the
@@ -147,7 +147,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         if spec is None:
             return _PROMPT
         try:
-            subgraph = run_query(kuzu.Connection(db), spec)
+            subgraph = run_query(ladybug.Connection(db), spec)
         except SliceTooSmall as e:
             return _note(f"{e}, so no gem claim is made here.")
         if not subgraph.nodes:

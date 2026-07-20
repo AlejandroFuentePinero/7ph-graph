@@ -1,18 +1,19 @@
 import json
+from collections import Counter
 
-import kuzu
+import ladybug
 import pytest
 
-from graph7ph.build import build_graph, reconciliation_path
+from graph7ph.build import build_graph, graph_counts, reconciliation_path
 from graph7ph.curation import ArchetypeOverride, Curation
-from graph7ph.db import database_path
+from graph7ph.db import database_path, rows
 from graph7ph.models import load_snapshot
 
 
 def _connect(tmp_path, snapshot_dir):
     db_path = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), db_path)
-    return kuzu.Connection(kuzu.Database(str(database_path(db_path))))
+    return ladybug.Connection(ladybug.Database(str(database_path(db_path))))
 
 
 def _scalar(conn, query, params=None):
@@ -104,7 +105,7 @@ def test_event_spanning_several_days_resolves_to_one_year(tmp_path):
     ])
 
     counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph")
-    conn = kuzu.Connection(kuzu.Database(str(database_path(tmp_path / "graph"))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(tmp_path / "graph"))))
 
     assert counts.years == 1
     assert counts.in_year == 1
@@ -130,6 +131,51 @@ def test_the_build_writes_the_database_and_its_report_into_one_bundle(
     assert sorted(p.name for p in tmp_path.iterdir()) == ["graph"]
 
 
+def test_the_schema_declares_nine_node_tables_and_nine_relationship_tables(
+    snapshot_dir, tmp_path
+):
+    # The schema DDL carries two names shaped by Kùzu's reserved words, the
+    # backticked `Macro` label and `isPrimary` (issue #48). Both parse verbatim on
+    # Ladybug and are deliberately left alone, so this holds the whole DDL to the
+    # shape it declares rather than trusting that a build which did not raise
+    # created every table it asked for.
+    conn = _connect(tmp_path, snapshot_dir)
+
+    kinds = Counter(row[0] for row in rows(conn.execute("CALL show_tables() RETURN type")))
+
+    assert kinds == {"NODE": 9, "REL": 9}
+
+
+def test_the_build_leaves_a_settled_database_with_no_write_ahead_log(
+    snapshot_dir, tmp_path
+):
+    # Ladybug keeps a `.wal` beside the database while it is open and folds it in
+    # on a clean close, so the build has to close the Database itself rather than
+    # leave it to interpreter exit (issue #48). Otherwise promotion can rename a
+    # bundle whose database is still carrying unsettled writes, and what the app
+    # later opens is not what the build read its counts out of.
+    #
+    # What this can and cannot catch: it passes with or without that explicit
+    # close, because nothing outlives `build_graph` holding the Database and
+    # refcounting checkpoints it on the way out. It guards the invariant, not the
+    # line that delivers it, so it fails on a refactor that parks the Database in
+    # a longer-lived scope (a module global, a returned handle, a cache) and stays
+    # green if the close alone is deleted.
+    artifact = tmp_path / "graph"
+
+    counts = build_graph(load_snapshot(snapshot_dir), artifact)
+
+    # Named through `database_path`, so the database stays named in one place
+    # (ADR 0008) and a later engine swap moves this test with it.
+    assert sorted(p.name for p in artifact.iterdir()) == sorted(
+        [database_path(artifact).name, "reconciliation.json"]
+    )
+    # A fresh open sees the same graph the build reported, with nothing left to
+    # replay: the counts are readable off the settled file alone.
+    reopened = ladybug.Connection(ladybug.Database(str(database_path(artifact))))
+    assert graph_counts(reopened) == counts
+
+
 def test_events_in_different_years_get_distinct_year_nodes(tmp_path):
     _write_snapshot(tmp_path, [
         _deck("d1", "E2024", "2024-03-01T00:00:00+00:00"),
@@ -137,7 +183,7 @@ def test_events_in_different_years_get_distinct_year_nodes(tmp_path):
     ])
 
     counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph")
-    conn = kuzu.Connection(kuzu.Database(str(database_path(tmp_path / "graph"))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(tmp_path / "graph"))))
 
     assert counts.years == 2
     assert counts.in_year == 2
@@ -275,7 +321,7 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
 
     db_path = tmp_path / "graph"
     build_graph(load_snapshot(tmp_path), db_path)
-    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
 
     edges = {
         name: (weight, is_primary)
@@ -319,7 +365,7 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
 
     db_path = tmp_path / "graph"
     build_graph(load_snapshot(tmp_path), db_path, curation)
-    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
 
     # The deck now carries the corrected name and a single Izzet Prowess
     # archetype at full weight; the mistitled Blue Moon tag is gone entirely.
@@ -344,7 +390,7 @@ def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
     db_path = tmp_path / "graph"
     build_graph(snap, db_path)
 
-    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
     res = conn.execute(
         "MATCH (d:Deck {deckId: $id})-[:PILOTED_BY]->(p:Pilot) RETURN p.pilot",
         {"id": "BsegXnsDsEWxh-vNbUrn0w"},

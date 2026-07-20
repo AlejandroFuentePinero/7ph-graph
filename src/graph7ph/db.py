@@ -1,15 +1,15 @@
-"""Small helpers over the Kùzu Python API."""
+"""Small helpers over the Ladybug Python API."""
 
 import os
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-import kuzu
+import ladybug
 
 DB_ENV_VAR = "GRAPH7PH_DB"
 DEFAULT_ARTIFACT_PATH = Path("data/graph")
-DB_FILENAME = "graph.kuzu"
+DB_FILENAME = "graph.ladybug"
 
 
 def artifact_path() -> Path:
@@ -46,7 +46,7 @@ def remove_artifact(path: Path) -> None:
         path.unlink()
 
 
-def rows(result: kuzu.QueryResult) -> Iterator[list]:
-    """Yield each row of a Kùzu query result as a list of column values."""
+def rows(result: ladybug.QueryResult) -> Iterator[list]:
+    """Yield each row of a Ladybug query result as a list of column values."""
     while result.has_next():
         yield result.get_next()

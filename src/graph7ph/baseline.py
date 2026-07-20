@@ -22,7 +22,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import kuzu
+import ladybug
 
 from graph7ph.build import graph_counts
 from graph7ph.query import (
@@ -134,7 +134,7 @@ def subgraph_blob(subgraph: Subgraph) -> dict:
     }
 
 
-def capture(conn: kuzu.Connection, cases: list[Case] = CASES) -> dict:
+def capture(conn: ladybug.Connection, cases: list[Case] = CASES) -> dict:
     """What the graph behind ``conn`` answers today, as JSON.
 
     The counts and the two dropdown catalogues ride along with the subgraphs: a
@@ -157,7 +157,7 @@ def capture(conn: kuzu.Connection, cases: list[Case] = CASES) -> dict:
     }
 
 
-def check(conn: kuzu.Connection, path: Path, cases: list[Case] = CASES) -> list[str]:
+def check(conn: ladybug.Connection, path: Path, cases: list[Case] = CASES) -> list[str]:
     """Grade the graph behind ``conn`` against the baseline at ``path``.
 
     An empty list means no regression: the graph reproduces every answer the

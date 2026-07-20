@@ -40,7 +40,7 @@ def test_the_space_refuses_to_serve_a_missing_artifact(tmp_path):
 def test_the_space_refuses_an_artifact_directory_with_no_database(tmp_path):
     # The artifact is a directory now (issue #47), so an existing directory no
     # longer proves there is a graph in it. The Space must say so up front rather
-    # than dying deeper in with a Kùzu error once a visitor hits it.
+    # than dying deeper in with an engine error once a visitor hits it.
     empty = tmp_path / "graph"
     empty.mkdir()
 

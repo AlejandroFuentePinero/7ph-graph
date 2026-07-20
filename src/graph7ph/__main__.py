@@ -8,7 +8,7 @@ import argparse
 import json
 from pathlib import Path
 
-import kuzu
+import ladybug
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import YearStraddle, reconciliation_path
@@ -77,7 +77,7 @@ def _baseline(args: argparse.Namespace) -> None:
     if not database_path(args.db).exists():
         raise SystemExit(f"No graph at {args.db}: run `uv run graph7ph build` first.")
     # Read-only, so the gate can grade an artifact the app is already serving.
-    conn = kuzu.Connection(kuzu.Database(str(database_path(args.db)), read_only=True))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(args.db)), read_only=True))
     if args.capture:
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps(capture(conn), indent=2) + "\n")
@@ -112,7 +112,7 @@ def main() -> None:
     p_fetch.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
     p_fetch.set_defaults(func=_fetch)
 
-    p_build = sub.add_parser("build", help="Build the Kùzu graph from a snapshot")
+    p_build = sub.add_parser("build", help="Build the graph from a snapshot")
     p_build.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
     p_build.add_argument("--db", type=Path, default=DB_PATH)
     p_build.set_defaults(func=_build)

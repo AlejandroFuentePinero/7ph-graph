@@ -7,7 +7,7 @@ domain models rather than going through Kùzu.
 
 import json
 
-import kuzu
+import ladybug
 import pytest
 
 from graph7ph.ingest import (
@@ -275,7 +275,7 @@ def _snapshot_files(deck_ids, pilot=None):
 
 
 def _deck_ids(db):
-    conn = kuzu.Connection(kuzu.Database(str(database_path(db))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(db))))
     res = conn.execute("MATCH (d:Deck) RETURN d.deckId")
     ids = set()
     while res.has_next():
@@ -384,7 +384,7 @@ def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_pa
 
     assert report.status == "flag"
     assert Flag("changed", "deck", "d1") in report.flags
-    conn = kuzu.Connection(kuzu.Database(str(database_path(db))))
+    conn = ladybug.Connection(ladybug.Database(str(database_path(db))))
     res = conn.execute("MATCH (p:Pilot) RETURN p.pilot")
     pilots = set()
     while res.has_next():

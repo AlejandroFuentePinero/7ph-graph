@@ -1,4 +1,4 @@
-"""Load a parsed Snapshot into a Kùzu graph.
+"""Load a parsed Snapshot into a Ladybug graph.
 
 The graph is the fact spine of ADR 0002. Entity nodes (Pilot, Deck, Card) and
 dimension nodes (Event, Archetype, Macro, Colour, CardType, Year) are joined by
@@ -13,7 +13,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import kuzu
+import ladybug
 from pydantic import BaseModel
 
 from graph7ph.curation import Curation, load_curation
@@ -34,8 +34,10 @@ _SCHEMA = [
         reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
     "CREATE NODE TABLE Event(event STRING, eventId STRING, eventType STRING, PRIMARY KEY(event))",
     "CREATE NODE TABLE Archetype(tag STRING, name STRING, PRIMARY KEY(tag))",
-    # `Macro` is a Kùzu reserved keyword, so the label is backtick-escaped
+    # `Macro` was a Kùzu reserved keyword, so the label is backtick-escaped
     # everywhere and its value lives on `name` (not a reserved `macro` column).
+    # Ladybug parses the escaped form verbatim, so the name stays as it is: a
+    # rename would be churn against the migration's no-regression promise (#48).
     "CREATE NODE TABLE `Macro`(name STRING, PRIMARY KEY(name))",
     "CREATE NODE TABLE Colour(colour STRING, PRIMARY KEY(colour))",
     "CREATE NODE TABLE CardType(type STRING, PRIMARY KEY(type))",
@@ -43,7 +45,8 @@ _SCHEMA = [
     "CREATE REL TABLE PILOTED_BY(FROM Deck TO Pilot)",
     "CREATE REL TABLE CONTAINS(FROM Deck TO Card, board STRING)",
     "CREATE REL TABLE PLAYED_AT(FROM Deck TO Event)",
-    # `primary` is a Kùzu reserved keyword, so the primary-archetype flag is `isPrimary`.
+    # `primary` was a Kùzu reserved keyword, so the primary-archetype flag is
+    # `isPrimary`. Kept under Ladybug for the same reason as `Macro` above.
     "CREATE REL TABLE HAS_ARCHETYPE(FROM Deck TO Archetype, weight INT64, isPrimary BOOLEAN)",
     "CREATE REL TABLE HAS_MACRO(FROM Deck TO `Macro`)",
     "CREATE REL TABLE DECK_COLOUR(FROM Deck TO Colour)",
@@ -129,19 +132,30 @@ def build_graph(
     artifact.mkdir(parents=True, exist_ok=True)
     db_path = database_path(artifact)
 
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
-    for ddl in _SCHEMA:
-        conn.execute(ddl)
+    # Ladybug keeps a write-ahead log beside the database while it is open and
+    # folds it in on close, so the build closes the database itself rather than
+    # leaving that to interpreter exit. What gets promoted is then a settled file,
+    # holding exactly the graph these counts were read out of. Closed on the way
+    # out of a failed load too, so an abandoned bundle is left settled rather than
+    # mid-write for whatever inspects it before the next build clears it.
+    db = ladybug.Database(str(db_path))
+    try:
+        conn = ladybug.Connection(db)
+        for ddl in _SCHEMA:
+            conn.execute(ddl)
 
-    _load_nodes(conn, snapshot, pilots, years)
-    _load_edges(conn, snapshot, pilots, years)
+        _load_nodes(conn, snapshot, pilots, years)
+        _load_edges(conn, snapshot, pilots, years)
 
-    reconciliation_path(artifact).write_text(json.dumps(asdict(pilots.report), indent=2))
+        reconciliation_path(artifact).write_text(
+            json.dumps(asdict(pilots.report), indent=2)
+        )
+        return graph_counts(conn)
+    finally:
+        db.close()
 
-    return graph_counts(conn)
 
-
-def graph_counts(conn: kuzu.Connection) -> BuildCounts:
+def graph_counts(conn: ladybug.Connection) -> BuildCounts:
     """The 18 table counts read back out of a built graph.
 
     Read from the graph rather than from the snapshot, so a caller can assert the
@@ -253,7 +267,7 @@ def _event_years(decks: list[Deck]) -> dict[str, int]:
 
 
 def _load_nodes(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     snapshot: Snapshot,
     pilots: PilotResolution,
     years: dict[str, int],
@@ -305,7 +319,7 @@ def _load_nodes(
 
 
 def _load_edges(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     snapshot: Snapshot,
     pilots: PilotResolution,
     years: dict[str, int],
@@ -363,7 +377,7 @@ def _load_edges(
 
 
 def _create_nodes(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     label: str,
     model: type[BaseModel],
     fields: tuple[str, ...],
@@ -376,11 +390,11 @@ def _create_nodes(
           [o.model_dump(by_alias=True, include=set(fields)) for o in objects])
 
 
-def _load(conn: kuzu.Connection, query: str, batch: list[dict]) -> None:
+def _load(conn: ladybug.Connection, query: str, batch: list[dict]) -> None:
     for start in range(0, len(batch), _BATCH):
         conn.execute(query, {"rows": batch[start:start + _BATCH]})
 
 
-def _count(conn: kuzu.Connection, query: str) -> int:
+def _count(conn: ladybug.Connection, query: str) -> int:
     return next(rows(conn.execute(query)))[0]
 

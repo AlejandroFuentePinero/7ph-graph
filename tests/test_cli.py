@@ -47,7 +47,7 @@ def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
 
 def test_grading_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
     # Running the gate before the graph exists is the likeliest first mistake, and
-    # the CLI says what to do rather than spilling a Kùzu traceback.
+    # the CLI says what to do rather than spilling an engine traceback.
     with pytest.raises(SystemExit) as exc:
         _baseline(argparse.Namespace(
             db=tmp_path / "graph",
@@ -61,7 +61,7 @@ def test_grading_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
 def test_grading_an_artifact_directory_with_no_database_aborts_cleanly(tmp_path):
     # The artifact is a directory now (issue #47), so it can exist while holding no
     # database: a half-cleared or hand-made directory. That must read as "no graph
-    # here, build one", the same as no directory at all, not as a Kùzu traceback.
+    # here, build one", the same as no directory at all, not as an engine traceback.
     empty = tmp_path / "graph"
     empty.mkdir()
 

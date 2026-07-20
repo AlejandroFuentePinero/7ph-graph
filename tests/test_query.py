@@ -1,7 +1,7 @@
 import json
 from collections import Counter, defaultdict
 
-import kuzu
+import ladybug
 import pytest
 
 from graph7ph.build import build_graph
@@ -31,7 +31,7 @@ JORDAN_DECKS = {"BsegXnsDsEWxh-vNbUrn0w", "pkUbzmgN3UeqaWdYQYRgRg"}  # Jordan C,
 def _connect(tmp_path, snapshot_dir):
     db_path = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), db_path)
-    return kuzu.Connection(kuzu.Database(str(database_path(db_path))))
+    return ladybug.Connection(ladybug.Database(str(database_path(db_path))))
 
 
 def _decks_by_card(snapshot_dir):
@@ -63,10 +63,30 @@ def _same_board_cooccurrence(snapshot_dir, seed):
     return counts
 
 
+def _archetype_fields(tag):
+    """The four source fields carrying a deck's archetype.
+
+    A ``tag`` of ``None`` writes a deck the classifier gave no engine tag, which
+    is what an unclassified deck looks like upstream: it still has a macro, so it
+    reaches the affinity query's archetype hop with nothing to bind there.
+    """
+    if tag is None:
+        return {
+            "engineTags": [], "engineTagLabels": {},
+            "primaryTag": "", "primaryTagWeights": {},
+        }
+    return {
+        "engineTags": [f"engine:{tag}"],
+        "engineTagLabels": {f"engine:{tag}": tag.title()},
+        "primaryTag": f"engine:{tag}", "primaryTagWeights": {f"engine:{tag}": 100},
+    }
+
+
 def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
     """Write a minimal hand-authored snapshot for a focused test.
 
-    ``decks`` is a list of dicts: ``id``, ``tag`` (archetype), ``norm``
+    ``decks`` is a list of dicts: ``id``, ``tag`` (archetype, ``None`` for a deck
+    the classifier left unclassified), ``norm``
     (placementNorm), and ``m`` / ``s`` (main / side canon lists). Optional
     ``macro`` and ``event`` keys override the defaults (``control`` / ``E``).
     ``canons`` is the card catalogue by name; ``lands`` names those typed as
@@ -84,9 +104,7 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
             "placementNorm": d["norm"], "createdAt": "2025-06-01T00:00:00+00:00",
             "colour": "colour:U",
             "macro": f"macro:{d.get('macro', 'control')}",
-            "engineTags": [f"engine:{d['tag']}"],
-            "engineTagLabels": {f"engine:{d['tag']}": d["tag"].title()},
-            "primaryTag": f"engine:{d['tag']}", "primaryTagWeights": {f"engine:{d['tag']}": 100},
+            **_archetype_fields(d["tag"]),
         }
         for d in decks
     ]))
@@ -942,6 +960,46 @@ def test_pilot_affinity_carries_its_event_counts_as_numbers(tmp_path):
         "Rakdos": 2,
         "Boros": 1,
     }
+
+
+def test_pilot_affinity_keeps_a_pilot_whose_decks_carry_no_archetype(tmp_path):
+    # The query chains OPTIONAL MATCHes, so a deck with a macro but no archetype
+    # comes back as a bound pilot and macro with a null archetype column. That
+    # null row must read as "this pilot plays control, unclassified" rather than
+    # as no play at all: the macro tier is still an answer even where the
+    # archetype tier is empty.
+    _write_snapshot(
+        tmp_path,
+        [{"id": "d1", "tag": None, "norm": 0.0, "macro": "control", "event": "E1", "m": ["a"]}],
+        ["a"],
+    )
+    conn = _connect(tmp_path, tmp_path)
+
+    sub = pilot_affinity_subgraph(conn, "p")
+
+    assert [(n.id, n.kind, n.weight) for n in sub.nodes] == [
+        ("pilot:p", "Pilot", None),
+        ("macro:control", "Macro", 1),
+    ]
+    assert [(e.source, e.target, e.events) for e in sub.edges] == [
+        ("pilot:p", "macro:control", 1),
+    ]
+
+
+def test_pilot_affinity_of_a_pilot_with_no_decks_is_the_pilot_alone(tmp_path, snapshot_dir):
+    # The far end of the same chain: every OPTIONAL MATCH binds null, so only the
+    # opening MATCH has anything. The pilot is known and answers with an empty
+    # affinity, which is a different claim from the unknown pilot below (who
+    # yields nothing at all) and must not collapse into it.
+    conn = _connect(tmp_path, snapshot_dir)
+    conn.execute(
+        "CREATE (:Pilot {pilot: 'ghost', displayName: 'Ghost', lowConfidence: false})"
+    )
+
+    sub = pilot_affinity_subgraph(conn, "ghost")
+
+    assert [(n.id, n.label, n.kind) for n in sub.nodes] == [("pilot:ghost", "Ghost", "Pilot")]
+    assert sub.edges == []
 
 
 def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir):

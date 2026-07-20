@@ -59,11 +59,11 @@ cp "$ROOT/app.py" "$ROOT/requirements.txt" "$STAGE/"
 # working directory is on the import path.
 cp -R "$ROOT/src/graph7ph" "$STAGE/graph7ph"
 mkdir -p "$STAGE/data"
-# The whole bundle verbatim, dotfiles included: Kùzu opens a read-only database
-# only if its .lock is present, and only if .shadow and .wal are both present or
-# both absent. The empty-WAL check above is what keeps the copy a checkpointed,
-# self-contained one. Staged under the default artifact name, which is what the
-# Space resolves: it sets no GRAPH7PH_DB of its own.
+# The whole bundle verbatim, dotfiles included: what the engine keeps beside its
+# database is the engine's business, so the copy takes everything rather than the
+# names it expects. The empty-WAL check above is what keeps that copy a
+# checkpointed, self-contained one. Staged under the default artifact name, which
+# is what the Space resolves: it sets no GRAPH7PH_DB of its own.
 cp -R "$DB" "$STAGE/data/graph"
 find "$STAGE/graph7ph" -name __pycache__ -type d -exec rm -rf {} +
 

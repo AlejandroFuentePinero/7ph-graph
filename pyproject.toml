@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A knowledge graph of the Australian 7 Point Highlander MTG metagame"
 requires-python = ">=3.11"
 dependencies = [
-    "kuzu>=0.7,<0.8",
+    "ladybug>=0.18,<0.19",
     "gradio>=5,<6",
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",
