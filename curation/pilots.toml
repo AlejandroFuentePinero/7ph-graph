@@ -10,13 +10,20 @@
 # proposal in the reconciliation report until a human confirms them (the second
 # sweep). See docs/adr/0004-pilot-identity.md.
 #
-# Four kinds of decision:
+# Six kinds of decision:
 #
 #   [[merge]]        collapse several ids onto one person (transitive)
 #     ids = ["A", "B", "C"]   # every upstream id that is this person
 #     canonical = "A"         # the id the merged Pilot node keeps (one of `ids`)
 #
 #   [[reject]]       these ids are NOT the same person; stop re-proposing them
+#     ids = ["A", "B"]
+#
+#   [[split]]        these ids share a display name but are different people;
+#                    keep the identical-name join from fusing them (inverse of
+#                    merge). Split every id in a same-name group you separate:
+#                    splitting only some leaves the rest transitively re-fusing
+#                    them, which aborts the build.
 #     ids = ["A", "B"]
 #
 #   [[name]]         pin a display name over the majority vote

@@ -53,6 +53,21 @@ def test_reject_with_three_ids_suppresses_every_pair(tmp_path):
     assert curation.is_rejected("B", "C")
 
 
+def test_split_with_three_ids_keeps_every_pair_apart(tmp_path):
+    # A 3-id split means the three are mutually distinct people who share a
+    # display name, so every pair among them must be kept apart at the join --
+    # not just one, and not none (the reject-shape F10 bug applied to splits).
+    path = _write(tmp_path, """
+        [[split]]
+        ids = ["A", "B", "C"]
+    """)
+    curation = load_curation(path)
+    assert curation.is_split("A", "B")
+    assert curation.is_split("A", "C")
+    assert curation.is_split("B", "C")
+    assert not curation.is_split("A", "D")
+
+
 def _mixed_curation() -> Curation:
     """A dictionary with one live and one dead entry of every type."""
     return Curation(
@@ -64,6 +79,10 @@ def _mixed_curation() -> Curation:
         names={"deadName": "X", "liveName": "Y"},
         deck_pilots={"deadDeck": "p1", "liveDeck": "p2"},
         deck_archetypes={"deadDeck2": ArchetypeOverride("N", "engine:e", "L")},
+        splits=frozenset({
+            frozenset({"deadS", "liveB"}),   # deadS absent -> pair can't fire
+            frozenset({"liveB", "liveC"}),   # both present -> live
+        }),
     )
 
 
@@ -75,6 +94,7 @@ def test_dead_entries_flags_every_absent_keyed_entry():
     flagged = {(d.kind, d.key) for d in dead}
     assert ("merge", "deadMember") in flagged
     assert ("reject", "deadA") in flagged
+    assert ("split", "deadS") in flagged
     assert ("name", "deadName") in flagged
     assert ("deck_pilot", "deadDeck") in flagged
     assert ("deck_archetype", "deadDeck2") in flagged
@@ -85,8 +105,8 @@ def test_dead_entries_flags_every_absent_keyed_entry():
 
 def test_dead_entries_empty_when_all_ids_present():
     cur = _mixed_curation()
-    pilot_ids = {"canon", "deadMember", "liveMember", "deadA", "liveB", "liveC",
-                 "deadName", "liveName"}
+    pilot_ids = {"canon", "deadMember", "liveMember", "deadA", "deadS", "liveB",
+                 "liveC", "deadName", "liveName"}
     deck_ids = {"deadDeck", "liveDeck", "deadDeck2"}
     assert dead_entries(cur, pilot_ids, deck_ids) == []
 

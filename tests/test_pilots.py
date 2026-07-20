@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from graph7ph.curation import Curation
+from graph7ph.curation import Curation, CurationError
 from graph7ph.pilots import (
+    SplitName,
     display_name_from_title,
     name_relation,
     resolve_pilots,
@@ -462,6 +463,94 @@ def test_curated_merge_collapses_ids_carrying_every_deck():
     # The merged pair no longer appears as a candidate to decide again.
     assert res.report.under_merges == []
     assert res.report.curated == 1  # the confirmed merge counts as a decision made
+
+
+def test_split_keeps_two_same_name_ids_apart(tmp_path):
+    # Two different people both recover "James L" at different events: the
+    # identical-name join (ADR 0007) would fuse them into one node. A [[split]]
+    # naming the two ids overrides the join, keeping them two people. Logged.
+    decks = [
+        _deck("gr1", "GrixisJamesId", "01st James L - Grixis - E1", event="E1"),
+        _deck("wa1", "WalksJamesId", "02nd James L - Walks - E2", event="E2"),
+    ]
+    splits = frozenset({frozenset({"GrixisJamesId", "WalksJamesId"})})
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={}, splits=splits,
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert {p.pilot for p in res.pilots} == {"GrixisJamesId", "WalksJamesId"}
+    assert res.deck_pilot["gr1"] != res.deck_pilot["wa1"]
+    # Both kept their own real id, so neither is a low-confidence synthetic node.
+    assert not any(p.low_confidence for p in res.pilots)
+    assert res.report.joined_names == []  # nothing fused
+    split = next(s for s in res.report.name_splits if s.display_name == "James L")
+    assert sorted(split.people) == ["GrixisJamesId", "WalksJamesId"]
+    # Without the split, the same two ids fuse into one node.
+    fused = resolve_pilots(decks)
+    assert len({p.pilot for p in fused.pilots}) == 1
+
+
+def test_split_leaves_a_same_name_null_orphan_as_its_own_node():
+    # Splitting two real "James L" ids while a null-bucket orphan recovers the
+    # same name must not abort: the orphan's synthetic key cannot be named in a
+    # split (ADR 0009), and it cannot be attributed to either real James L, so it
+    # stays its own low-confidence node rather than transitively re-fusing them.
+    decks = [
+        _deck("gr1", "GrixisJamesId", "01st James L - Grixis - E1", event="E1"),
+        _deck("wa1", "WalksJamesId", "02nd James L - Walks - E2", event="E2"),
+        _deck("or1", "nan", "03rd James L - Storm - E3", event="E3"),  # id lost
+    ]
+    splits = frozenset({frozenset({"GrixisJamesId", "WalksJamesId"})})
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={}, splits=splits,
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert {"GrixisJamesId", "WalksJamesId"} <= {p.pilot for p in res.pilots}
+    # The orphan attached to neither real James L and stayed low confidence.
+    assert res.deck_pilot["or1"] not in ("GrixisJamesId", "WalksJamesId")
+    orphan = _pilot(res, res.deck_pilot["or1"])
+    assert orphan.low_confidence
+
+
+def test_under_specified_split_in_a_trio_raises():
+    # Three ids all recover "James L". Splitting only A from B leaves C unsplit,
+    # so C rejoins both and transitively re-fuses A with B. That is an
+    # under-specified split: raise it loudly rather than silently re-fusing.
+    decks = [
+        _deck("A", "A", "01st James L - Grixis - E1", event="E1"),
+        _deck("B", "B", "02nd James L - Walks - E2", event="E2"),
+        _deck("C", "C", "03rd James L - Storm - E3", event="E3"),
+    ]
+    splits = frozenset({frozenset({"A", "B"})})
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={}, splits=splits,
+    )
+
+    with pytest.raises(CurationError):
+        resolve_pilots(decks, curation)
+
+
+def test_split_a_trio_three_ways():
+    # Splitting all three pairs keeps every "James L" apart as its own person.
+    decks = [
+        _deck("A", "A", "01st James L - Grixis - E1", event="E1"),
+        _deck("B", "B", "02nd James L - Walks - E2", event="E2"),
+        _deck("C", "C", "03rd James L - Storm - E3", event="E3"),
+    ]
+    splits = frozenset({
+        frozenset({"A", "B"}), frozenset({"A", "C"}), frozenset({"B", "C"}),
+    })
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={}, splits=splits,
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert {p.pilot for p in res.pilots} == {"A", "B", "C"}
 
 
 def test_pinned_display_name_beats_the_majority_vote():
