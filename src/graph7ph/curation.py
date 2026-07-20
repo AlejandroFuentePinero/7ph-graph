@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-# The five kinds of recorded decision, one per TOML entry type (repo idiom:
+# The six kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
-DeadKind = Literal["merge", "reject", "name", "deck_pilot", "deck_archetype"]
+DeadKind = Literal["merge", "reject", "split", "name", "deck_pilot", "deck_archetype"]
 
 # The dictionary is checked in, and lives apart from `snapshots/` (immutable
 # source) and `data/` (derived artifacts): it is neither, it is human judgement.
@@ -73,7 +73,9 @@ class Curation:
     ``names`` pins a display name against the majority vote. ``deck_pilots``
     reassigns one deck to an upstream pilot id, which is how a null-pilot deck
     reaches its real owner. ``deck_archetypes`` reclassifies one deck whose
-    source title mislabelled its archetype.
+    source title mislabelled its archetype. ``splits`` holds id pairs that share
+    a display name but are different people, which keeps the identical-name join
+    (ADR 0007) from folding them into one node -- the inverse of a ``merge``.
     """
 
     merges: dict[str, str]
@@ -81,10 +83,11 @@ class Curation:
     names: dict[str, str]
     deck_pilots: dict[str, str]
     deck_archetypes: dict[str, ArchetypeOverride] = field(default_factory=dict)
+    splits: frozenset[frozenset[str]] = field(default_factory=frozenset)
 
     @classmethod
     def empty(cls) -> "Curation":
-        return cls({}, frozenset(), {}, {}, {})
+        return cls({}, frozenset(), {}, {}, {}, frozenset())
 
     def canonical(self, pilot_id: str) -> str:
         """The id ``pilot_id`` was merged into, or itself."""
@@ -93,6 +96,10 @@ class Curation:
     def is_rejected(self, a: str, b: str) -> bool:
         """Whether these two ids were judged to be different people."""
         return frozenset({a, b}) in self.rejected
+
+    def is_split(self, a: str, b: str) -> bool:
+        """Whether these two same-named ids were declared different people."""
+        return frozenset({a, b}) in self.splits
 
 
 def load_curation(path: Path = CURATION_PATH) -> Curation:
@@ -122,10 +129,11 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
             )
     return Curation(
         merges=merges,
-        rejected=_reject_pairs(raw.get("reject", []), path),
+        rejected=_pairs(raw.get("reject", []), path, "reject"),
         names=names,
         deck_pilots=_deck_pilots(raw.get("deck_pilot", []), path),
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
+        splits=_pairs(raw.get("split", []), path, "split"),
     )
 
 
@@ -155,6 +163,13 @@ def dead_entries(
                 reject_partners.setdefault(pid, set()).update(pair - {pid})
     for pid, partners in reject_partners.items():
         dead.append(DeadEntry("reject", pid, f"rejected against {sorted(partners)}"))
+    split_partners: dict[str, set[str]] = {}
+    for pair in curation.splits:
+        for pid in pair:
+            if pid not in pilot_ids:
+                split_partners.setdefault(pid, set()).update(pair - {pid})
+    for pid, partners in split_partners.items():
+        dead.append(DeadEntry("split", pid, f"split from {sorted(partners)}"))
     for pilot, display in curation.names.items():
         if pilot not in pilot_ids:
             dead.append(DeadEntry("name", pilot, f"pins {display!r}"))
@@ -219,17 +234,18 @@ def _merges(entries: list[dict], path: Path) -> dict[str, str]:
     }
 
 
-def _reject_pairs(entries: list[dict], path: Path) -> frozenset[frozenset[str]]:
-    """Every pairwise "not the same person" judgement, as size-2 frozensets.
+def _pairs(entries: list[dict], path: Path, kind: str) -> frozenset[frozenset[str]]:
+    """Every pairwise judgement of an all-pairs decision, as size-2 frozensets.
 
-    ``is_rejected`` tests a pair, so a reject of three or more ids is expanded
-    into all of its pairs: the ids are mutually distinct people, so every pair
-    among them is suppressed. A two-id reject is just its single pair. (Storing
-    the raw set instead would leave a 3-id reject matching no pair at all.)
+    Both ``reject`` (not the same person) and ``split`` (same name, different
+    people) name a set of mutually distinct ids and are tested a pair at a time,
+    so an entry of three or more ids is expanded into all of its pairs. A two-id
+    entry is just its single pair. (Storing the raw set instead would leave a
+    3-id entry matching no pair at all.)
     """
     pairs: set[frozenset[str]] = set()
     for entry in entries:
-        ids = _ids(entry, path, "reject")
+        ids = _ids(entry, path, kind)
         for i, a in enumerate(ids):
             for b in ids[i + 1:]:
                 pairs.add(frozenset({a, b}))

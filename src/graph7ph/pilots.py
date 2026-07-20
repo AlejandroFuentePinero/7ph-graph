@@ -13,7 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
-from graph7ph.curation import Curation, DeadEntry, dead_entries
+from graph7ph.curation import Curation, CurationError, DeadEntry, dead_entries
 from graph7ph.models import PLACEMENT_TOKEN
 
 # A deck title reads "<placement> <name> - <deck> - <event>". The name is what
@@ -170,6 +170,20 @@ class JoinedName:
 
 
 @dataclass(frozen=True)
+class SplitName:
+    """One display name a curated split kept apart into several people (#35).
+
+    The identical-name join (ADR 0007) folds every id sharing a display name into
+    one person; a ``[[split]]`` entry declares that two of those ids are strangers
+    who share a name (one Grixis "James L", one Walks "James L"). This records the
+    override: the ``people`` are the canonical ids the name group was split into,
+    so the separation is never silent."""
+
+    display_name: str
+    people: list[str]
+
+
+@dataclass(frozen=True)
 class EventSplit:
     """One pilot id that entered an event more than once, split into people.
 
@@ -206,6 +220,7 @@ class Reconciliation:
     curated: int  # decided pairs off the review list: rejections plus applied merges
     dead_entries: list[DeadEntry] = field(default_factory=list)  # entries matching no id (issue #37)
     multi_name_ids: list[MultiNameId] = field(default_factory=list)  # ids spanning >1 surname (issue #39)
+    name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split (issue #35)
 
 
 @dataclass(frozen=True)
@@ -289,7 +304,9 @@ def resolve_pilots(
     # one person, so fold them onto a single id before anything downstream runs
     # (ADR 0007). A same-name collision inside one event survives this and is
     # separated again by the event split below.
-    pilots, joined_names = _join_identical_names(real_pilots + null_pilots, deck_pilot)
+    pilots, joined_names, name_splits = _join_identical_names(
+        real_pilots + null_pilots, deck_pilot, curation
+    )
     real_joined = [p for p in pilots if not p.pilot.startswith("nan:")]
 
     # A resolved pilot with several decks at one event is several people sharing
@@ -319,7 +336,7 @@ def resolve_pilots(
     dead = dead_entries(curation, live_ids, {d.deck_id for d in decks})
     report = Reconciliation(
         variant_clusters, candidates, null_pilots, event_splits, dropped,
-        joined_names, rejected + merged, dead, multi_name_ids,
+        joined_names, rejected + merged, dead, multi_name_ids, name_splits,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
@@ -403,8 +420,8 @@ def _pick_survivor(members, pilot: str) -> tuple[object, list[DroppedDuplicate]]
 
 
 def _join_identical_names(
-    pilots: list[ResolvedPilot], deck_pilot: dict[str, str]
-) -> tuple[list[ResolvedPilot], list[JoinedName]]:
+    pilots: list[ResolvedPilot], deck_pilot: dict[str, str], curation: Curation
+) -> tuple[list[ResolvedPilot], list[JoinedName], list[SplitName]]:
     """Fold pilots that recovered the same display name onto one id (ADR 0007).
 
     Display name is the primary player identity, so ids resolving to the same
@@ -412,8 +429,12 @@ def _join_identical_names(
     spellings that clean up alike, or a real id and the null-bucket orphan of a
     registration whose upstream id was lost. Their decks are repointed onto one
     canonical id -- a real id when the group has one (the busiest, id to break
-    ties), never a synthetic ``nan:`` key -- and each join is logged. Mutates
-    ``deck_pilot`` in place and returns the reduced pilot list and the joins.
+    ties), never a synthetic ``nan:`` key -- and each join is logged.
+
+    A ``[[split]]`` overrides the join for a name group: two ids declared
+    strangers (issue #35) are kept apart, so the group folds into one node per
+    split-separated person instead of one node total. Mutates ``deck_pilot`` in
+    place and returns the reduced pilot list, the joins, and the splits.
     """
     decks_of: dict[str, list[str]] = {}
     for deck_id, key in deck_pilot.items():
@@ -429,25 +450,96 @@ def _join_identical_names(
         else:
             groups.setdefault(p.display_name.casefold(), []).append(p)
 
+    def fold(component: list[ResolvedPilot]) -> tuple[ResolvedPilot, JoinedName | None]:
+        # One person: repoint every member's decks onto a single canonical id (a
+        # real id over a synthetic nan:, busiest to break ties) and log the join.
+        canonical = max(
+            component,
+            key=lambda p: (not p.pilot.startswith("nan:"), len(decks_of.get(p.pilot, ())), p.pilot),
+        )
+        real = any(not p.pilot.startswith("nan:") for p in component)
+        node = ResolvedPilot(canonical.pilot, canonical.display_name, low_confidence=not real)
+        for p in component:
+            if p.pilot != canonical.pilot:
+                for deck_id in decks_of.get(p.pilot, ()):
+                    deck_pilot[deck_id] = canonical.pilot
+        join = None
+        if len(component) > 1:
+            join = JoinedName(canonical.display_name, canonical.pilot,
+                              sorted(p.pilot for p in component))
+        return node, join
+
     joins: list[JoinedName] = []
+    name_splits: list[SplitName] = []
     for group in groups.values():
         if len(group) == 1:
             kept.append(group[0])
             continue
-        canonical = max(
-            group,
-            key=lambda p: (not p.pilot.startswith("nan:"), len(decks_of.get(p.pilot, ())), p.pilot),
-        )
-        real = any(not p.pilot.startswith("nan:") for p in group)
-        kept.append(ResolvedPilot(canonical.pilot, canonical.display_name,
-                                  low_confidence=not real))
-        for p in group:
-            if p.pilot != canonical.pilot:
-                for deck_id in decks_of.get(p.pilot, ()):
-                    deck_pilot[deck_id] = canonical.pilot
-        joins.append(JoinedName(canonical.display_name, canonical.pilot,
-                                sorted(p.pilot for p in group)))
-    return kept, joins
+        components = _partition_by_split(group, curation)
+        nodes = [fold(comp) for comp in components]
+        for node, join in nodes:
+            kept.append(node)
+            if join:
+                joins.append(join)
+        if len(components) > 1:
+            name_splits.append(
+                SplitName(group[0].display_name, sorted(node.pilot for node, _ in nodes))
+            )
+    return kept, joins, name_splits
+
+
+def _partition_by_split(
+    group: list[ResolvedPilot], curation: Curation
+) -> list[list[ResolvedPilot]]:
+    """Partition one identical-name group by any curated splits (issue #35).
+
+    Absent a split the whole group is one person (ADR 0007). A ``[[split]]``
+    declares two of its ids strangers, so the group is partitioned: every pair is
+    unioned *unless* a split keeps it apart. A split pair that still lands in one
+    component (a third id transitively rejoins them) is an under-specified split,
+    raised rather than silently re-fused -- the trust hole this ticket closes.
+
+    Only real ids take part: a synthetic ``nan:`` key is unstable and cannot be
+    named in a split (ADR 0009), so once a split separates the real bearers of a
+    name, a null-bucket orphan of that name cannot be attributed to either. It
+    becomes its own low-confidence node rather than transitively re-fusing the
+    split (which would abort the build) or silently attaching to one side.
+    """
+    real_ids = [p.pilot for p in group if not p.pilot.startswith("nan:")]
+    parent = {i: i for i in real_ids}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    split_here = False
+    for i, a in enumerate(real_ids):
+        for b in real_ids[i + 1:]:
+            if curation.is_split(a, b):
+                split_here = True
+            else:
+                parent[find(a)] = find(b)
+    if not split_here:
+        return [group]  # untouched: the ADR-0007 single-person fold
+
+    for i, a in enumerate(real_ids):
+        for b in real_ids[i + 1:]:
+            if curation.is_split(a, b) and find(a) == find(b):
+                raise CurationError(
+                    f"[[split]] of {a!r} and {b!r} (both {group[0].display_name!r}) "
+                    "is under-specified: another real id transitively rejoins them; "
+                    "split that id from one side too"
+                )
+
+    by_root: dict[str, list[ResolvedPilot]] = {}
+    for p in group:
+        # A nan: orphan can join no one once the name is split, so it keys on
+        # itself and stands alone; real ids key on their union-find root.
+        root = p.pilot if p.pilot.startswith("nan:") else find(p.pilot)
+        by_root.setdefault(root, []).append(p)
+    return list(by_root.values())
 
 
 def _split_event_collisions(

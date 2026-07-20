@@ -47,15 +47,18 @@ def _build(args: argparse.Namespace) -> None:
               f"(dropped ids or changed facts): {ingest_report_path(args.db)}")
 
     recon = json.loads(reconciliation_path(args.db).read_text())
-    dupes, joined, candidates, curated, multi = (
+    dupes, joined, candidates, curated, multi, splits = (
         len(recon["dropped_duplicates"]), len(recon["joined_names"]),
         len(recon["under_merges"]), recon["curated"],
         len(recon.get("multi_name_ids", [])),
+        len(recon.get("name_splits", [])),
     )
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:
         print(f"  {joined} id group(s) joined on an identical display name")
+    if splits:
+        print(f"  {splits} display name(s) split into separate people by curation")
     if multi:
         print(f"  {multi} id(s) recovered more than one surname (review the report)")
     print(f"  pilot identity: {candidates} candidate(s) to review, {curated} already curated")
