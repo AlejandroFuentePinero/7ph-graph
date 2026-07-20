@@ -99,3 +99,19 @@ build_app(artifact_path()).launch(share=True)
 ```sh
 uv run pytest
 ```
+
+## No-regression gate
+
+`baseline/subgraphs.json` records what every query entry point answers, plus the
+18 table counts and the dropdown catalogues, captured from the built graph. It is
+the oracle the Ladybug migration is graded against (issue #45):
+
+```sh
+uv run graph7ph baseline            # grade the built graph, non-zero on any difference
+uv run graph7ph baseline --capture  # rewrite the baseline from the built graph
+```
+
+Rows are compared under each query's own rule: order-exact where the query sorts
+before emitting, order-insensitive for the two that do not, and floats within a
+tolerance, because aggregation order changes the last bits of a mean between
+engines.

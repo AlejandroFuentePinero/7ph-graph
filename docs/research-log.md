@@ -24,3 +24,11 @@ Cross-session insights and handoffs that have no other structured home.
 - Why it matters: a cold reader sees an open epic with 28 user stories and several open issues, and cannot tell which parts are settled. The views are settled. The remainder is packaging, curation, and the v2 seam.
 
 [handoff] The bipartite-vs-traversal question above is now the live one. With view tuning closed, the next feature is a genuine choice between the open v1 remainder (#8/#9/#12) and a first traversal-native analytic; it is no longer competing with "one more pass on an existing view".
+
+## 2026-07-20 - The golden-subgraph gate cannot be verified by its own unit tests
+
+- `compare()` in `graph7ph/baseline.py` has 24 unit tests over synthetic subgraphs, and every one of them passed while the real behaviour was badly wrong. A version that matched rows on their raw float values reported **36 differences, listing 17 cards as both added and removed**, where the truth was 2. The synthetic fixtures had too few rows and no engine-scale float noise to expose it. Only re-running a mutation battery against the built graph caught it.
+- The battery: copy `baseline/subgraphs.json`, apply one mutation, run `uv run graph7ph baseline --baseline <mutated>`. Shuffling the rows of `gems_whole_meta` or `pilot_many_events` must **pass** (they are the order-insensitive queries), and so must shifting every `mean_norm` by 5.6e-17. Reversing `cooc_pair_shared_decks` rows, removing one gem node, deleting a whole case, and shifting `mean_norm` by 8.6e-4 must each **fail**, and the removal must name the card that moved. Measured results are tabulated in the issue #45 comment thread.
+- Why it matters: issues #47 through #50 are all graded by this gate, and a gate that under-reports is indistinguishable from a clean migration. Anyone editing `compare`, `_identity`, or `_same` should re-run the battery, because a green `uv run pytest` is not evidence the gate still works.
+
+[handoff] The battery lives only in session scratch, not in the repo, because it needs the real built artifact that tests cannot reach. Rebuild it from the list above rather than trusting the unit tests.

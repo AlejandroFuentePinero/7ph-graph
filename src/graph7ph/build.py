@@ -132,6 +132,16 @@ def build_graph(
 
     reconciliation_path(db_path).write_text(json.dumps(asdict(pilots.report), indent=2))
 
+    return graph_counts(conn)
+
+
+def graph_counts(conn: kuzu.Connection) -> BuildCounts:
+    """The 18 table counts read back out of a built graph.
+
+    Read from the graph rather than from the snapshot, so a caller can assert the
+    build loaded what the source held, and so the golden-subgraph harness can take
+    the same 18 numbers off an artifact it did not build (issue #45).
+    """
     return BuildCounts(
         pilots=_count(conn, "MATCH (p:Pilot) RETURN count(p)"),
         decks=_count(conn, "MATCH (d:Deck) RETURN count(d)"),

@@ -978,3 +978,110 @@ def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
     # far under MIN_GEM_SLICE, and the refusal names the archetype it was handed.
     with pytest.raises(SliceTooSmall, match="grixis"):
         run_query(conn, HiddenGems(archetype="grixis"))
+
+
+# Five macros that adopt the seed card at exactly the same rate, so nothing but
+# the tie-break decides their order. Named in alphabetical order.
+_TIED_MACROS = ["aggro", "combo", "control", "midrange", "ramp"]
+
+
+def _tied_macro_snapshot(path):
+    """A snapshot where five macros each run the seed card in 1 of their 2 decks."""
+    path.mkdir(parents=True)
+    decks = []
+    for macro in _TIED_MACROS:
+        for i in (0, 1):
+            decks.append({
+                "deckId": f"{macro}{i}", "name": f"{macro}{i}", "deckName": "n",
+                "pilot": f"p{macro}{i}", "event": "NYE", "eventId": "evt_1",
+                "eventType": "Tournament", "placement": 1, "placementNorm": 0.5,
+                "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+                "macro": f"macro:{macro}", "engineTags": [f"engine:{macro}_arch"],
+                "engineTagLabels": {f"engine:{macro}_arch": macro.title()},
+                "primaryTag": f"engine:{macro}_arch",
+                "primaryTagWeights": {f"engine:{macro}_arch": 1},
+            })
+    (path / "decks.json").write_text(json.dumps(decks))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [
+            {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
+             "manaValue": 1.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+            {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
+             "manaValue": 0.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+        ],
+        # Only the first deck of each macro runs the seed, so every macro adopts
+        # it at 1 of 2 decks and all five percentages are identical.
+        "decks": {
+            f"{macro}{i}": {"m": [0, 1] if i == 0 else [1], "s": []}
+            for macro in _TIED_MACROS
+            for i in (0, 1)
+        },
+    }))
+
+
+def _tied_archetype_snapshot(path):
+    """Three archetype tags sharing one display name, one deck each running the seed.
+
+    Registered in reverse tag order, so a sort that fails to break the tie keeps
+    the order the rows arrived in rather than the order the tags demand.
+    """
+    path.mkdir(parents=True)
+    tags = ["c_tag", "b_tag", "a_tag"]
+    decks = []
+    for tag in tags:
+        for i in (0, 1):
+            decks.append({
+                "deckId": f"{tag}{i}", "name": f"{tag}{i}", "deckName": "n",
+                "pilot": f"p{tag}{i}", "event": "NYE", "eventId": "evt_1",
+                "eventType": "Tournament", "placement": 1, "placementNorm": 0.5,
+                "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+                "macro": "macro:aggro", "engineTags": [f"engine:{tag}"],
+                # One shared display name, so the name tie-break cannot separate them.
+                "engineTagLabels": {f"engine:{tag}": "Shared"},
+                "primaryTag": f"engine:{tag}",
+                "primaryTagWeights": {f"engine:{tag}": 1},
+            })
+    (path / "decks.json").write_text(json.dumps(decks))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [
+            {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
+             "manaValue": 1.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+            {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
+             "manaValue": 0.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+        ],
+        "decks": {
+            f"{tag}{i}": {"m": [0, 1] if i == 0 else [1], "s": []}
+            for tag in tags for i in (0, 1)
+        },
+    }))
+
+
+def test_macros_tied_on_adoption_are_ordered_by_name(tmp_path):
+    # Two strategies can adopt a card at rates that round to the same percent, and
+    # roughly a quarter of the real card catalogue has such a tie. Without a
+    # tie-break the order falls out of an unordered set, so the same query on the
+    # same graph answers differently between runs and the view reshuffles for no
+    # reason. Ties resolve on name, as they already do for archetypes just below.
+    _tied_macro_snapshot(tmp_path / "snap")
+    conn = _connect(tmp_path, tmp_path / "snap")
+
+    subgraph = card_usage_subgraph(conn, "seed")
+
+    macros = [n.label for n in subgraph.nodes if n.kind == "Macro"]
+    assert macros == _TIED_MACROS
+
+
+def test_archetypes_tied_on_adoption_and_name_are_ordered_by_tag(tmp_path):
+    # Two tags can carry the same display name (which is why the app suffixes
+    # duplicate labels at all). Tied on adoption, size and name, only the tag is
+    # left to separate them, and without it the order falls out of a Cypher query
+    # with no ORDER BY, so it would move with the engine rather than the data.
+    _tied_archetype_snapshot(tmp_path / "snap")
+    conn = _connect(tmp_path, tmp_path / "snap")
+
+    subgraph = card_usage_subgraph(conn, "seed")
+
+    archetypes = [n.id for n in subgraph.nodes if n.kind == "Archetype"]
+    assert archetypes == ["arch:a_tag", "arch:b_tag", "arch:c_tag"]

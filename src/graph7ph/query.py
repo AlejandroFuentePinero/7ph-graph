@@ -338,15 +338,24 @@ def card_usage_subgraph(
             for tag, (name, total) in arch_total.items()
             if arch_run.get(tag, 0) and tag in dominant
         ),
-        key=lambda k: (-k[0], -k[1], k[3]),
+        # Tag last, because two tags can share a display name: without it a tie on
+        # adoption, size and name would fall back to the row order of a query with
+        # no ORDER BY, so the view would move with the engine rather than the data.
+        key=lambda k: (-k[0], -k[1], k[3], k[2]),
     )
 
     # Each tier reads as a named default dot (card -> macro -> archetype); the
     # adoption percent rides the edge that reaches it. Dots keep every node a
     # uniform size with its name beside it, where a circle would stretch to fit
     # the text and read as a bigger node for no analytic reason.
+    # Strongest adoption first, ties broken on name as they are for archetypes
+    # below: two macros can round to the same percent, and without the tie-break
+    # their order falls out of an unordered set, so the same query on the same
+    # graph answers differently between runs.
     shown_macros = {dominant[tag][1] for _, _, tag, _ in kept}
-    for macro in sorted(shown_macros, key=lambda m: -pct(macro_run.get(m, 0), macro_total[m])):
+    for macro in sorted(
+        shown_macros, key=lambda m: (-pct(macro_run.get(m, 0), macro_total[m]), m)
+    ):
         mid = f"macro:{macro}"
         nodes.append(Node(mid, macro, "Macro"))
         edges.append(
@@ -766,6 +775,20 @@ def gem_archetypes(conn: kuzu.Connection) -> list[tuple[str, str]]:
             WHERE ranked >= $minSlice
             RETURN a.name, a.tag ORDER BY a.name""",
         {"minSlice": MIN_GEM_SLICE},
+    ))]
+
+
+def pilot_catalogue(conn: kuzu.Connection) -> list[tuple[str, str]]:
+    """``(displayName, pilot)`` for every pilot, in label order for a dropdown."""
+    return [(name, key) for name, key in rows(conn.execute(
+        "MATCH (p:Pilot) RETURN p.displayName, p.pilot ORDER BY p.displayName"
+    ))]
+
+
+def card_catalogue(conn: kuzu.Connection) -> list[tuple[str, str]]:
+    """``(name, canon)`` for every card, in label order for a dropdown."""
+    return [(name, canon) for name, canon in rows(conn.execute(
+        "MATCH (c:Card) RETURN c.name, c.canon ORDER BY c.name"
     ))]
 
 

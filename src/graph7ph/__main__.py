@@ -1,4 +1,4 @@
-"""CLI: ``graph7ph fetch | build | app``.
+"""CLI: ``graph7ph fetch | build | app | baseline``.
 
 Wires the fetch, build, and app seams into the three commands issue 2 asks for.
 Paths default under the repo's ``data/`` directory and are overridable by flag.
@@ -8,6 +8,9 @@ import argparse
 import json
 from pathlib import Path
 
+import kuzu
+
+from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import YearStraddle, reconciliation_path
 from graph7ph.db import artifact_path
 from graph7ph.fetch import fetch_snapshot
@@ -65,6 +68,34 @@ def _build(args: argparse.Namespace) -> None:
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
 
 
+def _baseline(args: argparse.Namespace) -> None:
+    # Every failure below is a user-facing abort rather than a traceback, as the
+    # build is: later tickets run this as a gate, where a crash and a regression
+    # must not look alike.
+    if not args.db.exists():
+        raise SystemExit(f"No graph at {args.db}: run `uv run graph7ph build` first.")
+    # Read-only, so the gate can grade an artifact the app is already serving.
+    conn = kuzu.Connection(kuzu.Database(str(args.db), read_only=True))
+    if args.capture:
+        args.baseline.parent.mkdir(parents=True, exist_ok=True)
+        args.baseline.write_text(json.dumps(capture(conn), indent=2) + "\n")
+        print(f"Captured the baseline from {args.db} into {args.baseline}")
+        return
+
+    try:
+        diffs = check(conn, args.baseline)
+    except FileNotFoundError:
+        raise SystemExit(f"No baseline at {args.baseline}: capture one with --capture.")
+    except MalformedBaseline as exc:
+        raise SystemExit(f"The baseline at {args.baseline} cannot be graded against: {exc}")
+    if diffs:
+        print(f"{len(diffs)} difference(s) against {args.baseline}:")
+        for line in diffs:
+            print(f"  {line}")
+        raise SystemExit(1)
+    print(f"{args.db} reproduces {args.baseline}: no regression.")
+
+
 def _app(args: argparse.Namespace) -> None:
     from graph7ph.app import build_app
 
@@ -83,6 +114,16 @@ def main() -> None:
     p_build.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
     p_build.add_argument("--db", type=Path, default=DB_PATH)
     p_build.set_defaults(func=_build)
+
+    p_baseline = sub.add_parser(
+        "baseline", help="Grade the graph against the checked-in golden subgraphs"
+    )
+    p_baseline.add_argument("--db", type=Path, default=DB_PATH)
+    p_baseline.add_argument("--baseline", type=Path, default=BASELINE_PATH)
+    p_baseline.add_argument(
+        "--capture", action="store_true", help="Rewrite the baseline from this graph"
+    )
+    p_baseline.set_defaults(func=_baseline)
 
     p_app = sub.add_parser("app", help="Launch the Gradio explorer")
     p_app.add_argument("--db", type=Path, default=DB_PATH)

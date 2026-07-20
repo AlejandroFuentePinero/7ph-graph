@@ -16,7 +16,6 @@ from pathlib import Path
 import gradio as gr
 import kuzu
 
-from graph7ph.db import rows
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.query import (
     CardCooccurrence,
@@ -26,7 +25,9 @@ from graph7ph.query import (
     PilotNeighbourhood,
     QuerySpec,
     SliceTooSmall,
+    card_catalogue,
     gem_archetypes,
+    pilot_catalogue,
     run_query,
 )
 from graph7ph.render import render_subgraph
@@ -126,19 +127,14 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     ]
 
 
-def _choices(conn: kuzu.Connection, query: str) -> list[tuple[str, str]]:
-    """Dropdown pairs from a two-column query returning (label, value)."""
-    return _distinguish([(label, value) for label, value in rows(conn.execute(query))])
-
-
 def build_app(db_path: Path) -> gr.Blocks:
     # The Database is shared, but a Kùzu Connection is not thread-safe, so each
     # request opens its own over Gradio's worker threads. Read-only lets several
     # readers (and a separate build process) share the file.
     db = kuzu.Database(str(db_path), read_only=True)
     catalogue = kuzu.Connection(db)
-    pilots = _choices(catalogue, "MATCH (p:Pilot) RETURN p.displayName, p.pilot ORDER BY p.displayName")
-    cards = _choices(catalogue, "MATCH (c:Card) RETURN c.name, c.canon ORDER BY c.name")
+    pilots = _distinguish(pilot_catalogue(catalogue))
+    cards = _distinguish(card_catalogue(catalogue))
     # Only the archetypes whose slice can actually answer the gem question; the
     # rest would be an invitation to a result we cannot stand behind (ADR 0005).
     archetypes = _distinguish(gem_archetypes(catalogue))
