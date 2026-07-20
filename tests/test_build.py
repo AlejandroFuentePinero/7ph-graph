@@ -150,17 +150,18 @@ def test_the_build_leaves_a_settled_database_with_no_write_ahead_log(
     snapshot_dir, tmp_path
 ):
     # Ladybug keeps a `.wal` beside the database while it is open and folds it in
-    # on a clean close, so the build has to close the Database itself rather than
-    # leave it to interpreter exit (issue #48). Otherwise promotion can rename a
+    # when the last Connection to it goes, so the build closes both rather than
+    # leaving it to interpreter exit (issue #48). Otherwise promotion can rename a
     # bundle whose database is still carrying unsettled writes, and what the app
     # later opens is not what the build read its counts out of.
     #
-    # What this can and cannot catch: it passes with or without that explicit
-    # close, because nothing outlives `build_graph` holding the Database and
-    # refcounting checkpoints it on the way out. It guards the invariant, not the
-    # line that delivers it, so it fails on a refactor that parks the Database in
+    # What this can and cannot catch: it passes however `build_graph` closes,
+    # because nothing outlives the call holding the Connection and refcounting
+    # settles the file on the way out regardless. It guards the invariant, not the
+    # line that delivers it, so it fails on a refactor that parks the Connection in
     # a longer-lived scope (a module global, a returned handle, a cache) and stays
-    # green if the close alone is deleted.
+    # green if the closing is deleted outright. The ordering rule that makes the
+    # closing real is pinned separately, below.
     artifact = tmp_path / "graph"
 
     counts = build_graph(load_snapshot(snapshot_dir), artifact)
@@ -172,8 +173,50 @@ def test_the_build_leaves_a_settled_database_with_no_write_ahead_log(
     )
     # A fresh open sees the same graph the build reported, with nothing left to
     # replay: the counts are readable off the settled file alone.
-    reopened = ladybug.Connection(ladybug.Database(str(database_path(artifact))))
-    assert graph_counts(reopened) == counts
+    with ladybug.Database(str(database_path(artifact)), read_only=True) as db, \
+            ladybug.Connection(db) as reopened:
+        assert graph_counts(reopened) == counts
+
+
+def test_the_write_ahead_log_settles_on_the_connection_closing_not_the_database(
+    tmp_path
+):
+    # The rule `build_graph` is built on, pinned because getting it wrong is
+    # invisible: it costs nothing at the time and shows up as a torn artifact only
+    # once something holds a Connection open a little longer (issue #50).
+    #
+    # The migration recorded this the wrong way round. Issue #48 believed an
+    # explicit `Database.close()` was what checkpointed, and wrote that into the
+    # build, the deploy guard, and this file. It is not: with a Connection still
+    # alive, closing the Database leaves the log exactly where it was.
+    #
+    # If the second half of this ever goes red, that is good news rather than a
+    # regression: it means Ladybug learned to settle on the Database closing, and
+    # `build_graph` no longer has to care about the order it unwinds in.
+    def written(path):
+        db = ladybug.Database(str(path))
+        conn = ladybug.Connection(db)
+        conn.execute("CREATE NODE TABLE T(id INT64, PRIMARY KEY(id))")
+        conn.execute("CREATE (:T {id: 1})")
+        return db, conn
+
+    def logs(path):
+        return [p for p in path.parent.iterdir() if p.name.endswith(".wal")]
+
+    connection_first = tmp_path / "a" / "graph.ladybug"
+    connection_first.parent.mkdir()
+    db, conn = written(connection_first)
+    conn.close()
+    db.close()
+
+    assert logs(connection_first) == [], "closing the Connection settles the file"
+
+    database_only = tmp_path / "b" / "graph.ladybug"
+    database_only.parent.mkdir()
+    db, conn = written(database_only)
+    db.close()
+
+    assert logs(database_only) != [], "closing the Database alone does not settle it"
 
 
 def test_events_in_different_years_get_distinct_year_nodes(tmp_path):

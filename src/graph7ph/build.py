@@ -133,14 +133,17 @@ def build_graph(
     db_path = database_path(artifact)
 
     # Ladybug keeps a write-ahead log beside the database while it is open and
-    # folds it in on close, so the build closes the database itself rather than
-    # leaving that to interpreter exit. What gets promoted is then a settled file,
-    # holding exactly the graph these counts were read out of. Closed on the way
-    # out of a failed load too, so an abandoned bundle is left settled rather than
-    # mid-write for whatever inspects it before the next build clears it.
-    db = ladybug.Database(str(db_path))
-    try:
-        conn = ladybug.Connection(db)
+    # folds it in when the last Connection to it goes, so what gets promoted is a
+    # settled file holding exactly the graph these counts were read out of.
+    #
+    # The Connection is what settles it, not the Database. `Database.close()` with
+    # a Connection still alive leaves the log sitting there (measured: 317 bytes on
+    # 0.18.2), so closing the Database alone is not enough, and closing it first
+    # does nothing at all. This is why both are context-managed: `with` unwinds in
+    # reverse, closing the Connection and then the Database, in that order.
+    # Unwinding on the way out of a failed load too, so an abandoned bundle is left
+    # settled rather than mid-write for whatever inspects it before the next build.
+    with ladybug.Database(str(db_path)) as db, ladybug.Connection(db) as conn:
         for ddl in _SCHEMA:
             conn.execute(ddl)
 
@@ -151,8 +154,6 @@ def build_graph(
             json.dumps(asdict(pilots.report), indent=2)
         )
         return graph_counts(conn)
-    finally:
-        db.close()
 
 
 def graph_counts(conn: ladybug.Connection) -> BuildCounts:

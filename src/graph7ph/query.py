@@ -395,8 +395,10 @@ def _cooccurrence_partners(
     rate; the cut is pushed into Cypher rather than sorting every partner in
     Python. ``drop_lands`` excludes land partners.
     """
-    # Kùzu wants a literal LIMIT, not a parameter; ``top_n`` is a trusted int.
-    # Ladybug takes it as a parameter; the workaround goes with #50, not #48.
+    # The literal LIMIT is a dead Kùzu workaround: Kùzu refused a parameterized
+    # one, so ``top_n`` is interpolated as a trusted int. Ladybug takes it as a
+    # parameter (verified on 0.18.2, issue #50), so this can go; it stays only to
+    # keep the migration diff an engine swap. Removal is issue #52.
     res = conn.execute(
         f"""MATCH (card:Card {{canon: $canon}})<-[a:CONTAINS]-(d:Deck)-[b:CONTAINS]->(other:Card)
            WHERE other.canon <> card.canon AND a.board = b.board{_no_lands("other", drop_lands)}
@@ -483,8 +485,10 @@ def _shared_deck_cooccurrence(
     )))[0]
     if not both:
         return 0, []
-    # Kùzu wants a literal LIMIT, not a parameter; ``top_n`` is a trusted int.
-    # Ladybug takes it as a parameter; the workaround goes with #50, not #48.
+    # The literal LIMIT is a dead Kùzu workaround: Kùzu refused a parameterized
+    # one, so ``top_n`` is interpolated as a trusted int. Ladybug takes it as a
+    # parameter (verified on 0.18.2, issue #50), so this can go; it stays only to
+    # keep the migration diff an engine swap. Removal is issue #52.
     res = conn.execute(
         f"""MATCH (a:Card {{canon: $a}})<-[:CONTAINS]-(d:Deck)-[:CONTAINS]->(b:Card {{canon: $b}})
             MATCH (d)-[:CONTAINS]->(p:Card)
@@ -623,9 +627,14 @@ def hidden_gems_subgraph(
     """
     # The slice is ranked decks only, so its length is the base the ceiling is a
     # share of; no separate counting query, and an archetype nobody ranked in is
-    # refused below before an empty $slice can reach Kùzu (which cannot infer an
-    # empty list parameter's element type and aborts rather than raising). Ladybug
-    # returns cleanly on the empty list; the guard goes with #50, not #48.
+    # refused below rather than asked about. That refusal answers to two reasons,
+    # and only one is still live. The domain one stands: a slice too small to tell
+    # a rare card from an absent one cannot honestly be asked for gems (ADR 0005),
+    # so the refusal itself is permanent. The engine one is dead: it also kept an
+    # empty $slice away from Kùzu, which could not infer an empty list parameter's
+    # element type and aborted rather than raising. Ladybug returns cleanly on the
+    # empty list (verified on 0.18.2, issue #50), so only that rationale goes, and
+    # it goes with issue #52.
     slice_ids = _ranked_deck_slice(conn, archetype)
     ranked_decks = len(slice_ids) if slice_ids is not None else _ranked_deck_total(conn)
     if ranked_decks < MIN_GEM_SLICE:

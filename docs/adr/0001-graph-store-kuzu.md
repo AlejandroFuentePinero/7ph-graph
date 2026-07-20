@@ -1,5 +1,11 @@
 # Use Kùzu as the graph store
 
+> **Superseded by [ADR 0011](0011-graph-store-ladybug.md).** Kùzu was archived by
+> its vendor in October 2025 and has no successor, so this choice is void. The
+> graph is stored in Ladybug. Everything below is the record of the original
+> decision and is deliberately left in its original present tense; read it as
+> history, not as a description of the store this repo has.
+
 We store the graph in Kùzu, an embedded, file-backed graph database with a Cypher interface. It runs in-process with no server, so it ships inside the same Hugging Face Space or Colab as the app, and its Cypher surface is the natural query target for the planned agentic RAG (it has existing LangChain and LlamaIndex integrations).
 
 ## Considered Options

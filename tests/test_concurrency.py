@@ -38,22 +38,21 @@ def test_a_build_can_write_while_the_app_holds_the_graph_open_read_only(
     reader = ladybug.Connection(ladybug.Database(path, read_only=True))
     before = _pilots(reader)
 
-    writer_db = ladybug.Database(path)
-    try:
-        writer = ladybug.Connection(writer_db)
+    # Closed before anything is asserted about what another handle can see, since
+    # only a settled file is what a promotion actually publishes; asserting
+    # cross-handle visibility against an open writer would measure write-ahead log
+    # replay instead. The Connection is what settles that log and not the Database
+    # (pinned by tests/test_build.py), so closing the Database alone would leave
+    # the log in place and measure exactly the replay this avoids. `with` unwinds
+    # in reverse, closing the Connection first, which is why `build_graph` is
+    # written the same way.
+    with ladybug.Database(path) as writer_db, ladybug.Connection(writer_db) as writer:
         writer.execute(
             "CREATE (:Pilot {pilot: 'ghost', displayName: 'Ghost', lowConfidence: false})"
         )
         assert _pilots(writer) == before + 1
         # The reader is not disturbed by a write in flight.
         assert _pilots(reader) == before
-    finally:
-        # Closed before anything is asserted about what another handle can see.
-        # Ladybug folds the write-ahead log in on close, so only a closed
-        # database is the settled file a promotion actually publishes; asserting
-        # cross-handle visibility against an open writer would measure WAL replay
-        # instead. `build_graph` closes in a try/finally for the same reason.
-        writer_db.close()
 
     # Once the write has settled, the reader still holds the snapshot it opened
     # on, and only a newly opened database sees the new data. A rebuild therefore

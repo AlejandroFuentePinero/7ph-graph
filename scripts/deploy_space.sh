@@ -30,13 +30,21 @@ if [ ! -e "$DB/$DB_FILENAME" ]; then
     exit 1
 fi
 
-# A promoted artifact is checkpointed, so its write-ahead log is empty. A
-# non-empty one means a build is running or crashed mid-write, and the data files
-# alone are missing its tail: deploying that would ship a torn graph. Searched
-# across the whole bundle rather than at a fixed path, because where the engine
-# puts its log is the engine's business: Kùzu's directory database keeps a `.wal`
-# inside itself, a single-file one leaves `<db>.wal` beside it (issue #47).
-if [ -n "$(find "$DB" -name '*.wal' -size +0c)" ]; then
+# A promoted artifact is checkpointed, and Ladybug folds the write-ahead log in
+# and removes it once the last Connection to the database closes, so a settled
+# bundle carries no `.wal` at all. Note it is the Connection closing that settles
+# it and not `Database.close()`, which is why the build context-manages both
+# (graph7ph.build, and the ordering test in tests/test_build.py). A reader does
+# not create one, so a running local app does not trip this guard.
+# One that is there means a build is running or crashed mid-write,
+# and the database alone is missing its tail: deploying that would ship a torn
+# graph. Presence is the signal, not size: an interrupted build can leave an empty
+# log before it has written a byte, so an emptiness test would ship exactly the
+# torn artifact this guards against (issue #50). Searched across the whole bundle
+# rather than at a fixed path, because where the engine puts its log is the
+# engine's business: a single-file database leaves `<db>.wal` beside it, a
+# directory one would keep it inside (issue #47).
+if [ -n "$(find "$DB" -name '*.wal')" ]; then
     echo "$DB has an uncheckpointed write-ahead log; rebuild before deploying" >&2
     exit 1
 fi
@@ -61,7 +69,7 @@ cp -R "$ROOT/src/graph7ph" "$STAGE/graph7ph"
 mkdir -p "$STAGE/data"
 # The whole bundle verbatim, dotfiles included: what the engine keeps beside its
 # database is the engine's business, so the copy takes everything rather than the
-# names it expects. The empty-WAL check above is what keeps that copy a
+# names it expects. The write-ahead-log check above is what keeps that copy a
 # checkpointed, self-contained one. Staged under the default artifact name, which
 # is what the Space resolves: it sets no GRAPH7PH_DB of its own.
 cp -R "$DB" "$STAGE/data/graph"

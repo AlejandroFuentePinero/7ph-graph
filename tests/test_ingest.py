@@ -2,7 +2,7 @@
 
 Crafted snapshots exercise the union and the superset gate directly. The gate is
 a pure function over parsed Snapshots, so these build Snapshot objects from the
-domain models rather than going through Kùzu.
+domain models rather than going through the graph store.
 """
 
 import json
@@ -22,7 +22,7 @@ from graph7ph.ingest import (
     union_snapshots,
 )
 from graph7ph.build import reconciliation_path
-from graph7ph.db import database_path
+from graph7ph.db import DB_FILENAME, database_path
 from graph7ph.models import Card, Containment, Deck, Snapshot
 
 
@@ -334,11 +334,11 @@ def test_promote_moves_the_graph_and_its_reports_as_one_bundle(tmp_path):
     promote(incoming, db, backup)
 
     # The live graph and both its reports are the new generation, together.
-    assert (db / "data").read_text() == "new graph"
+    assert (db / DB_FILENAME).read_text() == "new graph"
     assert json.loads(ingest_report_path(db).read_text())["gen"] == "new"
     assert json.loads(reconciliation_path(db).read_text())["gen"] == "new"
     # The backup keeps its own matching (old) reports for a consistent rollback.
-    assert (backup / "data").read_text() == "old graph"
+    assert (backup / DB_FILENAME).read_text() == "old graph"
     assert json.loads(ingest_report_path(backup).read_text())["gen"] == "old"
     # No report was promoted on its own: none left orphaned beside the graph dirs.
     assert not (tmp_path / "graph.ingest.json").exists()
@@ -412,9 +412,15 @@ def test_ingest_hard_fails_on_a_corrupt_snapshot_without_touching_the_graph(tmp_
 
 
 def _db(path, marker):
-    """A stand-in for a Kùzu database directory holding a known marker."""
+    """A stand-in artifact bundle whose database is a known marker string.
+
+    Promotion moves whole bundles by rename and never reads what is inside them,
+    so a readable marker where the database goes is enough to tell which bundle
+    ended up where. Named through ``DB_FILENAME`` rather than a literal, so the
+    shape here stays the shape a real bundle has (ADR 0008).
+    """
     path.mkdir()
-    (path / "data").write_text(marker)
+    (path / DB_FILENAME).write_text(marker)
     return path
 
 
@@ -425,8 +431,8 @@ def test_promote_swaps_in_the_new_graph_and_retains_the_old_as_backup(tmp_path):
 
     promote(incoming, live, backup)
 
-    assert (live / "data").read_text() == "new"   # live is now the rebuild
-    assert (backup / "data").read_text() == "old"  # previous graph kept for rollback
+    assert (live / DB_FILENAME).read_text() == "new"   # live is now the rebuild
+    assert (backup / DB_FILENAME).read_text() == "old"  # previous graph kept for rollback
     assert not incoming.exists()
 
 
@@ -437,7 +443,7 @@ def test_promote_on_first_build_leaves_no_backup(tmp_path):
 
     promote(incoming, live, backup)
 
-    assert (live / "data").read_text() == "new"
+    assert (live / DB_FILENAME).read_text() == "new"
     assert not backup.exists()
 
 
@@ -448,7 +454,7 @@ def test_promote_replaces_an_existing_backup(tmp_path):
 
     promote(incoming, live, backup)
 
-    assert (backup / "data").read_text() == "old"  # backup is the just-replaced graph
+    assert (backup / DB_FILENAME).read_text() == "old"  # backup is the just-replaced graph
 
 
 def test_shape_shifted_response_hard_fails(tmp_path):
