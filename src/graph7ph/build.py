@@ -10,7 +10,6 @@ callers can assert they match the source.
 """
 
 import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -18,7 +17,7 @@ import kuzu
 from pydantic import BaseModel
 
 from graph7ph.curation import Curation, load_curation
-from graph7ph.db import rows
+from graph7ph.db import database_path, remove_artifact, rows
 from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
 
@@ -93,35 +92,42 @@ class BuildCounts:
     in_year: int
 
 
-def reconciliation_path(db_path: Path) -> Path:
-    """Where the reconciliation report is written for a graph at ``db_path``.
+def reconciliation_path(artifact: Path) -> Path:
+    """Where the reconciliation report is written for the bundle at ``artifact``.
 
-    Inside the graph directory (not a sibling) so it promotes and rolls back
+    Inside the artifact directory (not a sibling) so it promotes and rolls back
     atomically with the graph as one bundle (issue #38, F13).
     """
-    return Path(db_path) / "reconciliation.json"
+    return Path(artifact) / "reconciliation.json"
 
 
 def build_graph(
-    snapshot: Snapshot, db_path: Path, curation: Curation | None = None
+    snapshot: Snapshot, artifact: Path, curation: Curation | None = None
 ) -> BuildCounts:
-    """Build a fresh Kùzu database at ``db_path`` and return its counts.
+    """Build a fresh artifact bundle at ``artifact`` and return its counts.
 
-    Pilots are resolved to keyed, named nodes, applying the checked-in curation
-    dictionary (issue #9); a reconciliation report is written alongside the
-    database at :func:`reconciliation_path` (ADR 0004). Duplicate registrations
-    the resolution drops are excluded from the graph entirely.
+    The bundle is a directory holding the database at :func:`database_path`
+    alongside its reports, so one rename promotes the lot (issue #47). Pilots are
+    resolved to keyed, named nodes, applying the checked-in curation dictionary
+    (issue #9); a reconciliation report is written beside the database at
+    :func:`reconciliation_path` (ADR 0004). Duplicate registrations the resolution
+    drops are excluded from the graph entirely.
+
+    Everything that can reject the data runs before the bundle is touched, so a
+    build that aborts (a year straddle, a bad curation dictionary) leaves no
+    half-made bundle behind and cannot damage an artifact it was pointed at.
     """
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    _remove(db_path)
-
+    artifact = Path(artifact)
     curation = curation if curation is not None else load_curation()
     snapshot = _apply_deck_archetypes(snapshot, curation)
     pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
     if pilots.dropped_decks:
         snapshot = _without_decks(snapshot, pilots.dropped_decks)
     years = _event_years(snapshot.decks)
+
+    remove_artifact(artifact)
+    artifact.mkdir(parents=True, exist_ok=True)
+    db_path = database_path(artifact)
 
     conn = kuzu.Connection(kuzu.Database(str(db_path)))
     for ddl in _SCHEMA:
@@ -130,7 +136,7 @@ def build_graph(
     _load_nodes(conn, snapshot, pilots, years)
     _load_edges(conn, snapshot, pilots, years)
 
-    reconciliation_path(db_path).write_text(json.dumps(asdict(pilots.report), indent=2))
+    reconciliation_path(artifact).write_text(json.dumps(asdict(pilots.report), indent=2))
 
     return graph_counts(conn)
 
@@ -378,12 +384,3 @@ def _load(conn: kuzu.Connection, query: str, batch: list[dict]) -> None:
 def _count(conn: kuzu.Connection, query: str) -> int:
     return next(rows(conn.execute(query)))[0]
 
-
-def _remove(db_path: Path) -> None:
-    if db_path.is_dir():
-        shutil.rmtree(db_path)
-    elif db_path.exists():
-        db_path.unlink()
-    wal = db_path.with_name(db_path.name + ".wal")
-    if wal.exists():
-        wal.unlink()

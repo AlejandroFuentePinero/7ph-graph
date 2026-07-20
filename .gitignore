@@ -11,12 +11,28 @@ __pycache__/
 
 # Data artifacts / build outputs
 snapshots/
+data/*.json
+
+# The artifact bundle at its default path, plus the siblings promotion creates.
+data/graph/
+data/graph.backup/
+data/graph.incoming/
+
+# The bundle's own members, by name, so a bundle built anywhere else (GRAPH7PH_DB
+# pointed at another path) is ignored too and not just the default one. Matching
+# on the name rather than the location is what the old `*.kuzu` rule gave us for
+# free, back when the artifact's own name carried the engine's suffix. The engine
+# swap adds its database name here beside `*.kuzu`.
 *.kuzu
+ingest.json
+reconciliation.json
+
+# The pre-#47 layout, where the artifact was the Kùzu directory itself. Kept so a
+# tree built before the bundle change stays ignored until it is rebuilt.
 *.kuzu.bak
 *.kuzu.backup/
 *.kuzu.ingest.json
 *.kuzu.reconciliation.json
-data/*.json
 scratch/
 
 # Agent config (local, not shared)

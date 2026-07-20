@@ -12,7 +12,7 @@ import kuzu
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import YearStraddle, reconciliation_path
-from graph7ph.db import artifact_path
+from graph7ph.db import artifact_path, database_path
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 
@@ -72,10 +72,12 @@ def _baseline(args: argparse.Namespace) -> None:
     # Every failure below is a user-facing abort rather than a traceback, as the
     # build is: later tickets run this as a gate, where a crash and a regression
     # must not look alike.
-    if not args.db.exists():
+    # The artifact is a directory holding the database, so an existing directory is
+    # not yet a graph: the database inside it is what can be graded.
+    if not database_path(args.db).exists():
         raise SystemExit(f"No graph at {args.db}: run `uv run graph7ph build` first.")
     # Read-only, so the gate can grade an artifact the app is already serving.
-    conn = kuzu.Connection(kuzu.Database(str(args.db), read_only=True))
+    conn = kuzu.Connection(kuzu.Database(str(database_path(args.db)), read_only=True))
     if args.capture:
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
         args.baseline.write_text(json.dumps(capture(conn), indent=2) + "\n")

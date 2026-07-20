@@ -11,7 +11,6 @@ import pytest
 
 from graph7ph.curation import Curation, CurationError
 from graph7ph.pilots import (
-    SplitName,
     display_name_from_title,
     name_relation,
     resolve_pilots,
@@ -835,16 +834,17 @@ def test_build_pilot_nodes_carry_display_name_and_rekey_nulls(tmp_path):
     import kuzu
 
     from graph7ph.build import build_graph, reconciliation_path
+    from graph7ph.db import database_path
     from graph7ph.models import load_snapshot
 
     _build_snapshot(tmp_path, [
         _raw_deck("d1", "SolarGreenPanda", "05th/08th Nick C - Izzet - CFWAT25"),
         _raw_deck("d2", "nan", "Darcy - Mono R - Area52IQ"),
     ])
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
 
     counts = build_graph(load_snapshot(tmp_path), db_path)
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
+    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
     # Real pilot keyed on the upstream id, carrying the recovered display name.
     assert counts.pilots == 2

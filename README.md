@@ -14,7 +14,7 @@ uv sync
 
 ```sh
 uv run graph7ph fetch   # download 7phstats data into snapshots/<timestamp>/
-uv run graph7ph build   # load the latest snapshot into data/graph.kuzu
+uv run graph7ph build   # load the latest snapshot into data/graph
 uv run graph7ph app     # launch the Gradio explorer
 ```
 
@@ -31,9 +31,9 @@ constant, `graph7ph.explore.RENDER_THRESHOLD`).
 `fetch` then `build` is the whole refresh: each fetch is kept as an append-only
 snapshot, the build unions every snapshot and gates the newest against what the
 graph already holds, and the new artifact is promoted only if it validates, with
-the previous one retained at `data/graph.kuzu.backup` for an instant rollback
+the previous one retained at `data/graph.backup` for an instant rollback
 (ADR 0003). A build that flags dropped ids or changed historical facts says so
-and writes the detail to `data/graph.kuzu.ingest.json`.
+and writes the detail to `data/graph/ingest.json`.
 
 Fetch and build are the only steps that talk upstream. Any credential they need
 belongs to this pipeline environment (a local `.env`, which is gitignored, or the
@@ -44,7 +44,7 @@ CI secret store later): it is never read by the app and never deployed with it.
 The deployed app is a Gradio explorer over a prebuilt artifact, decoupled from
 the pipeline: it loads the promoted graph at startup and never fetches or builds.
 `app.py` is the entrypoint. Every entrypoint resolves the artifact the same way,
-from `GRAPH7PH_DB` (default `data/graph.kuzu`), so pointing that at another path
+from `GRAPH7PH_DB` (default `data/graph`), so pointing that at another path
 moves the build's output and the app's input together.
 
 Live at
@@ -86,7 +86,7 @@ On Colab instead:
 %cd graph-7ph
 !pip install -r requirements.txt
 # The artifact is not in the repo, so build one (fetch is a few MB, build a minute
-# or two), or upload a prebuilt data/graph.kuzu next to this notebook instead.
+# or two), or upload a prebuilt data/graph bundle next to this notebook instead.
 !graph7ph fetch && graph7ph build
 
 from graph7ph.app import build_app

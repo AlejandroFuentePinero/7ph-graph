@@ -35,7 +35,7 @@ def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
         ("d1", "2025-12-31T00:00:00+00:00"),
         ("d2", "2026-01-01T00:00:00+00:00"),
     ])
-    db = tmp_path / "graph.kuzu"
+    db = tmp_path / "graph"
 
     with pytest.raises(SystemExit) as exc:
         _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=db))
@@ -50,7 +50,7 @@ def test_grading_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
     # the CLI says what to do rather than spilling a Kùzu traceback.
     with pytest.raises(SystemExit) as exc:
         _baseline(argparse.Namespace(
-            db=tmp_path / "graph.kuzu",
+            db=tmp_path / "graph",
             baseline=tmp_path / "baseline.json",
             capture=False,
         ))
@@ -58,8 +58,23 @@ def test_grading_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
     assert "graph7ph build" in str(exc.value)
 
 
+def test_grading_an_artifact_directory_with_no_database_aborts_cleanly(tmp_path):
+    # The artifact is a directory now (issue #47), so it can exist while holding no
+    # database: a half-cleared or hand-made directory. That must read as "no graph
+    # here, build one", the same as no directory at all, not as a Kùzu traceback.
+    empty = tmp_path / "graph"
+    empty.mkdir()
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(argparse.Namespace(
+            db=empty, baseline=tmp_path / "baseline.json", capture=False
+        ))
+
+    assert "graph7ph build" in str(exc.value)
+
+
 def test_grading_against_a_missing_baseline_aborts_cleanly(tmp_path, snapshot_dir):
-    db = tmp_path / "graph.kuzu"
+    db = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), db)
 
     with pytest.raises(SystemExit) as exc:
@@ -73,7 +88,7 @@ def test_grading_against_a_missing_baseline_aborts_cleanly(tmp_path, snapshot_di
 def test_a_baseline_missing_a_section_aborts_cleanly(tmp_path, snapshot_dir):
     # The gate is meant to be invoked by later tickets, and --baseline takes any
     # path: a malformed oracle must read as a bad baseline, not as a crash.
-    db = tmp_path / "graph.kuzu"
+    db = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), db)
     baseline = tmp_path / "partial.json"
     baseline.write_text(json.dumps({"counts": {}, "queries": {}}))

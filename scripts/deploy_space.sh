@@ -16,17 +16,27 @@ SPACE="${1:?usage: scripts/deploy_space.sh <user>/<space>}"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # Defaults to the repo's own artifact, not the caller's cwd, so the graph and the
 # code deployed beside it always come from the same tree.
-DB="${GRAPH7PH_DB:-$ROOT/data/graph.kuzu}"
+DB="${GRAPH7PH_DB:-$ROOT/data/graph}"
 
-if [ ! -d "$DB" ]; then
+# The artifact is a directory holding the database, so an existing directory is
+# not proof of a graph: a half-cleared one would stage and ship a Space that dies
+# at startup. The database inside it is what makes the bundle deployable. Its name
+# is read from the package rather than copied here, so the engine swap changes
+# graph7ph.db.DB_FILENAME alone and this guard follows it.
+DB_FILENAME=$(cd "$ROOT" && uv run python -c 'from graph7ph.db import DB_FILENAME; print(DB_FILENAME)')
+
+if [ ! -e "$DB/$DB_FILENAME" ]; then
     echo "No graph artifact at $DB; run 'uv run graph7ph build' first" >&2
     exit 1
 fi
 
 # A promoted artifact is checkpointed, so its write-ahead log is empty. A
 # non-empty one means a build is running or crashed mid-write, and the data files
-# alone are missing its tail: deploying that would ship a torn graph.
-if [ -s "$DB/.wal" ]; then
+# alone are missing its tail: deploying that would ship a torn graph. Searched
+# across the whole bundle rather than at a fixed path, because where the engine
+# puts its log is the engine's business: Kùzu's directory database keeps a `.wal`
+# inside itself, a single-file one leaves `<db>.wal` beside it (issue #47).
+if [ -n "$(find "$DB" -name '*.wal' -size +0c)" ]; then
     echo "$DB has an uncheckpointed write-ahead log; rebuild before deploying" >&2
     exit 1
 fi
@@ -49,10 +59,12 @@ cp "$ROOT/app.py" "$ROOT/requirements.txt" "$STAGE/"
 # working directory is on the import path.
 cp -R "$ROOT/src/graph7ph" "$STAGE/graph7ph"
 mkdir -p "$STAGE/data"
-# Verbatim, dotfiles included: Kùzu opens a read-only database only if its .lock
-# is present, and only if .shadow and .wal are both present or both absent. The
-# empty-WAL check above is what keeps the copy a checkpointed, self-contained one.
-cp -R "$DB" "$STAGE/data/graph.kuzu"
+# The whole bundle verbatim, dotfiles included: Kùzu opens a read-only database
+# only if its .lock is present, and only if .shadow and .wal are both present or
+# both absent. The empty-WAL check above is what keeps the copy a checkpointed,
+# self-contained one. Staged under the default artifact name, which is what the
+# Space resolves: it sets no GRAPH7PH_DB of its own.
+cp -R "$DB" "$STAGE/data/graph"
 find "$STAGE/graph7ph" -name __pycache__ -type d -exec rm -rf {} +
 
 # Creating the Space is a one-off manual step, not this script's job: a Gradio

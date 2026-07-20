@@ -16,6 +16,7 @@ from pathlib import Path
 import gradio as gr
 import kuzu
 
+from graph7ph.db import database_path
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.query import (
     CardCooccurrence,
@@ -127,11 +128,12 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     ]
 
 
-def build_app(db_path: Path) -> gr.Blocks:
+def build_app(artifact: Path) -> gr.Blocks:
     # The Database is shared, but a Kùzu Connection is not thread-safe, so each
     # request opens its own over Gradio's worker threads. Read-only lets several
-    # readers (and a separate build process) share the file.
-    db = kuzu.Database(str(db_path), read_only=True)
+    # readers (and a separate build process) share the file. The artifact is the
+    # bundle directory; the database sits inside it (issue #47).
+    db = kuzu.Database(str(database_path(artifact)), read_only=True)
     catalogue = kuzu.Connection(db)
     pilots = _distinguish(pilot_catalogue(catalogue))
     cards = _distinguish(card_catalogue(catalogue))

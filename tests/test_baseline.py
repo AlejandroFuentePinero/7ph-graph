@@ -17,6 +17,7 @@ from graph7ph.baseline import (
     subgraph_blob,
 )
 from graph7ph.build import build_graph, graph_counts
+from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     CardCooccurrence,
@@ -45,9 +46,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 @pytest.fixture(scope="module")
 def conn(tmp_path_factory):
     """A connection to the tiny fixture snapshot, built once for the module."""
-    db_path = tmp_path_factory.mktemp("baseline") / "graph.kuzu"
+    db_path = tmp_path_factory.mktemp("baseline") / "graph"
     build_graph(load_snapshot(FIXTURES), db_path)
-    return kuzu.Connection(kuzu.Database(str(db_path)))
+    return kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
 
 def _baseline(cases, subgraphs):
@@ -178,9 +179,9 @@ def test_the_counts_read_back_from_an_artifact_match_the_build_that_wrote_it(
 ):
     # The harness grades an artifact, not a build, so it has to be able to read
     # all 18 counts out of a graph someone else built.
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
     built = build_graph(load_snapshot(snapshot_dir), db_path)
-    reopened = kuzu.Connection(kuzu.Database(str(db_path)))
+    reopened = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
     assert graph_counts(reopened) == built
 

@@ -3,15 +3,16 @@ import json
 import kuzu
 import pytest
 
-from graph7ph.build import build_graph
+from graph7ph.build import build_graph, reconciliation_path
 from graph7ph.curation import ArchetypeOverride, Curation
+from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 
 
 def _connect(tmp_path, snapshot_dir):
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), db_path)
-    return kuzu.Connection(kuzu.Database(str(db_path)))
+    return kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
 
 def _scalar(conn, query, params=None):
@@ -46,7 +47,7 @@ def _write_snapshot(path, decks):
 def test_build_loads_nodes_and_edges_with_source_counts(snapshot_dir, tmp_path):
     snap = load_snapshot(snapshot_dir)
 
-    counts = build_graph(snap, tmp_path / "graph.kuzu")
+    counts = build_graph(snap, tmp_path / "graph")
 
     # Counts are read back out of the built graph, so this asserts the graph
     # actually holds one node/edge per source record (issue-2 AC #6).
@@ -102,8 +103,8 @@ def test_event_spanning_several_days_resolves_to_one_year(tmp_path):
         _deck("d3", "PogNov25", "2025-12-01T05:41:48+00:00"),
     ])
 
-    counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph.kuzu")
-    conn = kuzu.Connection(kuzu.Database(str(tmp_path / "graph.kuzu")))
+    counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+    conn = kuzu.Connection(kuzu.Database(str(database_path(tmp_path / "graph"))))
 
     assert counts.years == 1
     assert counts.in_year == 1
@@ -112,14 +113,31 @@ def test_event_spanning_several_days_resolves_to_one_year(tmp_path):
     ) == 2025
 
 
+def test_the_build_writes_the_database_and_its_report_into_one_bundle(
+    snapshot_dir, tmp_path
+):
+    # The artifact is a directory containing the database, not a directory that is
+    # the database (issue #47). Everything the build produces lands inside it, so
+    # a single rename of that one path promotes the graph and its reports together.
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(snapshot_dir), artifact)
+
+    assert database_path(artifact).exists()
+    assert reconciliation_path(artifact).exists()
+    assert reconciliation_path(artifact).parent == artifact
+    # Nothing escapes the bundle: a sibling would not travel with the rename.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["graph"]
+
+
 def test_events_in_different_years_get_distinct_year_nodes(tmp_path):
     _write_snapshot(tmp_path, [
         _deck("d1", "E2024", "2024-03-01T00:00:00+00:00"),
         _deck("d2", "E2026", "2026-02-01T00:00:00+00:00"),
     ])
 
-    counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph.kuzu")
-    conn = kuzu.Connection(kuzu.Database(str(tmp_path / "graph.kuzu")))
+    counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+    conn = kuzu.Connection(kuzu.Database(str(database_path(tmp_path / "graph"))))
 
     assert counts.years == 2
     assert counts.in_year == 2
@@ -138,7 +156,32 @@ def test_event_straddling_two_calendar_years_fails_the_build(tmp_path):
     ])
 
     with pytest.raises(ValueError, match="NYE"):
-        build_graph(load_snapshot(tmp_path), tmp_path / "graph.kuzu")
+        build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+
+
+def test_a_failed_build_leaves_the_bundle_it_was_pointed_at_untouched(
+    tmp_path, snapshot_dir
+):
+    # Everything that can reject the data runs before the bundle is touched, so a
+    # build aimed straight at a live artifact cannot damage it on the way to
+    # failing. Without that ordering a straddle would clear the bundle first and
+    # leave an empty directory where a good graph used to be.
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    before = reconciliation_path(artifact).read_text()
+
+    straddle = tmp_path / "straddle"
+    straddle.mkdir()
+    _write_snapshot(straddle, [
+        _deck("d1", "NYE", "2025-12-31T00:00:00+00:00"),
+        _deck("d2", "NYE", "2026-01-01T00:00:00+00:00"),
+    ])
+
+    with pytest.raises(ValueError, match="NYE"):
+        build_graph(load_snapshot(straddle), artifact)
+
+    assert database_path(artifact).exists()
+    assert reconciliation_path(artifact).read_text() == before
 
 
 def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir):
@@ -230,9 +273,9 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
         "decks": {"d1": {"m": [0], "s": []}},
     }))
 
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
     build_graph(load_snapshot(tmp_path), db_path)
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
+    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
     edges = {
         name: (weight, is_primary)
@@ -274,9 +317,9 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
             engine_label="Izzet Prowess")},
     )
 
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
     build_graph(load_snapshot(tmp_path), db_path, curation)
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
+    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
     # The deck now carries the corrected name and a single Izzet Prowess
     # archetype at full weight; the mistitled Blue Moon tag is gone entirely.
@@ -298,10 +341,10 @@ def _iter(conn, query, params=None):
 
 def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
     snap = load_snapshot(snapshot_dir)
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
     build_graph(snap, db_path)
 
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
+    conn = kuzu.Connection(kuzu.Database(str(database_path(db_path))))
     res = conn.execute(
         "MATCH (d:Deck {deckId: $id})-[:PILOTED_BY]->(p:Pilot) RETURN p.pilot",
         {"id": "BsegXnsDsEWxh-vNbUrn0w"},

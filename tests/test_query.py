@@ -5,6 +5,7 @@ import kuzu
 import pytest
 
 from graph7ph.build import build_graph
+from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     MAX_GEM_SHARE,
@@ -28,9 +29,9 @@ JORDAN_DECKS = {"BsegXnsDsEWxh-vNbUrn0w", "pkUbzmgN3UeqaWdYQYRgRg"}  # Jordan C,
 
 
 def _connect(tmp_path, snapshot_dir):
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), db_path)
-    return kuzu.Connection(kuzu.Database(str(db_path)))
+    return kuzu.Connection(kuzu.Database(str(database_path(db_path))))
 
 
 def _decks_by_card(snapshot_dir):
