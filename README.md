@@ -35,6 +35,12 @@ the previous one retained at `data/graph.backup` for an instant rollback
 (ADR 0003). A build that flags dropped ids or changed historical facts says so
 and writes the detail to `data/graph/ingest.json`.
 
+Restart any `graph7ph app` that was already running: it keeps serving the old
+data, silently. Promotion renames the live directory, so the running app's open
+files still point at the previous artifact, and the dropdown catalogues are read
+once at startup, so new pilots and cards would be missing from them regardless.
+The deploy path handles this on its own, since the Space restarts on upload.
+
 Fetch and build are the only steps that talk upstream. Any credential they need
 belongs to this pipeline environment (a local `.env`, which is gitignored, or the
 CI secret store later): it is never read by the app and never deployed with it.
@@ -84,7 +90,7 @@ On Colab instead:
 ```python
 !git clone https://github.com/AlejandroFuentePinero/graph-7ph.git
 %cd graph-7ph
-!pip install -r requirements.txt
+!pip install .
 # The artifact is not in the repo, so build one (fetch is a few MB, build a minute
 # or two), or upload a prebuilt data/graph bundle next to this notebook instead.
 !graph7ph fetch && graph7ph build

@@ -6,10 +6,13 @@
 # The deploy is assembled in a staging directory and uploaded as one commit, so
 # the Space restarts once, onto a complete artifact. Staging is also what makes
 # the allowlist real: only the files copied below exist to be uploaded, so
-# nothing else in the working tree (.env, snapshots/, the ingestion reports) can
-# ride along, and the pipeline's Moxfield credential stays in the pipeline
-# (ADR 0003). `--delete "*"` clears anything the previous deploy left behind, so
-# a stale index file cannot mix with a freshly built graph.
+# nothing else in the working tree (.env, snapshots/) can ride along, and the
+# pipeline's Moxfield credential stays in the pipeline (ADR 0003). The artifact
+# is the one exception to naming files individually: it is copied whole, so the
+# ingestion reports it carries since #47 (ingest.json, reconciliation.json) do
+# ship to the Space. They restate associations already public on Moxfield.
+# `--delete "*"` clears anything the previous deploy left behind, so a stale
+# index file cannot mix with a freshly built graph.
 set -eu
 
 SPACE="${1:?usage: scripts/deploy_space.sh <user>/<space>}"

@@ -25,7 +25,7 @@ Kind = Literal[
     "Pilot", "Deck", "Card", "Archetype", "Macro", "Event", "Placement", "Intersection"
 ]
 
-# The hidden-gem band, fixed rather than exposed as controls (ADR 0005): the
+# The hidden-gem band, fixed rather than exposed as controls (ADR 0012): the
 # question "which rare cards overperform?" has one answer, not one per dial.
 MIN_GEM_DECKS = 5  # trust floor: an absolute count, so it holds at any slice size
 MAX_GEM_SHARE = 0.10  # rarity ceiling: a share, so it means the same in any slice
@@ -609,7 +609,7 @@ def hidden_gems_subgraph(
     ``MAX_GEM_SHARE`` of the slice, whose mean placement (a normalised rank,
     lower is better) is at most ``MAX_GEM_MEAN_NORM`` (user story 14). The two
     bounds answer different questions, which is why only one of them is a share
-    (ADR 0005): the floor asks "is there enough evidence to trust this?", a
+    (ADR 0012): the floor asks "is there enough evidence to trust this?", a
     property of sample size that does not scale with the meta; the ceiling asks
     "is this still rare?", which is meaningless except relative to the slice.
 
@@ -629,7 +629,7 @@ def hidden_gems_subgraph(
     # share of; no separate counting query, and an archetype nobody ranked in is
     # refused below rather than asked about. That refusal answers to two reasons,
     # and only one is still live. The domain one stands: a slice too small to tell
-    # a rare card from an absent one cannot honestly be asked for gems (ADR 0005),
+    # a rare card from an absent one cannot honestly be asked for gems (ADR 0012),
     # so the refusal itself is permanent. The engine one is dead: it also kept an
     # empty $slice away from Kùzu, which could not infer an empty list parameter's
     # element type and aborted rather than raising. Ladybug returns cleanly on the
@@ -774,7 +774,7 @@ def gem_archetypes(conn: ladybug.Connection) -> list[tuple[str, str]]:
     """``(name, tag)`` for the archetypes whose slice can support a gem claim.
 
     The gem view offers these and no others, so a slice too small to answer is
-    never put to the user as though it might (ADR 0005). Ordered by name, to
+    never put to the user as though it might (ADR 0012). Ordered by name, to
     drop straight into a dropdown. Counts the same population
     ``_ranked_deck_slice`` does, so every tag offered is one the gem query
     accepts; ``test_gem_archetypes_offer_only_the_slices_that_can_answer`` holds

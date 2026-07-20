@@ -64,6 +64,9 @@ def _build(args: argparse.Namespace) -> None:
         print(f"  {multi} id(s) recovered more than one surname (review the report)")
     print(f"  pilot identity: {candidates} candidate(s) to review, {curated} already curated")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
+    # The promotion renamed the directory an already-running app opened, and its
+    # catalogues were read at startup, so it will serve the old graph in silence.
+    print("  restart any running `graph7ph app`: it still serves the old graph")
 
 
 def _baseline(args: argparse.Namespace) -> None:

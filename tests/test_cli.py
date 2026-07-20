@@ -45,6 +45,19 @@ def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
     assert not db.exists()
 
 
+def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
+    # Promotion renames the directory a running app opened, so it goes on serving
+    # the old graph with no error at all. The build is the moment the developer is
+    # standing in, so it is where the restart has to be said (issue #59).
+    _snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
+        ("d1", "2026-01-01T00:00:00+00:00"),
+    ])
+
+    _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
+
+    assert "restart" in capsys.readouterr().out
+
+
 def test_grading_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
     # Running the gate before the graph exists is the likeliest first mistake, and
     # the CLI says what to do rather than spilling an engine traceback.

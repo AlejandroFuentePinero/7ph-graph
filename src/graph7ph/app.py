@@ -138,7 +138,7 @@ def build_app(artifact: Path) -> gr.Blocks:
     pilots = _distinguish(pilot_catalogue(catalogue))
     cards = _distinguish(card_catalogue(catalogue))
     # Only the archetypes whose slice can actually answer the gem question; the
-    # rest would be an invitation to a result we cannot stand behind (ADR 0005).
+    # rest would be an invitation to a result we cannot stand behind (ADR 0012).
     archetypes = _distinguish(gem_archetypes(catalogue))
 
     def explore(view: str, *values: object) -> str:

@@ -767,7 +767,7 @@ def test_min_gem_slice_is_the_smallest_slice_whose_band_is_not_inverted():
     # The guard's whole job is to reject slices where the ceiling has fallen
     # under the floor. It only does that if the smallest slice it admits still
     # has room for a gem, which is a property of the three constants, not of any
-    # data. Pinned because the constants are expected to be tuned (ADR 0005) and
+    # data. Pinned because the constants are expected to be tuned (ADR 0012) and
     # rounding to nearest here would silently re-admit an inverted band.
     assert MAX_GEM_SHARE * MIN_GEM_SLICE >= MIN_GEM_DECKS
     # And it is the *smallest* such slice: one deck fewer must be inverted, or
