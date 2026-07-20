@@ -550,12 +550,16 @@ def _split_event_collisions(
 
     A deck is one pilot's single entry at one event, so two decks under the same
     resolved pilot at the same event are two people who share a name, not one
-    person with two lists (ADR 0004). This applies to every pilot uniformly: for
-    each one, its decks at each event are ordered (best placement first, deck id
-    to break ties) and dealt out one per identity, so identity 1 keeps a full
-    one-per-event record and only genuine same-event duplicates spin off into
-    "<name> 2", "<name> 3", ... The split is an inference the data cannot
-    confirm, so every identity in a split family is marked low confidence.
+    person with two lists (ADR 0004). This applies to every pilot uniformly: its
+    decks are threaded into careers by card-set similarity (issue #34, ADR 0010),
+    so alike decks share a career and each career holds at most one deck per
+    event. There are exactly as many careers as the pilot's deepest same-event
+    collision, so a pilot with no collision stays one node and only genuine
+    duplicates spin off into "<name> 2", "<name> 3", ... Careers are numbered by
+    their earliest deck, so threading is append-stable: stable input yields the
+    same careers and a newly ingested deck joins its thread without renumbering
+    the others. The split is an inference the data cannot confirm, so every
+    identity in a split family is marked low confidence.
 
     Before splitting, a card-identical pair under one resolved id at one event is
     collapsed, not numbered: it only reached one id after a merge or the null-bucket
@@ -581,7 +585,7 @@ def _split_event_collisions(
             for d in extra:
                 del deck_pilot[d.dropped_deck]
             dropped.extend(extra)
-        slot_of = _event_slots(group)
+        slot_of = _thread_careers(group, decklists)
         people_count = max(slot_of.values()) + 1
         base = by_key[key]
         if people_count == 1:
@@ -632,24 +636,119 @@ def _collapse_identical(
     return kept, dropped
 
 
-def _event_slots(decks) -> dict[str, int]:
-    """Deal each deck a slot so no two decks at one event share one.
+def _thread_careers(decks, decklists: dict[str, object] | None) -> dict[str, int]:
+    """Thread a resolved pilot's decks into careers by card-set similarity.
 
-    Within each event the decks are ordered (best placement first, deck id to
-    break ties) and given slots 0, 1, 2..., so a pilot's single entries all land
-    in slot 0 and only true same-event collisions reach into 1 and beyond.
+    A career is one person: one entry per event, playing a recognisable deck
+    over time. Decks are grouped so alike decks share a career and each career
+    holds at most one deck per event. Events are threaded oldest first (smallest
+    deck id first, since ids are assigned in registration order); at each event
+    every deck joins the career it most overlaps, and a deck with no career free
+    (the event runs deeper than the careers so far) opens a new one. The number
+    of careers therefore equals the pilot's deepest same-event collision: a pilot
+    with no collision threads into a single career, untouched.
+
+    Careers are numbered by their earliest deck (smallest deck id). That anchor
+    is what makes the threading append-stable: a later-ingested deck carries a
+    larger id, so within its event it is assigned after the decks already there
+    and can neither displace an incumbent from its career nor move a career's
+    anchor. Stable input therefore yields the same careers and a new deck joins
+    its thread without renumbering the others. Returns each deck id's career
+    index (0-based, anchor-ordered).
     """
+    def cards(deck_id: str) -> frozenset:
+        sig = decklists.get(deck_id) if decklists else None
+        return _card_set(sig) if sig is not None else frozenset()
+
+    card_of = {deck.deck_id: cards(deck.deck_id) for deck in decks}
     by_event: dict[str, list] = {}
     for deck in decks:
         by_event.setdefault(deck.event, []).append(deck)
-    slot_of: dict[str, int] = {}
-    for event_decks in by_event.values():
-        event_decks.sort(
-            key=lambda d: (d.placement is None, d.placement or 0, d.deck_id)
-        )
-        for slot, deck in enumerate(event_decks):
-            slot_of[deck.deck_id] = slot
-    return slot_of
+
+    careers: list[list[str]] = []  # each career is its member deck ids, oldest first
+    for event in sorted(by_event, key=lambda e: min(d.deck_id for d in by_event[e])):
+        _assign_event(sorted(by_event[event], key=lambda d: d.deck_id), careers, card_of)
+
+    order = sorted(range(len(careers)), key=lambda i: min(careers[i]))
+    rank = {orig: new for new, orig in enumerate(order)}
+    return {did: rank[i] for i, ids in enumerate(careers) for did in ids}
+
+
+def _assign_event(event_decks, careers: list[list[str]], card_of: dict[str, frozenset]) -> None:
+    """Assign one event's decks to distinct careers by card overlap.
+
+    Each deck joins the available career it most overlaps (max card-set Jaccard
+    against a member deck, ADR 0005, so a career's signature does not dilute as it
+    grows). A career already holding a deck from this event is not available,
+    keeping one deck per event per career.
+
+    Two cases, because the split deepens only at a *seeding* event (one with more
+    decks than there are careers so far):
+
+    - Not seeding (decks fit inside the existing careers): take decks oldest first,
+      each claiming its best free career. Oldest-first keeps a later-ingested deck
+      append stable -- assigned after the decks already there, it cannot bump an
+      incumbent off its career (ADR 0010).
+    - Seeding: the best-fitting decks claim the existing (accumulated) careers, and
+      the leftover decks open the new ones. Here oldest-first would instead hand an
+      accumulated career to whichever colliding deck sorts first by id, stranding
+      the deck that actually continues that history on a fresh career. There is no
+      incumbent to protect on the new careers, so best-fit is safe (ADR 0010).
+
+    Ties go to the earliest career, then the smallest deck id, for determinism.
+    """
+    n_existing = len(careers)
+    if len(event_decks) <= n_existing:
+        taken: set[int] = set()
+        for deck in event_decks:
+            best, best_overlap = 0, -1.0
+            for ci in range(n_existing):
+                if ci in taken:
+                    continue
+                overlap = max((_jaccard(card_of[deck.deck_id], card_of[m]) for m in careers[ci]), default=0.0)
+                if overlap > best_overlap:
+                    best, best_overlap = ci, overlap
+            careers[best].append(deck.deck_id)
+            taken.add(best)
+        return
+
+    scored = [
+        (max((_jaccard(card_of[deck.deck_id], card_of[m]) for m in careers[ci]), default=0.0),
+         deck.deck_id, ci)
+        for deck in event_decks for ci in range(n_existing)
+    ]
+    scored.sort(key=lambda s: (-s[0], s[1], s[2]))
+    claimed: dict[str, int] = {}
+    taken_careers: set[int] = set()
+    for _, deck_id, ci in scored:
+        if deck_id in claimed or ci in taken_careers:
+            continue
+        claimed[deck_id] = ci
+        taken_careers.add(ci)
+    for deck in event_decks:
+        if deck.deck_id in claimed:
+            careers[claimed[deck.deck_id]].append(deck.deck_id)
+        else:
+            careers.append([deck.deck_id])
+
+
+def _card_set(signature) -> frozenset:
+    """Flatten a deck signature into one card set for overlap scoring.
+
+    The build keys a deck on a (main, side) pair of frozensets; a deck is a set
+    of cards in the singleton format, so the two boards union into one set. A
+    plain tuple of card names (used in tests) flattens the same way.
+    """
+    cards: set = set()
+    for part in signature:
+        cards |= part if isinstance(part, (set, frozenset)) else {part}
+    return frozenset(cards)
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    """Card-set overlap: shared cards over total (ADR 0005). Empty sets score 0."""
+    union = a | b
+    return len(a & b) / len(union) if union else 0.0
 
 
 def _choose_display_name(

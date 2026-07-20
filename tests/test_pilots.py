@@ -440,6 +440,111 @@ def test_no_collision_leaves_the_pilot_untouched():
     assert res.report.event_splits == []
 
 
+# --- Append-stable threading of a split id's decks into careers (issue #34) ---
+
+
+_STORM = frozenset({"grapeshot", "past in flames", "manamorphose"})
+_LANDS = frozenset({"crop rotation", "gitrog monster", "valakut"})
+
+
+def _lists(**by_deck):
+    """Deck signatures in the build's (main, side) shape, side empty."""
+    return {deck_id: (cards, frozenset()) for deck_id, cards in by_deck.items()}
+
+
+def test_split_id_is_threaded_into_careers_by_deck_similarity():
+    # One id fields two decks at each of two events: two people sharing an id.
+    # Placement-rank dealing (ADR 0004) crosses the archetypes into incoherent
+    # careers because the ranks invert between events; threading by card overlap
+    # keeps each person's like decks on one thread (issue #34).
+    decks = [
+        _deck("d1", "P", "1st P - Storm - E1", event="E1", placement=1),
+        _deck("d2", "P", "2nd P - Lands - E1", event="E1", placement=2),
+        _deck("d3", "P", "2nd P - Storm - E2", event="E2", placement=2),
+        _deck("d4", "P", "1st P - Lands - E2", event="E2", placement=1),
+    ]
+    decklists = _lists(d1=_STORM, d2=_LANDS, d3=_STORM, d4=_LANDS)
+
+    res = resolve_pilots(decks, decklists=decklists)
+
+    # The two Storm decks land on one career, the two Lands decks on the other.
+    assert res.deck_pilot["d1"] == res.deck_pilot["d3"]
+    assert res.deck_pilot["d2"] == res.deck_pilot["d4"]
+    assert res.deck_pilot["d1"] != res.deck_pilot["d2"]
+    assert {p.display_name for p in res.pilots} == {"P 1", "P 2"}
+
+
+def test_threading_is_append_stable_and_order_independent():
+    # A career is numbered by its earliest deck, so re-ingesting the same decks
+    # plus a later one keeps every prior deck on its thread and files the
+    # newcomer on the career it resembles, without renumbering (issue #34).
+    lists = _lists(d1=_STORM, d2=_LANDS, d3=_STORM, d4=_LANDS)
+    before = [
+        _deck("d1", "P", "1st P - Storm - E1", event="E1"),
+        _deck("d2", "P", "2nd P - Lands - E1", event="E1"),
+        _deck("d3", "P", "1st P - Storm - E2", event="E2"),
+        _deck("d4", "P", "2nd P - Lands - E2", event="E2"),
+    ]
+    first = resolve_pilots(before, decklists=lists)
+
+    # A later Storm deck at a new event; deck ids grow with registration order.
+    after_decks = before + [_deck("d5", "P", "3rd P - Storm - E3", event="E3")]
+    after_lists = {**lists, "d5": (_STORM, frozenset())}
+    after = resolve_pilots(after_decks, decklists=after_lists)
+
+    prior = ("d1", "d2", "d3", "d4")
+    assert {d: after.deck_pilot[d] for d in prior} == {d: first.deck_pilot[d] for d in prior}
+    assert after.deck_pilot["d5"] == after.deck_pilot["d1"]  # joined the Storm career
+
+    # The same decks in any order thread into the same careers.
+    shuffled = resolve_pilots(list(reversed(after_decks)), decklists=after_lists)
+    assert shuffled.deck_pilot == after.deck_pilot
+
+
+def test_a_late_deck_at_an_existing_event_does_not_displace_an_incumbent():
+    # A deck backfilled onto an event that already split must not bump a deck
+    # already threaded there onto another career: the incumbent chose first, so
+    # the newcomer takes what is left (issue #34, the drift threading must not
+    # merely relocate from placement rank to card overlap).
+    mixed = frozenset({"grapeshot", "past in flames", "crop rotation"})  # closer to Storm
+    before = [
+        _deck("d1", "P", "1st P - Storm - E1", event="E1"),
+        _deck("d2", "P", "2nd P - Lands - E1", event="E1"),
+        _deck("d3", "P", "1st P - Mixed - E2", event="E2"),  # sole E2 deck -> Storm career
+    ]
+    lists = _lists(d1=_STORM, d2=_LANDS, d3=mixed)
+    first = resolve_pilots(before, decklists=lists)
+
+    # A larger-id Storm deck lands on E2, overlapping the Storm career more than d3.
+    after_decks = before + [_deck("d4", "P", "3rd P - Storm - E2", event="E2")]
+    after = resolve_pilots(after_decks, decklists={**lists, "d4": (_STORM, frozenset())})
+
+    assert after.deck_pilot["d3"] == first.deck_pilot["d3"]  # incumbent stayed put
+    assert after.deck_pilot["d4"] != after.deck_pilot["d3"]  # newcomer took the free career
+
+
+def test_seeding_collision_gives_the_accumulated_career_to_the_best_fitting_deck():
+    # At the event that first splits an id, the colliding deck that matches the
+    # pilot's existing history keeps that career even if it has the LARGER deck
+    # id; the odd deck out seeds the new career. Oldest-first alone would hand
+    # the accumulated career to whichever colliding deck sorts first by id,
+    # stranding the real continuation on a fresh career (issue #34 audit).
+    decks = [
+        _deck("d1", "P", "1st P - Storm - E1", event="E1"),  # history, oldest id
+        _deck("d2", "P", "2nd P - Storm - E2", event="E2"),  # more history
+        # collision at E3: d3 (smaller id) is the odd deck; d4 (larger id) matches history
+        _deck("d3", "P", "1st P - Lands - E3", event="E3"),
+        _deck("d4", "P", "2nd P - Storm - E3", event="E3"),
+    ]
+    lists = _lists(d1=_STORM, d2=_STORM, d3=_LANDS, d4=_STORM)
+
+    res = resolve_pilots(decks, decklists=lists)
+
+    # d4 (Storm) joins the accumulated Storm career; d3 (Lands) is the new person.
+    assert res.deck_pilot["d4"] == res.deck_pilot["d1"] == res.deck_pilot["d2"]
+    assert res.deck_pilot["d3"] != res.deck_pilot["d1"]
+
+
 # --- Curation: the human-decision dictionary the build applies (issue #9) ---
 
 
