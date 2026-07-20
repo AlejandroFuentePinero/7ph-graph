@@ -89,9 +89,14 @@ class Case:
 # siblings: a variation that returns byte-identical output to another case grades
 # nothing twice. Editing a case's parameters invalidates the baseline, and
 # `compare` says so rather than grading the new query against the old answer.
+# The variation is over row shape as well as parameters: a pilot who owns one of
+# the 24 decks with no recorded placement is here so that at least one captured
+# row is built from a NULL the engine handed back, which no amount of parameter
+# variation reaches (issue #54).
 CASES: list[Case] = [
     Case("pilot_many_events", PilotNeighbourhood("LuckyTealLynx")),
     Case("pilot_head_to_head", PilotNeighbourhood("LuckyTealLynx", "Michael B")),
+    Case("pilot_unplaced_deck", PilotNeighbourhood("AmberAmberPanda")),
     Case("affinity_many_events", PilotAffinity("LuckyTealLynx")),
     Case("affinity_second_pilot", PilotAffinity("Michael B")),
     Case("usage_staple_any_board", CardUsage("pyroblast")),

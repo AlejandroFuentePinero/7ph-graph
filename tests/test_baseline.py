@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from graph7ph.baseline import (
+    BASELINE_PATH,
     CASES,
     TOLERANCE,
     Case,
@@ -27,6 +28,7 @@ from graph7ph.query import (
     PilotAffinity,
     PilotNeighbourhood,
     Subgraph,
+    _ordinal,
     card_catalogue,
     card_usage_subgraph,
     pilot_catalogue,
@@ -203,6 +205,52 @@ def test_a_captured_subgraph_survives_a_round_trip_through_json():
     assert compare(captured, json.loads(json.dumps(captured)), cases) == []
 
 
+def _checked_in_baseline() -> dict:
+    """The oracle as committed, which is the only place a case's row shape shows."""
+    return json.loads((Path(__file__).parent.parent / BASELINE_PATH).read_text())
+
+
+def _placement_id(deck_node_id: str) -> str:
+    """The placement node ``pilot_subgraph`` hangs off the deck with this node id.
+
+    Built the way ``pilot_subgraph`` builds it, off the bare upstream id both node
+    ids carry, so this follows a change to either prefix instead of guessing.
+    """
+    return f"placement:{deck_node_id.split(':', 1)[1]}"
+
+
+def _unplaced_decks(queries: dict, cases: list[Case]) -> set[tuple[str, str]]:
+    """Deck nodes a capture holds with no ``PLACED`` edge leaving them, as
+    ``(case name, deck node id)``.
+
+    Read only off the pilot-neighbourhood cases, the only query that hangs a
+    placement off a deck at all: the gem view carries decks and emits no ``PLACED``
+    edge for any of them, so counting its decks would report the shape everywhere
+    and prove nothing. A deck reaches a placement only when the engine handed
+    ``d.placement`` back as an integer, so a deck without one is a row that could
+    only be built from a NULL the engine returned as ``None``.
+    """
+    wanted = [c.name for c in cases if isinstance(c.spec, PilotNeighbourhood)]
+    # Named rather than left to raise a KeyError out of the loop below: a case the
+    # baseline has not been captured for is a stale oracle, and this module's own
+    # rule is that a crash and a regression must not look alike (`MalformedBaseline`).
+    absent = sorted(set(wanted) - set(queries))
+    assert not absent, (
+        f"the baseline holds no entry for {absent}: re-capture it with "
+        "`uv run graph7ph baseline --capture`"
+    )
+    found = set()
+    for name in wanted:
+        blob = queries[name]
+        placed = {e["source"] for e in blob["edges"] if e["label"] == "PLACED"}
+        found |= {
+            (name, n["id"])
+            for n in blob["nodes"]
+            if n["kind"] == "Deck" and n["id"] not in placed
+        }
+    return found
+
+
 def test_the_cases_exercise_every_query_and_the_branches_that_matter():
     # A baseline that skips a branch grades the migration on a query nobody ran.
     # Each assertion below is one line of the coverage issue #45 asks for.
@@ -225,6 +273,65 @@ def test_the_cases_exercise_every_query_and_the_branches_that_matter():
     assert {s.drop_lands for s in by_type[CardCooccurrence]} == {True, False}
     # The gem view unfiltered and narrowed to an archetype.
     assert {s.archetype is None for s in by_type[HiddenGems]} == {True, False}
+    # Row shape, not just parameters. Parameter variation alone cannot reach NULL
+    # unmarshalling: every case could return fully-populated rows and this guard
+    # would still pass, so no case would ever ask the engine to hand a NULL back
+    # to Python and a build that read a NULL placement as 0 would print "no
+    # regression" while giving every unplaced deck a fabricated "0th" place
+    # (issue #54). The pilot cases have to differ in whether they own an unplaced
+    # deck, so both marshalling paths are captured.
+    queries = _checked_in_baseline()["queries"]
+    assert {
+        bool(_unplaced_decks(queries, [case]))
+        for case in CASES
+        if isinstance(case.spec, PilotNeighbourhood)
+    } == {True, False}
+
+
+def _as_if_null_marshalled_to_zero(baseline: dict) -> dict:
+    """The same capture as an engine that returned ``0`` for a NULL would build it.
+
+    Every deck the baseline holds with no placement grows the leaf
+    ``pilot_subgraph`` hangs off any deck whose placement is not ``None``. The id
+    and the label come from the query module itself rather than being written out
+    here, so a change to how a placement is named cannot leave this mutant
+    resembling an engine that no longer exists while the test still passes.
+    """
+    mutated = json.loads(json.dumps(baseline))
+    for name, deck_id in _unplaced_decks(mutated["queries"], CASES):
+        blob = mutated["queries"][name]
+        placement_id = _placement_id(deck_id)
+        blob["nodes"].append(
+            {"id": placement_id, "label": _ordinal(0), "kind": "Placement"}
+        )
+        blob["edges"].append(
+            {"source": deck_id, "target": placement_id, "label": "PLACED"}
+        )
+    return mutated
+
+
+def test_an_engine_that_returned_zero_for_a_null_placement_fails_the_gate():
+    # The teeth of the case above. An unplaced deck is only worth capturing if the
+    # oracle notices when the engine stops handing NULLs back as `None`: a build
+    # that read them as 0 would give every unplaced deck a fabricated 0th place,
+    # and that has to read as a regression rather than pass silently (issue #54).
+    baseline = _checked_in_baseline()
+    fabricated = {
+        _placement_id(deck_id)
+        for _name, deck_id in _unplaced_decks(baseline["queries"], CASES)
+    }
+    mutated = _as_if_null_marshalled_to_zero(baseline)
+
+    # Nothing left for the guard to find: this is the fully-populated suite the
+    # spec-parameter guard alone would have waved through.
+    assert _unplaced_decks(mutated["queries"], CASES) == set()
+    # Named by node id, not by the ordinal: the baseline already holds real "10th",
+    # "20th" and "40th" placements, so a substring test for the fabricated label
+    # would also be satisfied by a diff about a deck that placed perfectly legally.
+    diffs = compare(baseline, mutated, CASES)
+    assert fabricated
+    for placement_id in fabricated:
+        assert any(placement_id in diff for diff in diffs), placement_id
 
 
 def test_every_case_is_filed_under_its_own_name():

@@ -28402,6 +28402,106 @@
         }
       ]
     },
+    "pilot_unplaced_deck": {
+      "spec": "PilotNeighbourhood(pilot='AmberAmberPanda', pilot2=None)",
+      "nodes": [
+        {
+          "id": "pilot:AmberAmberPanda",
+          "label": "Connor P",
+          "kind": "Pilot"
+        },
+        {
+          "id": "event:BazaarInvi",
+          "label": "BazaarInvi",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:mevAYRR9OEWtYd3VFiAAlQ",
+          "label": "Rug Kiki Pod",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:mevAYRR9OEWtYd3VFiAAlQ",
+          "label": "17th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:Area52IQ",
+          "label": "Area52IQ",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:fDtwpjhL8Eyc-PTcTvNCiA",
+          "label": "4C Kiki Pod",
+          "kind": "Deck"
+        },
+        {
+          "id": "event:CB5",
+          "label": "CB5",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:CUpS-rJW_06Up8nrboxSrQ",
+          "label": "4c Kikki Pod",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:CUpS-rJW_06Up8nrboxSrQ",
+          "label": "37th",
+          "kind": "Placement"
+        }
+      ],
+      "edges": [
+        {
+          "source": "pilot:AmberAmberPanda",
+          "target": "event:BazaarInvi",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:BazaarInvi",
+          "target": "deck:mevAYRR9OEWtYd3VFiAAlQ",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:mevAYRR9OEWtYd3VFiAAlQ",
+          "target": "placement:mevAYRR9OEWtYd3VFiAAlQ",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:AmberAmberPanda",
+          "target": "event:Area52IQ",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:Area52IQ",
+          "target": "deck:fDtwpjhL8Eyc-PTcTvNCiA",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "pilot:AmberAmberPanda",
+          "target": "event:CB5",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:CB5",
+          "target": "deck:CUpS-rJW_06Up8nrboxSrQ",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:CUpS-rJW_06Up8nrboxSrQ",
+          "target": "placement:CUpS-rJW_06Up8nrboxSrQ",
+          "label": "PLACED",
+          "visible": false
+        }
+      ]
+    },
     "affinity_many_events": {
       "spec": "PilotAffinity(pilot='LuckyTealLynx')",
       "nodes": [
