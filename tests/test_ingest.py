@@ -7,7 +7,6 @@ domain models rather than going through the graph store.
 
 import json
 
-import ladybug
 import pytest
 
 from graph7ph.ingest import (
@@ -22,7 +21,7 @@ from graph7ph.ingest import (
     union_snapshots,
 )
 from graph7ph.build import reconciliation_path
-from graph7ph.db import DB_FILENAME, database_path
+from graph7ph.db import DB_FILENAME, database_path, open_for_reading
 from graph7ph.models import Card, Containment, Deck, Snapshot
 
 
@@ -275,7 +274,7 @@ def _snapshot_files(deck_ids, pilot=None):
 
 
 def _deck_ids(db):
-    conn = ladybug.Connection(ladybug.Database(str(database_path(db))))
+    conn = open_for_reading(db)
     res = conn.execute("MATCH (d:Deck) RETURN d.deckId")
     ids = set()
     while res.has_next():
@@ -384,7 +383,7 @@ def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_pa
 
     assert report.status == "flag"
     assert Flag("changed", "deck", "d1") in report.flags
-    conn = ladybug.Connection(ladybug.Database(str(database_path(db))))
+    conn = open_for_reading(db)
     res = conn.execute("MATCH (p:Pilot) RETURN p.pilot")
     pilots = set()
     while res.has_next():

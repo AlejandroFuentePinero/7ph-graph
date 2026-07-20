@@ -4,7 +4,6 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-import ladybug
 import pytest
 
 from graph7ph.baseline import (
@@ -17,7 +16,7 @@ from graph7ph.baseline import (
     subgraph_blob,
 )
 from graph7ph.build import build_graph, graph_counts
-from graph7ph.db import database_path
+from graph7ph.db import open_for_reading
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     CardCooccurrence,
@@ -48,7 +47,7 @@ def conn(tmp_path_factory):
     """A connection to the tiny fixture snapshot, built once for the module."""
     db_path = tmp_path_factory.mktemp("baseline") / "graph"
     build_graph(load_snapshot(FIXTURES), db_path)
-    return ladybug.Connection(ladybug.Database(str(database_path(db_path))))
+    return open_for_reading(db_path)
 
 
 def _baseline(cases, subgraphs):
@@ -181,7 +180,7 @@ def test_the_counts_read_back_from_an_artifact_match_the_build_that_wrote_it(
     # all 18 counts out of a graph someone else built.
     db_path = tmp_path / "graph"
     built = build_graph(load_snapshot(snapshot_dir), db_path)
-    reopened = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
+    reopened = open_for_reading(db_path)
 
     assert graph_counts(reopened) == built
 

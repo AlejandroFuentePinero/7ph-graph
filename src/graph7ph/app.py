@@ -16,7 +16,7 @@ from pathlib import Path
 import gradio as gr
 import ladybug
 
-from graph7ph.db import database_path
+from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.query import (
     CardCooccurrence,
@@ -133,7 +133,7 @@ def build_app(artifact: Path) -> gr.Blocks:
     # request opens its own over Gradio's worker threads. Read-only lets several
     # readers (and a separate build process) share the file. The artifact is the
     # bundle directory; the database sits inside it (issue #47).
-    db = ladybug.Database(str(database_path(artifact)), read_only=True)
+    db = open_database(artifact, read_only=True)
     catalogue = ladybug.Connection(db)
     pilots = _distinguish(pilot_catalogue(catalogue))
     cards = _distinguish(card_catalogue(catalogue))

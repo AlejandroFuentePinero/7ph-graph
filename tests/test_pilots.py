@@ -831,10 +831,8 @@ def _raw_deck(deck_id, pilot, title):
 def test_build_pilot_nodes_carry_display_name_and_rekey_nulls(tmp_path):
     import json
 
-    import ladybug
-
     from graph7ph.build import build_graph, reconciliation_path
-    from graph7ph.db import database_path
+    from graph7ph.db import open_for_reading
     from graph7ph.models import load_snapshot
 
     _build_snapshot(tmp_path, [
@@ -844,7 +842,7 @@ def test_build_pilot_nodes_carry_display_name_and_rekey_nulls(tmp_path):
     db_path = tmp_path / "graph"
 
     counts = build_graph(load_snapshot(tmp_path), db_path)
-    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
+    conn = open_for_reading(db_path)
 
     # Real pilot keyed on the upstream id, carrying the recovered display name.
     assert counts.pilots == 2

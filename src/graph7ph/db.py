@@ -3,6 +3,7 @@
 import os
 import shutil
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import ladybug
@@ -31,6 +32,58 @@ def database_path(artifact: Path) -> Path:
     engine changes the file inside the bundle, not the bundle's own shape.
     """
     return Path(artifact) / DB_FILENAME
+
+
+def open_database(artifact: Path, *, read_only: bool = False) -> ladybug.Database:
+    """Open the database inside the artifact bundle at ``artifact``.
+
+    The single place a Database is constructed, as :func:`database_path` is the
+    single place the file is named (ADR 0008), so an open option (a buffer pool
+    size, a timeout) is added here rather than at every caller. Readers pass
+    ``read_only=True``, which is what lets several of them share the file with a
+    build rewriting it.
+
+    Returns the Database rather than a Connection because the app shares one
+    Database across requests and opens its own Connection per request. Callers
+    that want both at once want :func:`open_for_writing` or
+    :func:`open_for_reading`.
+
+    Note the limit of this seam: ``app.py`` still constructs its per-request
+    ``ladybug.Connection`` itself, deliberately, so that the per-request model
+    stays visible at the point it matters. A change of engine therefore still
+    touches ``app.py``; only the opening of the database is centralised here.
+    """
+    return ladybug.Database(str(database_path(artifact)), read_only=read_only)
+
+
+def open_for_reading(artifact: Path) -> ladybug.Connection:
+    """A read-only Connection over its own Database, for a one-shot read.
+
+    For callers that read a graph once and are done with it, the CLI's baseline
+    gate being the one in ``src``. Deliberately not what the app uses: the app
+    shares one Database and opens a Connection per request, and this opens a
+    Database of its own per call, so it is the wrong shape to hoist into a
+    request path rather than a convenient one.
+    """
+    return ladybug.Connection(open_database(artifact, read_only=True))
+
+
+@contextmanager
+def open_for_writing(artifact: Path) -> Iterator[ladybug.Connection]:
+    """Open the graph in ``artifact`` for writing, settled again on the way out.
+
+    Ladybug keeps a write-ahead log beside the database while it is open and folds
+    it in when the last Connection to it goes, so a writer that is not closed
+    leaves a torn bundle behind. The Connection is what settles it, not the
+    Database: ``Database.close()`` with a Connection still alive leaves the log
+    sitting there (measured: 317 bytes on 0.18.2), and closing it first does
+    nothing at all. Hence both are context-managed here, unwinding in reverse:
+    Connection, then Database. Unwinding on the way out of a failure too, so an
+    abandoned bundle is left settled rather than mid-write.
+    """
+    Path(artifact).mkdir(parents=True, exist_ok=True)
+    with open_database(artifact) as db, ladybug.Connection(db) as conn:
+        yield conn
 
 
 def remove_artifact(path: Path) -> None:

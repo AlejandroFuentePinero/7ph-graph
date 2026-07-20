@@ -44,8 +44,10 @@ def test_a_build_can_write_while_the_app_holds_the_graph_open_read_only(
     # replay instead. The Connection is what settles that log and not the Database
     # (pinned by tests/test_build.py), so closing the Database alone would leave
     # the log in place and measure exactly the replay this avoids. `with` unwinds
-    # in reverse, closing the Connection first, which is why `build_graph` is
-    # written the same way.
+    # in reverse, closing the Connection first, which is why `db.open_for_writing`
+    # is written the same way. Opened raw rather than through that seam: this
+    # module grades the engine, so it must not read the graph through the wrapper
+    # whose correctness rests on what it measures.
     with ladybug.Database(path) as writer_db, ladybug.Connection(writer_db) as writer:
         writer.execute(
             "CREATE (:Pilot {pilot: 'ghost', displayName: 'Ghost', lowConfidence: false})"

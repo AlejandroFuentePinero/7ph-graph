@@ -6,14 +6,8 @@ import pytest
 
 from graph7ph.build import build_graph, graph_counts, reconciliation_path
 from graph7ph.curation import ArchetypeOverride, Curation
-from graph7ph.db import database_path, rows
+from graph7ph.db import database_path, open_database, open_for_reading, rows
 from graph7ph.models import load_snapshot
-
-
-def _connect(tmp_path, snapshot_dir):
-    db_path = tmp_path / "graph"
-    build_graph(load_snapshot(snapshot_dir), db_path)
-    return ladybug.Connection(ladybug.Database(str(database_path(db_path))))
 
 
 def _scalar(conn, query, params=None):
@@ -78,8 +72,8 @@ def test_build_loads_nodes_and_edges_with_source_counts(snapshot_dir, tmp_path):
     assert counts.in_year == 2         # one per event
 
 
-def test_event_links_to_the_year_its_decks_were_created_in(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_event_links_to_the_year_its_decks_were_created_in(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     assert _scalar(
         conn, "MATCH (:Event {event: 'PogNov25'})-[:IN_YEAR]->(y:Year) RETURN y.year"
@@ -105,7 +99,7 @@ def test_event_spanning_several_days_resolves_to_one_year(tmp_path):
     ])
 
     counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph")
-    conn = ladybug.Connection(ladybug.Database(str(database_path(tmp_path / "graph"))))
+    conn = open_for_reading(tmp_path / "graph")
 
     assert counts.years == 1
     assert counts.in_year == 1
@@ -132,14 +126,14 @@ def test_the_build_writes_the_database_and_its_report_into_one_bundle(
 
 
 def test_the_schema_declares_nine_node_tables_and_nine_relationship_tables(
-    snapshot_dir, tmp_path
+    snapshot_dir, tmp_path, built_graph
 ):
     # The schema DDL carries two names shaped by Kùzu's reserved words, the
     # backticked `Macro` label and `isPrimary` (issue #48). Both parse verbatim on
     # Ladybug and are deliberately left alone, so this holds the whole DDL to the
     # shape it declares rather than trusting that a build which did not raise
     # created every table it asked for.
-    conn = _connect(tmp_path, snapshot_dir)
+    conn = built_graph(tmp_path, snapshot_dir)
 
     kinds = Counter(row[0] for row in rows(conn.execute("CALL show_tables() RETURN type")))
 
@@ -173,7 +167,7 @@ def test_the_build_leaves_a_settled_database_with_no_write_ahead_log(
     )
     # A fresh open sees the same graph the build reported, with nothing left to
     # replay: the counts are readable off the settled file alone.
-    with ladybug.Database(str(database_path(artifact)), read_only=True) as db, \
+    with open_database(artifact, read_only=True) as db, \
             ladybug.Connection(db) as reopened:
         assert graph_counts(reopened) == counts
 
@@ -226,7 +220,7 @@ def test_events_in_different_years_get_distinct_year_nodes(tmp_path):
     ])
 
     counts = build_graph(load_snapshot(tmp_path), tmp_path / "graph")
-    conn = ladybug.Connection(ladybug.Database(str(database_path(tmp_path / "graph"))))
+    conn = open_for_reading(tmp_path / "graph")
 
     assert counts.years == 2
     assert counts.in_year == 2
@@ -273,8 +267,8 @@ def test_a_failed_build_leaves_the_bundle_it_was_pointed_at_untouched(
     assert reconciliation_path(artifact).read_text() == before
 
 
-def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     grixis = "BsegXnsDsEWxh-vNbUrn0w"
 
     # Colour identity is a Deck property (ADR 0002); the atoms are edges.
@@ -303,8 +297,8 @@ def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir
     ) == "CFWAT25"
 
 
-def test_deck_to_archetype_carries_weight_and_primary_flag(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_deck_to_archetype_carries_weight_and_primary_flag(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     grixis = "BsegXnsDsEWxh-vNbUrn0w"
 
     row = conn.execute(
@@ -315,8 +309,8 @@ def test_deck_to_archetype_carries_weight_and_primary_flag(tmp_path, snapshot_di
     assert row == ["Grixis", 100, True]
 
 
-def test_card_links_to_type_and_to_each_pip_colour(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_card_links_to_type_and_to_each_pip_colour(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     # A two-colour card links to each of its colours (issue-3 AC #3).
     strix_colours = {
@@ -364,7 +358,7 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
 
     db_path = tmp_path / "graph"
     build_graph(load_snapshot(tmp_path), db_path)
-    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
+    conn = open_for_reading(db_path)
 
     edges = {
         name: (weight, is_primary)
@@ -408,7 +402,7 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
 
     db_path = tmp_path / "graph"
     build_graph(load_snapshot(tmp_path), db_path, curation)
-    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
+    conn = open_for_reading(db_path)
 
     # The deck now carries the corrected name and a single Izzet Prowess
     # archetype at full weight; the mistitled Blue Moon tag is gone entirely.
@@ -433,7 +427,7 @@ def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
     db_path = tmp_path / "graph"
     build_graph(snap, db_path)
 
-    conn = ladybug.Connection(ladybug.Database(str(database_path(db_path))))
+    conn = open_for_reading(db_path)
     res = conn.execute(
         "MATCH (d:Deck {deckId: $id})-[:PILOTED_BY]->(p:Pilot) RETURN p.pilot",
         {"id": "BsegXnsDsEWxh-vNbUrn0w"},

@@ -17,7 +17,7 @@ import ladybug
 from pydantic import BaseModel
 
 from graph7ph.curation import Curation, load_curation
-from graph7ph.db import database_path, remove_artifact, rows
+from graph7ph.db import open_for_writing, remove_artifact, rows
 from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
 
@@ -109,8 +109,9 @@ def build_graph(
 ) -> BuildCounts:
     """Build a fresh artifact bundle at ``artifact`` and return its counts.
 
-    The bundle is a directory holding the database at :func:`database_path`
-    alongside its reports, so one rename promotes the lot (issue #47). Pilots are
+    The bundle is a directory holding the database, opened through
+    :func:`db.open_for_writing`, alongside its reports, so one rename promotes
+    the lot (issue #47). Pilots are
     resolved to keyed, named nodes, applying the checked-in curation dictionary
     (issue #9); a reconciliation report is written beside the database at
     :func:`reconciliation_path` (ADR 0004). Duplicate registrations the resolution
@@ -129,21 +130,11 @@ def build_graph(
     years = _event_years(snapshot.decks)
 
     remove_artifact(artifact)
-    artifact.mkdir(parents=True, exist_ok=True)
-    db_path = database_path(artifact)
 
-    # Ladybug keeps a write-ahead log beside the database while it is open and
-    # folds it in when the last Connection to it goes, so what gets promoted is a
-    # settled file holding exactly the graph these counts were read out of.
-    #
-    # The Connection is what settles it, not the Database. `Database.close()` with
-    # a Connection still alive leaves the log sitting there (measured: 317 bytes on
-    # 0.18.2), so closing the Database alone is not enough, and closing it first
-    # does nothing at all. This is why both are context-managed: `with` unwinds in
-    # reverse, closing the Connection and then the Database, in that order.
-    # Unwinding on the way out of a failed load too, so an abandoned bundle is left
-    # settled rather than mid-write for whatever inspects it before the next build.
-    with ladybug.Database(str(db_path)) as db, ladybug.Connection(db) as conn:
+    # The write seam settles the write-ahead log on the way out, so what gets
+    # promoted is a settled file holding exactly the graph these counts were read
+    # out of, even if the load below fails partway (see `db.open_for_writing`).
+    with open_for_writing(artifact) as conn:
         for ddl in _SCHEMA:
             conn.execute(ddl)
 
