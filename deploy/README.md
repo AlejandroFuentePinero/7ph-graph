@@ -23,7 +23,7 @@ or co-occurrence, or hidden gems), set filters, and see a filtered subgraph of
 the result. Click a node for its details; a deck links out to Moxfield.
 
 This Space serves a prebuilt graph artifact. It is rebuilt and redeployed by
-hand from [the source repo](https://github.com/AlejandroFuentePinero/graph-7ph),
+hand from [the source repo](https://github.com/AlejandroFuentePinero/7ph-graph),
 so it lags the newest 7phstats events.
 
 Free and non-commercial, per Moxfield's API terms.

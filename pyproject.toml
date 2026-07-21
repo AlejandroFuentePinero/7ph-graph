@@ -2,6 +2,8 @@
 name = "graph7ph"
 version = "0.1.0"
 description = "A knowledge graph of the Australian 7 Point Highlander MTG metagame"
+license = "MIT"
+license-files = ["LICENSE"]
 # Bounded at both ends deliberately, and the ceiling is not what makes an
 # unsupported interpreter fail legibly: Ladybug declares `>=3.10,<3.15` itself and
 # ships cp310-cp314 wheels, so on 3.15 the resolver already refuses at the
