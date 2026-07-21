@@ -88,3 +88,15 @@ Five tickets (#66-#70) were written from a post-migration audit, then each was h
 **What to do.** Treat an audit's numbers as evidence and its readings as hypotheses. Before a finding about prose enters a ticket, open the file and read the surrounding lines: the failure mode is a confident paraphrase of something adjacent to, but not identical to, what is written. And cold-read any ticket set before declaring it ready, because the author cannot see their own inherited assumptions.
 
 Why it matters: this is the fifth entry in one family. The others are about tests proving less than they appear (2026-07-20 golden-gate, and three on 2026-07-21). This one is about prose proving less than it appears, and it has the same root: **this project reasons well and does not make its reasoning falsifiable.** The audit's own convergence diagnosis said so about the 20-issue migration arc, and then the audit did it too.
+
+## 2026-07-21 - What the post-migration audit could not establish
+
+Recorded so that future confidence claims about the Kùzu to Ladybug migration do not overreach. The audit (#45-#65, 223 agents) confirmed 30 findings, but these areas were reasoned about rather than exercised:
+
+- **Nothing was ever run against a real Hugging Face Space.** Every deploy finding comes from reading `scripts/deploy_space.sh` and the staged tree, never from an actual `upload_folder` plus a Space boot. No one has confirmed that a venv built from `requirements.txt` alone can `import app` on Linux/cp312. The AST walk in `tests/test_provenance.py` proves the import closure, not that the three pinned wheels resolve and install.
+- **~400 lines of `pilots.py` fuzzy matching were never audited**, by either the audit or the follow-up cold reads: `name_relation`, `_edits`, `_similar`, `_split_event_collisions`, `_join_identical_names`, `_collapse_identical`. This is the largest unreviewed surface in the repo and it is a `BUILD_INPUT`. #74 came out of a structural check of one of these, not a real review of any.
+- **`baseline/subgraphs.json` was never read whole.** Shape and counts were spot-checked. Whether any individual golden subgraph encodes a pre-existing wrong answer is unknowable without a second oracle.
+- **Every measurement holds for N=2 frozen snapshots.** Retain-old never firing, zero dead curation entries, zero orphan deck ids: none has been observed under data movement, which is exactly the condition under which the #68 and #67 risks fire.
+- **Ladybug's compiled `Connection::query` is not readable.** Only the `.so` ships, so the parameterless thread-safety question cannot be closed from this repo by anyone. See [[kuzu-gotchas]] and #73.
+
+[handoff] The first item is the cheapest to close and the most load-bearing: one real deploy to a scratch Space would settle it.
