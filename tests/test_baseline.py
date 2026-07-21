@@ -463,6 +463,70 @@ def test_a_case_the_baseline_holds_but_nobody_ran_is_a_difference():
     assert "dropped" in diffs[0]
 
 
+def test_a_field_that_became_populated_is_a_difference():
+    # `_row_blob` omits None-valued fields, so a field that starts carrying a value
+    # surfaces purely as an extra key. On the order-exact path with an unchanged row
+    # count, the key-set check in `_same` is the only thing that sees it: comparing
+    # just the baseline's own keys would wave the new field through (issue #58). The
+    # baseline already holds two different key sets under `usage_staple_main.nodes`,
+    # so this is a live shape.
+    cases = [Case("usage", CardUsage("x"))]
+    bare = Subgraph(nodes=[Node("card:x", "X", "Card")], edges=[])
+    populated = Subgraph(nodes=[Node("card:x", "X", "Card", decks=6)], edges=[])
+
+    diffs = compare(_baseline(cases, {"usage": bare}),
+                    _baseline(cases, {"usage": populated}), cases)
+
+    # Named, not just counted: "some difference was reported" would stay green if
+    # the row came back as one removed and one added, which is the wrong report.
+    assert len(diffs) == 1
+    assert "decks" in diffs[0]
+
+
+def test_a_case_whose_parameters_were_edited_is_a_difference():
+    # Editing a case's parameters invalidates its baseline entry: the new query has
+    # never been captured, so grading it against the old query's output is grading
+    # nothing (issue #58). The two sides differ in their rows as well as their spec,
+    # so that a guard which reported the spec and then went on to grade the rows
+    # anyway shows up as a second diff rather than passing unnoticed.
+    cases = [Case("usage", CardUsage("brainstorm"))]
+    baseline = _baseline(
+        [Case("usage", CardUsage("pyroblast"))],
+        {"usage": Subgraph(nodes=[Node("card:pyroblast", "Pyroblast", "Card")], edges=[])},
+    )
+    now = _baseline(
+        cases,
+        {"usage": Subgraph(nodes=[Node("card:brainstorm", "Brainstorm", "Card")], edges=[])},
+    )
+
+    diffs = compare(baseline, now, cases)
+
+    # Each spec pinned to the side it belongs to: a message that reported them the
+    # wrong way round tells the reader to fix whichever end was already right.
+    assert len(diffs) == 1
+    assert "baseline CardUsage(canon='pyroblast'" in diffs[0]
+    assert "now CardUsage(canon='brainstorm'" in diffs[0]
+
+
+def test_a_case_only_one_side_holds_is_reported_not_crashed_on():
+    # A capture missing a case the baseline holds, or holding one it does not, is a
+    # difference to report rather than a TypeError on the way into the spec check:
+    # this module's rule is that a crash and a regression must not look alike.
+    cases = [Case("usage", CardUsage("x"))]
+    present = _baseline(cases, {"usage": Subgraph(nodes=[], edges=[])})
+    absent = {**present, "queries": {}}
+
+    missing_from_baseline = compare(absent, present, cases)
+    missing_from_capture = compare(present, absent, cases)
+
+    # Which side is short is the whole content of the report: named the wrong way
+    # round, it sends whoever is grading the migration to re-capture a good oracle.
+    assert len(missing_from_baseline) == 1
+    assert "missing from the baseline" in missing_from_baseline[0]
+    assert len(missing_from_capture) == 1
+    assert "missing from the capture" in missing_from_capture[0]
+
+
 def test_a_catalogue_only_the_capture_has_is_a_difference():
     before = {**_baseline([], {}), "catalogues": {}}
     after = {**_baseline([], {}), "catalogues": {"decks": [["A", "a"]]}}
