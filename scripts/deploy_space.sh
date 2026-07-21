@@ -54,6 +54,32 @@ if [ -n "$(find "$DB" -name '*.wal')" ]; then
     exit 1
 fi
 
+# The third way a bundle can be unfit to ship, and the only one that leaves a
+# Space that starts and answers: an artifact built from sources this tree has
+# moved past. Change an ingest or curation module, skip the rebuild, deploy, and
+# the Space serves a graph built from code that no longer exists, beside the code
+# that replaced it. The judgement is the package's, not this script's: it is the
+# same `staleness` the baseline gate refuses on (issue #55), asked here so the
+# deploy path is held to the grading path's standard.
+#
+# Run from the repo root, because the digest folds in `curation/pilots.toml` at
+# its relative default, which is why the artifact has to be named absolutely: a
+# relative GRAPH7PH_DB is the caller's, and the probe is not standing where the
+# caller stood. Its own variable rather than reassigning DB, so that the guards
+# above and the `cp -R` below go on naming the artifact the way the caller did.
+ABS_DB=$(CDPATH= cd -- "$DB" && pwd)
+STALE=$(cd "$ROOT" && DB="$ABS_DB" uv run python -c '
+import os
+from pathlib import Path
+from graph7ph.provenance import staleness
+print(staleness(Path(os.environ["DB"])) or "", end="")
+')
+
+if [ -n "$STALE" ]; then
+    echo "Refusing to deploy: $STALE" >&2
+    exit 1
+fi
+
 # The Hub API, not the `hf upload` CLI: that command always calls create_repo
 # first, and the Hub answers 402 to creating a free-tier Gradio Space even when
 # the Space already exists. upload_folder touches no creation endpoint.

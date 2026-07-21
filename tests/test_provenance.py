@@ -3,6 +3,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from graph7ph.build import build_graph
 from graph7ph.curation import Curation
 from graph7ph.models import load_snapshot
@@ -152,6 +154,25 @@ def test_a_half_written_stamp_reads_as_stale_rather_than_crashing(
     artifact = tmp_path / "graph"
     build_graph(load_snapshot(snapshot_dir), artifact)
     provenance_path(artifact).write_text('{"source_digest": "abc"')
+
+    complaint = staleness(artifact)
+    assert complaint is not None
+    assert "graph7ph build" in complaint
+
+
+@pytest.mark.parametrize("payload", ["null", "[]", '"a string"'])
+def test_a_stamp_that_is_not_an_object_reads_as_stale_rather_than_crashing(
+    snapshot_dir, tmp_path, payload
+):
+    # Parsing is not the same question as being a stamp: a file can be perfectly
+    # good JSON and still carry nothing to read fields off. The refusal has to be
+    # the same as for an unparseable one, because the callers are pass/fail steps
+    # where a crash and a refusal must not look alike, and one of them is a shell
+    # script under `set -e` that would abort on a traceback with no message of its
+    # own (issue #63).
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    provenance_path(artifact).write_text(payload)
 
     complaint = staleness(artifact)
     assert complaint is not None

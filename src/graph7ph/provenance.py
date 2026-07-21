@@ -86,12 +86,17 @@ def provenance_path(artifact: Path) -> Path:
 
 
 def staleness(artifact: Path) -> str | None:
-    """Why the bundle at ``artifact`` cannot be graded, or ``None`` if it can.
+    """Why the bundle at ``artifact`` cannot be relied on, or ``None`` if it can.
 
     Returns prose rather than a bool because the answer is only useful if the
     caller can say what is wrong: an artifact built from other sources and an
-    artifact carrying no provenance at all are both ungradeable, for different
+    artifact carrying no provenance at all are both unusable, for different
     reasons and with the same remedy.
+
+    The prose is a fragment, and says nothing about what the caller wanted the
+    bundle for: each supplies its own framing, because the two that ask are
+    asking about the same defect for different ends (the baseline gate refuses
+    to grade it, the deploy script refuses to ship it, issue #63).
     """
     path = provenance_path(artifact)
     if not path.exists():
@@ -99,13 +104,19 @@ def staleness(artifact: Path) -> str | None:
             f"the bundle at {artifact} carries no build provenance "
             "(it predates issue #55): run `uv run graph7ph build` to stamp one"
         )
-    # An unreadable stamp is exactly as ungradeable as a wrong one, and the gate is
-    # a pass/fail step where a crash and a regression must not look alike, so a
+    # An unreadable stamp is exactly as unusable as a wrong one, and both callers
+    # are pass/fail steps where a crash and a refusal must not look alike, so a
     # half-written stamp (`write_text` is not atomic) reads as stale rather than
-    # spilling a traceback. Same reason `get` is used for the fields below.
+    # spilling a traceback. The deploy script is the strict one: it runs this
+    # under `set -e`, where a traceback aborts with no message of its own.
+    # Parsing is not the same question as being a stamp, so both are asked: a file
+    # can be good JSON and still be `null` or a list, with no fields to read off.
+    # Same reason `get` is used for the fields below.
     try:
         recorded = json.loads(path.read_text())
     except json.JSONDecodeError:
+        recorded = None
+    if not isinstance(recorded, dict):
         return (
             f"the bundle at {artifact} carries a build stamp that cannot be read: "
             "run `uv run graph7ph build` to write a fresh one"
@@ -115,7 +126,7 @@ def staleness(artifact: Path) -> str | None:
             f"the bundle at {artifact} was built at "
             f"{recorded.get('built_at', 'an unrecorded time')} from "
             "sources that are not the ones in the working tree: "
-            "run `uv run graph7ph build` before grading it"
+            "run `uv run graph7ph build` before using it"
         )
     return None
 
