@@ -54,3 +54,37 @@ Cross-session insights and handoffs that have no other structured home.
 - The cause every time was an assertion weaker than the guard it pinned. `!= []` and `any(name in d for d in diffs)` are satisfied by any diff about the right case, so neither can see a report that names the wrong side. And the instinct to isolate a guard by making everything else identical (both sides given the same empty rows, so only the spec differed) is exactly what disarms the `continue` beneath it: with no rows left to grade, falling through costs nothing and the mutant survives.
 - **What to do.** Mutate the whole branch, not the predicate: the condition, the message it emits with each interpolation swapped in turn, and the control flow that follows. Assert on the message text rather than on the diff being non-empty, and give the two sides different rows so that a missing `continue` surfaces as a second diff a `len(diffs) == 1` can catch.
 - Why it matters: this is a **scope** failure where the entry above records a **frequency** one ("a mutant must be run to a rate, not to a verdict"). Both are ways a green mutation run claims more coverage than it has, and both got through `/tdd` and `/spec-review`. The concrete cost here is a gate that reports the right regression against the wrong side, sending whoever grades the migration to re-capture an oracle that was already correct.
+
+## 2026-07-21 - Confirmed audit findings that were never ticketed
+
+A full post-migration audit of the Kùzu to Ladybug arc (#45-#65) confirmed 30 findings under 2-of-3 adversarial verification. Five became tickets (#66-#73). The rest are recorded here because they are real, were verified, and otherwise live only in a discarded session transcript.
+
+- **`requirements.txt:9`'s version-coupling promise is enforced by nothing.** It states the pins "must move with uv.lock" because a Ladybug release can change the on-disk storage format. No test, preflight or CI compares them. A three-line test against `importlib.metadata.version("ladybug")` closes both skew directions.
+- **The Space's transitive dependency set is unpinned.** `requirements.txt` names three packages; `uv.lock` locks ~50. Everything gradio pulls in is re-resolved by pip on the Space at image-build time against PyPI as it stands that day. The deployed environment is not reproducible from anything in this repo.
+- **Nothing gates the Space's import closure.** One new `from graph7ph.models import ...` in `query.py` pulls pydantic into the app's import path and kills Space boot with all tests green. The AST-walk technique already exists at `tests/test_provenance.py:50`, just pointed elsewhere.
+- **`provenance.py:63`'s `source_digest` excludes `snapshots/`.** It folds in the six `BUILD_INPUTS` modules plus `curation/pilots.toml`, but not the snapshot data that `ingest()` unions. So a fetched-but-unbuilt snapshot ships silently past #63's staleness preflight. The sorted snapshot directory names alone would catch it.
+- **`scripts/deploy_space.sh:54` discards `find`'s exit status.** `if [ -n "$(find "$DB" -name '*.wal')" ]` uses only the substitution's output, so a `find` that errors having printed nothing is indistinguishable from a clean "no WAL". The guard reports "settled" in both cases.
+- **`deploy_space.sh:88` leaves `huggingface_hub` unpinned** (`uvx --from huggingface_hub`), while depending on two specific behaviours of it: `delete_patterns="*"` clearing the previous deploy, and `.gitattributes` being spared so LFS tracking survives.
+- **`provenance.py:35` does not record the engine version that wrote the bundle.** `uv lock --upgrade` inside pyproject's `>=0.18,<0.19` range can ship an artifact the Space's pinned 0.18.2 may not open.
+- **`app.py:40`'s view dispatch duplicates five string literals with no cross-check** and falls through to `None` silently. Renaming a `_VIEWS` key kills a whole feature with 285 tests passing.
+- **`query.py:403`, single-seed co-occurrence tie-break: ~20% mutant escape rate**, no dedicated test. The two-seed twin beside it is killed 5/5.
+- **`tests/test_deploy.py:135` never asserts what was staged.** Removing `requirements.txt` from the `cp` leaves all six deploy tests green.
+- **`app.py:201`, Hidden gems cannot render in its default state** (342 nodes against a 250 limit) and the control that fixes it is labelled "optional".
+- **`app.py:163`, ~80% of head-to-head pairs return empty** behind a generic "Nothing matched", and head-to-head is the app's initial view.
+- **`render.py:48` re-transmits ~0.77 MB of inlined vis.js on every Explore click**, regardless of result size, on a free-tier Space.
+- **`fetch.py:20-27`: four of six fetched files (12.5 MB, 65% of each snapshot) are read by nothing**, and a 404 on `recommendations.json` kills all data intake with a bare traceback.
+
+[handoff] None of these is ticketed. Triage before the next deploy-touching change; the `source_digest` and `requirements.txt` items are the two that can ship a broken Space silently.
+
+## 2026-07-21 - Audit measurements survive independent checking; audit readings of prose do not
+
+Five tickets (#66-#70) were written from a post-migration audit, then each was handed to a fresh agent that had only the issue text and the repo. **Two came back "cannot implement faithfully", and every one of the five contained factual errors.** The errors were not randomly distributed.
+
+- **Every quantitative claim held, exactly.** 4592 decks, 2278 deck-id inversions (49.6%), 505 decks on 55 low-confidence pilots (11.0%), the 6116-line capture churn, `mktemp -d` at `:90`. Independent re-derivation matched in each case.
+- **Claims about what a comment, doc or ADR *says* failed repeatedly.** A cited coverage gap in `tests/test_deploy.py:143-146` turned out to say close to the opposite of the claim. A README citation pointed at text that `9f01450` had moved to `docs/deploy.md`. An ADR consequence proposed for addition was already at ADR 0011:65. A "~24s" runtime was 1.1s. A row count of "~8937" was ~8562.
+- **The thread-safety citation was wrong for the fourth consecutive time**, in the ticket written to end the cycle of wrong thread-safety claims. Each version cited a real line in `ladybug/connection.py` that does not execute here, because the pybind branch always wins and the C-API `else:` is dead. See [[kuzu-gotchas]] and #73.
+- **Two tickets' central acceptance criteria were unimplementable.** One asked for added/removed/differing diff counts that `check()`'s `list[str]` return cannot produce. One asked for a header comment edit to text that does not exist.
+
+**What to do.** Treat an audit's numbers as evidence and its readings as hypotheses. Before a finding about prose enters a ticket, open the file and read the surrounding lines: the failure mode is a confident paraphrase of something adjacent to, but not identical to, what is written. And cold-read any ticket set before declaring it ready, because the author cannot see their own inherited assumptions.
+
+Why it matters: this is the fifth entry in one family. The others are about tests proving less than they appear (2026-07-20 golden-gate, and three on 2026-07-21). This one is about prose proving less than it appears, and it has the same root: **this project reasons well and does not make its reasoning falsifiable.** The audit's own convergence diagnosis said so about the 20-issue migration arc, and then the audit did it too.
