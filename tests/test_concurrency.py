@@ -71,10 +71,19 @@ def test_many_connections_over_one_shared_database_each_read_the_whole_graph(
     # across Gradio's worker threads. Opening and reading from many at once must
     # give every one of them the complete answer.
     #
-    # Named for what it establishes, not for the design it supports: it does not
-    # show that a *shared* Connection would break, so it cannot catch a refactor
-    # that hoists the connection out of the request path. Connection
-    # thread-safety remains an assumption inherited from the Kùzu era.
+    # Named for what it establishes, not for the design it supports: it says
+    # nothing about a *shared* Connection, so it cannot catch a refactor that
+    # hoists the connection out of the request path. That refactor would be
+    # safe, though. A Ladybug Connection is thread-safe on both its paths, read
+    # off `ladybug/connection.py` on 0.18.2: a parameterized query holds a
+    # `threading.RLock` across prepare, bind and execute, guarding the mutable
+    # bound-value map, over a C++ `mtx` around `executeWithParams`; a
+    # parameterless one takes no Python lock and rests on that C++ mutex alone.
+    #
+    # Settled from the source rather than by measurement, because measurement
+    # cannot settle it in either direction. A shared Connection survives 400
+    # parameterless queries across 16 threads, but a green run is what a locked
+    # path and a lucky racy one look like alike.
     db = ladybug.Database(_built_db_path(tmp_path, snapshot_dir), read_only=True)
     expected = _pilots(ladybug.Connection(db))
 
