@@ -129,10 +129,19 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 
 def build_app(artifact: Path) -> gr.Blocks:
-    # The Database is shared, but a Ladybug Connection is not thread-safe, so each
-    # request opens its own over Gradio's worker threads. Read-only lets several
-    # readers (and a separate build process) share the file. The artifact is the
-    # bundle directory; the database sits inside it (issue #47).
+    # The Database is shared and each request opens its own Connection over
+    # Gradio's worker threads. That is a simplicity choice, not a safety
+    # requirement: a Ladybug Connection *is* thread-safe, so sharing one would
+    # also be correct. Read on 0.18.2 rather than assumed, because this comment
+    # asserted the opposite for a year, inheriting a Kùzu-era belief nothing
+    # rechecked after the swap. A parameterized query holds a `threading.RLock`
+    # across prepare, bind and execute (guarding the bound-value map) over a C++
+    # `mtx` around `executeWithParams`; a parameterless one skips the Python
+    # lock and rests on that same C++ mutex.
+    #
+    # Read-only lets several readers (and a separate build process) share the
+    # file. The artifact is the bundle directory; the database sits inside it
+    # (issue #47).
     db = open_database(artifact, read_only=True)
     catalogue = ladybug.Connection(db)
     pilots = _distinguish(pilot_catalogue(catalogue))
