@@ -98,6 +98,47 @@ def test_grading_against_a_missing_baseline_aborts_cleanly(tmp_path, snapshot_di
     assert "nope.json" in str(exc.value)
 
 
+def test_grading_a_bundle_older_than_the_sources_aborts_instead_of_passing(
+    tmp_path, snapshot_dir, make_stale
+):
+    # The whole point of issue #55. The gate re-runs live queries, so it grades a
+    # query change honestly even against a stale bundle; ingest, build, schema and
+    # curation changes it never executes at all, and would report a green "no
+    # regression" about them. Refusing is the only honest answer, and it must be a
+    # refusal rather than a pass with a warning: a warning above a "no regression"
+    # line is read as noise, which is the failure mode this ticket describes.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    built_at = make_stale(db)
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(argparse.Namespace(
+            db=db, baseline=tmp_path / "baseline.json", capture=False
+        ))
+
+    assert "graph7ph build" in str(exc.value)
+    assert built_at in str(exc.value)
+
+
+def test_capturing_a_baseline_from_a_stale_bundle_aborts_too(
+    tmp_path, snapshot_dir, make_stale
+):
+    # Capturing off a stale artifact is the worse mistake of the two: grading it
+    # yields one bad verdict, but capturing it writes the stale graph into the
+    # checked-in oracle, and every later run grades against the wrong answer.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    make_stale(db)
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(argparse.Namespace(
+            db=db, baseline=tmp_path / "baseline.json", capture=True
+        ))
+
+    assert "graph7ph build" in str(exc.value)
+    assert not (tmp_path / "baseline.json").exists()
+
+
 def test_a_baseline_missing_a_section_aborts_cleanly(tmp_path, snapshot_dir):
     # The gate is meant to be invoked by later tickets, and --baseline takes any
     # path: a malformed oracle must read as a bad baseline, not as a crash.

@@ -163,7 +163,7 @@ def test_the_build_leaves_a_settled_database_with_no_write_ahead_log(
     # Named through `database_path`, so the database stays named in one place
     # (ADR 0008) and a later engine swap moves this test with it.
     assert sorted(p.name for p in artifact.iterdir()) == sorted(
-        [database_path(artifact).name, "reconciliation.json"]
+        [database_path(artifact).name, "reconciliation.json", "provenance.json"]
     )
     # A fresh open sees the same graph the build reported, with nothing left to
     # replay: the counts are readable off the settled file alone.

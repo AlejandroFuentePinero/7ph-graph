@@ -10,7 +10,9 @@
 # pipeline's Moxfield credential stays in the pipeline (ADR 0003). The artifact
 # is the one exception to naming files individually: it is copied whole, so the
 # ingestion reports it carries since #47 (ingest.json, reconciliation.json) do
-# ship to the Space. They restate associations already public on Moxfield.
+# ship to the Space. They restate associations already public on Moxfield. The
+# build stamp added by #55 (provenance.json) ships too, carrying a digest of the
+# sources and a build time, neither of which says anything about anyone.
 # `--delete "*"` clears anything the previous deploy left behind, so a stale
 # index file cannot mix with a freshly built graph.
 set -eu

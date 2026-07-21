@@ -20,6 +20,7 @@ from graph7ph.curation import Curation, load_curation
 from graph7ph.db import open_for_writing, remove_artifact, rows
 from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
+from graph7ph.provenance import stamp
 
 _SCHEMA = [
     # A Pilot is keyed on the upstream id; displayName is a recovered label and
@@ -122,6 +123,11 @@ def build_graph(
     half-made bundle behind and cannot damage an artifact it was pointed at.
     """
     artifact = Path(artifact)
+    # Whether the dictionary came off disk decides what the bundle can claim: a
+    # curation handed in by a caller is reproducible from no state of the working
+    # tree, so the stamp below records no digest rather than the digest of a file
+    # this build never read.
+    from_disk = curation is None
     curation = curation if curation is not None else load_curation()
     snapshot = _apply_deck_archetypes(snapshot, curation)
     pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
@@ -144,6 +150,10 @@ def build_graph(
         reconciliation_path(artifact).write_text(
             json.dumps(asdict(pilots.report), indent=2)
         )
+        # Stamped here rather than in `ingest`, so every path that seals a bundle
+        # seals a self-describing one, and the baseline gate can tell whether the
+        # artifact it is about to grade came from the code standing here (#55).
+        stamp(artifact, reproducible=from_disk)
         return graph_counts(conn)
 
 

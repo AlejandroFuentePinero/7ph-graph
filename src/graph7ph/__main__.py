@@ -13,6 +13,7 @@ from graph7ph.build import YearStraddle, reconciliation_path
 from graph7ph.db import artifact_path, database_path, open_for_reading
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
+from graph7ph.provenance import staleness
 
 # Build outputs live under data/, not the repo root: the graph and its sidecar
 # reports are derived artifacts, kept out of the working tree's top level.
@@ -77,6 +78,13 @@ def _baseline(args: argparse.Namespace) -> None:
     # not yet a graph: the database inside it is what can be graded.
     if not database_path(args.db).exists():
         raise SystemExit(f"No graph at {args.db}: run `uv run graph7ph build` first.")
+    # An artifact built from other sources cannot be graded at all: the gate re-runs
+    # the queries live, so a query change is graded honestly, but an ingest, build,
+    # schema or curation change never runs, and grading would report "no regression"
+    # about code the artifact predates (issue #55). Checked before --capture too,
+    # since capturing from a stale graph writes the wrong answer into the oracle.
+    if (complaint := staleness(args.db)) is not None:
+        raise SystemExit(f"Cannot grade: {complaint}.")
     # Read-only, so the gate can grade an artifact the app is already serving.
     conn = open_for_reading(args.db)
     if args.capture:

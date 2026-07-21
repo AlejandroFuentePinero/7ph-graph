@@ -117,6 +117,14 @@ uv run graph7ph baseline            # grade the built graph, non-zero on any dif
 uv run graph7ph baseline --capture  # rewrite the baseline from the built graph
 ```
 
+Both forms refuse outright on an artifact the working tree has moved past. The
+gate re-runs the queries live, so a query change is graded honestly against any
+artifact, but ingest, build, schema and curation changes live *inside* the
+artifact: change one, skip the rebuild, and a gate that graded anyway would
+report "no regression" about code it never ran (issue #55). Each build stamps
+`data/graph/provenance.json` with a digest of the sources it was built from, and
+the gate compares that against the sources standing here. Rebuild to clear it.
+
 Rows are compared under each query's own rule: order-exact where the query sorts
 before emitting, order-insensitive for the two that do not, and floats within a
 tolerance, because aggregation order changes the last bits of a mean between
