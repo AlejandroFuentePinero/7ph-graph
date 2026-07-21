@@ -88,9 +88,7 @@ def _baseline(args: argparse.Namespace) -> None:
     # Read-only, so the gate can grade an artifact the app is already serving.
     conn = open_for_reading(args.db)
     if args.capture:
-        args.baseline.parent.mkdir(parents=True, exist_ok=True)
-        args.baseline.write_text(json.dumps(capture(conn), indent=2) + "\n")
-        print(f"Captured the baseline from {args.db} into {args.baseline}")
+        _capture(conn, args)
         return
 
     try:
@@ -105,6 +103,43 @@ def _baseline(args: argparse.Namespace) -> None:
             print(f"  {line}")
         raise SystemExit(1)
     print(f"{args.db} reproduces {args.baseline}: no regression.")
+
+
+def _write_baseline(conn, args: argparse.Namespace) -> None:
+    args.baseline.parent.mkdir(parents=True, exist_ok=True)
+    args.baseline.write_text(json.dumps(capture(conn), indent=2) + "\n")
+    print(f"Captured the baseline from {args.db} into {args.baseline}")
+
+
+def _capture(conn, args: argparse.Namespace) -> None:
+    # Recapturing overwrites the checked-in oracle wholesale, and the diff is too
+    # large to read (issue #67). So at exactly the moment the data moves and the
+    # gate goes red, a blind --capture would rubber-stamp any real regression along
+    # with it. Grade against the existing baseline first, and refuse to overwrite a
+    # differing or ungradeable one unless --force says so out loud.
+    try:
+        diffs = check(conn, args.baseline)
+    except FileNotFoundError:
+        # No oracle yet: the first capture has nothing to override.
+        _write_baseline(conn, args)
+        return
+    except MalformedBaseline as exc:
+        # A corrupt-but-nearly-good oracle is the worst thing to overwrite silently:
+        # a refusal requiring --force, not a clean slate.
+        if not args.force:
+            raise SystemExit(
+                f"The baseline at {args.baseline} cannot be graded against: {exc}. "
+                f"Pass --force to overwrite it."
+            )
+        _write_baseline(conn, args)
+        return
+    if diffs and not args.force:
+        raise SystemExit(
+            f"{len(diffs)} difference(s) against {args.baseline}; recapturing would "
+            f"overwrite the oracle. Pass --force to overwrite it anyway."
+        )
+    print(f"{len(diffs)} difference(s) against {args.baseline}.")
+    _write_baseline(conn, args)
 
 
 def _app(args: argparse.Namespace) -> None:
@@ -133,6 +168,10 @@ def main() -> None:
     p_baseline.add_argument("--baseline", type=Path, default=BASELINE_PATH)
     p_baseline.add_argument(
         "--capture", action="store_true", help="Rewrite the baseline from this graph"
+    )
+    p_baseline.add_argument(
+        "--force", action="store_true",
+        help="With --capture, overwrite a baseline that differs or cannot be graded",
     )
     p_baseline.set_defaults(func=_baseline)
 

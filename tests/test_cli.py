@@ -1,11 +1,14 @@
 import argparse
+import functools
 import json
 
 import pytest
 
+from graph7ph import baseline as bl
 from graph7ph.__main__ import _baseline, _build
 from graph7ph.build import build_graph
 from graph7ph.models import load_snapshot
+from graph7ph.query import HiddenGems
 
 
 def _snapshot(path, decks):
@@ -159,6 +162,152 @@ def test_capturing_a_baseline_from_a_stale_bundle_aborts_too(
 
     assert "graph7ph build" in str(exc.value)
     assert not (tmp_path / "baseline.json").exists()
+
+
+def _ns(**kwargs):
+    # Every --capture Namespace now needs `force`; default it off so each test
+    # names only the flag it exercises.
+    return argparse.Namespace(**{"capture": False, "force": False, **kwargs})
+
+
+@pytest.fixture
+def small_cases(monkeypatch):
+    """Point the CLI's grader at the cases the 3-deck fixture can actually run.
+
+    The full CASES include the two hidden-gem views, which need >=50 ranked decks
+    and raise SliceTooSmall on the fixture. Issue #67 is capture-path orchestration
+    (grade, count, refuse unless --force), indifferent to which cases run, so the
+    tests drive the real grader and real capture over the subset the fixture
+    supports rather than mocking either. Grading correctness lives in
+    test_baseline.py.
+    """
+    subset = [c for c in bl.CASES if not isinstance(c.spec, HiddenGems)]
+    monkeypatch.setattr("graph7ph.__main__.check", functools.partial(bl.check, cases=subset))
+    monkeypatch.setattr("graph7ph.__main__.capture", functools.partial(bl.capture, cases=subset))
+
+
+def test_capture_over_a_differing_baseline_refuses_and_leaves_it_unchanged(
+    tmp_path, snapshot_dir, small_cases
+):
+    # The whole point of issue #67: at the moment the data moves the baseline goes
+    # red wholesale, and a blind --capture would rubber-stamp a real regression.
+    # A differing baseline is overwrite-refused unless --force, and refusing must
+    # not touch the file at all.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    tampered = json.loads(baseline.read_text())
+    tampered["counts"]["pilots"] += 1
+    baseline.write_text(json.dumps(tampered, indent=2) + "\n")
+    before = baseline.read_bytes()
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert "--force" in str(exc.value)
+    assert baseline.read_bytes() == before
+
+
+def test_first_capture_writes_without_force(tmp_path, snapshot_dir, small_cases):
+    # With no oracle on disk there is nothing to grade or override, so the first
+    # capture is a plain write (issue #67).
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert "catalogues" in json.loads(baseline.read_text())
+
+
+def test_capture_over_an_identical_baseline_succeeds(
+    tmp_path, snapshot_dir, small_cases, capsys
+):
+    # Capture is non-deterministic (row order and float drift, research-log), so
+    # "identical" is check finding no diffs, not byte-identical files. A clean
+    # recapture must still be allowed without --force.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    capsys.readouterr()
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert "0 difference(s)" in capsys.readouterr().out
+
+
+def test_force_over_a_differing_baseline_writes_and_reports_the_count(
+    tmp_path, snapshot_dir, small_cases, capsys
+):
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    tampered = json.loads(baseline.read_text())
+    tampered["counts"]["pilots"] += 1
+    baseline.write_text(json.dumps(tampered, indent=2) + "\n")
+    before = baseline.read_bytes()
+    capsys.readouterr()
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True, force=True))
+
+    # --force writes regardless, and still names a non-zero count it overrode.
+    # Not the exact number: that would pin every non-count capture field to be
+    # byte-stable across the two captures, which is more than this test asserts.
+    out = capsys.readouterr().out
+    assert "difference(s)" in out and "0 difference(s)" not in out
+    assert baseline.read_bytes() != before
+
+
+def test_capture_over_a_malformed_baseline_refuses_without_force(
+    tmp_path, snapshot_dir, small_cases
+):
+    # A corrupt-but-nearly-good oracle is the failure this ticket exists to
+    # prevent: it must read as a refusal requiring --force, not as a missing
+    # baseline, and nothing is written.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "partial.json"
+    baseline.write_text(json.dumps({"counts": {}, "queries": {}}))
+    before = baseline.read_bytes()
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert "--force" in str(exc.value)
+    assert baseline.read_bytes() == before
+
+
+def test_capture_over_an_unparseable_baseline_refuses_without_force(
+    tmp_path, snapshot_dir, small_cases
+):
+    # An empty or truncated baseline (an interrupted write) will not parse as JSON.
+    # It is as unusable an oracle as one missing a section, so it refuses the same
+    # way rather than crashing with a traceback (issue #67).
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "corrupt.json"
+    baseline.write_text('{"counts": {')
+    before = baseline.read_bytes()
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert "--force" in str(exc.value)
+    assert baseline.read_bytes() == before
+
+
+def test_force_over_a_malformed_baseline_writes(tmp_path, snapshot_dir, small_cases):
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "partial.json"
+    baseline.write_text(json.dumps({"counts": {}, "queries": {}}))
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True, force=True))
+
+    assert "catalogues" in json.loads(baseline.read_text())
 
 
 def test_a_baseline_missing_a_section_aborts_cleanly(tmp_path, snapshot_dir):
