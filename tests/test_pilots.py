@@ -569,7 +569,7 @@ def test_curated_merge_collapses_ids_carrying_every_deck():
     assert res.report.curated == 1  # the confirmed merge counts as a decision made
 
 
-def test_split_keeps_two_same_name_ids_apart(tmp_path):
+def test_split_keeps_two_same_name_ids_apart():
     # Two different people both recover "James L" at different events: the
     # identical-name join (ADR 0007) would fuse them into one node. A [[split]]
     # naming the two ids overrides the join, keeping them two people. Logged.
@@ -811,7 +811,7 @@ def _build_snapshot(tmp_path, decks):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "priceUsd": 0.5, "points": 0}],
+                   "points": 0}],
         "decks": {d["deckId"]: {"m": [0], "s": []} for d in decks},
     }))
 

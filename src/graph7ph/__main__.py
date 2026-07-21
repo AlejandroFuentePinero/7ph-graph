@@ -10,7 +10,7 @@ from pathlib import Path
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import YearStraddle, reconciliation_path
-from graph7ph.db import artifact_path, database_path, open_for_reading
+from graph7ph.db import NotABundle, artifact_path, database_path, open_for_reading
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 from graph7ph.provenance import staleness
@@ -31,7 +31,7 @@ def _build(args: argparse.Namespace) -> None:
     # then promotes atomically with a retained backup (ADR 0003).
     try:
         report, counts = ingest(args.snapshots, args.db)
-    except (SchemaError, YearStraddle) as exc:
+    except (SchemaError, YearStraddle, NotABundle) as exc:
         raise SystemExit(f"Build aborted, live graph untouched: {exc}")
 
     print(f"Built {args.db} ({report.status}):")

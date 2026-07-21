@@ -13,6 +13,30 @@ DEFAULT_ARTIFACT_PATH = Path("data/graph")
 DB_FILENAME = "graph.ladybug"
 
 
+class NotABundle(ValueError):
+    """A path the artifact bundle should occupy is a regular file instead.
+
+    Raised before anything is written, so the live graph is untouched and the
+    file itself is left alone. The CLI reports it as an abort rather than a
+    crash, alongside ``SchemaError`` and ``YearStraddle``: all three mean the
+    build cannot honestly proceed (ADR 0003).
+    """
+
+
+def _require_bundle_path(path: Path) -> Path:
+    """``path`` as a Path, refused by name if something that is not a bundle is there.
+
+    A bundle is a directory. Every operation that clears, creates or renames one
+    goes through here first, so a stray regular file is refused identically
+    wherever it turns up rather than surfacing as whichever errno that particular
+    syscall happens to raise (issue #52).
+    """
+    path = Path(path)
+    if path.exists() and not path.is_dir():
+        raise NotABundle(f"{path} is a file, not an artifact bundle directory")
+    return path
+
+
 def artifact_path() -> Path:
     """Where the graph artifact lives: ``$GRAPH7PH_DB``, or the default.
 
@@ -81,7 +105,7 @@ def open_for_writing(artifact: Path) -> Iterator[ladybug.Connection]:
     Connection, then Database. Unwinding on the way out of a failure too, so an
     abandoned bundle is left settled rather than mid-write.
     """
-    Path(artifact).mkdir(parents=True, exist_ok=True)
+    _require_bundle_path(artifact).mkdir(parents=True, exist_ok=True)
     with open_database(artifact) as db, ladybug.Connection(db) as conn:
         yield conn
 
@@ -90,13 +114,14 @@ def remove_artifact(path: Path) -> None:
     """Clear an artifact bundle (live, incoming, or backup), if it is there.
 
     The database and any write-ahead log it leaves behind live inside the bundle,
-    so clearing the bundle clears them with it. Tolerates a plain file at ``path``,
-    which is what a pre-#47 artifact becomes once the engine writes a single file.
+    so clearing the bundle clears them with it. A regular file at ``path`` is not
+    a bundle this ever made, so it is refused rather than deleted: clearing a
+    bundle is not a licence to delete whatever else is standing there (issue #52).
+    Refusing here is also what keeps :func:`ingest.promote` honest, since it
+    clears the backup path immediately before renaming the live bundle onto it.
     """
-    if path.is_dir():
+    if _require_bundle_path(path).is_dir():
         shutil.rmtree(path)
-    elif path.exists():
-        path.unlink()
 
 
 def rows(result: ladybug.QueryResult) -> Iterator[list]:

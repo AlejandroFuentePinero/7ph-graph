@@ -22,7 +22,7 @@ def _snapshot(path, decks):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "priceUsd": 0.5, "points": 0}],
+                   "points": 0}],
         "decks": {d: {"m": [0], "s": []} for d, _ in decks},
     }))
 
@@ -43,6 +43,28 @@ def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
     assert "Build aborted, live graph untouched" in str(exc.value)
     assert "NYE" in str(exc.value)
     assert not db.exists()
+
+
+def test_a_file_blocking_the_bundle_path_aborts_cleanly(tmp_path):
+    # The other way a build cannot honestly proceed: a regular file sitting where
+    # a bundle directory has to go. The build stages into `<artifact>.incoming`,
+    # so that is the path a stray file actually blocks (issue #52). Same abort
+    # shape as unbuildable data: a sentence naming the path, not a traceback.
+    _snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
+        ("d1", "2026-01-01T00:00:00+00:00"),
+    ])
+    db = tmp_path / "graph"
+    blocked = tmp_path / "graph.incoming"
+    blocked.write_text("stray")
+
+    with pytest.raises(SystemExit) as exc:
+        _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=db))
+
+    assert "Build aborted, live graph untouched" in str(exc.value)
+    assert str(blocked) in str(exc.value)
+    # Neither the live path nor the file in the way is touched by the refusal.
+    assert not db.exists()
+    assert blocked.read_text() == "stray"
 
 
 def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):

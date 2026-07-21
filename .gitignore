@@ -21,30 +21,17 @@ data/graph/
 data/graph.backup/
 data/graph.incoming/
 
-# The last Kùzu-format artifact, kept aside by the engine swap (issue #48). The
-# retained `.backup` is no rollback once the dependency is gone, because nothing
-# in the tree can read Kùzu any more: rolling back means rolling the code back
-# too, and `git show <pre-#48>:requirements.txt` is the environment to do it with.
-# Delete this once #49 confirms parity.
-data/graph.premigration/
-
 # The bundle's own members, by name, so a bundle built anywhere else (GRAPH7PH_DB
 # pointed at another path) is ignored too and not just the default one. Matching
-# on the name rather than the location is what the old `*.kuzu` rule gave us for
-# free, back when the artifact's own name carried the engine's suffix. The engine
-# swap adds its database name here beside `*.kuzu`.
-*.kuzu
+# on the name rather than the location is what keeps that true wherever the
+# bundle is built. `*.ladybug.wal` is not redundant with `*.ladybug`: a glob
+# matches the whole basename, so the latter does not cover `graph.ladybug.wal`.
 *.ladybug
 *.ladybug.wal
 ingest.json
 reconciliation.json
 
-# The pre-#47 layout, where the artifact was the Kùzu directory itself. Kept so a
-# tree built before the bundle change stays ignored until it is rebuilt.
-*.kuzu.bak
-*.kuzu.backup/
-*.kuzu.ingest.json
-*.kuzu.reconciliation.json
+# Local scratch space, never shared.
 scratch/
 
 # Agent config (local, not shared)

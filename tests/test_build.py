@@ -34,7 +34,7 @@ def _write_snapshot(path, decks):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "priceUsd": 0.5, "points": 0}],
+                   "points": 0}],
         "decks": {d["deckId"]: {"m": [0], "s": []} for d in decks},
     }))
 
@@ -81,11 +81,10 @@ def test_event_links_to_the_year_its_decks_were_created_in(tmp_path, snapshot_di
 
     # Every Event links to exactly one Year (issue-26 AC #1): min and max both,
     # since min alone would miss an Event that had picked up two.
-    assert list(_iter(
-        conn,
+    assert list(rows(conn.execute(
         "MATCH (e:Event) OPTIONAL MATCH (e)-[:IN_YEAR]->(y:Year) "
         "WITH e, count(y) AS n RETURN min(n), max(n)",
-    )) == [[1, 1]]
+    ))) == [[1, 1]]
 
 
 def test_event_spanning_several_days_resolves_to_one_year(tmp_path):
@@ -120,7 +119,6 @@ def test_the_build_writes_the_database_and_its_report_into_one_bundle(
 
     assert database_path(artifact).exists()
     assert reconciliation_path(artifact).exists()
-    assert reconciliation_path(artifact).parent == artifact
     # Nothing escapes the bundle: a sibling would not travel with the rename.
     assert sorted(p.name for p in tmp_path.iterdir()) == ["graph"]
 
@@ -128,11 +126,11 @@ def test_the_build_writes_the_database_and_its_report_into_one_bundle(
 def test_the_schema_declares_nine_node_tables_and_nine_relationship_tables(
     snapshot_dir, tmp_path, built_graph
 ):
-    # The schema DDL carries two names shaped by Kùzu's reserved words, the
-    # backticked `Macro` label and `isPrimary` (issue #48). Both parse verbatim on
-    # Ladybug and are deliberately left alone, so this holds the whole DDL to the
-    # shape it declares rather than trusting that a build which did not raise
-    # created every table it asked for.
+    # The schema DDL carries two names that read as odd out of context, the
+    # backticked `Macro` label and `isPrimary`, both inherited from the previous
+    # engine's reserved words and kept deliberately (see `build.py`, ADR 0011).
+    # This holds the whole DDL to the shape it declares rather than trusting that
+    # a build which did not raise created every table it asked for.
     conn = built_graph(tmp_path, snapshot_dir)
 
     kinds = Counter(row[0] for row in rows(conn.execute("CALL show_tables() RETURN type")))
@@ -224,8 +222,8 @@ def test_events_in_different_years_get_distinct_year_nodes(tmp_path):
 
     assert counts.years == 2
     assert counts.in_year == 2
-    assert dict(_iter(conn,
-        "MATCH (e:Event)-[:IN_YEAR]->(y:Year) RETURN e.event, y.year")) == {
+    assert dict(rows(conn.execute(
+        "MATCH (e:Event)-[:IN_YEAR]->(y:Year) RETURN e.event, y.year"))) == {
         "E2024": 2024, "E2026": 2026}
 
 
@@ -278,9 +276,9 @@ def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir
 
     colours = {
         r[0]
-        for r in _iter(conn,
+        for r in rows(conn.execute(
             "MATCH (:Deck {deckId: $id})-[:DECK_COLOUR]->(c:Colour) RETURN c.colour",
-            {"id": grixis})
+            {"id": grixis}))
     }
     assert colours == {"U", "B", "R"}
 
@@ -315,9 +313,9 @@ def test_card_links_to_type_and_to_each_pip_colour(tmp_path, snapshot_dir, built
     # A two-colour card links to each of its colours (issue-3 AC #3).
     strix_colours = {
         r[0]
-        for r in _iter(conn,
+        for r in rows(conn.execute(
             "MATCH (:Card {canon: 'baleful strix'})-[:CARD_COLOUR]->(c:Colour) "
-            "RETURN c.colour")
+            "RETURN c.colour"))
     }
     assert strix_colours == {"U", "B"}
 
@@ -352,7 +350,7 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "priceUsd": 0.5, "points": 0}],
+                   "points": 0}],
         "decks": {"d1": {"m": [0], "s": []}},
     }))
 
@@ -362,9 +360,9 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
 
     edges = {
         name: (weight, is_primary)
-        for name, weight, is_primary in _iter(conn,
+        for name, weight, is_primary in rows(conn.execute(
             """MATCH (:Deck {deckId: 'd1'})-[r:HAS_ARCHETYPE]->(a:Archetype)
-               RETURN a.name, r.weight, r.isPrimary""")
+               RETURN a.name, r.weight, r.isPrimary"""))
     }
     # Each archetype keeps its own weight; only the primary tag is flagged.
     assert edges == {"Grixis": (70, True), "Control": (30, False)}
@@ -390,7 +388,7 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "priceUsd": 0.5, "points": 0}],
+                   "points": 0}],
         "decks": {"d1": {"m": [0], "s": []}},
     }))
     curation = Curation(
@@ -409,17 +407,11 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
     assert _scalar(conn, "MATCH (d:Deck {deckId: 'd1'}) RETURN d.deckName") == "UR Prowess"
     edges = {
         name: (weight, is_primary)
-        for name, weight, is_primary in _iter(conn,
+        for name, weight, is_primary in rows(conn.execute(
             """MATCH (:Deck {deckId: 'd1'})-[r:HAS_ARCHETYPE]->(a:Archetype)
-               RETURN a.name, r.weight, r.isPrimary""")
+               RETURN a.name, r.weight, r.isPrimary"""))
     }
     assert edges == {"Izzet Prowess": (100, True)}
-
-
-def _iter(conn, query, params=None):
-    res = conn.execute(query, params or {})
-    while res.has_next():
-        yield res.get_next()
 
 
 def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
@@ -434,14 +426,10 @@ def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
     )
     assert res.get_next()[0] == "Jordan C"
 
-    res = conn.execute(
+    by_board = dict(rows(conn.execute(
         "MATCH (:Deck {deckId: $id})-[c:CONTAINS]->(:Card) "
         "RETURN c.board, count(*) ORDER BY c.board",
         {"id": "BsegXnsDsEWxh-vNbUrn0w"},
-    )
-    rows = {}
-    while res.has_next():
-        board, n = res.get_next()
-        rows[board] = n
+    )))
     # 60 Main + 15 Side for this deck.
-    assert rows == {"Main": 60, "Side": 15}
+    assert by_board == {"Main": 60, "Side": 15}

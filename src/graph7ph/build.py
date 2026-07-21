@@ -35,10 +35,13 @@ _SCHEMA = [
         reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
     "CREATE NODE TABLE Event(event STRING, eventId STRING, eventType STRING, PRIMARY KEY(event))",
     "CREATE NODE TABLE Archetype(tag STRING, name STRING, PRIMARY KEY(tag))",
-    # `Macro` was a Kùzu reserved keyword, so the label is backtick-escaped
-    # everywhere and its value lives on `name` (not a reserved `macro` column).
-    # Ladybug parses the escaped form verbatim, so the name stays as it is: a
-    # rename would be churn against the migration's no-regression promise (#48).
+    # The `Macro` label is backtick-escaped everywhere and its value lives on
+    # `name` rather than a `macro` column. Both shapes are inherited from the
+    # previous engine, which reserved the words (ADR 0011 records them among the
+    # workarounds the swap made unnecessary), and both are kept as the convention
+    # here: renaming a node label touches roughly ten sites across this module and
+    # `query.py` and forces `baseline/subgraphs.json` to be re-captured, which is
+    # the one thing the golden harness exists to avoid.
     "CREATE NODE TABLE `Macro`(name STRING, PRIMARY KEY(name))",
     "CREATE NODE TABLE Colour(colour STRING, PRIMARY KEY(colour))",
     "CREATE NODE TABLE CardType(type STRING, PRIMARY KEY(type))",
@@ -46,8 +49,8 @@ _SCHEMA = [
     "CREATE REL TABLE PILOTED_BY(FROM Deck TO Pilot)",
     "CREATE REL TABLE CONTAINS(FROM Deck TO Card, board STRING)",
     "CREATE REL TABLE PLAYED_AT(FROM Deck TO Event)",
-    # `primary` was a Kùzu reserved keyword, so the primary-archetype flag is
-    # `isPrimary`. Kept under Ladybug for the same reason as `Macro` above.
+    # The primary-archetype flag is spelled `isPrimary`, not `primary`, and is
+    # kept for the same reason as `Macro` above.
     "CREATE REL TABLE HAS_ARCHETYPE(FROM Deck TO Archetype, weight INT64, isPrimary BOOLEAN)",
     "CREATE REL TABLE HAS_MACRO(FROM Deck TO `Macro`)",
     "CREATE REL TABLE DECK_COLOUR(FROM Deck TO Colour)",
@@ -112,8 +115,8 @@ def build_graph(
 
     The bundle is a directory holding the database, opened through
     :func:`db.open_for_writing`, alongside its reports, so one rename promotes
-    the lot (issue #47). Pilots are
-    resolved to keyed, named nodes, applying the checked-in curation dictionary
+    the lot (issue #47). Pilots are resolved to keyed, named nodes, applying the
+    checked-in curation dictionary
     (issue #9); a reconciliation report is written beside the database at
     :func:`reconciliation_path` (ADR 0004). Duplicate registrations the resolution
     drops are excluded from the graph entirely.

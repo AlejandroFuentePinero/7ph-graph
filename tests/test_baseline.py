@@ -35,21 +35,26 @@ from graph7ph.query import (
     pilot_subgraph,
 )
 
+from conftest import build_and_open
+
 # The two magnitudes the tolerance sits between, both measured on the real graph
 # (issue #45): engine-to-engine float noise, and how close a gem gets to the band.
 FLOAT_NOISE = 5.6e-17
 GEM_THRESHOLD_MARGIN = 8.6e-4
 
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
 @pytest.fixture(scope="module")
-def conn(tmp_path_factory):
-    """A connection to the tiny fixture snapshot, built once for the module."""
-    db_path = tmp_path_factory.mktemp("baseline") / "graph"
-    build_graph(load_snapshot(FIXTURES), db_path)
-    return open_for_reading(db_path)
+def conn(tmp_path_factory, snapshot_dir):
+    """A connection to the tiny fixture snapshot, built once for the module.
+
+    Module-scoped on purpose: the 24 tests below all read this one graph, and the
+    function-scoped ``built_graph`` would rebuild it for each. Same builder
+    underneath, so the two spellings cannot drift, and reaching the fixture files
+    through ``snapshot_dir`` rather than a path constant of its own is what puts
+    that fixture's "do not sort these" docstring in front of a reader here: two
+    of the tests below are what the unsorted order makes falsifiable (issue #56).
+    """
+    return build_and_open(tmp_path_factory.mktemp("baseline"), snapshot_dir)
 
 
 def _baseline(cases, subgraphs):

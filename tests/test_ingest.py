@@ -21,7 +21,7 @@ from graph7ph.ingest import (
     union_snapshots,
 )
 from graph7ph.build import reconciliation_path
-from graph7ph.db import DB_FILENAME, database_path, open_for_reading
+from graph7ph.db import DB_FILENAME, NotABundle, database_path, open_for_reading, rows
 from graph7ph.models import Card, Containment, Deck, Snapshot
 
 
@@ -266,7 +266,7 @@ def _snapshot_files(deck_ids, pilot=None):
     index = json.dumps({
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
-                   "manaValue": 0.0, "reserved": False, "priceUsd": 0.5,
+                   "manaValue": 0.0, "reserved": False,
                    "points": 0}],
         "decks": {did: {"m": [0], "s": []} for did in deck_ids},
     })
@@ -275,11 +275,7 @@ def _snapshot_files(deck_ids, pilot=None):
 
 def _deck_ids(db):
     conn = open_for_reading(db)
-    res = conn.execute("MATCH (d:Deck) RETURN d.deckId")
-    ids = set()
-    while res.has_next():
-        ids.add(res.get_next()[0])
-    return ids
+    return {deck_id for deck_id, in rows(conn.execute("MATCH (d:Deck) RETURN d.deckId"))}
 
 
 def test_ingest_unions_all_snapshots_and_promotes_with_a_backup(tmp_path):
@@ -384,10 +380,7 @@ def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_pa
     assert report.status == "flag"
     assert Flag("changed", "deck", "d1") in report.flags
     conn = open_for_reading(db)
-    res = conn.execute("MATCH (p:Pilot) RETURN p.pilot")
-    pilots = set()
-    while res.has_next():
-        pilots.add(res.get_next()[0])
+    pilots = {p for p, in rows(conn.execute("MATCH (p:Pilot) RETURN p.pilot"))}
     assert pilots == {"Alice"}  # pre-change pilot retained, not the Bob rewrite
 
 
@@ -454,6 +447,24 @@ def test_promote_replaces_an_existing_backup(tmp_path):
     promote(incoming, live, backup)
 
     assert (backup / DB_FILENAME).read_text() == "old"  # backup is the just-replaced graph
+
+
+def test_promote_refuses_a_file_sitting_where_the_backup_goes(tmp_path):
+    # The third path a stray regular file can block, and the one that bites after
+    # the build has already run: `promote` clears the backup and renames the live
+    # bundle onto it, and renaming a directory onto a file is `NotADirectoryError`
+    # (issue #52). Refused by name before the rename, so the live bundle is still
+    # standing and the stray file is still there to be looked at.
+    live = _db(tmp_path / "graph", "old")
+    incoming = _db(tmp_path / "graph.incoming", "new")
+    backup = tmp_path / "graph.backup"
+    backup.write_text("stray")
+
+    with pytest.raises(NotABundle, match=str(backup)):
+        promote(incoming, live, backup)
+
+    assert (live / DB_FILENAME).read_text() == "old"
+    assert backup.read_text() == "stray"
 
 
 def test_shape_shifted_response_hard_fails(tmp_path):

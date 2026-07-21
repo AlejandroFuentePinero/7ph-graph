@@ -12,7 +12,20 @@ from graph7ph.provenance import provenance_path
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-@pytest.fixture
+def build_and_open(root: Path, snapshot: Path) -> ladybug.Connection:
+    """Build ``snapshot`` into an artifact under ``root`` and read the graph back.
+
+    The one spelling of build-then-open, so a change to how the graph is opened
+    is made once (issue #53). A plain function rather than only a fixture because
+    the two callers want different scopes: see ``built_graph`` below, and
+    ``test_baseline.py``'s module-scoped ``conn`` (issue #52).
+    """
+    artifact = root / "graph"
+    build_graph(load_snapshot(snapshot), artifact)
+    return open_for_reading(artifact)
+
+
+@pytest.fixture(scope="session")
 def snapshot_dir() -> Path:
     """A tiny, self-consistent snapshot: 3 decks across 2 pilots, 121 cards.
 
@@ -22,25 +35,28 @@ def snapshot_dir() -> Path:
     holds them to it, and is the honest statement of the property, since the
     cards reach the graph in file order but the pilots reach it through
     ``resolve_pilots``.
+
+    Session-scoped because it hands back a constant path and nothing can mutate
+    it, which is what lets ``test_baseline.py``'s module-scoped ``conn`` request
+    it: a fixture cannot depend on one of narrower scope (issue #52).
     """
     return FIXTURES
 
 
 @pytest.fixture
 def built_graph():
-    """Build a snapshot into an artifact under ``root`` and read the graph back.
+    """:func:`build_and_open` as a fixture, which is how 100-odd tests reach it.
 
-    Replaces the build-then-open helper that was copied verbatim into two test
-    modules (issue #53), so a change to how the graph is opened is made once.
-    Read-only, since a test that reads a graph it just built has no reason to
-    hold a writer over it.
+    Pure delegation, kept because it is the spelling those call sites already use
+    (issue #53) and rewriting them to import the function buys nothing. Prefer
+    the function directly where a fixture cannot be used, as ``test_baseline.py``
+    does from module scope.
+
+    The connection it hands back is read-only: a test that reads a graph it just
+    built has no reason to hold a writer over it, and one that plants a node
+    opens its own through ``db.open_for_writing``.
     """
-    def build(root: Path, snapshot: Path) -> ladybug.Connection:
-        artifact = root / "graph"
-        build_graph(load_snapshot(snapshot), artifact)
-        return open_for_reading(artifact)
-
-    return build
+    return build_and_open
 
 
 @pytest.fixture

@@ -47,8 +47,10 @@ fi
 # log before it has written a byte, so an emptiness test would ship exactly the
 # torn artifact this guards against (issue #50). Searched across the whole bundle
 # rather than at a fixed path, because where the engine puts its log is the
-# engine's business: a single-file database leaves `<db>.wal` beside it, a
-# directory one would keep it inside (issue #47).
+# engine's business and this guard must not have to be edited when that changes:
+# today's leaves `<db>.wal` beside the database. `cp -R "$DB"` below ships
+# whatever the engine left in there, so the search has to cover everything the
+# copy does, which a fixed path would not.
 if [ -n "$(find "$DB" -name '*.wal')" ]; then
     echo "$DB has an uncheckpointed write-ahead log; rebuild before deploying" >&2
     exit 1

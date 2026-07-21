@@ -106,7 +106,7 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
         "cards": [
             {"canon": c, "name": c.title(),
              "type": "Lands" if c in lands else "Instants", "manaCost": "{U}",
-             "manaValue": 1.0, "reserved": False, "priceUsd": 0.0, "points": 0}
+             "manaValue": 1.0, "reserved": False, "points": 0}
             for c in canons
         ],
         "decks": {
@@ -1079,9 +1079,9 @@ def _tied_macro_snapshot(path):
         "v": 2,
         "cards": [
             {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
-             "manaValue": 1.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+             "manaValue": 1.0, "reserved": False, "points": 0},
             {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
-             "manaValue": 0.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+             "manaValue": 0.0, "reserved": False, "points": 0},
         ],
         # Only the first deck of each macro runs the seed, so every macro adopts
         # it at 1 of 2 decks and all five percentages are identical.
@@ -1120,9 +1120,9 @@ def _tied_archetype_snapshot(path):
         "v": 2,
         "cards": [
             {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
-             "manaValue": 1.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+             "manaValue": 1.0, "reserved": False, "points": 0},
             {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
-             "manaValue": 0.0, "reserved": False, "priceUsd": 0.5, "points": 0},
+             "manaValue": 0.0, "reserved": False, "points": 0},
         ],
         "decks": {
             f"{tag}{i}": {"m": [0, 1] if i == 0 else [1], "s": []}
