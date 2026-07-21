@@ -1,4 +1,4 @@
-"""Load a parsed Snapshot into a Kùzu graph.
+"""Load a parsed Snapshot into a Ladybug graph.
 
 The graph is the fact spine of ADR 0002. Entity nodes (Pilot, Deck, Card) and
 dimension nodes (Event, Archetype, Macro, Colour, CardType, Year) are joined by
@@ -10,17 +10,17 @@ callers can assert they match the source.
 """
 
 import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import kuzu
+import ladybug
 from pydantic import BaseModel
 
 from graph7ph.curation import Curation, load_curation
-from graph7ph.db import rows
+from graph7ph.db import open_for_writing, remove_artifact, rows
 from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
+from graph7ph.provenance import stamp
 
 _SCHEMA = [
     # A Pilot is keyed on the upstream id; displayName is a recovered label and
@@ -35,8 +35,13 @@ _SCHEMA = [
         reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
     "CREATE NODE TABLE Event(event STRING, eventId STRING, eventType STRING, PRIMARY KEY(event))",
     "CREATE NODE TABLE Archetype(tag STRING, name STRING, PRIMARY KEY(tag))",
-    # `Macro` is a Kùzu reserved keyword, so the label is backtick-escaped
-    # everywhere and its value lives on `name` (not a reserved `macro` column).
+    # The `Macro` label is backtick-escaped everywhere and its value lives on
+    # `name` rather than a `macro` column. Both shapes are inherited from the
+    # previous engine, which reserved the words (ADR 0011 records them among the
+    # workarounds the swap made unnecessary), and both are kept as the convention
+    # here: renaming a node label touches roughly ten sites across this module and
+    # `query.py` and forces `baseline/subgraphs.json` to be re-captured, which is
+    # the one thing the golden harness exists to avoid.
     "CREATE NODE TABLE `Macro`(name STRING, PRIMARY KEY(name))",
     "CREATE NODE TABLE Colour(colour STRING, PRIMARY KEY(colour))",
     "CREATE NODE TABLE CardType(type STRING, PRIMARY KEY(type))",
@@ -44,7 +49,8 @@ _SCHEMA = [
     "CREATE REL TABLE PILOTED_BY(FROM Deck TO Pilot)",
     "CREATE REL TABLE CONTAINS(FROM Deck TO Card, board STRING)",
     "CREATE REL TABLE PLAYED_AT(FROM Deck TO Event)",
-    # `primary` is a Kùzu reserved keyword, so the primary-archetype flag is `isPrimary`.
+    # The primary-archetype flag is spelled `isPrimary`, not `primary`, and is
+    # kept for the same reason as `Macro` above.
     "CREATE REL TABLE HAS_ARCHETYPE(FROM Deck TO Archetype, weight INT64, isPrimary BOOLEAN)",
     "CREATE REL TABLE HAS_MACRO(FROM Deck TO `Macro`)",
     "CREATE REL TABLE DECK_COLOUR(FROM Deck TO Colour)",
@@ -93,29 +99,38 @@ class BuildCounts:
     in_year: int
 
 
-def reconciliation_path(db_path: Path) -> Path:
-    """Where the reconciliation report is written for a graph at ``db_path``.
+def reconciliation_path(artifact: Path) -> Path:
+    """Where the reconciliation report is written for the bundle at ``artifact``.
 
-    Inside the graph directory (not a sibling) so it promotes and rolls back
+    Inside the artifact directory (not a sibling) so it promotes and rolls back
     atomically with the graph as one bundle (issue #38, F13).
     """
-    return Path(db_path) / "reconciliation.json"
+    return Path(artifact) / "reconciliation.json"
 
 
 def build_graph(
-    snapshot: Snapshot, db_path: Path, curation: Curation | None = None
+    snapshot: Snapshot, artifact: Path, curation: Curation | None = None
 ) -> BuildCounts:
-    """Build a fresh Kùzu database at ``db_path`` and return its counts.
+    """Build a fresh artifact bundle at ``artifact`` and return its counts.
 
-    Pilots are resolved to keyed, named nodes, applying the checked-in curation
-    dictionary (issue #9); a reconciliation report is written alongside the
-    database at :func:`reconciliation_path` (ADR 0004). Duplicate registrations
-    the resolution drops are excluded from the graph entirely.
+    The bundle is a directory holding the database, opened through
+    :func:`db.open_for_writing`, alongside its reports, so one rename promotes
+    the lot (issue #47). Pilots are resolved to keyed, named nodes, applying the
+    checked-in curation dictionary
+    (issue #9); a reconciliation report is written beside the database at
+    :func:`reconciliation_path` (ADR 0004). Duplicate registrations the resolution
+    drops are excluded from the graph entirely.
+
+    Everything that can reject the data runs before the bundle is touched, so a
+    build that aborts (a year straddle, a bad curation dictionary) leaves no
+    half-made bundle behind and cannot damage an artifact it was pointed at.
     """
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    _remove(db_path)
-
+    artifact = Path(artifact)
+    # Whether the dictionary came off disk decides what the bundle can claim: a
+    # curation handed in by a caller is reproducible from no state of the working
+    # tree, so the stamp below records no digest rather than the digest of a file
+    # this build never read.
+    from_disk = curation is None
     curation = curation if curation is not None else load_curation()
     snapshot = _apply_deck_archetypes(snapshot, curation)
     pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
@@ -123,15 +138,35 @@ def build_graph(
         snapshot = _without_decks(snapshot, pilots.dropped_decks)
     years = _event_years(snapshot.decks)
 
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
-    for ddl in _SCHEMA:
-        conn.execute(ddl)
+    remove_artifact(artifact)
 
-    _load_nodes(conn, snapshot, pilots, years)
-    _load_edges(conn, snapshot, pilots, years)
+    # The write seam settles the write-ahead log on the way out, so what gets
+    # promoted is a settled file holding exactly the graph these counts were read
+    # out of, even if the load below fails partway (see `db.open_for_writing`).
+    with open_for_writing(artifact) as conn:
+        for ddl in _SCHEMA:
+            conn.execute(ddl)
 
-    reconciliation_path(db_path).write_text(json.dumps(asdict(pilots.report), indent=2))
+        _load_nodes(conn, snapshot, pilots, years)
+        _load_edges(conn, snapshot, pilots, years)
 
+        reconciliation_path(artifact).write_text(
+            json.dumps(asdict(pilots.report), indent=2)
+        )
+        # Stamped here rather than in `ingest`, so every path that seals a bundle
+        # seals a self-describing one, and the baseline gate can tell whether the
+        # artifact it is about to grade came from the code standing here (#55).
+        stamp(artifact, reproducible=from_disk)
+        return graph_counts(conn)
+
+
+def graph_counts(conn: ladybug.Connection) -> BuildCounts:
+    """The 18 table counts read back out of a built graph.
+
+    Read from the graph rather than from the snapshot, so a caller can assert the
+    build loaded what the source held, and so the golden-subgraph harness can take
+    the same 18 numbers off an artifact it did not build (issue #45).
+    """
     return BuildCounts(
         pilots=_count(conn, "MATCH (p:Pilot) RETURN count(p)"),
         decks=_count(conn, "MATCH (d:Deck) RETURN count(d)"),
@@ -237,7 +272,7 @@ def _event_years(decks: list[Deck]) -> dict[str, int]:
 
 
 def _load_nodes(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     snapshot: Snapshot,
     pilots: PilotResolution,
     years: dict[str, int],
@@ -289,7 +324,7 @@ def _load_nodes(
 
 
 def _load_edges(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     snapshot: Snapshot,
     pilots: PilotResolution,
     years: dict[str, int],
@@ -347,7 +382,7 @@ def _load_edges(
 
 
 def _create_nodes(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     label: str,
     model: type[BaseModel],
     fields: tuple[str, ...],
@@ -360,20 +395,11 @@ def _create_nodes(
           [o.model_dump(by_alias=True, include=set(fields)) for o in objects])
 
 
-def _load(conn: kuzu.Connection, query: str, batch: list[dict]) -> None:
+def _load(conn: ladybug.Connection, query: str, batch: list[dict]) -> None:
     for start in range(0, len(batch), _BATCH):
         conn.execute(query, {"rows": batch[start:start + _BATCH]})
 
 
-def _count(conn: kuzu.Connection, query: str) -> int:
+def _count(conn: ladybug.Connection, query: str) -> int:
     return next(rows(conn.execute(query)))[0]
 
-
-def _remove(db_path: Path) -> None:
-    if db_path.is_dir():
-        shutil.rmtree(db_path)
-    elif db_path.exists():
-        db_path.unlink()
-    wal = db_path.with_name(db_path.name + ".wal")
-    if wal.exists():
-        wal.unlink()

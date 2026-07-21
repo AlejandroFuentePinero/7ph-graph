@@ -6,28 +6,79 @@
 # The deploy is assembled in a staging directory and uploaded as one commit, so
 # the Space restarts once, onto a complete artifact. Staging is also what makes
 # the allowlist real: only the files copied below exist to be uploaded, so
-# nothing else in the working tree (.env, snapshots/, the ingestion reports) can
-# ride along, and the pipeline's Moxfield credential stays in the pipeline
-# (ADR 0003). `--delete "*"` clears anything the previous deploy left behind, so
-# a stale index file cannot mix with a freshly built graph.
+# nothing else in the working tree (.env, snapshots/) can ride along, and the
+# pipeline's Moxfield credential stays in the pipeline (ADR 0003). The artifact
+# is the one exception to naming files individually: it is copied whole, so the
+# ingestion reports it carries since #47 (ingest.json, reconciliation.json) do
+# ship to the Space. They restate associations already public on Moxfield. The
+# build stamp added by #55 (provenance.json) ships too, carrying a digest of the
+# sources and a build time, neither of which says anything about anyone.
+# `--delete "*"` clears anything the previous deploy left behind, so a stale
+# index file cannot mix with a freshly built graph.
 set -eu
 
 SPACE="${1:?usage: scripts/deploy_space.sh <user>/<space>}"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # Defaults to the repo's own artifact, not the caller's cwd, so the graph and the
 # code deployed beside it always come from the same tree.
-DB="${GRAPH7PH_DB:-$ROOT/data/graph.kuzu}"
+DB="${GRAPH7PH_DB:-$ROOT/data/graph}"
 
-if [ ! -d "$DB" ]; then
+# The artifact is a directory holding the database, so an existing directory is
+# not proof of a graph: a half-cleared one would stage and ship a Space that dies
+# at startup. The database inside it is what makes the bundle deployable. Its name
+# is read from the package rather than copied here, so the engine swap changes
+# graph7ph.db.DB_FILENAME alone and this guard follows it.
+DB_FILENAME=$(cd "$ROOT" && uv run python -c 'from graph7ph.db import DB_FILENAME; print(DB_FILENAME)')
+
+if [ ! -e "$DB/$DB_FILENAME" ]; then
     echo "No graph artifact at $DB; run 'uv run graph7ph build' first" >&2
     exit 1
 fi
 
-# A promoted artifact is checkpointed, so its write-ahead log is empty. A
-# non-empty one means a build is running or crashed mid-write, and the data files
-# alone are missing its tail: deploying that would ship a torn graph.
-if [ -s "$DB/.wal" ]; then
+# A promoted artifact is checkpointed, and Ladybug folds the write-ahead log in
+# and removes it once the last Connection to the database closes, so a settled
+# bundle carries no `.wal` at all. Note it is the Connection closing that settles
+# it and not `Database.close()`, which is why the build context-manages both
+# (graph7ph.build, and the ordering test in tests/test_build.py). A reader does
+# not create one, so a running local app does not trip this guard.
+# One that is there means a build is running or crashed mid-write,
+# and the database alone is missing its tail: deploying that would ship a torn
+# graph. Presence is the signal, not size: an interrupted build can leave an empty
+# log before it has written a byte, so an emptiness test would ship exactly the
+# torn artifact this guards against (issue #50). Searched across the whole bundle
+# rather than at a fixed path, because where the engine puts its log is the
+# engine's business and this guard must not have to be edited when that changes:
+# today's leaves `<db>.wal` beside the database. `cp -R "$DB"` below ships
+# whatever the engine left in there, so the search has to cover everything the
+# copy does, which a fixed path would not.
+if [ -n "$(find "$DB" -name '*.wal')" ]; then
     echo "$DB has an uncheckpointed write-ahead log; rebuild before deploying" >&2
+    exit 1
+fi
+
+# The third way a bundle can be unfit to ship, and the only one that leaves a
+# Space that starts and answers: an artifact built from sources this tree has
+# moved past. Change an ingest or curation module, skip the rebuild, deploy, and
+# the Space serves a graph built from code that no longer exists, beside the code
+# that replaced it. The judgement is the package's, not this script's: it is the
+# same `staleness` the baseline gate refuses on (issue #55), asked here so the
+# deploy path is held to the grading path's standard.
+#
+# Run from the repo root, because the digest folds in `curation/pilots.toml` at
+# its relative default, which is why the artifact has to be named absolutely: a
+# relative GRAPH7PH_DB is the caller's, and the probe is not standing where the
+# caller stood. Its own variable rather than reassigning DB, so that the guards
+# above and the `cp -R` below go on naming the artifact the way the caller did.
+ABS_DB=$(CDPATH= cd -- "$DB" && pwd)
+STALE=$(cd "$ROOT" && DB="$ABS_DB" uv run python -c '
+import os
+from pathlib import Path
+from graph7ph.provenance import staleness
+print(staleness(Path(os.environ["DB"])) or "", end="")
+')
+
+if [ -n "$STALE" ]; then
+    echo "Refusing to deploy: $STALE" >&2
     exit 1
 fi
 
@@ -49,10 +100,12 @@ cp "$ROOT/app.py" "$ROOT/requirements.txt" "$STAGE/"
 # working directory is on the import path.
 cp -R "$ROOT/src/graph7ph" "$STAGE/graph7ph"
 mkdir -p "$STAGE/data"
-# Verbatim, dotfiles included: Kùzu opens a read-only database only if its .lock
-# is present, and only if .shadow and .wal are both present or both absent. The
-# empty-WAL check above is what keeps the copy a checkpointed, self-contained one.
-cp -R "$DB" "$STAGE/data/graph.kuzu"
+# The whole bundle verbatim, dotfiles included: what the engine keeps beside its
+# database is the engine's business, so the copy takes everything rather than the
+# names it expects. The write-ahead-log check above is what keeps that copy a
+# checkpointed, self-contained one. Staged under the default artifact name, which
+# is what the Space resolves: it sets no GRAPH7PH_DB of its own.
+cp -R "$DB" "$STAGE/data/graph"
 find "$STAGE/graph7ph" -name __pycache__ -type d -exec rm -rf {} +
 
 # Creating the Space is a one-off manual step, not this script's job: a Gradio

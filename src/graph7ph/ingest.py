@@ -10,7 +10,6 @@ or shape-shifted snapshot hard-fails before the live graph is touched.
 
 import hashlib
 import json
-import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -18,6 +17,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from graph7ph.build import BuildCounts, build_graph
+from graph7ph.db import remove_artifact
 from graph7ph.models import Card, Containment, Deck, Snapshot, load_snapshot
 
 # The gate's closed vocabularies, following the repo idiom (models.py `Board`).
@@ -225,36 +225,29 @@ def _retain_old(
     return Snapshot(cards=cards, decks=decks, containments=conts)
 
 
-def _remove(path: Path) -> None:
-    if path.is_dir():
-        shutil.rmtree(path)
-    elif path.exists():
-        path.unlink()
-
-
 def promote(incoming: Path, live: Path, backup: Path) -> None:
     """Atomically swap a rebuilt artifact into place, keeping the old one.
 
     The current live artifact (if any) is moved aside to ``backup`` for rollback,
     then the rebuilt one is renamed into the live path. Renames are atomic on the
     same filesystem, and the backup guarantees the previous artifact survives. A
-    first build has no live artifact, so no backup is produced. The graph
-    directory holds its reports inside it, so this one rename promotes the whole
-    bundle and a rollback to ``backup`` carries its own matching reports.
+    first build has no live artifact, so no backup is produced. The artifact is a
+    directory holding the database and both reports, so this one rename promotes
+    the whole bundle and a rollback to ``backup`` carries its own matching reports.
     """
     if live.exists():
-        _remove(backup)
+        remove_artifact(backup)
         live.rename(backup)
     incoming.rename(live)
 
 
-def ingest_report_path(db_path: Path) -> Path:
-    """Where the gate's review report is written for a graph at ``db_path``.
+def ingest_report_path(artifact: Path) -> Path:
+    """Where the gate's review report is written for the bundle at ``artifact``.
 
-    Inside the graph directory (not a sibling) so it promotes and rolls back
+    Inside the artifact directory (not a sibling) so it promotes and rolls back
     atomically with the graph as one bundle (issue #38, F13).
     """
-    return Path(db_path) / "ingest.json"
+    return Path(artifact) / "ingest.json"
 
 
 def _snapshot_dirs(root: Path) -> list[Path]:
@@ -265,7 +258,7 @@ def _snapshot_dirs(root: Path) -> list[Path]:
     )
 
 
-def ingest(snapshots_root: Path, db_path: Path) -> tuple[GateReport, BuildCounts]:
+def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCounts]:
     """Build the live graph from every snapshot, gated and atomically promoted.
 
     All snapshots are schema-validated and unioned by stable id; the gate folds
@@ -273,27 +266,28 @@ def ingest(snapshots_root: Path, db_path: Path) -> tuple[GateReport, BuildCounts
     an immutable-fact rewrite in any snapshot is flagged and its old value
     retained (ADR 0008). A corrupt snapshot raises
     :class:`SchemaError` before anything is built, leaving the live graph
-    untouched. Otherwise the union is built into a temporary graph whose reports
-    live inside it, and swapped in with a single directory rename, retaining the
-    previous graph and its reports as a self-consistent backup for rollback.
+    untouched. Otherwise the union is built into a temporary bundle holding the
+    database and both reports, and swapped in with a single directory rename,
+    retaining the previous bundle as a self-consistent backup for rollback.
     """
-    db_path = Path(db_path)
+    artifact = Path(artifact)
     snapshots = [load_checked(d) for d in _snapshot_dirs(snapshots_root)]
     if not snapshots:
         raise SchemaError(f"no snapshots in {Path(snapshots_root)}/")
 
     result = gate_sequence(snapshots)
 
-    # Build the graph and both reports inside one incoming directory, then promote
-    # the whole directory with a single rename. Because the reports live inside the
-    # graph directory, graph and reports promote (and roll back) as one atomic
-    # bundle: an interrupted promote can never pair a new graph with stale reports.
-    incoming_db = db_path.with_name(db_path.name + ".incoming")
-    _remove(incoming_db)
-    counts = build_graph(result.snapshot, incoming_db)  # writes reconciliation_path(incoming_db)
-    ingest_report_path(incoming_db).write_text(json.dumps(asdict(result.report), indent=2))
+    # Build the database and both reports inside one incoming bundle, then promote
+    # the whole bundle with a single rename. Because the reports live inside the
+    # bundle beside the database, graph and reports promote (and roll back) as one
+    # atomic unit: an interrupted promote can never pair a new graph with stale
+    # reports, and the database staying a file inside the bundle keeps it that way.
+    incoming = artifact.with_name(artifact.name + ".incoming")
+    remove_artifact(incoming)
+    counts = build_graph(result.snapshot, incoming)  # writes reconciliation_path(incoming)
+    ingest_report_path(incoming).write_text(json.dumps(asdict(result.report), indent=2))
 
-    backup_db = db_path.with_name(db_path.name + ".backup")
-    promote(incoming_db, db_path, backup_db)
+    backup = artifact.with_name(artifact.name + ".backup")
+    promote(incoming, artifact, backup)
 
     return result.report, counts

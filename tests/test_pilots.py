@@ -11,7 +11,6 @@ import pytest
 
 from graph7ph.curation import Curation, CurationError
 from graph7ph.pilots import (
-    SplitName,
     display_name_from_title,
     name_relation,
     resolve_pilots,
@@ -570,7 +569,7 @@ def test_curated_merge_collapses_ids_carrying_every_deck():
     assert res.report.curated == 1  # the confirmed merge counts as a decision made
 
 
-def test_split_keeps_two_same_name_ids_apart(tmp_path):
+def test_split_keeps_two_same_name_ids_apart():
     # Two different people both recover "James L" at different events: the
     # identical-name join (ADR 0007) would fuse them into one node. A [[split]]
     # naming the two ids overrides the join, keeping them two people. Logged.
@@ -812,7 +811,7 @@ def _build_snapshot(tmp_path, decks):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "priceUsd": 0.5, "points": 0}],
+                   "points": 0}],
         "decks": {d["deckId"]: {"m": [0], "s": []} for d in decks},
     }))
 
@@ -832,19 +831,18 @@ def _raw_deck(deck_id, pilot, title):
 def test_build_pilot_nodes_carry_display_name_and_rekey_nulls(tmp_path):
     import json
 
-    import kuzu
-
     from graph7ph.build import build_graph, reconciliation_path
+    from graph7ph.db import open_for_reading
     from graph7ph.models import load_snapshot
 
     _build_snapshot(tmp_path, [
         _raw_deck("d1", "SolarGreenPanda", "05th/08th Nick C - Izzet - CFWAT25"),
         _raw_deck("d2", "nan", "Darcy - Mono R - Area52IQ"),
     ])
-    db_path = tmp_path / "graph.kuzu"
+    db_path = tmp_path / "graph"
 
     counts = build_graph(load_snapshot(tmp_path), db_path)
-    conn = kuzu.Connection(kuzu.Database(str(db_path)))
+    conn = open_for_reading(db_path)
 
     # Real pilot keyed on the upstream id, carrying the recovered display name.
     assert counts.pilots == 2

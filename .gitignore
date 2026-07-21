@@ -8,15 +8,30 @@
 __pycache__/
 *.pyc
 .venv/
+.coverage
+.coverage.*
+htmlcov/
 
 # Data artifacts / build outputs
 snapshots/
-*.kuzu
-*.kuzu.bak
-*.kuzu.backup/
-*.kuzu.ingest.json
-*.kuzu.reconciliation.json
 data/*.json
+
+# The artifact bundle at its default path, plus the siblings promotion creates.
+data/graph/
+data/graph.backup/
+data/graph.incoming/
+
+# The bundle's own members, by name, so a bundle built anywhere else (GRAPH7PH_DB
+# pointed at another path) is ignored too and not just the default one. Matching
+# on the name rather than the location is what keeps that true wherever the
+# bundle is built. `*.ladybug.wal` is not redundant with `*.ladybug`: a glob
+# matches the whole basename, so the latter does not cover `graph.ladybug.wal`.
+*.ladybug
+*.ladybug.wal
+ingest.json
+reconciliation.json
+
+# Local scratch space, never shared.
 scratch/
 
 # Agent config (local, not shared)

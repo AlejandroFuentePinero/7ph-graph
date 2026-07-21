@@ -7,11 +7,13 @@ alongside this file.
 """
 
 from graph7ph.app import build_app
-from graph7ph.db import artifact_path
+from graph7ph.db import artifact_path, database_path
 
 DB_PATH = artifact_path()
 
-if not DB_PATH.is_dir():
+# The artifact is a directory holding the database beside its reports, so an
+# existing directory is not proof of a graph: the database inside it is.
+if not database_path(DB_PATH).exists():
     raise SystemExit(
         f"No graph artifact at {DB_PATH}. Build one with 'uv run graph7ph build', "
         "or point GRAPH7PH_DB at a promoted artifact."

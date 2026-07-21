@@ -6,9 +6,9 @@
 #
 # Only the app's own import path (graph7ph.app -> db, explore, query, render) is
 # needed here. pydantic and requests belong to fetch and build, which the Space
-# never runs. Versions are exact and must move with uv.lock: a Kùzu release can
+# never runs. Versions are exact and must move with uv.lock: a Ladybug release can
 # change the on-disk storage format, and the app has to read an artifact the same
 # version built. gradio matches the version the Space card declares as its SDK.
-kuzu==0.7.1
+ladybug==0.18.2
 gradio==5.50.0
 pyvis==0.3.2

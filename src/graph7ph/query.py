@@ -17,7 +17,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal
 
-import kuzu
+import ladybug
 
 from graph7ph.db import rows
 
@@ -25,7 +25,7 @@ Kind = Literal[
     "Pilot", "Deck", "Card", "Archetype", "Macro", "Event", "Placement", "Intersection"
 ]
 
-# The hidden-gem band, fixed rather than exposed as controls (ADR 0005): the
+# The hidden-gem band, fixed rather than exposed as controls (ADR 0012): the
 # question "which rare cards overperform?" has one answer, not one per dial.
 MIN_GEM_DECKS = 5  # trust floor: an absolute count, so it holds at any slice size
 MAX_GEM_SHARE = 0.10  # rarity ceiling: a share, so it means the same in any slice
@@ -171,7 +171,7 @@ def _ordinal(placement: int) -> str:
 
 
 def pilot_subgraph(
-    conn: kuzu.Connection, pilot: str, pilot2: str | None = None
+    conn: ladybug.Connection, pilot: str, pilot2: str | None = None
 ) -> Subgraph:
     """One pilot's record, or two pilots' head-to-head, as event-rooted chains.
 
@@ -239,7 +239,7 @@ def pilot_subgraph(
 
 
 def card_usage_subgraph(
-    conn: kuzu.Connection, canon: str, board: str | None = None
+    conn: ladybug.Connection, canon: str, board: str | None = None
 ) -> Subgraph:
     """The card's prevalence in the meta, as an adoption rate at each tier.
 
@@ -338,15 +338,24 @@ def card_usage_subgraph(
             for tag, (name, total) in arch_total.items()
             if arch_run.get(tag, 0) and tag in dominant
         ),
-        key=lambda k: (-k[0], -k[1], k[3]),
+        # Tag last, because two tags can share a display name: without it a tie on
+        # adoption, size and name would fall back to the row order of a query with
+        # no ORDER BY, so the view would move with the engine rather than the data.
+        key=lambda k: (-k[0], -k[1], k[3], k[2]),
     )
 
     # Each tier reads as a named default dot (card -> macro -> archetype); the
     # adoption percent rides the edge that reaches it. Dots keep every node a
     # uniform size with its name beside it, where a circle would stretch to fit
     # the text and read as a bigger node for no analytic reason.
+    # Strongest adoption first, ties broken on name as they are for archetypes
+    # below: two macros can round to the same percent, and without the tie-break
+    # their order falls out of an unordered set, so the same query on the same
+    # graph answers differently between runs.
     shown_macros = {dominant[tag][1] for _, _, tag, _ in kept}
-    for macro in sorted(shown_macros, key=lambda m: -pct(macro_run.get(m, 0), macro_total[m])):
+    for macro in sorted(
+        shown_macros, key=lambda m: (-pct(macro_run.get(m, 0), macro_total[m]), m)
+    ):
         mid = f"macro:{macro}"
         nodes.append(Node(mid, macro, "Macro"))
         edges.append(
@@ -374,7 +383,7 @@ def _no_lands(alias: str, drop_lands: bool) -> str:
 
 
 def _cooccurrence_partners(
-    conn: kuzu.Connection, canon: str, top_n: int, drop_lands: bool = False
+    conn: ladybug.Connection, canon: str, top_n: int, drop_lands: bool = False
 ) -> list[tuple[str, str, int]]:
     """A card's top ``top_n`` same-board co-occurrence partners, strongest first:
     ``[(canon, name, shared), ...]``.
@@ -386,21 +395,20 @@ def _cooccurrence_partners(
     rate; the cut is pushed into Cypher rather than sorting every partner in
     Python. ``drop_lands`` excludes land partners.
     """
-    # Kùzu wants a literal LIMIT, not a parameter; ``top_n`` is a trusted int.
     res = conn.execute(
         f"""MATCH (card:Card {{canon: $canon}})<-[a:CONTAINS]-(d:Deck)-[b:CONTAINS]->(other:Card)
            WHERE other.canon <> card.canon AND a.board = b.board{_no_lands("other", drop_lands)}
            WITH other, count(DISTINCT d) AS shared
            RETURN other.canon, other.name, shared
            ORDER BY shared DESC, other.name, other.canon
-           LIMIT {int(top_n)}""",
-        {"canon": canon},
+           LIMIT $topN""",
+        {"canon": canon, "topN": top_n},
     )
     return [(o_canon, o_name, shared) for o_canon, o_name, shared in rows(res)]
 
 
 def _card_and_deck_count(
-    conn: kuzu.Connection, canon: str
+    conn: ladybug.Connection, canon: str
 ) -> tuple[str, int] | None:
     """``(name, deck_count)`` for a card, or ``None`` when no such card exists."""
     return next(rows(conn.execute(
@@ -453,7 +461,7 @@ _COL_GAP = 80.0
 
 
 def _shared_deck_cooccurrence(
-    conn: kuzu.Connection, canon_a: str, canon_b: str, top_n: int, drop_lands: bool = False
+    conn: ladybug.Connection, canon_a: str, canon_b: str, top_n: int, drop_lands: bool = False
 ) -> tuple[int, list[tuple[str, str, int]]]:
     """The double co-occurrence: decks that run both seeds, and the ``top_n`` cards
     those decks most often also run.
@@ -473,7 +481,6 @@ def _shared_deck_cooccurrence(
     )))[0]
     if not both:
         return 0, []
-    # Kùzu wants a literal LIMIT, not a parameter; ``top_n`` is a trusted int.
     res = conn.execute(
         f"""MATCH (a:Card {{canon: $a}})<-[:CONTAINS]-(d:Deck)-[:CONTAINS]->(b:Card {{canon: $b}})
             MATCH (d)-[:CONTAINS]->(p:Card)
@@ -481,14 +488,14 @@ def _shared_deck_cooccurrence(
             WITH p, count(DISTINCT d) AS shared
             RETURN p.canon, p.name, shared
             ORDER BY shared DESC, p.name, p.canon
-            LIMIT {int(top_n)}""",
-        {"a": canon_a, "b": canon_b},
+            LIMIT $topN""",
+        {"a": canon_a, "b": canon_b, "topN": top_n},
     )
     return both, [(c, n, s) for c, n, s in rows(res)]
 
 
 def card_cooccurrence_subgraph(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     canon: str,
     canon2: str | None = None,
     top_n: int = 15,
@@ -585,7 +592,7 @@ def card_cooccurrence_subgraph(
 
 
 def hidden_gems_subgraph(
-    conn: kuzu.Connection,
+    conn: ladybug.Connection,
     archetype: str | None = None,
 ) -> Subgraph:
     """Cards rare within their slice that nonetheless place highly.
@@ -594,7 +601,7 @@ def hidden_gems_subgraph(
     ``MAX_GEM_SHARE`` of the slice, whose mean placement (a normalised rank,
     lower is better) is at most ``MAX_GEM_MEAN_NORM`` (user story 14). The two
     bounds answer different questions, which is why only one of them is a share
-    (ADR 0005): the floor asks "is there enough evidence to trust this?", a
+    (ADR 0012): the floor asks "is there enough evidence to trust this?", a
     property of sample size that does not scale with the meta; the ceiling asks
     "is this still rare?", which is meaningless except relative to the slice.
 
@@ -612,8 +619,9 @@ def hidden_gems_subgraph(
     """
     # The slice is ranked decks only, so its length is the base the ceiling is a
     # share of; no separate counting query, and an archetype nobody ranked in is
-    # refused below before an empty $slice can reach Kùzu (which cannot infer an
-    # empty list parameter's element type and aborts rather than raising).
+    # refused below rather than asked about. The refusal is a domain rule and a
+    # permanent one: a slice too small to tell a rare card from an absent one
+    # cannot honestly be asked for gems (ADR 0012).
     slice_ids = _ranked_deck_slice(conn, archetype)
     ranked_decks = len(slice_ids) if slice_ids is not None else _ranked_deck_total(conn)
     if ranked_decks < MIN_GEM_SLICE:
@@ -676,7 +684,7 @@ def hidden_gems_subgraph(
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
 
-def pilot_affinity_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
+def pilot_affinity_subgraph(conn: ladybug.Connection, pilot: str) -> Subgraph:
     """A pilot's play grouped through macro strategy to archetype, by events.
 
     Shows whether a pilot is a specialist or a generalist (user story 16) with a
@@ -749,11 +757,11 @@ def pilot_affinity_subgraph(conn: kuzu.Connection, pilot: str) -> Subgraph:
     return Subgraph(nodes=nodes, edges=edges)
 
 
-def gem_archetypes(conn: kuzu.Connection) -> list[tuple[str, str]]:
+def gem_archetypes(conn: ladybug.Connection) -> list[tuple[str, str]]:
     """``(name, tag)`` for the archetypes whose slice can support a gem claim.
 
     The gem view offers these and no others, so a slice too small to answer is
-    never put to the user as though it might (ADR 0005). Ordered by name, to
+    never put to the user as though it might (ADR 0012). Ordered by name, to
     drop straight into a dropdown. Counts the same population
     ``_ranked_deck_slice`` does, so every tag offered is one the gem query
     accepts; ``test_gem_archetypes_offer_only_the_slices_that_can_answer`` holds
@@ -769,7 +777,21 @@ def gem_archetypes(conn: kuzu.Connection) -> list[tuple[str, str]]:
     ))]
 
 
-def _ranked_deck_slice(conn: kuzu.Connection, archetype: str | None) -> list[str] | None:
+def pilot_catalogue(conn: ladybug.Connection) -> list[tuple[str, str]]:
+    """``(displayName, pilot)`` for every pilot, in label order for a dropdown."""
+    return [(name, key) for name, key in rows(conn.execute(
+        "MATCH (p:Pilot) RETURN p.displayName, p.pilot ORDER BY p.displayName"
+    ))]
+
+
+def card_catalogue(conn: ladybug.Connection) -> list[tuple[str, str]]:
+    """``(name, canon)`` for every card, in label order for a dropdown."""
+    return [(name, canon) for name, canon in rows(conn.execute(
+        "MATCH (c:Card) RETURN c.name, c.canon ORDER BY c.name"
+    ))]
+
+
+def _ranked_deck_slice(conn: ladybug.Connection, archetype: str | None) -> list[str] | None:
     """The ranked deck ids the gem hunt runs within, by archetype tag.
 
     ``None`` means no filter (every ranked deck), so the caller can skip the id
@@ -787,7 +809,7 @@ def _ranked_deck_slice(conn: kuzu.Connection, archetype: str | None) -> list[str
     ))]
 
 
-def _ranked_deck_total(conn: kuzu.Connection) -> int:
+def _ranked_deck_total(conn: ladybug.Connection) -> int:
     """How many decks in the whole graph carry a placement: the base the gem
     ceiling is a share of when no archetype narrows the slice."""
     return next(rows(conn.execute(
@@ -795,7 +817,7 @@ def _ranked_deck_total(conn: kuzu.Connection) -> int:
     )))[0]
 
 
-def run_query(conn: kuzu.Connection, spec: QuerySpec) -> Subgraph:
+def run_query(conn: ladybug.Connection, spec: QuerySpec) -> Subgraph:
     """Map a query spec to its query function and return the resulting subgraph.
 
     The single entry point over the query-function library: the v1 controls and

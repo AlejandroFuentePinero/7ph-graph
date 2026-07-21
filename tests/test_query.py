@@ -1,10 +1,10 @@
 import json
 from collections import Counter, defaultdict
 
-import kuzu
 import pytest
 
 from graph7ph.build import build_graph
+from graph7ph.db import open_for_writing
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     MAX_GEM_SHARE,
@@ -25,12 +25,6 @@ from graph7ph.query import (
 
 # The fixture's three decks, by pilot display name and archetype (see conftest).
 JORDAN_DECKS = {"BsegXnsDsEWxh-vNbUrn0w", "pkUbzmgN3UeqaWdYQYRgRg"}  # Jordan C, Grixis
-
-
-def _connect(tmp_path, snapshot_dir):
-    db_path = tmp_path / "graph.kuzu"
-    build_graph(load_snapshot(snapshot_dir), db_path)
-    return kuzu.Connection(kuzu.Database(str(db_path)))
 
 
 def _decks_by_card(snapshot_dir):
@@ -62,10 +56,30 @@ def _same_board_cooccurrence(snapshot_dir, seed):
     return counts
 
 
+def _archetype_fields(tag):
+    """The four source fields carrying a deck's archetype.
+
+    A ``tag`` of ``None`` writes a deck the classifier gave no engine tag, which
+    is what an unclassified deck looks like upstream: it still has a macro, so it
+    reaches the affinity query's archetype hop with nothing to bind there.
+    """
+    if tag is None:
+        return {
+            "engineTags": [], "engineTagLabels": {},
+            "primaryTag": "", "primaryTagWeights": {},
+        }
+    return {
+        "engineTags": [f"engine:{tag}"],
+        "engineTagLabels": {f"engine:{tag}": tag.title()},
+        "primaryTag": f"engine:{tag}", "primaryTagWeights": {f"engine:{tag}": 100},
+    }
+
+
 def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
     """Write a minimal hand-authored snapshot for a focused test.
 
-    ``decks`` is a list of dicts: ``id``, ``tag`` (archetype), ``norm``
+    ``decks`` is a list of dicts: ``id``, ``tag`` (archetype, ``None`` for a deck
+    the classifier left unclassified), ``norm``
     (placementNorm), and ``m`` / ``s`` (main / side canon lists). Optional
     ``macro`` and ``event`` keys override the defaults (``control`` / ``E``).
     ``canons`` is the card catalogue by name; ``lands`` names those typed as
@@ -83,9 +97,7 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
             "placementNorm": d["norm"], "createdAt": "2025-06-01T00:00:00+00:00",
             "colour": "colour:U",
             "macro": f"macro:{d.get('macro', 'control')}",
-            "engineTags": [f"engine:{d['tag']}"],
-            "engineTagLabels": {f"engine:{d['tag']}": d["tag"].title()},
-            "primaryTag": f"engine:{d['tag']}", "primaryTagWeights": {f"engine:{d['tag']}": 100},
+            **_archetype_fields(d["tag"]),
         }
         for d in decks
     ]))
@@ -94,7 +106,7 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
         "cards": [
             {"canon": c, "name": c.title(),
              "type": "Lands" if c in lands else "Instants", "manaCost": "{U}",
-             "manaValue": 1.0, "reserved": False, "priceUsd": 0.0, "points": 0}
+             "manaValue": 1.0, "reserved": False, "points": 0}
             for c in canons
         ],
         "decks": {
@@ -105,8 +117,8 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
     }))
 
 
-def test_pilot_subgraph_chains_events_decks_and_placements_not_cards(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_pilot_subgraph_chains_events_decks_and_placements_not_cards(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     sub = pilot_subgraph(conn, "Jordan C")
 
@@ -123,8 +135,8 @@ def test_pilot_subgraph_chains_events_decks_and_placements_not_cards(tmp_path, s
     assert "Card" not in kinds
 
 
-def test_pilot_subgraph_edges_form_the_pilot_event_deck_placement_chain(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_pilot_subgraph_edges_form_the_pilot_event_deck_placement_chain(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     sub = pilot_subgraph(conn, "Jordan C")
 
@@ -145,8 +157,8 @@ def test_pilot_subgraph_edges_form_the_pilot_event_deck_placement_chain(tmp_path
     assert not any(e.label.startswith("CONTAINS") for e in sub.edges)
 
 
-def test_pilot_subgraph_labels_the_pilot_by_display_name(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_pilot_subgraph_labels_the_pilot_by_display_name(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     # Keyed on the upstream id (AmberTealViper), the pilot node reads as the
     # recovered display name (Tom S), never the pseudonym.
@@ -156,8 +168,8 @@ def test_pilot_subgraph_labels_the_pilot_by_display_name(tmp_path, snapshot_dir)
     assert [n.id for n in sub.nodes if n.kind == "Pilot"] == ["pilot:AmberTealViper"]
 
 
-def test_unknown_pilot_yields_empty_subgraph(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_unknown_pilot_yields_empty_subgraph(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     sub = pilot_subgraph(conn, "Nobody At All")
 
@@ -165,7 +177,7 @@ def test_unknown_pilot_yields_empty_subgraph(tmp_path, snapshot_dir):
     assert sub.edges == []
 
 
-def test_pilot_head_to_head_shares_the_event_both_played(tmp_path):
+def test_pilot_head_to_head_shares_the_event_both_played(tmp_path, built_graph):
     # Two pilots met at one event (E): each ran their own deck there. The event
     # is the head-to-head hinge, one shared node both pilots reach, with each
     # pilot's own deck hanging under it.
@@ -177,7 +189,7 @@ def test_pilot_head_to_head_shares_the_event_both_played(tmp_path):
         ],
         ["a"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = pilot_subgraph(conn, "p1", "p2")
 
@@ -199,7 +211,7 @@ def test_pilot_head_to_head_shares_the_event_both_played(tmp_path):
     ]
 
 
-def test_pilot_head_to_head_tags_each_node_with_its_player(tmp_path):
+def test_pilot_head_to_head_tags_each_node_with_its_player(tmp_path, built_graph):
     # So the render can colour each player's chain: every node a player owns
     # carries that player's id as its group, and the shared event they both
     # played stays ungrouped (neutral).
@@ -211,7 +223,7 @@ def test_pilot_head_to_head_tags_each_node_with_its_player(tmp_path):
         ],
         ["a"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = pilot_subgraph(conn, "p1", "p2")
 
@@ -224,17 +236,17 @@ def test_pilot_head_to_head_tags_each_node_with_its_player(tmp_path):
     assert group["event:E"] is None  # both played it, so it belongs to neither
 
 
-def test_pilot_single_neighbourhood_has_no_player_groups(tmp_path, snapshot_dir):
+def test_pilot_single_neighbourhood_has_no_player_groups(tmp_path, snapshot_dir, built_graph):
     # One pilot has no second player to contrast, so every node stays ungrouped
     # (coloured by kind, not by player).
-    conn = _connect(tmp_path, snapshot_dir)
+    conn = built_graph(tmp_path, snapshot_dir)
 
     sub = pilot_subgraph(conn, "Jordan C")
 
     assert all(n.group is None for n in sub.nodes)
 
 
-def test_pilot_head_to_head_drops_events_only_one_pilot_played(tmp_path):
+def test_pilot_head_to_head_drops_events_only_one_pilot_played(tmp_path, built_graph):
     # The head-to-head is the overlap: an event only one pilot played is not a
     # meeting, so it and its deck are dropped. Only the shared event survives.
     _write_snapshot(
@@ -247,7 +259,7 @@ def test_pilot_head_to_head_drops_events_only_one_pilot_played(tmp_path):
         ],
         ["a"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = pilot_subgraph(conn, "p1", "p2")
 
@@ -259,16 +271,16 @@ def test_pilot_head_to_head_drops_events_only_one_pilot_played(tmp_path):
     assert played == {("pilot:p1", "event:shared"), ("pilot:p2", "event:shared")}
 
 
-def test_pilot_head_to_head_falls_back_to_one_pilot_when_second_is_empty(tmp_path, snapshot_dir):
+def test_pilot_head_to_head_falls_back_to_one_pilot_when_second_is_empty(tmp_path, snapshot_dir, built_graph):
     # An empty second pilot is the ordinary neighbourhood: the two-arg call with
     # no second pilot matches the plain single-pilot call exactly.
-    conn = _connect(tmp_path, snapshot_dir)
+    conn = built_graph(tmp_path, snapshot_dir)
 
     assert pilot_subgraph(conn, "Jordan C", "") == pilot_subgraph(conn, "Jordan C")
 
 
-def test_card_usage_reads_adoption_rate_at_each_tier(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_card_usage_reads_adoption_rate_at_each_tier(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     decks_by_card = _decks_by_card(snapshot_dir)
     # A card in all three decks: it is 100% adopted everywhere it can be, so every
     # tier reads 100% and the card headlines 100% of the meta.
@@ -292,7 +304,7 @@ def test_card_usage_reads_adoption_rate_at_each_tier(tmp_path, snapshot_dir):
         assert e.source in node_ids and e.target in node_ids
 
 
-def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path):
+def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path, built_graph):
     # A percent is a rounded display of a ratio, and the ratio's base is what
     # says whether to trust it: 1 of 1 and 1 of 3 are both real, and only the
     # counts tell them apart. Every tier here has its own base, so a swapped
@@ -316,7 +328,7 @@ def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path):
         ],
         ["x", "pad1", "pad2", *(f"pad{i}" for i in range(3, 9))],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = card_usage_subgraph(conn, "x")
 
@@ -338,8 +350,8 @@ def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path):
     assert labels[("macro:aggro", "arch:boros")] == "100%"
 
 
-def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     # A card in both of Jordan's Grixis lists (tempo) but not Tom's Storm: 100%
     # adopted in Grixis, absent from Storm, so Storm/combo never appear.
     decks_by_card = _decks_by_card(snapshot_dir)
@@ -352,8 +364,8 @@ def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, s
     assert {e.label for e in sub.edges} == {"100%"}
 
 
-def test_card_usage_board_scopes_which_decks_count(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_card_usage_board_scopes_which_decks_count(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     # cori-steel cutter sits in the main of Jordan's two tempo Grixis decks and
     # the side of Tom's combo Storm deck, so the board selects which archetype
     # shows: main -> Grixis only, side -> Storm only, unset -> both.
@@ -369,8 +381,8 @@ def test_card_usage_board_scopes_which_decks_count(tmp_path, snapshot_dir):
     assert archetypes("Side") == {"Storm"}
 
 
-def test_card_usage_of_unknown_card_is_empty(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_card_usage_of_unknown_card_is_empty(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     sub = card_usage_subgraph(conn, "not a real card")
 
@@ -378,8 +390,8 @@ def test_card_usage_of_unknown_card_is_empty(tmp_path, snapshot_dir):
     assert sub.edges == []
 
 
-def test_cooccurrence_counts_only_same_board_pairings(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_cooccurrence_counts_only_same_board_pairings(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     decks_by_card = _decks_by_card(snapshot_dir)
     # A card in Jordan's two (identical) Grixis lists and no storm list.
     canon = next(c for c, ds in decks_by_card.items() if ds == JORDAN_DECKS)
@@ -400,7 +412,7 @@ def test_cooccurrence_counts_only_same_board_pairings(tmp_path, snapshot_dir):
         assert e.label == f"{round(100 * shared / seed_decks)}%"
 
 
-def test_cooccurrence_ignores_main_versus_side_pairings(tmp_path):
+def test_cooccurrence_ignores_main_versus_side_pairings(tmp_path, built_graph):
     # One deck: A and B in the main, C in the side. A pairs with B (same board)
     # but not C, whose only overlap with A is main-versus-side.
     _write_snapshot(
@@ -408,7 +420,7 @@ def test_cooccurrence_ignores_main_versus_side_pairings(tmp_path):
         [{"id": "d1", "tag": "x", "norm": 0.0, "m": ["a", "b"], "s": ["c"]}],
         ["a", "b", "c"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = card_cooccurrence_subgraph(conn, "a")
 
@@ -416,7 +428,7 @@ def test_cooccurrence_ignores_main_versus_side_pairings(tmp_path):
     assert neighbours == {"B"}
 
 
-def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path):
+def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path, built_graph):
     # Seed "a" runs in four decks; partners co-occur at descending rates.
     _write_snapshot(
         tmp_path,
@@ -428,7 +440,7 @@ def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path):
         ],
         ["a", "b", "c", "d", "e"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     # Top 2 by rate keeps only the two strongest partners (b at 100%, c at 75%),
     # each labelled with the percent of the seed's four decks that run it.
@@ -452,8 +464,8 @@ def test_cooccurrence_keeps_the_top_n_by_rate_and_labels_the_percent(tmp_path):
     assert counts == {"b": (4, 4), "c": (3, 4), "d": (2, 4), "e": (1, 4)}
 
 
-def test_cooccurrence_two_seeds_carry_the_intersection_counts_as_numbers(tmp_path):
-    conn = _cooccur_fixture(tmp_path)
+def test_cooccurrence_two_seeds_carry_the_intersection_counts_as_numbers(tmp_path, built_graph):
+    conn = _cooccur_fixture(tmp_path, built_graph)
 
     sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
     hub = next(n for n in sub.nodes if n.kind == "Intersection")
@@ -469,7 +481,7 @@ def test_cooccurrence_two_seeds_carry_the_intersection_counts_as_numbers(tmp_pat
     assert counts[(hub.id, "card:x")] == (1, 1)
 
 
-def _cooccur_fixture(tmp_path):
+def _cooccur_fixture(tmp_path, built_graph):
     # Only d1 runs both a and b, and x with them; y sits in an a-only deck, z in a
     # b-only deck, so neither is shared by both. Every card is in the main board.
     _write_snapshot(
@@ -481,11 +493,11 @@ def _cooccur_fixture(tmp_path):
         ],
         ["a", "b", "x", "y", "z"],
     )
-    return _connect(tmp_path, tmp_path)
+    return built_graph(tmp_path, tmp_path)
 
 
-def test_cooccurrence_two_seeds_hang_shared_cards_off_an_intersection_hub(tmp_path):
-    conn = _cooccur_fixture(tmp_path)
+def test_cooccurrence_two_seeds_hang_shared_cards_off_an_intersection_hub(tmp_path, built_graph):
+    conn = _cooccur_fixture(tmp_path, built_graph)
 
     sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
     hub = next(n for n in sub.nodes if n.kind == "Intersection")
@@ -503,8 +515,8 @@ def test_cooccurrence_two_seeds_hang_shared_cards_off_an_intersection_hub(tmp_pa
     assert hub.label == "Both · 1 decks"
 
 
-def test_cooccurrence_second_seed_is_a_target_not_a_partner_node(tmp_path):
-    conn = _cooccur_fixture(tmp_path)
+def test_cooccurrence_second_seed_is_a_target_not_a_partner_node(tmp_path, built_graph):
+    conn = _cooccur_fixture(tmp_path, built_graph)
 
     sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
     groups = {n.id: n.group for n in sub.nodes}
@@ -519,8 +531,8 @@ def test_cooccurrence_second_seed_is_a_target_not_a_partner_node(tmp_path):
     assert "card:y" not in groups and "card:z" not in groups
 
 
-def test_cooccurrence_two_seeds_line_up_shared_cards_right_of_the_hub(tmp_path):
-    conn = _cooccur_fixture(tmp_path)
+def test_cooccurrence_two_seeds_line_up_shared_cards_right_of_the_hub(tmp_path, built_graph):
+    conn = _cooccur_fixture(tmp_path, built_graph)
 
     sub = card_cooccurrence_subgraph(conn, "a", "b", top_n=50)
     pin = {n.id: n.pin for n in sub.nodes}
@@ -532,7 +544,7 @@ def test_cooccurrence_two_seeds_line_up_shared_cards_right_of_the_hub(tmp_path):
     assert pin["card:a"][0] == pin["card:b"][0] < pin[hub.id][0] < pin["card:x"][0]
 
 
-def test_cooccurrence_drop_lands_excludes_land_cards_in_both_views(tmp_path):
+def test_cooccurrence_drop_lands_excludes_land_cards_in_both_views(tmp_path, built_graph):
     # fetch is a land; bolt is not. Both share every both-deck with the seeds.
     _write_snapshot(
         tmp_path,
@@ -544,7 +556,7 @@ def test_cooccurrence_drop_lands_excludes_land_cards_in_both_views(tmp_path):
         ["a", "b", "fetch", "bolt"],
         lands={"fetch"},
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     # Two-seed: the land is dropped, leaving the non-land package.
     kept = {n.id for n in card_cooccurrence_subgraph(conn, "a", "b", drop_lands=True).nodes
@@ -559,7 +571,7 @@ def test_cooccurrence_drop_lands_excludes_land_cards_in_both_views(tmp_path):
     assert all(n.id != "card:fetch" for n in solo.nodes)
 
 
-def test_cooccurrence_two_seeds_that_never_share_a_deck_show_no_hub(tmp_path):
+def test_cooccurrence_two_seeds_that_never_share_a_deck_show_no_hub(tmp_path, built_graph):
     # a and b never appear in the same deck, so the intersection is empty.
     _write_snapshot(
         tmp_path,
@@ -569,7 +581,7 @@ def test_cooccurrence_two_seeds_that_never_share_a_deck_show_no_hub(tmp_path):
         ],
         ["a", "b", "x", "y"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = card_cooccurrence_subgraph(conn, "a", "b")
 
@@ -579,8 +591,8 @@ def test_cooccurrence_two_seeds_that_never_share_a_deck_show_no_hub(tmp_path):
     assert sub.edges == []
 
 
-def test_cooccurrence_single_seed_is_not_pinned(tmp_path):
-    conn = _cooccur_fixture(tmp_path)
+def test_cooccurrence_single_seed_is_not_pinned(tmp_path, built_graph):
+    conn = _cooccur_fixture(tmp_path, built_graph)
 
     # One seed keeps the physics layout (no fixed positions); pinning is only for
     # separating the two-seed hubs.
@@ -588,7 +600,7 @@ def test_cooccurrence_single_seed_is_not_pinned(tmp_path):
     assert all(n.pin is None for n in sub.nodes)
 
 
-def test_cooccurrence_two_seeds_rank_shared_cards_by_the_double_rate(tmp_path):
+def test_cooccurrence_two_seeds_rank_shared_cards_by_the_double_rate(tmp_path, built_graph):
     # Decks d1-d3 run both a and b; d4/d5 run only one. Among the both-decks, x
     # appears in two, y and z in one each; q and w never share a both-deck.
     _write_snapshot(
@@ -602,7 +614,7 @@ def test_cooccurrence_two_seeds_rank_shared_cards_by_the_double_rate(tmp_path):
         ],
         ["a", "b", "x", "y", "z", "q", "w"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     # Three decks run both seeds. Ranked by that double rate, x (2/3) leads, then
     # y and z tie (1/3, y first by name); top_n=2 keeps x and y. z is cut, and q
@@ -643,7 +655,7 @@ def _gem_cards(sub):
     return {n.id for n in sub.nodes if n.kind == "Card"}
 
 
-def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path):
+def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path, built_graph):
     # 100 ranked decks, so the ceiling is 10. `gem` is in 6 of them, all placing
     # in the top tenth; `dud` is equally rare but places mid-field.
     decks = (
@@ -652,7 +664,7 @@ def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path):
         + _filler("x", 88, 0.5, start=12)
     )
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = hidden_gems_subgraph(conn)
 
@@ -667,7 +679,7 @@ def test_hidden_gems_are_rare_cards_that_place_highly(tmp_path):
     assert all(e.label.startswith("CONTAINS") for e in sub.edges)
 
 
-def test_hidden_gems_carry_their_rarity_and_placement_as_numbers(tmp_path):
+def test_hidden_gems_carry_their_rarity_and_placement_as_numbers(tmp_path, built_graph):
     # The two numbers that decide a gem are the answer to "which gems, and what
     # is their mean placement", so they survive on the result as values rather
     # than only as the filter that produced it. `gem` is in 6 decks placing at
@@ -678,7 +690,7 @@ def test_hidden_gems_carry_their_rarity_and_placement_as_numbers(tmp_path):
         for i in range(6)
     ] + _filler("x", 94, 0.9, start=6)
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = hidden_gems_subgraph(conn)
 
@@ -689,7 +701,7 @@ def test_hidden_gems_carry_their_rarity_and_placement_as_numbers(tmp_path):
     assert gem.label == "Gem"
 
 
-def test_hidden_gems_ceiling_is_a_share_so_rarity_means_the_same_in_any_slice(tmp_path):
+def test_hidden_gems_ceiling_is_a_share_so_rarity_means_the_same_in_any_slice(tmp_path, built_graph):
     # `edge` is in 8 decks, all of them Small. Small has 50 ranked decks, the
     # meta has 200. The same 8 decks read as rare against the meta (ceiling 20)
     # but as a staple within Small (ceiling 5). That flip is the point of a
@@ -700,13 +712,13 @@ def test_hidden_gems_ceiling_is_a_share_so_rarity_means_the_same_in_any_slice(tm
         + _filler("big", 150, 0.5)
     )
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     assert "card:edge" in _gem_cards(hidden_gems_subgraph(conn))
     assert "card:edge" not in _gem_cards(hidden_gems_subgraph(conn, archetype="small"))
 
 
-def test_hidden_gems_floor_is_absolute_so_trust_does_not_scale_with_the_meta(tmp_path):
+def test_hidden_gems_floor_is_absolute_so_trust_does_not_scale_with_the_meta(tmp_path, built_graph):
     # `four` and `five` both place perfectly; only their deck counts differ, and
     # only across the floor. The floor is evidence, not a share, so the verdict
     # must not move when the meta around them grows.
@@ -719,7 +731,7 @@ def test_hidden_gems_floor_is_absolute_so_trust_does_not_scale_with_the_meta(tmp
         d = tmp_path / f"meta{meta_size}"
         d.mkdir()
         _write_snapshot(d, decks, _canons(decks))
-        return _connect(d, d)
+        return built_graph(d, d)
 
     for meta_size in (100, 400):
         cards = _gem_cards(hidden_gems_subgraph(build(meta_size)))
@@ -727,7 +739,7 @@ def test_hidden_gems_floor_is_absolute_so_trust_does_not_scale_with_the_meta(tmp
         assert "card:four" not in cards, f"four-deck card admitted at meta {meta_size}"
 
 
-def test_hidden_gems_scope_rarity_to_the_archetype_slice(tmp_path):
+def test_hidden_gems_scope_rarity_to_the_archetype_slice(tmp_path, built_graph):
     # `common` is a Storm staple (in 30 of 50 Storm decks) but fringe tech in
     # Lands (5 of 50), where the decks running it place first. Scoping to Lands
     # surfaces it; against the whole meta its Storm ubiquity buries it.
@@ -738,7 +750,7 @@ def test_hidden_gems_scope_rarity_to_the_archetype_slice(tmp_path):
         + _filler("lands", 45, 0.5, start=5)
     )
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     # 35 of 100 decks overall: far past the meta ceiling of 10.
     assert "card:common" not in _gem_cards(hidden_gems_subgraph(conn))
@@ -755,7 +767,7 @@ def test_min_gem_slice_is_the_smallest_slice_whose_band_is_not_inverted():
     # The guard's whole job is to reject slices where the ceiling has fallen
     # under the floor. It only does that if the smallest slice it admits still
     # has room for a gem, which is a property of the three constants, not of any
-    # data. Pinned because the constants are expected to be tuned (ADR 0005) and
+    # data. Pinned because the constants are expected to be tuned (ADR 0012) and
     # rounding to nearest here would silently re-admit an inverted band.
     assert MAX_GEM_SHARE * MIN_GEM_SLICE >= MIN_GEM_DECKS
     # And it is the *smallest* such slice: one deck fewer must be inverted, or
@@ -763,7 +775,7 @@ def test_min_gem_slice_is_the_smallest_slice_whose_band_is_not_inverted():
     assert MAX_GEM_SHARE * (MIN_GEM_SLICE - 1) < MIN_GEM_DECKS
 
 
-def test_hidden_gems_refuse_a_slice_too_small_to_support_the_claim(tmp_path):
+def test_hidden_gems_refuse_a_slice_too_small_to_support_the_claim(tmp_path, built_graph):
     # Below MIN_GEM_SLICE the ceiling falls under the floor, so the band is empty
     # by construction. `tech` is in 5 of Fringe's 20 decks and wins every time:
     # under a naive read a gem, but 5 of 20 is a quarter of that archetype, which
@@ -775,7 +787,7 @@ def test_hidden_gems_refuse_a_slice_too_small_to_support_the_claim(tmp_path):
         + _filler("wide", 80, 0.5)
     )
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     with pytest.raises(SliceTooSmall, match="20 ranked decks"):
         hidden_gems_subgraph(conn, archetype="fringe")
@@ -789,21 +801,36 @@ def test_hidden_gems_refuse_a_slice_too_small_to_support_the_claim(tmp_path):
     assert "card:tech" in _gem_cards(hidden_gems_subgraph(conn))
 
 
-def test_gem_archetypes_offer_only_the_slices_that_can_answer(tmp_path):
-    # `wide` clears MIN_GEM_SLICE; `fringe` does not. Only the answerable one is
-    # offered, so a slice too small is never put to the user as though it might.
-    decks = _filler("wide", 60, 0.5) + _filler("fringe", 40, 0.5)
+def test_gem_archetypes_offer_only_the_slices_that_can_answer(tmp_path, built_graph):
+    # Four archetypes clear MIN_GEM_SLICE; `fringe` does not. Only the answerable
+    # ones are offered, so a slice too small is never put to the user as though
+    # it might answer.
+    #
+    # Four rather than two, to hold the ORDER BY (issue #56). This query
+    # aggregates, and an aggregation's rows come back in hash order, which is
+    # arbitrary and unrelated to the order the fixture wrote its decks in. So
+    # unlike the catalogue scans, no fixture ordering can make a missing ORDER BY
+    # fail here; only the improbability of hash order landing on label order can.
+    # Two archetypes leaves that far too likely: dropping the ORDER BY still went
+    # green in 94 of 120 reads. At four, it went green in 0 of 300, over 10
+    # builds that between them returned 7 distinct orders and never a sorted one.
+    decks = ([d for tag in ("wide", "grindy", "combo", "midrange")
+              for d in _filler(tag, 50, 0.5)]
+             + _filler("fringe", 40, 0.5))
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
-    assert gem_archetypes(conn) == [("Wide", "wide")]
+    assert gem_archetypes(conn) == [
+        ("Combo", "combo"), ("Grindy", "grindy"),
+        ("Midrange", "midrange"), ("Wide", "wide"),
+    ]
 
     # And every tag offered is one the gem query will actually accept.
     for _, tag in gem_archetypes(conn):
         hidden_gems_subgraph(conn, archetype=tag)
 
 
-def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path):
+def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path, built_graph):
     # `gem` is in 5 ranked decks (placed well) and 3 with no placement. Unranked
     # decks cannot confirm overperformance, so they count for neither bound: gem
     # clears the floor of 5 on its ranked decks alone, and `short` does not
@@ -818,7 +845,7 @@ def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path):
         + _filler("x", 91, 0.5, start=9)
     )
     _write_snapshot(tmp_path, decks, _canons(decks))
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = hidden_gems_subgraph(conn)
 
@@ -831,8 +858,8 @@ def test_hidden_gems_ignore_decks_with_unknown_placement(tmp_path):
     assert "card:short" not in _gem_cards(sub)
 
 
-def test_pilot_affinity_tiers_pilot_macro_archetype_by_event_count(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_pilot_affinity_tiers_pilot_macro_archetype_by_event_count(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     # Jordan is a Grixis specialist: both decks are tempo/Grixis, played at two
     # different events (CFWAT25, PogNov25). The macro sits between the pilot and
@@ -849,7 +876,7 @@ def test_pilot_affinity_tiers_pilot_macro_archetype_by_event_count(tmp_path, sna
     ]
 
 
-def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path):
+def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path, built_graph):
     # One pilot, three decks of one macro/archetype, all at the same event. The
     # affinity is one event, not three decks: it measures showing up, not how
     # many variants were entered on the day. Both tiers see one event.
@@ -862,7 +889,7 @@ def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path):
         ],
         ["a"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = pilot_affinity_subgraph(conn, "p")
 
@@ -871,7 +898,7 @@ def test_pilot_affinity_counts_distinct_events_not_decks(tmp_path):
     assert [e.label for e in sub.edges] == ["PLAYS:1", "PLAYS:1"]
 
 
-def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path):
+def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path, built_graph):
     # A generalist: Rakdos played as both aggro (event E1) and midrange (E2),
     # plus a Boros aggro list (E3). The archetype an already-seen name reappears
     # under is one shared node with an edge from each macro, sized by its events
@@ -885,7 +912,7 @@ def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path):
         ],
         ["a"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = pilot_affinity_subgraph(conn, "p")
 
@@ -900,8 +927,8 @@ def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path):
     assert edges[("macro:aggro", "arch:boros")] == "PLAYS:1"
 
 
-def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     # Keyed on the upstream id, labelled by display name (Tom S).
     sub = pilot_affinity_subgraph(conn, "AmberTealViper")
@@ -913,7 +940,7 @@ def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot
     ]
 
 
-def test_pilot_affinity_carries_its_event_counts_as_numbers(tmp_path):
+def test_pilot_affinity_carries_its_event_counts_as_numbers(tmp_path, built_graph):
     # "PLAYS:1" is display text. The count behind it survives as a number, so
     # reading a pilot's affinity never means parsing a label. The generalist
     # fixture distinguishes the three tiers: aggro's 2 events, Rakdos's 2 across
@@ -927,7 +954,7 @@ def test_pilot_affinity_carries_its_event_counts_as_numbers(tmp_path):
         ],
         ["a"],
     )
-    conn = _connect(tmp_path, tmp_path)
+    conn = built_graph(tmp_path, tmp_path)
 
     sub = pilot_affinity_subgraph(conn, "p")
 
@@ -943,8 +970,54 @@ def test_pilot_affinity_carries_its_event_counts_as_numbers(tmp_path):
     }
 
 
-def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_pilot_affinity_keeps_a_pilot_whose_decks_carry_no_archetype(tmp_path, built_graph):
+    # The query chains OPTIONAL MATCHes, so a deck with a macro but no archetype
+    # comes back as a bound pilot and macro with a null archetype column. That
+    # null row must read as "this pilot plays control, unclassified" rather than
+    # as no play at all: the macro tier is still an answer even where the
+    # archetype tier is empty.
+    _write_snapshot(
+        tmp_path,
+        [{"id": "d1", "tag": None, "norm": 0.0, "macro": "control", "event": "E1", "m": ["a"]}],
+        ["a"],
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    sub = pilot_affinity_subgraph(conn, "p")
+
+    assert [(n.id, n.kind, n.weight) for n in sub.nodes] == [
+        ("pilot:p", "Pilot", None),
+        ("macro:control", "Macro", 1),
+    ]
+    assert [(e.source, e.target, e.events) for e in sub.edges] == [
+        ("pilot:p", "macro:control", 1),
+    ]
+
+
+def test_pilot_affinity_of_a_pilot_with_no_decks_is_the_pilot_alone(tmp_path, snapshot_dir):
+    # The far end of the same chain: every OPTIONAL MATCH binds null, so only the
+    # opening MATCH has anything. The pilot is known and answers with an empty
+    # affinity, which is a different claim from the unknown pilot below (who
+    # yields nothing at all) and must not collapse into it.
+    #
+    # The lone test that plants a node rather than building one, so it opens its
+    # own writer instead of taking the read-only `built_graph`.
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+
+    with open_for_writing(artifact) as conn:
+        conn.execute(
+            "CREATE (:Pilot {pilot: 'ghost', displayName: 'Ghost', lowConfidence: false})"
+        )
+
+        sub = pilot_affinity_subgraph(conn, "ghost")
+
+    assert [(n.id, n.label, n.kind) for n in sub.nodes] == [("pilot:ghost", "Ghost", "Pilot")]
+    assert sub.edges == []
+
+
+def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     sub = pilot_affinity_subgraph(conn, "Nobody At All")
 
@@ -952,8 +1025,8 @@ def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir):
     assert sub.edges == []
 
 
-def test_run_query_dispatches_a_spec_to_its_query(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_run_query_dispatches_a_spec_to_its_query(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
 
     # The single spec -> subgraph seam routes to the right query function; the
     # oracle is the function called directly with the spec's parameters.
@@ -966,8 +1039,8 @@ def test_run_query_dispatches_a_spec_to_its_query(tmp_path, snapshot_dir):
     ) == pilot_subgraph(conn, "Jordan C", "AmberTealViper")
 
 
-def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
-    conn = _connect(tmp_path, snapshot_dir)
+def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
     decks_by_card = _decks_by_card(snapshot_dir)
     canon = next(c for c, ds in decks_by_card.items() if ds == JORDAN_DECKS)
 
@@ -978,3 +1051,110 @@ def test_run_query_passes_spec_parameters_through(tmp_path, snapshot_dir):
     # far under MIN_GEM_SLICE, and the refusal names the archetype it was handed.
     with pytest.raises(SliceTooSmall, match="grixis"):
         run_query(conn, HiddenGems(archetype="grixis"))
+
+
+# Five macros that adopt the seed card at exactly the same rate, so nothing but
+# the tie-break decides their order. Named in alphabetical order.
+_TIED_MACROS = ["aggro", "combo", "control", "midrange", "ramp"]
+
+
+def _tied_macro_snapshot(path):
+    """A snapshot where five macros each run the seed card in 1 of their 2 decks."""
+    path.mkdir(parents=True)
+    decks = []
+    for macro in _TIED_MACROS:
+        for i in (0, 1):
+            decks.append({
+                "deckId": f"{macro}{i}", "name": f"{macro}{i}", "deckName": "n",
+                "pilot": f"p{macro}{i}", "event": "NYE", "eventId": "evt_1",
+                "eventType": "Tournament", "placement": 1, "placementNorm": 0.5,
+                "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+                "macro": f"macro:{macro}", "engineTags": [f"engine:{macro}_arch"],
+                "engineTagLabels": {f"engine:{macro}_arch": macro.title()},
+                "primaryTag": f"engine:{macro}_arch",
+                "primaryTagWeights": {f"engine:{macro}_arch": 1},
+            })
+    (path / "decks.json").write_text(json.dumps(decks))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [
+            {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
+             "manaValue": 1.0, "reserved": False, "points": 0},
+            {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
+             "manaValue": 0.0, "reserved": False, "points": 0},
+        ],
+        # Only the first deck of each macro runs the seed, so every macro adopts
+        # it at 1 of 2 decks and all five percentages are identical.
+        "decks": {
+            f"{macro}{i}": {"m": [0, 1] if i == 0 else [1], "s": []}
+            for macro in _TIED_MACROS
+            for i in (0, 1)
+        },
+    }))
+
+
+def _tied_archetype_snapshot(path):
+    """Three archetype tags sharing one display name, one deck each running the seed.
+
+    Registered in reverse tag order, so a sort that fails to break the tie keeps
+    the order the rows arrived in rather than the order the tags demand.
+    """
+    path.mkdir(parents=True)
+    tags = ["c_tag", "b_tag", "a_tag"]
+    decks = []
+    for tag in tags:
+        for i in (0, 1):
+            decks.append({
+                "deckId": f"{tag}{i}", "name": f"{tag}{i}", "deckName": "n",
+                "pilot": f"p{tag}{i}", "event": "NYE", "eventId": "evt_1",
+                "eventType": "Tournament", "placement": 1, "placementNorm": 0.5,
+                "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+                "macro": "macro:aggro", "engineTags": [f"engine:{tag}"],
+                # One shared display name, so the name tie-break cannot separate them.
+                "engineTagLabels": {f"engine:{tag}": "Shared"},
+                "primaryTag": f"engine:{tag}",
+                "primaryTagWeights": {f"engine:{tag}": 1},
+            })
+    (path / "decks.json").write_text(json.dumps(decks))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [
+            {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
+             "manaValue": 1.0, "reserved": False, "points": 0},
+            {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
+             "manaValue": 0.0, "reserved": False, "points": 0},
+        ],
+        "decks": {
+            f"{tag}{i}": {"m": [0, 1] if i == 0 else [1], "s": []}
+            for tag in tags for i in (0, 1)
+        },
+    }))
+
+
+def test_macros_tied_on_adoption_are_ordered_by_name(tmp_path, built_graph):
+    # Two strategies can adopt a card at rates that round to the same percent, and
+    # roughly a quarter of the real card catalogue has such a tie. Without a
+    # tie-break the order falls out of an unordered set, so the same query on the
+    # same graph answers differently between runs and the view reshuffles for no
+    # reason. Ties resolve on name, as they already do for archetypes just below.
+    _tied_macro_snapshot(tmp_path / "snap")
+    conn = built_graph(tmp_path, tmp_path / "snap")
+
+    subgraph = card_usage_subgraph(conn, "seed")
+
+    macros = [n.label for n in subgraph.nodes if n.kind == "Macro"]
+    assert macros == _TIED_MACROS
+
+
+def test_archetypes_tied_on_adoption_and_name_are_ordered_by_tag(tmp_path, built_graph):
+    # Two tags can carry the same display name (which is why the app suffixes
+    # duplicate labels at all). Tied on adoption, size and name, only the tag is
+    # left to separate them, and without it the order falls out of a Cypher query
+    # with no ORDER BY, so it would move with the engine rather than the data.
+    _tied_archetype_snapshot(tmp_path / "snap")
+    conn = built_graph(tmp_path, tmp_path / "snap")
+
+    subgraph = card_usage_subgraph(conn, "seed")
+
+    archetypes = [n.id for n in subgraph.nodes if n.kind == "Archetype"]
+    assert archetypes == ["arch:a_tag", "arch:b_tag", "arch:c_tag"]

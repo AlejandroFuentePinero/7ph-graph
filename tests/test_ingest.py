@@ -2,12 +2,11 @@
 
 Crafted snapshots exercise the union and the superset gate directly. The gate is
 a pure function over parsed Snapshots, so these build Snapshot objects from the
-domain models rather than going through Kùzu.
+domain models rather than going through the graph store.
 """
 
 import json
 
-import kuzu
 import pytest
 
 from graph7ph.ingest import (
@@ -22,6 +21,7 @@ from graph7ph.ingest import (
     union_snapshots,
 )
 from graph7ph.build import reconciliation_path
+from graph7ph.db import DB_FILENAME, NotABundle, database_path, open_for_reading, rows
 from graph7ph.models import Card, Containment, Deck, Snapshot
 
 
@@ -266,7 +266,7 @@ def _snapshot_files(deck_ids, pilot=None):
     index = json.dumps({
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
-                   "manaValue": 0.0, "reserved": False, "priceUsd": 0.5,
+                   "manaValue": 0.0, "reserved": False,
                    "points": 0}],
         "decks": {did: {"m": [0], "s": []} for did in deck_ids},
     })
@@ -274,17 +274,13 @@ def _snapshot_files(deck_ids, pilot=None):
 
 
 def _deck_ids(db):
-    conn = kuzu.Connection(kuzu.Database(str(db)))
-    res = conn.execute("MATCH (d:Deck) RETURN d.deckId")
-    ids = set()
-    while res.has_next():
-        ids.add(res.get_next()[0])
-    return ids
+    conn = open_for_reading(db)
+    return {deck_id for deck_id, in rows(conn.execute("MATCH (d:Deck) RETURN d.deckId"))}
 
 
 def test_ingest_unions_all_snapshots_and_promotes_with_a_backup(tmp_path):
     root = tmp_path / "snapshots"
-    db = tmp_path / "graph.kuzu"
+    db = tmp_path / "graph"
     d0, i0 = _snapshot_files(["d1", "d2"])
     _write_snapshot_dir(root / "20260101T000000Z", decks=d0, cards_index=i0)
 
@@ -292,7 +288,7 @@ def test_ingest_unions_all_snapshots_and_promotes_with_a_backup(tmp_path):
     report, _ = ingest(root, db)
     assert report.status == "promote"
     assert _deck_ids(db) == {"d1", "d2"}
-    assert not (tmp_path / "graph.kuzu.backup").exists()
+    assert not (tmp_path / "graph.backup").exists()
 
     # A later fetch drops d2. The build unions every snapshot, so d2 survives,
     # the drop is flagged, and the prior graph is retained as a backup.
@@ -304,12 +300,12 @@ def test_ingest_unions_all_snapshots_and_promotes_with_a_backup(tmp_path):
     assert _deck_ids(db) == {"d1", "d2"}  # union across all snapshots
     assert report.status == "flag"
     assert Flag("dropped", "deck", "d2") in report.flags
-    assert (tmp_path / "graph.kuzu.backup").exists()
+    assert (tmp_path / "graph.backup").exists()
     assert json.loads(ingest_report_path(db).read_text())["status"] == "flag"
 
     # Rollback is self-consistent: the backup keeps its own matching reports,
     # not the newer build's. The backup is the first build, which promoted clean.
-    backup = tmp_path / "graph.kuzu.backup"
+    backup = tmp_path / "graph.backup"
     assert json.loads(ingest_report_path(backup).read_text())["status"] == "promote"
     assert reconciliation_path(backup).exists()
 
@@ -319,29 +315,50 @@ def test_promote_moves_the_graph_and_its_reports_as_one_bundle(tmp_path):
     # rename promotes graph + both reports together. A promote can never leave a
     # new graph paired with stale reports, because there is no separate report
     # rename that could be interrupted between them.
-    db = tmp_path / "graph.kuzu"
-    backup = tmp_path / "graph.kuzu.backup"
+    db = tmp_path / "graph"
+    backup = tmp_path / "graph.backup"
     assert db == ingest_report_path(db).parent == reconciliation_path(db).parent
 
     live = _db(db, "old graph")
     ingest_report_path(live).write_text('{"gen": "old"}')
     reconciliation_path(live).write_text('{"gen": "old"}')
-    incoming = _db(tmp_path / "graph.kuzu.incoming", "new graph")
+    incoming = _db(tmp_path / "graph.incoming", "new graph")
     ingest_report_path(incoming).write_text('{"gen": "new"}')
     reconciliation_path(incoming).write_text('{"gen": "new"}')
 
     promote(incoming, db, backup)
 
     # The live graph and both its reports are the new generation, together.
-    assert (db / "data").read_text() == "new graph"
+    assert (db / DB_FILENAME).read_text() == "new graph"
     assert json.loads(ingest_report_path(db).read_text())["gen"] == "new"
     assert json.loads(reconciliation_path(db).read_text())["gen"] == "new"
     # The backup keeps its own matching (old) reports for a consistent rollback.
-    assert (backup / "data").read_text() == "old graph"
+    assert (backup / DB_FILENAME).read_text() == "old graph"
     assert json.loads(ingest_report_path(backup).read_text())["gen"] == "old"
     # No report was promoted on its own: none left orphaned beside the graph dirs.
-    assert not (tmp_path / "graph.kuzu.ingest.json").exists()
-    assert not (tmp_path / "graph.kuzu.reconciliation.json").exists()
+    assert not (tmp_path / "graph.ingest.json").exists()
+    assert not (tmp_path / "graph.reconciliation.json").exists()
+
+
+def test_the_promoted_artifact_is_a_bundle_holding_the_database_and_both_reports(
+    tmp_path,
+):
+    # Issue #47: the artifact is a directory containing the database rather than a
+    # directory that is the database, so the reports can keep living inside it once
+    # the database becomes a single file. Promotion stays one rename of one path.
+    root = tmp_path / "snapshots"
+    artifact = tmp_path / "graph"
+    d0, i0 = _snapshot_files(["d1"])
+    _write_snapshot_dir(root / "20260101T000000Z", decks=d0, cards_index=i0)
+
+    ingest(root, artifact)
+
+    assert database_path(artifact).exists()
+    assert ingest_report_path(artifact).exists()
+    assert reconciliation_path(artifact).exists()
+    # The build's scratch bundle is gone, and nothing leaked out beside the
+    # artifact: whatever is not inside it would not survive the rename.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["graph", "snapshots"]
 
 
 def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_path):
@@ -350,7 +367,7 @@ def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_pa
     # pre-change pilot, not silently absorb the rewrite the old single-transition
     # gate would have missed.
     root = tmp_path / "snapshots"
-    db = tmp_path / "graph.kuzu"
+    db = tmp_path / "graph"
 
     for name, pilot in [("20260101T000000Z", "Alice"),
                         ("20260201T000000Z", "Bob"),   # interior rewrite
@@ -362,17 +379,14 @@ def test_interior_rewrite_in_a_three_snapshot_build_flags_and_retains_old(tmp_pa
 
     assert report.status == "flag"
     assert Flag("changed", "deck", "d1") in report.flags
-    conn = kuzu.Connection(kuzu.Database(str(db)))
-    res = conn.execute("MATCH (p:Pilot) RETURN p.pilot")
-    pilots = set()
-    while res.has_next():
-        pilots.add(res.get_next()[0])
+    conn = open_for_reading(db)
+    pilots = {p for p, in rows(conn.execute("MATCH (p:Pilot) RETURN p.pilot"))}
     assert pilots == {"Alice"}  # pre-change pilot retained, not the Bob rewrite
 
 
 def test_ingest_hard_fails_on_a_corrupt_snapshot_without_touching_the_graph(tmp_path):
     root = tmp_path / "snapshots"
-    db = tmp_path / "graph.kuzu"
+    db = tmp_path / "graph"
     d0, i0 = _snapshot_files(["d1"])
     _write_snapshot_dir(root / "20260101T000000Z", decks=d0, cards_index=i0)
     ingest(root, db)  # a good graph exists
@@ -390,43 +404,67 @@ def test_ingest_hard_fails_on_a_corrupt_snapshot_without_touching_the_graph(tmp_
 
 
 def _db(path, marker):
-    """A stand-in for a Kùzu database directory holding a known marker."""
+    """A stand-in artifact bundle whose database is a known marker string.
+
+    Promotion moves whole bundles by rename and never reads what is inside them,
+    so a readable marker where the database goes is enough to tell which bundle
+    ended up where. Named through ``DB_FILENAME`` rather than a literal, so the
+    shape here stays the shape a real bundle has (ADR 0008).
+    """
     path.mkdir()
-    (path / "data").write_text(marker)
+    (path / DB_FILENAME).write_text(marker)
     return path
 
 
 def test_promote_swaps_in_the_new_graph_and_retains_the_old_as_backup(tmp_path):
-    live = _db(tmp_path / "graph.kuzu", "old")
-    incoming = _db(tmp_path / "graph.kuzu.incoming", "new")
-    backup = tmp_path / "graph.kuzu.backup"
+    live = _db(tmp_path / "graph", "old")
+    incoming = _db(tmp_path / "graph.incoming", "new")
+    backup = tmp_path / "graph.backup"
 
     promote(incoming, live, backup)
 
-    assert (live / "data").read_text() == "new"   # live is now the rebuild
-    assert (backup / "data").read_text() == "old"  # previous graph kept for rollback
+    assert (live / DB_FILENAME).read_text() == "new"   # live is now the rebuild
+    assert (backup / DB_FILENAME).read_text() == "old"  # previous graph kept for rollback
     assert not incoming.exists()
 
 
 def test_promote_on_first_build_leaves_no_backup(tmp_path):
-    incoming = _db(tmp_path / "graph.kuzu.incoming", "new")
-    live = tmp_path / "graph.kuzu"
-    backup = tmp_path / "graph.kuzu.backup"
+    incoming = _db(tmp_path / "graph.incoming", "new")
+    live = tmp_path / "graph"
+    backup = tmp_path / "graph.backup"
 
     promote(incoming, live, backup)
 
-    assert (live / "data").read_text() == "new"
+    assert (live / DB_FILENAME).read_text() == "new"
     assert not backup.exists()
 
 
 def test_promote_replaces_an_existing_backup(tmp_path):
-    live = _db(tmp_path / "graph.kuzu", "old")
-    incoming = _db(tmp_path / "graph.kuzu.incoming", "new")
-    backup = _db(tmp_path / "graph.kuzu.backup", "ancient")  # a prior backup lingers
+    live = _db(tmp_path / "graph", "old")
+    incoming = _db(tmp_path / "graph.incoming", "new")
+    backup = _db(tmp_path / "graph.backup", "ancient")  # a prior backup lingers
 
     promote(incoming, live, backup)
 
-    assert (backup / "data").read_text() == "old"  # backup is the just-replaced graph
+    assert (backup / DB_FILENAME).read_text() == "old"  # backup is the just-replaced graph
+
+
+def test_promote_refuses_a_file_sitting_where_the_backup_goes(tmp_path):
+    # The third path a stray regular file can block, and the one that bites after
+    # the build has already run: `promote` clears the backup and renames the live
+    # bundle onto it, and renaming a directory onto a file is `NotADirectoryError`
+    # (issue #52). Refused by name before the rename, so the live bundle is still
+    # standing and the stray file is still there to be looked at.
+    live = _db(tmp_path / "graph", "old")
+    incoming = _db(tmp_path / "graph.incoming", "new")
+    backup = tmp_path / "graph.backup"
+    backup.write_text("stray")
+
+    with pytest.raises(NotABundle, match=str(backup)):
+        promote(incoming, live, backup)
+
+    assert (live / DB_FILENAME).read_text() == "old"
+    assert backup.read_text() == "stray"
 
 
 def test_shape_shifted_response_hard_fails(tmp_path):

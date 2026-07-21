@@ -2,9 +2,25 @@
 name = "graph7ph"
 version = "0.1.0"
 description = "A knowledge graph of the Australian 7 Point Highlander MTG metagame"
-requires-python = ">=3.11"
+# Bounded at both ends deliberately, and the ceiling is not what makes an
+# unsupported interpreter fail legibly: Ladybug declares `>=3.10,<3.15` itself and
+# ships cp310-cp314 wheels, so on 3.15 the resolver already refuses at the
+# dependency. That was the whole difference from Kùzu, which declared no upper
+# bound and so fell through to an sdist and a C++ build failing deep in a compiler
+# log (issue #50). What this ceiling adds is the refusal arriving at *this*
+# project rather than one level down, naming the range this repo is actually
+# tested on instead of inheriting whatever a dependency happens to allow. The
+# floor is this project's own too: 3.11 is what the lock and the Space have always
+# run, and claiming Ladybug's 3.10 would claim something untested here.
+#
+# Deliberately not guarded here: the OS floor. Ladybug ships only `macosx_15_0`
+# wheels where kuzu 0.7.1 shipped `macosx_11_0`, so macOS 12/13/14 fall into the
+# same source build by OS version rather than by interpreter (ADR 0011). Metadata
+# cannot express that, since a wheel tag is resolved per platform and not
+# declarable as a floor, so it stays a documented caveat rather than a guard.
+requires-python = ">=3.11,<3.15"
 dependencies = [
-    "kuzu>=0.7,<0.8",
+    "ladybug>=0.18,<0.19",
     "gradio>=5,<6",
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",
