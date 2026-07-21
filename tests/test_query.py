@@ -802,13 +802,28 @@ def test_hidden_gems_refuse_a_slice_too_small_to_support_the_claim(tmp_path, bui
 
 
 def test_gem_archetypes_offer_only_the_slices_that_can_answer(tmp_path, built_graph):
-    # `wide` clears MIN_GEM_SLICE; `fringe` does not. Only the answerable one is
-    # offered, so a slice too small is never put to the user as though it might.
-    decks = _filler("wide", 60, 0.5) + _filler("fringe", 40, 0.5)
+    # Four archetypes clear MIN_GEM_SLICE; `fringe` does not. Only the answerable
+    # ones are offered, so a slice too small is never put to the user as though
+    # it might answer.
+    #
+    # Four rather than two, to hold the ORDER BY (issue #56). This query
+    # aggregates, and an aggregation's rows come back in hash order, which is
+    # arbitrary and unrelated to the order the fixture wrote its decks in. So
+    # unlike the catalogue scans, no fixture ordering can make a missing ORDER BY
+    # fail here; only the improbability of hash order landing on label order can.
+    # Two archetypes leaves that far too likely: dropping the ORDER BY still went
+    # green in 94 of 120 reads. At four, it went green in 0 of 300, over 10
+    # builds that between them returned 7 distinct orders and never a sorted one.
+    decks = ([d for tag in ("wide", "grindy", "combo", "midrange")
+              for d in _filler(tag, 50, 0.5)]
+             + _filler("fringe", 40, 0.5))
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
 
-    assert gem_archetypes(conn) == [("Wide", "wide")]
+    assert gem_archetypes(conn) == [
+        ("Combo", "combo"), ("Grindy", "grindy"),
+        ("Midrange", "midrange"), ("Wide", "wide"),
+    ]
 
     # And every tag offered is one the gem query will actually accept.
     for _, tag in gem_archetypes(conn):

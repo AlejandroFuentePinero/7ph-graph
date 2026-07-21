@@ -2,17 +2,6 @@
  "v": 2,
  "cards": [
   {
-   "canon": "abrupt decay",
-   "name": "Abrupt Decay",
-   "type": "Instants",
-   "manaCost": "{B}{G}",
-   "manaValue": 2.0,
-   "reserved": false,
-   "priceUsd": 1.86,
-   "points": 0,
-   "pointsCompanion": 0
-  },
-  {
    "canon": "arid mesa",
    "name": "Arid Mesa",
    "type": "Lands",
@@ -20,6 +9,17 @@
    "manaValue": 0.0,
    "reserved": false,
    "priceUsd": 24.01,
+   "points": 0,
+   "pointsCompanion": 0
+  },
+  {
+   "canon": "abrupt decay",
+   "name": "Abrupt Decay",
+   "type": "Instants",
+   "manaCost": "{B}{G}",
+   "manaValue": 2.0,
+   "reserved": false,
+   "priceUsd": 1.86,
    "points": 0,
    "pointsCompanion": 0
   },
@@ -1336,7 +1336,7 @@
  "decks": {
   "BsegXnsDsEWxh-vNbUrn0w": {
    "m": [
-    1,
+    0,
     2,
     3,
     4,
@@ -1417,7 +1417,7 @@
   },
   "pkUbzmgN3UeqaWdYQYRgRg": {
    "m": [
-    1,
+    0,
     2,
     3,
     4,
@@ -1560,7 +1560,7 @@
     120
    ],
    "s": [
-    0,
+    1,
     10,
     12,
     14,

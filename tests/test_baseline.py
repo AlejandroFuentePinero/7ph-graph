@@ -17,7 +17,7 @@ from graph7ph.baseline import (
     subgraph_blob,
 )
 from graph7ph.build import build_graph, graph_counts
-from graph7ph.db import open_for_reading
+from graph7ph.db import open_for_reading, rows
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     CardCooccurrence,
@@ -155,9 +155,25 @@ def test_the_tolerance_sits_between_the_noise_and_the_band_margin():
     assert FLOAT_NOISE < TOLERANCE < GEM_THRESHOLD_MARGIN
 
 
+def test_the_fixture_reaches_the_graph_out_of_label_order(conn):
+    # What lets the two catalogue tests below fail at all. Read with no ORDER BY,
+    # both come back in the order the fixture put them into the graph. If that
+    # order were already the label order, a catalogue query that had lost its
+    # ORDER BY would return the right sequence by luck and the tests below would
+    # grade nothing, which is the hole issue #56 closed. Asserted here rather
+    # than described in a comment on the fixture files, so sorting one of them
+    # fails a test instead of quietly disarming two.
+    pilots = list(rows(conn.execute("MATCH (p:Pilot) RETURN p.displayName")))
+    cards = list(rows(conn.execute("MATCH (c:Card) RETURN c.name")))
+
+    assert pilots != sorted(pilots), "sorting decks.json disarms the pilot catalogue test"
+    assert cards != sorted(cards), "sorting cards_index.json disarms the card catalogue test"
+
+
 def test_the_pilot_catalogue_offers_only_pilots_the_query_can_answer_for(conn):
     # The dropdown must not offer a pilot whose neighbourhood comes back empty,
-    # and reads in label order.
+    # and reads in label order. The order assertion can only fail while
+    # ``test_the_fixture_reaches_the_graph_out_of_label_order`` holds.
     catalogue = pilot_catalogue(conn)
 
     assert catalogue == sorted(catalogue)
@@ -167,6 +183,7 @@ def test_the_pilot_catalogue_offers_only_pilots_the_query_can_answer_for(conn):
 
 
 def test_the_card_catalogue_offers_only_cards_the_query_can_answer_for(conn):
+    # Same shape, and the same dependency on the fixture staying unsorted.
     catalogue = card_catalogue(conn)
 
     assert catalogue == sorted(catalogue)
@@ -359,9 +376,13 @@ def test_a_changed_catalogue_is_a_difference():
 
 
 def _fixture_cases(conn):
-    """Cases the tiny fixture graph can actually answer, one per ordering rule."""
-    pilot = pilot_catalogue(conn)[0][1]
-    card = card_catalogue(conn)[0][1]
+    """Cases the tiny fixture graph can actually answer, one per ordering rule.
+
+    Sorted here rather than trusting the catalogue's own order, so which entity
+    these cases grade does not move if a catalogue query loses its ORDER BY.
+    """
+    pilot = sorted(pilot_catalogue(conn))[0][1]
+    card = sorted(card_catalogue(conn))[0][1]
     return [
         Case("pilot", PilotNeighbourhood(pilot)),  # order-insensitive
         Case("usage", CardUsage(card)),  # order-exact

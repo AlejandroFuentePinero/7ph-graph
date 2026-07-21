@@ -14,7 +14,15 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.fixture
 def snapshot_dir() -> Path:
-    """A tiny, self-consistent snapshot: 3 decks across 2 pilots, 121 cards."""
+    """A tiny, self-consistent snapshot: 3 decks across 2 pilots, 121 cards.
+
+    Neither file is in label order, on purpose: a fixture already sorted lets a
+    catalogue query that has lost its ORDER BY pass by luck (issue #56). Do not
+    sort them. ``test_the_fixture_reaches_the_graph_out_of_label_order`` is what
+    holds them to it, and is the honest statement of the property, since the
+    cards reach the graph in file order but the pilots reach it through
+    ``resolve_pilots``.
+    """
     return FIXTURES
 
 
