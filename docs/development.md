@@ -39,9 +39,20 @@ uv run pytest
 the oracle the Ladybug migration is graded against (issue #45):
 
 ```sh
-uv run graph7ph baseline            # grade the built graph, non-zero on any difference
-uv run graph7ph baseline --capture  # rewrite the baseline from the built graph
+uv run graph7ph baseline                    # grade the built graph, non-zero on any difference
+uv run graph7ph baseline --capture          # rewrite the baseline, but only if it still matches
+uv run graph7ph baseline --capture --force  # rewrite it even though it differs
 ```
+
+`--capture` grades against the existing baseline first and refuses to overwrite
+one that differs, printing the number of diff lines and telling you to pass
+`--force`. That is deliberate: the oracle goes red *wholesale* the moment a
+`fetch` moves the data, and its diff is too large to read, so a blind recapture
+would rubber-stamp any real regression riding along with the data move (issue
+#67). `--force` recaptures anyway, and still prints the count it overrode. With
+no baseline on disk, `--capture` just writes. A baseline that exists but cannot
+be graded (a corrupt oracle) is a refusal too, not a clean slate: pass `--force`
+to replace it.
 
 Both forms refuse outright on an artifact the working tree has moved past. The
 gate re-runs the queries live, so a query change is graded honestly against any

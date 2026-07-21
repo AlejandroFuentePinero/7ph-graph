@@ -168,14 +168,24 @@ def check(conn: ladybug.Connection, path: Path, cases: list[Case] = CASES) -> li
     An empty list means no regression: the graph reproduces every answer the
     baseline holds, under each query's own ordering rule.
     """
-    expected = json.loads(Path(path).read_text())
+    # A file that will not parse is as unusable an oracle as one missing a section:
+    # both must read as a bad baseline, not a traceback, since the callers grade on
+    # MalformedBaseline (an empty or truncated file left by an interrupted write is
+    # the realistic case). FileNotFoundError is left to propagate: --capture reads
+    # it as "no oracle yet, write the first one".
+    try:
+        expected = json.loads(Path(path).read_text())
+    except json.JSONDecodeError as exc:
+        raise MalformedBaseline(f"not valid JSON: {exc}") from exc
     # Validated before the capture runs, so an unusable baseline is reported in a
     # moment rather than after every query has been re-run against it.
     _require_sections(expected)
     return compare(expected, capture(conn, cases), cases)
 
 
-def _require_sections(baseline: dict) -> None:
+def _require_sections(baseline: object) -> None:
+    if not isinstance(baseline, dict):
+        raise MalformedBaseline("not a JSON object")
     for section in ("counts", "catalogues", "queries"):
         if section not in baseline:
             raise MalformedBaseline(f"no {section!r} section")
