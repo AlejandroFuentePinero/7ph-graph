@@ -5,6 +5,7 @@ parsing, majority vote, fuzzy variant consolidation, null re-keying, and the
 reconciliation report.
 """
 
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -17,17 +18,21 @@ from graph7ph.pilots import (
 )
 
 
-def _deck(deck_id, pilot, title, event=None, placement=1, deck_name=None):
-    """A minimal stand-in for a Deck: resolution reads these six fields.
+def _deck(deck_id, pilot, title, event=None, placement=1, deck_name=None,
+          created_at=datetime(2020, 1, 1)):
+    """A minimal stand-in for a Deck: resolution reads these seven fields.
 
     ``event`` defaults to the deck id so unrelated decks never collide on a
     shared event; collision tests pass an explicit shared event. ``deck_name``
     is the source's own parse of the deck, which name recovery subtracts from
-    separator-less titles.
+    separator-less titles. ``created_at`` is the registration time career
+    threading anchors on (issue #68); it defaults to a fixed instant so decks
+    that do not set it tie and fall back to deck-id order.
     """
     return SimpleNamespace(
         deck_id=deck_id, pilot=pilot, name=title,
         event=event or deck_id, placement=placement, deck_name=deck_name,
+        created_at=created_at,
     )
 
 
@@ -474,26 +479,35 @@ def test_split_id_is_threaded_into_careers_by_deck_similarity():
 
 
 def test_threading_is_append_stable_and_order_independent():
-    # A career is numbered by its earliest deck, so re-ingesting the same decks
-    # plus a later one keeps every prior deck on its thread and files the
-    # newcomer on the career it resembles, without renumbering (issue #34).
-    lists = _lists(d1=_STORM, d2=_LANDS, d3=_STORM, d4=_LANDS)
+    # A career is numbered by its earliest deck by registration time, so
+    # re-ingesting the same decks plus a later-registered one keeps every prior
+    # deck on its thread and files the newcomer on the career it resembles,
+    # without renumbering (issue #68). Deck ids are random GUIDs carrying no
+    # order: "m5"/"m2" register first, and the backfilled "a0" registers LAST
+    # yet sorts FIRST by id -- the case deck-id anchoring got wrong.
+    e1 = datetime(2021, 1, 1)
+    e2 = datetime(2021, 3, 1)
+    late = datetime(2021, 6, 1)
+    lists = _lists(m5=_STORM, m2=_LANDS, m8=_STORM, m6=_LANDS)
     before = [
-        _deck("d1", "P", "1st P - Storm - E1", event="E1"),
-        _deck("d2", "P", "2nd P - Lands - E1", event="E1"),
-        _deck("d3", "P", "1st P - Storm - E2", event="E2"),
-        _deck("d4", "P", "2nd P - Lands - E2", event="E2"),
+        _deck("m5", "P", "1st P - Storm - E1", event="E1", created_at=e1),
+        _deck("m2", "P", "2nd P - Lands - E1", event="E1", created_at=e1),
+        _deck("m8", "P", "1st P - Storm - E2", event="E2", created_at=e2),
+        _deck("m6", "P", "2nd P - Lands - E2", event="E2", created_at=e2),
     ]
     first = resolve_pilots(before, decklists=lists)
 
-    # A later Storm deck at a new event; deck ids grow with registration order.
-    after_decks = before + [_deck("d5", "P", "3rd P - Storm - E3", event="E3")]
-    after_lists = {**lists, "d5": (_STORM, frozenset())}
+    # A Storm deck registered last but with the smallest deck id, backfilled onto
+    # a family that already spans two events.
+    after_decks = before + [
+        _deck("a0", "P", "3rd P - Storm - E3", event="E3", created_at=late)
+    ]
+    after_lists = {**lists, "a0": (_STORM, frozenset())}
     after = resolve_pilots(after_decks, decklists=after_lists)
 
-    prior = ("d1", "d2", "d3", "d4")
+    prior = ("m5", "m2", "m8", "m6")
     assert {d: after.deck_pilot[d] for d in prior} == {d: first.deck_pilot[d] for d in prior}
-    assert after.deck_pilot["d5"] == after.deck_pilot["d1"]  # joined the Storm career
+    assert after.deck_pilot["a0"] == after.deck_pilot["m5"]  # joined the Storm career
 
     # The same decks in any order thread into the same careers.
     shuffled = resolve_pilots(list(reversed(after_decks)), decklists=after_lists)
@@ -542,6 +556,26 @@ def test_seeding_collision_gives_the_accumulated_career_to_the_best_fitting_deck
     # d4 (Storm) joins the accumulated Storm career; d3 (Lands) is the new person.
     assert res.deck_pilot["d4"] == res.deck_pilot["d1"] == res.deck_pilot["d2"]
     assert res.deck_pilot["d3"] != res.deck_pilot["d1"]
+
+
+def test_created_at_tie_falls_back_to_deck_id_order():
+    # createdAt is not a total order: date-only stamps and bulk uploads leave
+    # decks sharing one instant. When registration time ties, threading anchors
+    # on the deck-id secondary key -- the residual limitation issue #68 accepts,
+    # not papers over. Here both careers seed at one event on one instant, so the
+    # smaller id ("a2") anchors career 1 and the larger ("z1") anchors career 2.
+    same = datetime(2021, 1, 1)
+    decks = [
+        _deck("z1", "P", "1st P - Storm - E1", event="E1", created_at=same),
+        _deck("a2", "P", "2nd P - Lands - E1", event="E1", created_at=same),
+    ]
+    lists = _lists(z1=_STORM, a2=_LANDS)
+
+    res = resolve_pilots(decks, decklists=lists)
+
+    display = {p.pilot: p.display_name for p in res.pilots}
+    assert display[res.deck_pilot["a2"]] == "P 1"  # smaller id anchors first on a tie
+    assert display[res.deck_pilot["z1"]] == "P 2"
 
 
 # --- Curation: the human-decision dictionary the build applies (issue #9) ---
