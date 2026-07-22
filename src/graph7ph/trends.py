@@ -34,6 +34,30 @@ from graph7ph.db import rows
 # own constant because it is a distinct floor over a distinct population.
 MIN_CELL_DECKS = 5
 
+# The per-``(pilot, year)`` event floor: the fewest distinct events a pilot needs in
+# a year for that year's mean ``placementNorm`` to be a mean worth plotting rather
+# than a single point (ADR 0013, and ADR 0005's refuse-rather-than-report-noise).
+# The unit is the **event**, not the deck: an event is one independent tournament
+# finish, so a list a pilot reused across events is separate evidence, but two decks
+# at one event would not be. In the current graph the two coincide (ADR 0004 already
+# folds a pilot to one deck per event, so events equal decks in every one of the 1833
+# cells), but the event is the honest unit and guards data where they diverge.
+#
+# Two, not more: of 1833 ``(pilot, year)`` cells, 947 hold a single event, where a
+# "mean" is really that one finish, so the floor gaps those; the rest (two or more
+# events) are kept, and each point is labelled on the chart with the event count it
+# averages, so a thin two-event mean carries its own sample size rather than being
+# silently trusted or silently dropped. Kept as its own constant, distinct from
+# :data:`MIN_CELL_DECKS`: that governs an archetype's share of the whole meta, this a
+# pilot's own mean over its own finishes.
+MIN_PILOT_YEAR_EVENTS = 2
+
+# A pilot needs this many qualifying years or the tool returns "not enough history"
+# rather than a lone point on an empty line (ADR 0013). Two, because a line through
+# one point is not a trajectory. Named, not a bare literal, because the rule lives in
+# two places (the tool and its dropdown catalogue) and must not drift between them.
+MIN_QUALIFYING_YEARS = 2
+
 
 @dataclass(frozen=True)
 class SeriesCell:
@@ -74,6 +98,24 @@ class AdoptionCell:
     year_total: int
 
 
+@dataclass(frozen=True)
+class PerformanceCell:
+    """One pilot's mean finish in one qualifying year: an aggregate, so a floor.
+
+    ``mean_norm`` is the mean ``placementNorm`` of the pilot's ranked decks that
+    year (0 is a win, 1 is last), and ``events`` the count of distinct events those
+    decks were played at, the number of independent finishes the mean is taken over,
+    always alongside so the reader has the sample size in hand. A cell only exists
+    where ``events`` clears :data:`MIN_PILOT_YEAR_EVENTS`: a thinner year is a gap
+    (dropped), never a lone point, and a pilot short of two such years yields no
+    cells at all ("not enough history", ADR 0013).
+    """
+
+    year: int
+    mean_norm: float
+    events: int
+
+
 @dataclass
 class Series:
     """A tabular trend result: the full matrix of cells, no truncation.
@@ -85,7 +127,7 @@ class Series:
     card's per-year adoption.
     """
 
-    cells: list[SeriesCell] | list[AdoptionCell]
+    cells: list[SeriesCell] | list[AdoptionCell] | list[PerformanceCell]
 
 
 @dataclass(frozen=True)
@@ -106,7 +148,14 @@ class CardAdoptionOverTime:
     board: str | None = None
 
 
-SeriesSpec = MetaShareOverTime | CardAdoptionOverTime
+@dataclass(frozen=True)
+class PilotPerformanceOverTime:
+    """Spec for :func:`pilot_performance_over_time`; takes a pilot's ``pilot`` key."""
+
+    pilot: str
+
+
+SeriesSpec = MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
 
 
 def _year_totals(conn: ladybug.Connection) -> dict[int, int]:
@@ -198,6 +247,62 @@ def card_adoption_over_time(
     return Series(cells=cells)
 
 
+def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
+    """One pilot's mean ``placementNorm`` per year, for years with real history.
+
+    The pilot's decks are grouped by their event's year via the ``IN_YEAR`` edge and
+    each year's mean finish taken over that year's **ranked** decks (a null
+    ``placementNorm`` is an unfinished record the source never scored, left out so it
+    neither shifts the mean nor pads the event count). ``placementNorm`` is an
+    aggregate, so it carries a floor (ADR 0013): a year below
+    :data:`MIN_PILOT_YEAR_EVENTS` distinct events is dropped, its mean too thin to be
+    honest, and the pilot needs at least two surviving years or the series comes back
+    empty, the "not enough history" answer that refuses a lone point on an empty line
+    rather than drawing one. The floor counts events, not decks, so a list reused
+    across events counts as the several finishes it is. Cells are ordered by year;
+    the connecting line asserts no direction, only joins the points.
+    """
+    qualifying = sorted(
+        (
+            PerformanceCell(year=year, mean_norm=mean, events=events)
+            for year, mean, events in rows(conn.execute(
+                """MATCH (:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)
+                         -[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year)
+                   WHERE d.placementNorm IS NOT NULL
+                   RETURN y.year, avg(d.placementNorm), count(DISTINCT e)""",
+                {"pilot": pilot},
+            ))
+            if events >= MIN_PILOT_YEAR_EVENTS
+        ),
+        key=lambda c: c.year,
+    )
+    return Series(cells=qualifying if len(qualifying) >= MIN_QUALIFYING_YEARS else [])
+
+
+def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:
+    """``(displayName, pilot)`` for every pilot the performance trend can draw.
+
+    A pilot qualifies exactly when :func:`pilot_performance_over_time` would return a
+    trajectory: at least two years each clearing :data:`MIN_PILOT_YEAR_EVENTS` distinct
+    events. The floor rule lives in both places (the same constant and the same
+    two-year gate), so the trend tab offers only pilots that draw rather than letting
+    a pick land on "not enough history", the way the meta-share tab offers only
+    drawable archetypes.
+    """
+    return [(name, key) for name, key in rows(conn.execute(
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)
+                 -[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year)
+           WHERE d.placementNorm IS NOT NULL
+           WITH p, y.year AS year, count(DISTINCT e) AS events
+           WHERE events >= $floor
+           WITH p, count(year) AS years
+           WHERE years >= $min_years
+           RETURN p.displayName, p.pilot
+           ORDER BY p.displayName""",
+        {"floor": MIN_PILOT_YEAR_EVENTS, "min_years": MIN_QUALIFYING_YEARS},
+    ))]
+
+
 def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
     """Map a series spec to its trend function: the sibling of ``run_query``.
 
@@ -210,29 +315,35 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return meta_share_over_time(conn)
         case CardAdoptionOverTime(canon, board):
             return card_adoption_over_time(conn, canon, board)
+        case PilotPerformanceOverTime(pilot):
+            return pilot_performance_over_time(conn, pilot)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 
 
-def pooled_share_cut(series: Series, cut: float = 0.50) -> list[str]:
+def latest_year_share_cut(series: Series, cut: float = 0.50) -> list[str]:
     """The archetype tags to draw for a cumulative-share ``cut`` (default 50%).
 
     A display cut, not a data cut: the tool returns every archetype, but drawing
-    all ~125 as lines is a hairball. The archetypes are ranked by their pooled deck
-    count across all years (deck-weighted, so recent fat years dominate the pick),
-    and the strongest are kept until their cumulative share of all decks reaches
-    ``cut``. Computed once over the pooled all-year population, so the same set of
-    lines spans the whole x-axis rather than entering and leaving per year; the
-    trend tab's manual panel is the escape hatch for an archetype large only early.
-    Returned in pooled-rank order, strongest first.
+    all ~125 as lines is a hairball. The archetypes are ranked by their deck count
+    in the **latest year the series holds** (whichever that is, read from the data
+    rather than pinned to a year), and the strongest are kept until their cumulative
+    share of that year's decks reaches ``cut``. The question the chart answers is
+    "what is the meta now, and how did it get here", so today's top archetypes are
+    the ones worth tracing back; a pooled all-year ranking instead lets a dead
+    archetype with a fat past crowd out a live one. The set is still computed once,
+    so the same lines span the whole x-axis rather than entering and leaving per
+    year; the trend tab's manual panel is the escape hatch for an archetype large
+    only earlier. Returned in rank order, strongest first.
     """
-    pooled: dict[str, int] = {}
-    for cell in series.cells:
-        pooled[cell.tag] = pooled.get(cell.tag, 0) + cell.n
-    total = sum(pooled.values())
+    if not series.cells:
+        return []
+    latest = max(cell.year for cell in series.cells)
+    counts = {cell.tag: cell.n for cell in series.cells if cell.year == latest}
+    total = sum(counts.values())
     if not total:
         return []
-    ranked = sorted(pooled.items(), key=lambda kv: (-kv[1], kv[0]))
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     kept: list[str] = []
     cumulative = 0
     for tag, n in ranked:

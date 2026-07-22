@@ -37,8 +37,10 @@ from graph7ph.render import render_subgraph
 from graph7ph.trends import (
     CardAdoptionOverTime,
     MetaShareOverTime,
+    PilotPerformanceOverTime,
     Series,
-    pooled_share_cut,
+    latest_year_share_cut,
+    pilots_with_history,
     run_series,
 )
 
@@ -137,8 +139,8 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     ]
 
 
-# The pooled cumulative-share cut, as labelled radio choices (ADR 0013). The cut
-# is display legibility only: the tool always returns the full matrix, and this
+# The latest-year cumulative-share cut, as labelled radio choices (ADR 0013). The
+# cut is display legibility only: the tool always returns the full matrix, and this
 # picks which of the ~125 archetypes are drawn as lines, default 50%.
 _CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
 _DEFAULT_CUT = "Top 50%"
@@ -147,7 +149,8 @@ _DEFAULT_CUT = "Top 50%"
 # the Explore tab's view dropdown. Named here so the picker and the toggle agree.
 _META_TREND = "Meta share over time"
 _ADOPTION_TREND = "Card adoption over time"
-_TRENDS = [_META_TREND, _ADOPTION_TREND]
+_PERFORMANCE_TREND = "Pilot performance over time"
+_TRENDS = [_META_TREND, _ADOPTION_TREND, _PERFORMANCE_TREND]
 _DEFAULT_TREND = _META_TREND
 
 # The board filter, shared by the card views: the label the dropdown shows, the
@@ -279,6 +282,62 @@ def _adoption_figure(cards: list[tuple[str, Series]], board_label: str) -> pgo.F
     return fig
 
 
+def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
+    """One pilot's mean finish (placementNorm) over their qualifying years.
+
+    A single trace of the pilot's year-by-year mean, drawn like the other trend
+    charts: the points are the data, large and hollow, the connecting line thin and
+    dashed so it only joins them and asserts no direction (ADR 0013). The y-axis is
+    the mean finish inverted to a higher-is-better score (1 is a win, 0 is last), so
+    a rising line reads as improving; the tool's ``mean_norm`` stays raw placementNorm
+    (0 is a win), the codebase convention the agent reads, and only this chart flips
+    it for the eye. Fixed to the full 0-to-1 range rather than auto-zoomed so a small
+    year-to-year wiggle is not stretched into a dramatic swing. Each point is labelled
+    with the number of events it averages, since a two-event mean and a twenty-event
+    one sit on the same line and only the count tells them apart. A dotted line at 0.5
+    marks a random finisher's expected placement (a normalised rank averages 0.5), so
+    a point above it is a season that beat the field, below it one that trailed it.
+    A year inside the pilot's span with no qualifying data (a thin middle year) stays
+    an empty tick and the line breaks across it rather than bridging a fabricated
+    point, since this lone trace has no sibling series to hold the gap year open the
+    way the meta and adoption charts do. A pilot short of two qualifying years never
+    gets this far (an empty series).
+    """
+    fig = pgo.Figure()
+    cells = sorted(series.cells, key=lambda c: c.year)
+    # Span every year from the first qualifying year to the last, pairing each with
+    # its cell or None, so a thin middle year is a visible gap (an empty tick, a
+    # broken line), not two points collapsed adjacent as if the season never existed.
+    # The pairing is built once here rather than re-looked-up per plotted attribute.
+    by_year = {c.year: c for c in cells}
+    spanned = [(year, by_year.get(year)) for year in range(cells[0].year, cells[-1].year + 1)]
+    colour = _PALETTE[0]
+    fig.add_trace(pgo.Scatter(
+        x=[str(year) for year, _ in spanned],
+        y=[1 - c.mean_norm if c else None for _, c in spanned],
+        customdata=[c.events if c else None for _, c in spanned],
+        name=pilot_name,
+        mode="lines+markers+text",
+        text=[f"{c.events} ev" if c else "" for _, c in spanned],
+        textposition="top center",
+        textfont=dict(color="#9ca3af", size=11),
+        line=dict(width=1, dash="dash", color=colour),
+        marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+        # Let a marker and its label at the very top (a perfect 1.0 season) draw over
+        # the axis edge rather than being clipped out of the plot.
+        cliponaxis=False,
+        hovertemplate=f"%{{x}} · {pilot_name} · score %{{y:.3f}} · %{{customdata}} events<extra></extra>",
+    ))
+    _style_trend_chart(fig, f"Pilot performance: {pilot_name}", "Mean finish (1 = 1st, 0 = last)")
+    # A bounded 0-1 score, not a share, so a plain decimal axis over the full range,
+    # overriding the shared styler's percent format and auto-zoom.
+    fig.update_yaxes(tickformat=".2f", range=[0, 1], autorange=False)
+    # A plain reference line at 0.5, a random finisher's expected normalised rank
+    # (the flip leaves it at 0.5): above it beat the field, below it trailed.
+    fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
+    return fig
+
+
 def build_app(artifact: Path) -> gr.Blocks:
     # The Database is shared and each request opens its own Connection over
     # Gradio's worker threads. That is a simplicity choice, not a safety
@@ -316,9 +375,16 @@ def build_app(artifact: Path) -> gr.Blocks:
         key=lambda p: p[0],
     ))
 
+    # The year the cut ranks on, read from the data so it follows the graph forward
+    # rather than being pinned; named here only to say so in the chart title and the
+    # radio's label, since "top 50%" means nothing without the year it is 50% of.
+    latest_year = max(c.year for c in trend_series.cells)
+
     def draw_cut(cut_label: str) -> pgo.Figure:
-        tags = set(pooled_share_cut(trend_series, _CUTS[cut_label]))
-        return _trend_figure(trend_series, tags, f"Meta share, {cut_label.lower()} of decks")
+        tags = set(latest_year_share_cut(trend_series, _CUTS[cut_label]))
+        return _trend_figure(
+            trend_series, tags, f"Meta share, {cut_label.lower()} of {latest_year} decks"
+        )
 
     def draw_manual(manual_tags: list[str]):
         # A focused second chart, drawn only once specific archetypes are chosen, so
@@ -347,6 +413,23 @@ def build_app(artifact: Path) -> gr.Blocks:
         return gr.update(
             value=_adoption_figure(series, _BOARD_LABELS[board]), visible=True
         )
+
+    # Only pilots the trend can actually draw (at least two qualifying years); the
+    # rest would land on "not enough history", so they are withheld the way the
+    # meta-share panel offers only drawable archetypes. Names paired with their key.
+    performance_pilots = _distinguish(pilots_with_history(catalogue))
+    pilot_names = {key: label for label, key in performance_pilots}
+
+    def draw_performance(pilot: str):
+        if not pilot:
+            return gr.update(visible=False)
+        series = run_series(ladybug.Connection(db), PilotPerformanceOverTime(pilot))
+        # The dropdown only lists pilots that qualify, so an empty series should not
+        # arise; guard anyway so a non-drawable pilot hides the chart rather than
+        # crashing `_performance_figure` on `cells[0]` if the two floor queries drift.
+        if not series.cells:
+            return gr.update(visible=False)
+        return gr.update(value=_performance_figure(pilot_names[pilot], series), visible=True)
 
     def explore(view: str, *values: object) -> str:
         # Gradio passes the widget values positionally in `keys` order.
@@ -429,7 +512,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 cut = gr.Radio(
                     list(_CUTS), value=_DEFAULT_CUT,
-                    label="Archetypes to show (by pooled share of decks)",
+                    label=f"Archetypes to show (by share of {latest_year} decks)",
                 )
                 cut_plot = gr.Plot(value=draw_cut(_DEFAULT_CUT))
                 manual = gr.Dropdown(
@@ -457,9 +540,29 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # Hidden until a card is chosen, matching the manual archetype chart.
                 adoption_plot = gr.Plot(visible=False)
 
+            with gr.Group(visible=False) as performance_window:
+                gr.Markdown(
+                    "A pilot's mean finish per year, over the years they have real "
+                    "history, drawn so higher is better (1 is a win, 0 is last). A year "
+                    "with only one event to average is left as a gap; a pilot short of "
+                    "two such years is not listed. Each point is labelled with the "
+                    "number of events it averages, and a dotted line marks the 0.5 "
+                    "midpoint. The points are the data; the thin dashed line only joins "
+                    "them and asserts no direction."
+                )
+                performance_pilot = gr.Dropdown(
+                    choices=performance_pilots, value=None, label="Pilot",
+                )
+                # Hidden until a pilot is chosen, matching the other on-demand charts.
+                performance_plot = gr.Plot(visible=False)
+
             # Each window shows exactly when it is the chosen trend, keyed by name,
             # so a trend added to the picker cannot ride under a "not meta" branch.
-            trend_windows = {_META_TREND: meta_window, _ADOPTION_TREND: adoption_window}
+            trend_windows = {
+                _META_TREND: meta_window,
+                _ADOPTION_TREND: adoption_window,
+                _PERFORMANCE_TREND: performance_window,
+            }
 
             def _show_trend(chosen: str):
                 return [gr.update(visible=name == chosen) for name in trend_windows]
@@ -472,6 +575,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             )
             adoption_board.change(
                 draw_adoption, inputs=[adoption_cards, adoption_board], outputs=adoption_plot
+            )
+            performance_pilot.change(
+                draw_performance, inputs=performance_pilot, outputs=performance_plot
             )
 
     return demo
