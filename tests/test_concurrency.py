@@ -73,15 +73,17 @@ def test_many_connections_over_one_shared_database_each_read_the_whole_graph(
     #
     # Named for what it establishes, not for the design it supports: it says
     # nothing about a *shared* Connection, so it cannot catch a refactor that
-    # hoists the connection out of the request path. That refactor would be
-    # safe, though. A Ladybug Connection is thread-safe on both its paths, read
-    # off `ladybug/connection.py` on 0.18.2: a parameterized query holds a
-    # `threading.RLock` across prepare, bind and execute, guarding the mutable
-    # bound-value map, over a C++ `mtx` around `executeWithParams`; a
-    # parameterless one takes no Python lock and rests on that C++ mutex alone.
+    # hoists the connection out of the request path. Whether such a refactor
+    # would be safe is not established, and this test does not license it (#73).
     #
-    # Settled from the source rather than by measurement, because measurement
-    # cannot settle it in either direction. A shared Connection survives 400
+    # On 0.18.2 the compiled pybind module ships, so `Connection.execute` always
+    # reaches `_execute_with_pybind` and the C-API branch is dead code in this
+    # deployment. Within `_execute_with_pybind`, a parameterized query holds
+    # `_prepared_cache_lock` across prepare and execute; a parameterless query
+    # takes no Python-level lock. The C++ underneath is not readable from this
+    # repo, since only the compiled module ships.
+    #
+    # Measurement cannot close that gap either. A shared Connection survives 400
     # parameterless queries across 16 threads, but a green run is what a locked
     # path and a lucky racy one look like alike.
     db = ladybug.Database(_built_db_path(tmp_path, snapshot_dir), read_only=True)

@@ -506,15 +506,20 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
 
 def build_app(artifact: Path) -> gr.Blocks:
     # The Database is shared and each request opens its own Connection over
-    # Gradio's worker threads. That is a simplicity choice, not a safety
-    # requirement: a Ladybug Connection *is* thread-safe, so sharing one would
-    # also be correct. Read on 0.18.2 rather than assumed, because the opposite
-    # belief was inherited from the Kùzu era and carried through the swap
-    # unexamined until #65 settled it (8b8537e). A parameterized query holds a
-    # `threading.RLock`
-    # across prepare, bind and execute (guarding the bound-value map) over a C++
-    # `mtx` around `executeWithParams`; a parameterless one skips the Python
-    # lock and rests on that same C++ mutex.
+    # Gradio's worker threads. That per-request Connection sidesteps the question
+    # of whether one Connection may be shared across those threads, which this
+    # repo cannot answer and which four earlier passes at this comment answered
+    # anyway, each time wrongly (#73).
+    #
+    # What is actually readable on 0.18.2: the compiled pybind module ships, so
+    # `Connection.execute` always takes the pybind path into
+    # `_execute_with_pybind` and the C-API branch is dead code in this
+    # deployment (every previous wrong citation pointed there). Within
+    # `_execute_with_pybind`, a parameterized query holds
+    # `_prepared_cache_lock` across prepare and execute; a parameterless query
+    # calls through with no Python-level lock. The app runs both. What the C++
+    # underneath does is not readable from this repo, since only the compiled
+    # module ships, so it was not established.
     #
     # Read-only lets several readers (and a separate build process) share the
     # file. The artifact is the bundle directory; the database sits inside it
