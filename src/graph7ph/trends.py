@@ -74,10 +74,13 @@ class SeriesCell:
     ``n`` is the count of decks of this archetype (by its primary archetype) in
     this year, always the honest figure. ``share`` is ``n / year_total`` where the
     cell clears :data:`MIN_CELL_DECKS`, and ``None`` where it does not: a gap, so a
-    thin cell is not read as a near-zero share. ``year_total`` is every deck that
-    year, the base the share is of, returned so a coarse year is visible (a thin
-    year is honest, not dropped). ``tag`` is the archetype's stable key, ``archetype``
-    its display name (two tags can share a name, so the tag is what identifies it).
+    thin cell is not read as a near-zero share. A cell of ``n == 0`` is the
+    exception: an archetype absent that year is a real zero share, not a thin
+    sample, so it is never gapped (the same reading :class:`AdoptionCell` gives a
+    year a card sat out). ``year_total`` is every deck that year, the base the share
+    is of, returned so a coarse year is visible (a thin year is honest, not
+    dropped). ``tag`` is the archetype's stable key, ``archetype`` its display name
+    (two tags can share a name, so the tag is what identifies it).
     """
 
     tag: str
@@ -238,26 +241,41 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
     every cell carrying its year's total N; a cell below :data:`MIN_CELL_DECKS` comes
     back a gap (``share`` is ``None``), never a silent zero and never dropped. Thin
     years are kept whole, since a coarse year is honest as long as its N is visible.
-    An ``(archetype, year)`` pair with no decks is simply absent from the matrix, a
-    genuine zero, distinct from a gap (present that year but too thin to trust).
-    The trend tab, not this tool, decides which of the ~125 archetypes to draw.
+
+    The matrix is rectangular: every archetype gets a cell in every year of the
+    graph, so an ``(archetype, year)`` pair with no decks comes back a real zero
+    rather than a missing row, exactly as ``card_adoption`` fills a year a card sat
+    out. A line then drops to zero across a year its archetype was absent instead
+    of jumping the gap and reading as continuous presence, and a zero stays told
+    apart from a gap (present but too thin to trust). The trend tab, not this tool,
+    decides which of the ~125 archetypes to draw.
     """
     year_total = _year_totals(conn)
-    cells = [
-        SeriesCell(
-            tag=tag,
-            archetype=name,
-            year=year,
-            n=n,
-            share=(n / year_total[year] if n >= MIN_CELL_DECKS else None),
-            year_total=year_total[year],
-        )
-        for tag, name, year, n in rows(conn.execute(
-            """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
-                     (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
-               RETURN a.tag, a.name, y.year, count(DISTINCT d)"""
-        ))
-    ]
+    names: dict[str, str] = {}
+    counts: dict[tuple[str, int], int] = {}
+    for tag, name, year, n in rows(conn.execute(
+        """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
+                 (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
+           RETURN a.tag, a.name, y.year, count(DISTINCT d)"""
+    )):
+        names[tag] = name
+        counts[(tag, year)] = n
+    cells = []
+    years = sorted(year_total.items())
+    for tag, name in sorted(names.items()):
+        for year, total in years:
+            n = counts.get((tag, year), 0)
+            cells.append(SeriesCell(
+                tag=tag,
+                archetype=name,
+                year=year,
+                n=n,
+                # A zero is an observation (the archetype was not played that
+                # year), not a thin sample, so the floor never gaps it: only a
+                # cell of one to four decks is too thin to state a share for.
+                share=(n / total if n == 0 or n >= MIN_CELL_DECKS else None),
+                year_total=total,
+            ))
     return Series(cells=cells)
 
 
@@ -442,28 +460,51 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             raise TypeError(f"unknown series spec: {spec!r}")
 
 
+def drawable_tags(series: Series) -> set[str]:
+    """The archetype tags with at least one year worth drawing a point for.
+
+    An archetype below :data:`MIN_CELL_DECKS` in every year draws a line of gaps and
+    zeros and nothing else, so the trend tab offers only the tags this returns, the
+    way it offers only the pilots :func:`pilots_with_history` returns. The floor rule
+    lives here rather than in the app, because it is this module's rule: the app asks
+    what can be drawn and never restates how the floor is applied.
+    """
+    return {cell.tag for cell in series.cells if cell.n >= MIN_CELL_DECKS}
+
+
+def latest_deck_year(series: Series) -> int | None:
+    """The latest year the series has a deck in, or ``None`` for a series with none.
+
+    Not simply the latest year the matrix holds: the matrix is rectangular, so a year
+    whose decks all reached the graph without a primary archetype still holds a cell
+    per archetype, every one of them zero. That year has nothing to rank or title a
+    chart with, so the year the chart speaks for is the latest one with a deck behind
+    it. Shared by the cut and the app's chart title so the two name the same year.
+    """
+    years = [cell.year for cell in series.cells if cell.n]
+    return max(years) if years else None
+
+
 def latest_year_share_cut(series: Series, cut: float = 0.50) -> list[str]:
     """The archetype tags to draw for a cumulative-share ``cut`` (default 50%).
 
     A display cut, not a data cut: the tool returns every archetype, but drawing
     all ~125 as lines is a hairball. The archetypes are ranked by their deck count
-    in the **latest year the series holds** (whichever that is, read from the data
-    rather than pinned to a year), and the strongest are kept until their cumulative
-    share of that year's decks reaches ``cut``. The question the chart answers is
-    "what is the meta now, and how did it get here", so today's top archetypes are
-    the ones worth tracing back; a pooled all-year ranking instead lets a dead
-    archetype with a fat past crowd out a live one. The set is still computed once,
-    so the same lines span the whole x-axis rather than entering and leaving per
+    in the **latest year the series holds a deck in** (whichever that is, read from
+    the data rather than pinned to a year), and the strongest are kept until their
+    cumulative share of that year's decks reaches ``cut``. The question the chart
+    answers is "what is the meta now, and how did it get here", so today's top
+    archetypes are the ones worth tracing back; a pooled all-year ranking instead lets
+    a dead archetype with a fat past crowd out a live one. The set is still computed
+    once, so the same lines span the whole x-axis rather than entering and leaving per
     year; the trend tab's manual panel is the escape hatch for an archetype large
     only earlier. Returned in rank order, strongest first.
     """
-    if not series.cells:
+    latest = latest_deck_year(series)
+    if latest is None:
         return []
-    latest = max(cell.year for cell in series.cells)
     counts = {cell.tag: cell.n for cell in series.cells if cell.year == latest}
     total = sum(counts.values())
-    if not total:
-        return []
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     kept: list[str] = []
     cumulative = 0
