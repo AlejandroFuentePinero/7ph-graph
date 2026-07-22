@@ -10,7 +10,13 @@ from pathlib import Path
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import YearStraddle, reconciliation_path
-from graph7ph.db import NotABundle, artifact_path, database_path, open_for_reading
+from graph7ph.db import (
+    NotABundle,
+    UnopenableGraph,
+    artifact_path,
+    database_path,
+    open_for_reading,
+)
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 from graph7ph.provenance import staleness
@@ -89,7 +95,15 @@ def _baseline(args: argparse.Namespace) -> None:
     if (complaint := staleness(args.db)) is not None:
         raise SystemExit(f"Cannot grade: {complaint}.")
     # Read-only, so the gate can grade an artifact the app is already serving.
-    conn = open_for_reading(args.db)
+    try:
+        conn = open_for_reading(args.db)
+    except UnopenableGraph as exc:
+        # The bundle holds a file of the right name and the engine will not have
+        # it. An abort like every failure above, which is what lets the deploy
+        # preflight tell a bundle it cannot grade from a crash (issue #71). The
+        # error already reads as a sentence about the bundle, so it is passed on
+        # rather than dressed up again here.
+        raise SystemExit(str(exc))
     if args.capture:
         _capture(conn, args)
         return

@@ -13,7 +13,7 @@
 # ship to the Space. They restate associations already public on Moxfield. The
 # build stamp added by #55 (provenance.json) ships too, carrying a digest of the
 # sources and a build time, neither of which says anything about anyone.
-# The `delete_patterns="*"` argument at `:136` clears anything the previous deploy
+# The `delete_patterns="*"` argument at `:157` clears anything the previous deploy
 # left behind, so a stale index file cannot mix with a freshly built graph.
 set -eu
 
@@ -79,6 +79,36 @@ print(staleness(Path(os.environ["DB"])) or "", end="")
 
 if [ -n "$STALE" ]; then
     echo "Refusing to deploy: $STALE" >&2
+    exit 1
+fi
+
+# The fourth way, and the only one none of the three above can see: a bundle that
+# still answers, and answers differently. The staleness probe cannot stand in for
+# this, because `BUILD_INPUTS` (graph7ph.provenance) deliberately excludes
+# `query.py`, `render.py` and `explore.py` on the grounds that the gate re-runs
+# those live. So a changed `ORDER BY`, exactly the defect issue #56 was about,
+# leaves the digest untouched and clears all three guards above (issue #71).
+#
+# Same `$ROOT` and same absolute artifact as the staleness probe, for two separate
+# reasons. The oracle's path (`baseline.BASELINE_PATH`) is relative, so it is only
+# found from the repo root; and `--db` defaults to the package's own artifact path
+# rather than to the `$DB` this deploy is about to ship, so an absolute one is what
+# points the gate at this bundle. Either mistake grades a graph nobody asked about,
+# and the likelier outcome of that is a pass.
+#
+# Here with the other three and before `mktemp -d` below, so a refusal stages
+# nothing.
+#
+# The gate's own account follows it to stderr, where the other three guards speak
+# and where a refusal is still legible with stdout redirected to a log. Without
+# that it prints the differences to stdout and the line below is left accusing a
+# bundle with none of the evidence attached. The line below is deliberately not a
+# verdict on the graph, because the gate exits non-zero for four different reasons
+# and only one of them is a regression: it also refuses when the oracle is missing
+# or malformed, and when the database will not open. Saying which is the gate's
+# business, and it has just said it.
+if ! (cd "$ROOT" && uv run graph7ph baseline --db "$ABS_DB" >&2); then
+    echo "Refusing to deploy: $DB did not clear the baseline gate, above" >&2
     exit 1
 fi
 

@@ -7,6 +7,7 @@ import pytest
 from graph7ph import baseline as bl
 from graph7ph.__main__ import _baseline, _build
 from graph7ph.build import build_graph
+from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 from graph7ph.query import HiddenGems
 
@@ -109,6 +110,26 @@ def test_grading_an_artifact_directory_with_no_database_aborts_cleanly(tmp_path)
         ))
 
     assert "graph7ph build" in str(exc.value)
+
+
+def test_grading_a_database_the_engine_cannot_open_aborts_cleanly(tmp_path, snapshot_dir):
+    # A bundle carrying something that is not this engine's database: a placeholder,
+    # a copy from another engine, a file truncated in transit. The engine raises a
+    # bare RuntimeError out of the open, which reads as a traceback rather than as a
+    # verdict on the bundle, and `db.UnopenableGraph` is what names it. The deploy
+    # path runs this as a preflight (issue #71), so it is exactly where the promise
+    # above holds or breaks: a crash and a regression must not look alike.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    database_path(db).write_bytes(b"not this engine's database")
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(argparse.Namespace(
+            db=db, baseline=tmp_path / "baseline.json", capture=False
+        ))
+
+    assert "Cannot open" in str(exc.value)
+    assert str(database_path(db)) in str(exc.value)
 
 
 def test_grading_against_a_missing_baseline_aborts_cleanly(tmp_path, snapshot_dir):
