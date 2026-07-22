@@ -12,8 +12,10 @@ license-files = ["LICENSE"]
 # log (issue #50). What this ceiling adds is the refusal arriving at *this*
 # project rather than one level down, naming the range this repo is actually
 # tested on instead of inheriting whatever a dependency happens to allow. The
-# floor is this project's own too: 3.11 is what the lock and the Space have always
-# run, and claiming Ladybug's 3.10 would claim something untested here.
+# floor is this project's own too: the lock resolves at 3.11 (`uv.lock:3` is
+# `>=3.11, <3.15`) while the Space pins 3.12.12 (`deploy/README.md:11`), so 3.11 is
+# the floor this repo tests against rather than the one it deploys, and claiming
+# Ladybug's 3.10 would claim something untested here.
 #
 # Deliberately not guarded here: the OS floor. Ladybug ships only `macosx_15_0`
 # wheels where kuzu 0.7.1 shipped `macosx_11_0`, so macOS 12/13/14 fall into the

@@ -37,11 +37,12 @@ _SCHEMA = [
     "CREATE NODE TABLE Archetype(tag STRING, name STRING, PRIMARY KEY(tag))",
     # The `Macro` label is backtick-escaped everywhere and its value lives on
     # `name` rather than a `macro` column. Both shapes are inherited from the
-    # previous engine, which reserved the words (ADR 0011 records them among the
-    # workarounds the swap made unnecessary), and both are kept as the convention
-    # here: renaming a node label touches roughly ten sites across this module and
-    # `query.py` and forces `baseline/subgraphs.json` to be re-captured, which is
-    # the one thing the golden harness exists to avoid.
+    # previous engine, which reserved the words. That constraint lifted with the
+    # swap (Ladybug parses them verbatim), but the backticked naming is kept as
+    # the convention here rather than renamed: renaming a node label touches
+    # roughly ten sites across this module and `query.py` and forces
+    # `baseline/subgraphs.json` to be re-captured, which is the one thing the
+    # golden harness exists to avoid.
     "CREATE NODE TABLE `Macro`(name STRING, PRIMARY KEY(name))",
     "CREATE NODE TABLE Colour(colour STRING, PRIMARY KEY(colour))",
     "CREATE NODE TABLE CardType(type STRING, PRIMARY KEY(type))",

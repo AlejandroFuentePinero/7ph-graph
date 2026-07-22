@@ -27,8 +27,11 @@ def _fetch(args: argparse.Namespace) -> None:
 
 
 def _build(args: argparse.Namespace) -> None:
-    # The build unions every snapshot and gates the newest against what we hold,
-    # then promotes atomically with a retained backup (ADR 0003).
+    # The build folds the snapshot sequence, gating each snapshot against the
+    # accumulated union of every one before it, not just the newest transition
+    # (ADR 0008), then promotes atomically with a retained backup (ADR 0003). A
+    # flagged immutable fact is held at its pre-change value until a human
+    # resolves it, so the flag is a required action rather than a notice.
     try:
         report, counts = ingest(args.snapshots, args.db)
     except (SchemaError, YearStraddle, NotABundle) as exc:

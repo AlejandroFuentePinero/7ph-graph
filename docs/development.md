@@ -9,12 +9,15 @@ uv run graph7ph fetch   # download 7phstats data into snapshots/<timestamp>/
 uv run graph7ph build   # load the latest snapshot into data/graph
 ```
 
-Each fetch is kept as an append-only snapshot, the build unions every snapshot
-and gates the newest against what the graph already holds, and the new artifact
+Each fetch is kept as an append-only snapshot, and the build folds the whole
+sequence: each snapshot is gated against the accumulated union of every snapshot
+before it, not just the previous one, so a rewrite buried in an interior snapshot
+is caught rather than collapsed into the prior union (ADR 0008). The new artifact
 is promoted only if it validates, with the previous one retained at
-`data/graph.backup` for an instant rollback (ADR 0003). A build that flags
-dropped ids or changed historical facts says so and writes the detail to
-`data/graph/ingest.json`.
+`data/graph.backup` for an instant rollback (ADR 0003). A build that flags dropped
+ids or changed historical facts says so and writes the detail to
+`data/graph/ingest.json`; a flagged immutable fact is held at its pre-change value
+until a human resolves it, so the flag is an action to take, not a notice.
 
 Restart any `graph7ph app` that was already running: it keeps serving the old
 data, silently. Promotion renames the live directory, so the running app's open
