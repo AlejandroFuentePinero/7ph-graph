@@ -100,3 +100,11 @@ Recorded so that future confidence claims about the Kùzu to Ladybug migration d
 - **Ladybug's compiled `Connection::query` is not readable.** Only the `.so` ships, so the parameterless thread-safety question cannot be closed from this repo by anyone. See [[kuzu-gotchas]] and #73.
 
 [handoff] The first item is the cheapest to close and the most load-bearing: one real deploy to a scratch Space would settle it.
+
+## 2026-07-22 — `gr.Plot` surfaces no hover/click to Python; series-highlight needs the iframe+JS route
+
+- The Trends tab (ADR 0013, #78) renders its Plotly charts through Gradio's `gr.Plot`, which exposes **only a `change` event** to Python: no hover, click, or select. So the "hover a series, dim the others" interaction cannot be wired through Gradio at all, and even if it could, a server round-trip per hover would lag. The only real path is client-side JS bound to `plotly_hover`/`plotly_unhover` on the Plotly div, which `gr.Plot` gives no access to.
+- The way to get it is to stop using `gr.Plot` and instead embed a Plotly HTML document in a `gr.HTML` iframe (the same `_embed` pattern the app already uses for pyvis) with a small JS handler. Rejected for #78 because it ships plotly.js (~3.5 MB inlined per render, or a CDN dependency the offline/CSP setup avoids), and it is a foundational rendering change all four trend tabs inherit. Built-in Plotly legend double-click-to-isolate covers the "focus one series" need for free in the meantime.
+- Why it matters: #79/#80/#81 reuse this exact `_trend_figure`/`gr.Plot` surface. Anyone asked for chart interactivity there will re-hit this wall and re-weigh the same payload trade-off unless they read this first.
+
+[handoff] If hover-highlight is ever wanted, do it once in `_trend_figure`'s render path (iframe + plotly.js + JS), not per tab.
