@@ -26,6 +26,7 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "ladybug>=0.18,<0.19",
     "gradio>=5,<6",
+    "plotly>=5,<7",
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",
     "requests>=2.32,<3",

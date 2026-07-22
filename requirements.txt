@@ -4,11 +4,14 @@
 # stages the package at the Space's root, where Python imports it without an
 # install, and this file lists what that package needs at runtime.
 #
-# Only the app's own import path (graph7ph.app -> db, explore, query, render) is
-# needed here. pydantic and requests belong to fetch and build, which the Space
-# never runs. Versions are exact and must move with uv.lock: a Ladybug release can
-# change the on-disk storage format, and the app has to read an artifact the same
-# version built. gradio matches the version the Space card declares as its SDK.
+# Only the app's own import path (graph7ph.app -> db, explore, query, render,
+# trends) is needed here. pydantic and requests belong to fetch and build, which
+# the Space never runs. plotly draws the trend tab's line charts (gr.Plot): the app
+# imports it directly, so it is declared here. Versions are exact and must move with
+# uv.lock: a Ladybug release can change the on-disk storage format, and the app has
+# to read an artifact the same version built. gradio matches the version the Space
+# card declares as its SDK.
 ladybug==0.18.2
 gradio==5.50.0
+plotly==6.9.0
 pyvis==0.3.2
