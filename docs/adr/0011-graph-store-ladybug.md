@@ -137,6 +137,24 @@ in the same process as the app, with pyvis still rendering the subgraphs pulled
 from the store. Only the implementation of that choice changes. The schema, the
 query library, and the artifact contract carry over.
 
+The swap is not free of engine behaviour, though. Two promises of Ladybug's are
+now load-bearing, and a later move to a different engine has to reproduce them or
+change the code that rests on them. Both are pinned by
+`tests/test_concurrency.py`, which grades the engine directly rather than through
+`graph7ph.db`:
+
+- **The write-ahead log settles when the `Connection` closes, not when the
+  `Database` does.** The build context-manages both and unwinds in that order,
+  and the deploy reads the absence of a `.wal` in the bundle as its proof that
+  the artifact is whole. An engine that settled on `Database.close()`, or not
+  until reopen, would leave that preflight refusing settled bundles or passing
+  torn ones.
+- **A reader is pinned to the snapshot it opened on.** A build can rewrite the
+  database under a running app without disturbing it, and the new data reaches
+  the app only when it reopens. That is what makes promoting a freshly built
+  artifact a restart rather than a hot swap, and the app's deployment model
+  assumes it.
+
 ADR 0002 describes derived relationships as "a growing library of parameterized
 Cypher query functions". That wording was checked against this decision and
 remains accurate, since Ladybug keeps the Cypher surface. ADR 0002 is left
