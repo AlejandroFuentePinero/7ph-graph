@@ -40,9 +40,13 @@ def _require_bundle_path(path: Path) -> Path:
 def artifact_path() -> Path:
     """Where the graph artifact lives: ``$GRAPH7PH_DB``, or the default.
 
-    Every entrypoint that touches the artifact resolves it here (the CLI, the
-    deployed ``app.py``, and the deploy script's own default), so the build
-    writes and the app reads the same graph wherever it is pointed.
+    The CLI and the deployed ``app.py`` resolve the artifact here, so the build
+    writes and the app reads the same graph wherever it is pointed. The deploy
+    script does not: ``scripts/deploy_space.sh:24`` restates the same
+    ``$GRAPH7PH_DB``-or-``data/graph`` default in shell and has to be updated
+    alongside this default. That script does read ``DB_FILENAME`` from the
+    package (its ``:31``), so the database filename stays single-sourced while
+    the artifact path itself is duplicated: worth naming so the two do not drift.
     """
     return Path(os.environ.get(DB_ENV_VAR, DEFAULT_ARTIFACT_PATH))
 

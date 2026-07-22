@@ -63,8 +63,10 @@ Kùzu 0.7.1, so this is not a decision taken on documentation alone:
   reserved-word workarounds.
 - Build time unchanged (around 25s); artifact size dropped from 57M to 19M.
 - Kùzu's open defect #3295 (read-only alongside read-write) does not reproduce.
-- Three Kùzu workarounds became unnecessary: parameterized `LIMIT`, empty-list
-  parameter, all-null batch column.
+- Two Kùzu workarounds became unnecessary: parameterized `LIMIT` and the
+  empty-list parameter. The all-null batch column was not a third: #52 (`0d9f5e7`)
+  investigated the `priceUsd` padding and found it traces to the original scaffold
+  commit, copy-paste rather than a workaround.
 
 The one behavioural difference found was floating-point noise in `avg()`, of
 magnitude 5.6e-17, which changed no result. It is documented in issues #45 and
@@ -80,11 +82,17 @@ on this.
 **Re-check annually: Ladybug's release cadence and contributor concentration.**
 That is the one signal worth watching, and the trigger for re-opening this ADR.
 
-The mitigation is structural. `run_query` in `graph7ph.query` is already the
-single seam over the query library, so a later move to a different engine stays
-available at a known cost. **DuckDB is the designated fallback** if the
-maintainer risk materialises. Choosing Ladybug now defers that cost rather than
-doubling it, and may avoid it entirely.
+The mitigation is partial, not a single clean seam. `run_query` in
+`graph7ph.query` dispatches the five subgraph specs (a `match` over
+`PilotNeighbourhood`, `CardUsage`, `CardCooccurrence`, `HiddenGems` and
+`PilotAffinity`), so those move at a known cost. The dropdown catalogues do not
+route through it: `gem_archetypes`, `pilot_catalogue` and `card_catalogue` are
+imported and called directly from `app.py` and `baseline.py`, and the Cypher is
+written inline in each query function rather than behind an engine-neutral layer.
+A later move to a different engine touches all of those, not just `run_query`.
+**DuckDB is the designated fallback** if the maintainer risk materialises.
+Choosing Ladybug now defers that cost rather than doubling it, and may avoid it
+entirely.
 
 ## Alternatives rejected
 

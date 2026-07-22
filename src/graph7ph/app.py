@@ -132,9 +132,10 @@ def build_app(artifact: Path) -> gr.Blocks:
     # The Database is shared and each request opens its own Connection over
     # Gradio's worker threads. That is a simplicity choice, not a safety
     # requirement: a Ladybug Connection *is* thread-safe, so sharing one would
-    # also be correct. Read on 0.18.2 rather than assumed, because this comment
-    # asserted the opposite for a year, inheriting a Kùzu-era belief nothing
-    # rechecked after the swap. A parameterized query holds a `threading.RLock`
+    # also be correct. Read on 0.18.2 rather than assumed, because the opposite
+    # belief was inherited from the Kùzu era and carried through the swap
+    # unexamined until #65 settled it (8b8537e). A parameterized query holds a
+    # `threading.RLock`
     # across prepare, bind and execute (guarding the bound-value map) over a C++
     # `mtx` around `executeWithParams`; a parameterless one skips the Python
     # lock and rests on that same C++ mutex.

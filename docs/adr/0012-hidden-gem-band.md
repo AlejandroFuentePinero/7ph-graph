@@ -23,11 +23,11 @@ The floor asks whether we have enough decks to believe the result, which is a pr
 
 We rejected `max(5 decks, 1% of slice)` as a compromise. The absolute guard does all the work in every slice small enough to matter, and the share half still collapses the global view to 4 gems. It is the drawback of a share floor with extra arithmetic.
 
-With an absolute floor and a share ceiling, every slice size behaves: Global 34 gems, Grixis 9, Jund 5, Storm 19, Oracle 9, Goblins 1.
+With an absolute floor and a share ceiling, every slice size behaves: Global 34 gems, Grixis 8, Jund 5, Storm 19, Oracle 9, Goblins 1. (These counts, and the archetype and deck totals stated later, were measured against the graph built 2026-07-22, provenance `built_at: 2026-07-22T00:29:04Z`. They move as decks are added, so a later mismatch is data movement rather than regression.)
 
 ## Below 50 ranked decks there is no answer
 
-A floor of 5 and a ceiling of 10% cross at 50 ranked decks (`MIN_GEM_SLICE`). Under that, the ceiling falls below the floor and the band asks for a card in "at least 5 decks and at most 2", which nothing satisfies. 75 of the format's 125 archetypes sit in that range.
+A floor of 5 and a ceiling of 10% cross at 50 ranked decks (`MIN_GEM_SLICE`). Under that, the ceiling falls below the floor and the band asks for a card in "at least 5 decks and at most 2", which nothing satisfies. 75 of the format's 126 archetypes sit in that range.
 
 This is not an arithmetic slip to patch. It is the bounds correctly detecting that the slice cannot support the claim: in a 20-deck archetype, 5 decks *is* a quarter of the meta, so "rare" and "attested by 5 decks" are contradictory. There is no band that satisfies both, at any setting.
 
@@ -49,8 +49,8 @@ This is a real loss, not a no-op: colourless archetype tags (`storm`, `lands`, `
 
 ## Consequences
 
-The archetype dropdown offers 50 of the format's 125 archetypes. The other 75 hold 18% of the ranked deck-pairs, so the long tail of the format has no gem view at all. Accepted: those slices could only ever have produced noise.
+The archetype dropdown offers 51 of the format's 126 archetypes. The other 75 hold 18% of the ranked deck-pairs, so the long tail of the format has no gem view at all. Accepted: those slices could only ever have produced noise.
 
-Of the 50 offered, 8 legitimately return no gems (Breach, at 127 ranked decks, among them). An empty result is 0 nodes, which is under the render threshold and would draw as a blank canvas reading as a broken app, so the view states that nothing matched instead of drawing nothing.
+Of the 51 offered, 8 legitimately return no gems (Breach, at 127 ranked decks, among them). An empty result is 0 nodes, which is under the render threshold and would draw as a blank canvas reading as a broken app, so the view states that nothing matched instead of drawing nothing.
 
-The unfiltered gem view returns 34 gems but drags in the 300 ranked decks that run them, over the 250-node `RENDER_THRESHOLD`. It therefore refuses to draw and refines instead, pointing the user at the archetype filter (the only remaining control). Every archetype-scoped view renders. The whole-meta view is reachable as a number but not as a picture, which is a consequence of the node budget rather than of the band.
+The unfiltered gem view returns 34 gems but drags in the 308 ranked decks that run them, over the 250-node `RENDER_THRESHOLD`. It therefore refuses to draw and refines instead, pointing the user at the archetype filter (the only remaining control). Every archetype-scoped view renders. The whole-meta view is reachable as a number but not as a picture, which is a consequence of the node budget rather than of the band.
