@@ -7,11 +7,14 @@ from graph7ph.trends import (
     MIN_CELL_DECKS,
     CardAdoptionOverTime,
     MetaShareOverTime,
+    PilotPerformanceOverTime,
     Series,
     SeriesCell,
     card_adoption_over_time,
+    latest_year_share_cut,
     meta_share_over_time,
-    pooled_share_cut,
+    pilot_performance_over_time,
+    pilots_with_history,
     run_series,
 )
 
@@ -114,35 +117,44 @@ def test_meta_share_year_shares_sum_sanely_and_thin_cells_are_gaps(tmp_path, bui
             assert cell.share == pytest.approx(cell.n / cell.year_total)
 
 
-def test_pooled_cut_keeps_the_strongest_archetypes_until_the_share_is_reached():
-    # Pooled deck counts: A=60, B=30, C=10 (total 100), spread across years so the
-    # cut must pool over the whole span, not read one year.
+def test_cut_keeps_the_strongest_archetypes_until_the_share_is_reached():
+    # Latest-year (2025) counts: A=60, B=30, C=10 (total 100). The earlier years are
+    # loaded the other way round so a cut that pooled them would rank differently.
     series = Series(cells=[
-        _cell("a", 2024, 20), _cell("a", 2025, 40),
+        _cell("a", 2024, 5), _cell("a", 2025, 60),
         _cell("b", 2025, 30),
-        _cell("c", 2024, 10),
+        _cell("c", 2024, 500), _cell("c", 2025, 10),
     ])
     # 50%: A alone is 60% >= 50%. 75%: A+B is 90% >= 75%. 25%: A alone suffices.
-    assert pooled_share_cut(series, 0.50) == ["a"]
-    assert pooled_share_cut(series, 0.75) == ["a", "b"]
-    assert pooled_share_cut(series, 0.25) == ["a"]
-    # Returned strongest-pooled first.
-    assert pooled_share_cut(series, 1.0) == ["a", "b", "c"]
+    assert latest_year_share_cut(series, 0.50) == ["a"]
+    assert latest_year_share_cut(series, 0.75) == ["a", "b"]
+    assert latest_year_share_cut(series, 0.25) == ["a"]
+    # Returned strongest-first, and C's fat 2024 never lifts it above A or B.
+    assert latest_year_share_cut(series, 1.0) == ["a", "b", "c"]
 
 
-def test_pooled_cut_counts_thin_gap_cells_in_the_pool():
+def test_cut_follows_the_latest_year_in_the_data():
+    # The latest year is read from the series, not pinned: add a newer year and the
+    # ranking moves to it, so the cut tracks the meta as the graph grows.
+    older = [_cell("a", 2025, 60), _cell("b", 2025, 30)]
+    assert latest_year_share_cut(Series(cells=older), 0.5) == ["a"]
+    newer = older + [_cell("a", 2026, 10), _cell("b", 2026, 40)]
+    assert latest_year_share_cut(Series(cells=newer), 0.5) == ["b"]
+
+
+def test_cut_counts_thin_gap_cells():
     # A gap cell (share withheld) still holds real decks, so its count is part of
-    # the pooled population the cut ranks on.
+    # the population the cut ranks on.
     series = Series(cells=[
         SeriesCell("a", "A", 2025, 4, None, 8),   # a gap, but 4 real decks
         SeriesCell("b", "B", 2025, 4, None, 8),
     ])
-    assert pooled_share_cut(series, 0.5) in (["a"], ["b"])
-    assert set(pooled_share_cut(series, 1.0)) == {"a", "b"}
+    assert latest_year_share_cut(series, 0.5) in (["a"], ["b"])
+    assert set(latest_year_share_cut(series, 1.0)) == {"a", "b"}
 
 
-def test_pooled_cut_of_an_empty_series_is_empty():
-    assert pooled_share_cut(Series(cells=[]), 0.5) == []
+def test_cut_of_an_empty_series_is_empty():
+    assert latest_year_share_cut(Series(cells=[]), 0.5) == []
 
 
 def test_run_series_routes_meta_share_through_its_own_seam(tmp_path, built_graph):
@@ -304,3 +316,130 @@ def test_card_adoption_board_filter_scopes_the_count_not_the_base(tmp_path, buil
     assert (either.count, either.year_total) == (3, 4)
     assert (main.count, main.year_total) == (2, 4)
     assert (side.count, side.year_total) == (1, 4)
+
+
+def _write_performance_snapshot(
+    root: Path, decks: list[tuple[str, str, str, int, float | None]]
+) -> Path:
+    """Write a snapshot of ``(deck_id, pilot, event, year, placement_norm)`` decks.
+
+    A pilot's per-year performance is the mean of their decks' ``placementNorm``,
+    so a test needs several decks under **one** pilot in **one** year. Each deck is
+    given a distinct event, since a pilot holds at most one deck per event (ADR
+    0004) and two decks sharing a pilot, event and identical (empty) list would be
+    dropped as one duplicate registration; distinct events in the same calendar
+    year land on the same ``Year`` node without tripping that. A ``None``
+    ``placement_norm`` is an unranked deck, which the mean is not taken over.
+
+    Decks sharing a ``pilot`` key resolve to one ``Pilot`` node (that is the point);
+    distinct keys stay distinct pilots as long as their recovered names differ, so
+    the identical-name join (ADR 0007) does not fold them together.
+    """
+    snap = root / "snap"
+    snap.mkdir()
+    deck_records = []
+    for deck_id, pilot, event, year, norm in decks:
+        deck_records.append({
+            "deckId": deck_id,
+            "name": f"1st {pilot} - Deck - {event}",
+            "deckName": "Deck",
+            "pilot": pilot,
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventType": "Tournament",
+            "placement": 1,
+            "placementNorm": norm,
+            "createdAt": f"{year}-06-01T00:00:00+00:00",
+            "colour": "colour:U",
+            "macro": "macro:combo",
+            "engineTags": ["engine:deck"],
+            "engineTagLabels": {"engine:deck": "Deck"},
+            "primaryTag": "engine:deck",
+            "primaryTagWeights": {"engine:deck": 100},
+        })
+    (snap / "decks.json").write_text(json.dumps(deck_records))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 1,
+        "cards": [],
+        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+    }))
+    return snap
+
+
+def _performance_graph(root, built_graph):
+    """A built graph with one multi-year pilot and one single-year pilot.
+
+    ``ada`` (multi-year, qualifying): 2024 has 3 events (norms .2/.4/.6, mean .4),
+    2025 has 4 events (norms .1/.1/.3/.3, mean .2). Both years clear the floor of 2
+    events, so she has a real two-point trajectory that improves.
+
+    ``bo`` (single-year): only 2025, so even with 2 events there he never reaches
+    two qualifying years: the "not enough history" case.
+    """
+    norms = [0.2, 0.4, 0.6]
+    decks = [(f"ada24-{i}", "ada", f"A24E{i}", 2024, norms[i]) for i in range(3)]
+    decks += [(f"ada25-{i}", "ada", f"A25E{i}", 2025, [0.1, 0.1, 0.3, 0.3][i]) for i in range(4)]
+    decks += [(f"bo25-{i}", "bo", f"B25E{i}", 2025, 0.5) for i in range(2)]
+    return built_graph(root, _write_performance_snapshot(root, decks))
+
+
+def test_pilot_performance_returns_per_year_mean_and_n_for_qualifying_years(
+    tmp_path, built_graph
+):
+    conn = _performance_graph(tmp_path, built_graph)
+    series = pilot_performance_over_time(conn, "ada")
+    by_year = {c.year: c for c in series.cells}
+
+    # Two qualifying years, sorted, each the honest mean of that year's ranked decks
+    # with its event count alongside so the reader has the sample size in hand.
+    assert [c.year for c in series.cells] == [2024, 2025]
+    assert by_year[2024].events == 3
+    assert by_year[2024].mean_norm == pytest.approx(0.4)
+    assert by_year[2025].events == 4
+    assert by_year[2025].mean_norm == pytest.approx(0.2)
+
+
+def test_pilot_performance_of_a_single_year_pilot_is_not_enough_history(
+    tmp_path, built_graph
+):
+    # ``bo`` has decks in only one year, so he never reaches two qualifying years:
+    # the tool returns nothing rather than a lone point on an empty line (ADR 0013).
+    conn = _performance_graph(tmp_path, built_graph)
+    assert pilot_performance_over_time(conn, "bo").cells == []
+
+
+def test_pilot_performance_drops_a_thin_year_and_means_over_ranked_decks_only(
+    tmp_path, built_graph
+):
+    # ``cy`` has two fat years (2024, 2025) and a thin 2023 of a single event. 2025
+    # also carries an unranked deck (a null placementNorm the source never scored).
+    decks = [(f"cy24-{i}", "cy", f"C24E{i}", 2024, 0.5) for i in range(3)]
+    decks += [(f"cy25-{i}", "cy", f"C25E{i}", 2025, 0.2) for i in range(3)]
+    decks += [("cy25-x", "cy", "C25EX", 2025, None)]  # unranked, not part of the mean
+    decks += [("cy23-0", "cy", "C23E0", 2023, 0.9)]  # a lone event, below the floor
+    conn = built_graph(tmp_path, _write_performance_snapshot(tmp_path, decks))
+    by_year = {c.year: c for c in pilot_performance_over_time(conn, "cy").cells}
+
+    # The thin 2023 (one event, below the floor) is a gap: absent, not a false point.
+    assert set(by_year) == {2024, 2025}
+    # 2025's unranked deck neither shifts the mean nor pads the event count: the mean
+    # is 0.2 over the three ranked decks, and events counts only the ranked events.
+    assert by_year[2025].events == 3
+    assert by_year[2025].mean_norm == pytest.approx(0.2)
+
+
+def test_pilots_with_history_offers_only_pilots_that_draw(tmp_path, built_graph):
+    # ``ada`` clears two qualifying years; ``bo`` has only one. The catalogue offers
+    # the drawable pilot and withholds the one that would return "not enough history".
+    conn = _performance_graph(tmp_path, built_graph)
+    offered = {key for _, key in pilots_with_history(conn)}
+    assert "ada" in offered
+    assert "bo" not in offered
+
+
+def test_run_series_routes_pilot_performance_through_its_own_seam(tmp_path, built_graph):
+    conn = _performance_graph(tmp_path, built_graph)
+    routed = run_series(conn, PilotPerformanceOverTime("ada"))
+    direct = pilot_performance_over_time(conn, "ada")
+    assert isinstance(routed, Series)
+    assert routed.cells == direct.cells
