@@ -27,9 +27,15 @@ _SCHEMA = [
     # lowConfidence marks the re-keyed null-pilot decks (ADR 0004).
     "CREATE NODE TABLE Pilot(pilot STRING, displayName STRING, "
     "lowConfidence BOOLEAN, PRIMARY KEY(pilot))",
+    # createdAt is the list's registration timestamp, stored on the Deck so the
+    # head-to-head timeline can read it as a sub-year x-axis (ADR 0013 amends ADR
+    # 0006's "not stored on the Deck node"): we date the registration, a hard
+    # per-deck fact, not the event, which stays year-only. Every other trend still
+    # groups by the Year node; only this one reads the per-deck date.
     """CREATE NODE TABLE Deck(
         deckId STRING, name STRING, deckName STRING, placement INT64,
-        placementNorm DOUBLE, colourIdentity STRING, PRIMARY KEY(deckId))""",
+        placementNorm DOUBLE, colourIdentity STRING, createdAt TIMESTAMP,
+        PRIMARY KEY(deckId))""",
     """CREATE NODE TABLE Card(
         canon STRING, name STRING, type STRING, manaValue DOUBLE,
         reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
@@ -287,10 +293,11 @@ def _load_nodes(
     _load(conn,
           """UNWIND $rows AS r CREATE (:Deck {deckId: r.deckId, name: r.name,
              deckName: r.deckName, placement: r.placement,
-             placementNorm: r.placementNorm, colourIdentity: r.colourIdentity})""",
+             placementNorm: r.placementNorm, colourIdentity: r.colourIdentity,
+             createdAt: r.createdAt})""",
           [{"deckId": d.deck_id, "name": d.name, "deckName": d.deck_name,
             "placement": d.placement, "placementNorm": d.placement_norm,
-            "colourIdentity": d.colour_identity}
+            "colourIdentity": d.colour_identity, "createdAt": d.created_at}
            for d in snapshot.decks])
     _create_nodes(conn, "Card", Card, _CARD_FIELDS, snapshot.cards)
 

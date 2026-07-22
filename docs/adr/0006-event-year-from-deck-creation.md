@@ -54,4 +54,6 @@ Colour Identity was rejected because the atoms it derives from were already *in 
 
 `Deck` gains a required `created_at`. It is not stored on the Deck node: the event is what gets dated, and per-deck creation would invite exactly the sub-year precision this ADR rejects.
 
+**Amended by ADR 0013 (head-to-head timeline).** `createdAt` is now persisted as a `Deck` property after all, read only by the head-to-head timeline, whose x-axis needs a coordinate finer than `Year`. The event still gets its year from `min(createdAt)` and no query groups below year; ADR 0013 carries the argument (it dates the registration, not the event).
+
 Year is distinct from **Era** (the period between two Points Versions) and the two must not be conflated. Era is a rules concept, bounded by points-list revisions and defining what was legal when a deck was built. Year is a calendar bucket derived from a proxy. An Era boundary can fall mid-year, so the same year can hold two Eras and neither aggregates into the other. Both terms are in `CONTEXT.md`.
