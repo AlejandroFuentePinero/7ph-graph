@@ -29,8 +29,36 @@ scripts/deploy_space.sh <user>/<space>        # code + artifact, nothing else
 The script stages the exact files to deploy and uploads them as a single commit,
 so the Space restarts once, onto a complete artifact, with anything left by a
 previous deploy cleared. Only staged files can be uploaded, so nothing else in
-the working tree (`.env`, `snapshots/`, the ingestion reports) can reach the
-Space. Redeploy after a refresh by re-running the script.
+the working tree (`.env`, `snapshots/`) can reach the Space. The artifact is the
+one thing staged whole rather than named file by file, so what it carries beside
+the database ships with it: the ingestion reports (`ingest.json`,
+`reconciliation.json`), which restate associations already public on Moxfield,
+and the build stamp (`provenance.json`), a digest of the sources and a build
+time. Redeploy after a refresh by re-running the script.
+
+### Preflights
+
+The script refuses four kinds of unfit bundle, all of them before it stages
+anything, so a refusal leaves the Space exactly as it was:
+
+- **No database at the artifact path.** Nothing to deploy: run
+  `uv run graph7ph build`.
+- **An uncheckpointed write-ahead log in the bundle.** A build is running or
+  crashed mid-write, and the database alone is missing its tail. Let it finish,
+  or rebuild.
+- **Stale provenance.** The artifact was built from sources this tree has since
+  moved past, so the Space would serve a graph built from code that no longer
+  exists. Rebuild. This is the same staleness the no-regression gate refuses on
+  (see [development.md](development.md)).
+- **A failed baseline gate.** The bundle still answers, and answers differently
+  from the checked-in oracle. The staleness check above cannot stand in for this,
+  because its digest deliberately excludes the query modules the gate re-runs
+  live: change an `ORDER BY` and the digest does not move, so the first three
+  refusals all pass. The gate prints its own account to stderr before the script
+  gives up, and it exits non-zero for four reasons of which a regression is only
+  one, so read that before rebuilding: it also refuses when the oracle is missing
+  or malformed, and when the database will not open. If the difference is
+  intended, recapture the oracle as [development.md](development.md) describes.
 
 [requirements.txt](../requirements.txt) is what the Space installs, and it stands
 alone rather than installing this project: a Space mounts only that file and runs
