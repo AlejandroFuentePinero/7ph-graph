@@ -56,16 +56,36 @@ class SeriesCell:
     year_total: int
 
 
+@dataclass(frozen=True)
+class AdoptionCell:
+    """One card's adoption in one year: a direct observation, so no floor.
+
+    ``count`` is the decks running the card that year, ``year_total`` every deck
+    that year, and ``share`` is ``count / year_total`` always, never withheld: a
+    low count is the signal (a card entering the format), not the noise a floor
+    exists to gap (ADR 0013). The base rides along so 2 of 192 in a thin year is
+    not misread against 2 of 2095 in a fat one. A count of zero is a real year the
+    card sat out, kept so the timeline shows it entering rather than a gap.
+    """
+
+    year: int
+    count: int
+    share: float
+    year_total: int
+
+
 @dataclass
 class Series:
     """A tabular trend result: the full matrix of cells, no truncation.
 
     Distinct from ``Subgraph`` (nodes and edges the renderer draws). The trend tab
     reads these as a line chart and the future v2 agent reads them as numbers, off
-    the same result (ADR 0013).
+    the same result (ADR 0013). Each trend fills the matrix with its own cell type:
+    :class:`SeriesCell` for the meta-share matrix, :class:`AdoptionCell` for one
+    card's per-year adoption.
     """
 
-    cells: list[SeriesCell]
+    cells: list[SeriesCell] | list[AdoptionCell]
 
 
 @dataclass(frozen=True)
@@ -73,7 +93,37 @@ class MetaShareOverTime:
     """Spec for :func:`meta_share_over_time`; takes no argument (the whole meta)."""
 
 
-SeriesSpec = MetaShareOverTime
+@dataclass(frozen=True)
+class CardAdoptionOverTime:
+    """Spec for :func:`card_adoption_over_time`; takes a card's ``canon``.
+
+    ``board`` scopes the count: ``None`` counts a deck running the card in either
+    board, ``"Main"`` or ``"Side"`` only the decks running it there, mirroring the
+    board filter the card-usage query already offers.
+    """
+
+    canon: str
+    board: str | None = None
+
+
+SeriesSpec = MetaShareOverTime | CardAdoptionOverTime
+
+
+def _year_totals(conn: ladybug.Connection) -> dict[int, int]:
+    """Every year's total deck count, the base each year's shares are read against.
+
+    The shared year denominator ADR 0013 anticipates: the thin internal helper the
+    group-by trends may share (meta share and card adoption both divide by it). A
+    year exists here only because decks played in it, so a year's total is always
+    positive and no share ever divides by zero.
+    """
+    return {
+        year: total
+        for year, total in rows(conn.execute(
+            """MATCH (d:Deck)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
+               RETURN y.year, count(DISTINCT d)"""
+        ))
+    }
 
 
 def meta_share_over_time(conn: ladybug.Connection) -> Series:
@@ -91,13 +141,7 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
     genuine zero, distinct from a gap (present that year but too thin to trust).
     The trend tab, not this tool, decides which of the ~125 archetypes to draw.
     """
-    year_total = {
-        year: total
-        for year, total in rows(conn.execute(
-            """MATCH (d:Deck)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
-               RETURN y.year, count(DISTINCT d)"""
-        ))
-    }
+    year_total = _year_totals(conn)
     cells = [
         SeriesCell(
             tag=tag,
@@ -116,6 +160,44 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
     return Series(cells=cells)
 
 
+def card_adoption_over_time(
+    conn: ladybug.Connection, canon: str, board: str | None = None
+) -> Series:
+    """One card's adoption per year: decks running it, its share, and the year base.
+
+    Decks running the card are grouped by their event's year via the ``IN_YEAR``
+    edge and counted. Unlike ``meta_share``, adoption carries no floor: it is a
+    direct observation, so a low count is the signal of a card entering the format,
+    not noise to gap (ADR 0013). Every year in the graph gets a cell, so a year the
+    card sat out comes back a real ``count`` of zero rather than a missing row, and
+    each cell carries its year's total decks so a thin year's small count is not
+    misread against a fat year's. A card absent from the whole graph returns a zero
+    in every year, never an empty series.
+
+    ``board`` scopes the numerator only: ``None`` counts a deck running the card in
+    either board, ``"Main"`` or ``"Side"`` only the decks running it there. The year
+    base is always every deck that year, so the board filter narrows what counts as
+    adoption without narrowing what it is a share of.
+    """
+    where = "WHERE cont.board = $board" if board else ""
+    params = {"canon": canon, "board": board} if board else {"canon": canon}
+    adoption = dict(rows(conn.execute(
+        f"""MATCH (:Card {{canon: $canon}})<-[cont:CONTAINS]-(d:Deck)
+                  -[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
+           {where}
+           RETURN y.year, count(DISTINCT d)""",
+        params,
+    )))
+    year_total = _year_totals(conn)
+    cells = []
+    for year, total in sorted(year_total.items()):
+        count = adoption.get(year, 0)
+        cells.append(
+            AdoptionCell(year=year, count=count, share=count / total, year_total=total)
+        )
+    return Series(cells=cells)
+
+
 def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
     """Map a series spec to its trend function: the sibling of ``run_query``.
 
@@ -126,6 +208,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
     match spec:
         case MetaShareOverTime():
             return meta_share_over_time(conn)
+        case CardAdoptionOverTime(canon, board):
+            return card_adoption_over_time(conn, canon, board)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 
