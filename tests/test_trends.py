@@ -5,9 +5,11 @@ import pytest
 
 from graph7ph.trends import (
     MIN_CELL_DECKS,
+    CardAdoptionOverTime,
     MetaShareOverTime,
     Series,
     SeriesCell,
+    card_adoption_over_time,
     meta_share_over_time,
     pooled_share_cut,
     run_series,
@@ -175,3 +177,130 @@ def test_a_deck_without_a_primary_archetype_dilutes_the_year_rather_than_inflati
     assert grixis.n == 6
     assert grixis.share == pytest.approx(6 / 7)
     assert sum(c.n for c in cells) < grixis.year_total
+
+
+def _write_adoption_snapshot(
+    root: Path, decks: list[tuple[str, str, int, str | None]]
+) -> Path:
+    """Write a snapshot of ``(deck_id, event, year, bolt_board)`` decks.
+
+    One card, Lightning Bolt, sits at index 0 of the catalogue; ``bolt_board`` is
+    ``"m"`` to run it in the main board, ``"s"`` in the side, or ``None`` for a deck
+    that does not run it. That is all the adoption tool needs: it counts, per year,
+    the decks running the card, optionally scoped to a board.
+
+    Each deck names a distinct pilot, so the build does not fuzzy-merge them into
+    one pilot and then drop the card-for-card identical Bolt lists as duplicate
+    registrations (ADR 0004): here every deck is a real, separate registration.
+    """
+    snap = root / "snap"
+    snap.mkdir()
+    deck_records = [
+        {
+            "deckId": deck_id,
+            "name": f"1st Player {deck_id} - Deck - {event}",
+            "deckName": "Deck",
+            "pilot": f"pilot-{deck_id}",
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventType": "Tournament",
+            "placement": 1,
+            "placementNorm": 0.1,
+            "createdAt": f"{year}-06-01T00:00:00+00:00",
+            "colour": "colour:U",
+            "macro": "macro:combo",
+            "engineTags": ["engine:deck"],
+            "engineTagLabels": {"engine:deck": "Deck"},
+            "primaryTag": "engine:deck",
+            "primaryTagWeights": {"engine:deck": 100},
+        }
+        for deck_id, event, year, _ in decks
+    ]
+    (snap / "decks.json").write_text(json.dumps(deck_records))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 1,
+        "cards": [{
+            "canon": "card:bolt", "name": "Lightning Bolt", "type": "Instant",
+            "manaValue": 1.0, "reserved": False, "points": 0,
+        }],
+        "decks": {
+            deck_id: {
+                "m": [0] if bolt_board == "m" else [],
+                "s": [0] if bolt_board == "s" else [],
+            }
+            for deck_id, _, _, bolt_board in decks
+        },
+    }))
+    return snap
+
+
+def _adoption_graph(root, built_graph):
+    """A built graph tracing one card's adoption across three years.
+
+    2023 (thin): 4 decks, 1 runs Bolt. 2024: 5 decks, none run it. 2025 (fat): 10
+    decks, 6 run it. So Bolt enters as a fringe card (1/4), sits out a year (0/5),
+    then climbs (6/10), with the year bases varying so a raw count could mislead.
+    """
+    decks = (
+        [(f"a23-{i}", "E2023", 2023, "m" if i == 0 else None) for i in range(4)]
+        + [(f"a24-{i}", "E2024", 2024, None) for i in range(5)]
+        + [(f"a25-{i}", "E2025", 2025, "m" if i < 6 else None) for i in range(10)]
+    )
+    return built_graph(root, _write_adoption_snapshot(root, decks))
+
+
+def test_card_adoption_returns_per_year_count_share_and_base(tmp_path, built_graph):
+    conn = _adoption_graph(tmp_path, built_graph)
+    series = card_adoption_over_time(conn, "card:bolt")
+    by_year = {c.year: c for c in series.cells}
+
+    # A fringe early count is returned as itself with its year base, not zeroed or
+    # suppressed: 1 of 4 decks in the thin 2023, a share of that year's total.
+    assert by_year[2023].count == 1
+    assert by_year[2023].year_total == 4
+    assert by_year[2023].share == pytest.approx(1 / 4)
+
+    # A year the card sits out is still present, count 0 against its base, so the
+    # timeline shows the card entering rather than a year silently missing.
+    assert by_year[2024].count == 0
+    assert by_year[2024].year_total == 5
+    assert by_year[2024].share == pytest.approx(0.0)
+
+    # The fat year: same card, a bigger base, so the share (not the raw count) is
+    # what makes 6/10 comparable to 1/4.
+    assert by_year[2025].count == 6
+    assert by_year[2025].year_total == 10
+    assert by_year[2025].share == pytest.approx(6 / 10)
+
+    # No cell's share is ever withheld: adoption is a direct observation, not an
+    # aggregate that carries a floor (ADR 0013).
+    assert all(c.share is not None for c in series.cells)
+
+
+def test_run_series_routes_card_adoption_through_its_own_seam(tmp_path, built_graph):
+    conn = _adoption_graph(tmp_path, built_graph)
+    routed = run_series(conn, CardAdoptionOverTime("card:bolt"))
+    direct = card_adoption_over_time(conn, "card:bolt")
+    assert isinstance(routed, Series)
+    assert routed.cells == direct.cells
+
+
+def test_card_adoption_board_filter_scopes_the_count_not_the_base(tmp_path, built_graph):
+    # 2025: 2 decks run Bolt maindeck, 1 runs it in the side, 1 runs it nowhere.
+    decks = [
+        ("m1", "E", 2025, "m"), ("m2", "E", 2025, "m"),
+        ("s1", "E", 2025, "s"),
+        ("n1", "E", 2025, None),
+    ]
+    conn = built_graph(tmp_path, _write_adoption_snapshot(tmp_path, decks))
+
+    def cell(board):
+        (only,) = card_adoption_over_time(conn, "card:bolt", board).cells
+        return only
+
+    # Default counts a deck running the card in either board (3 of 4); the board
+    # filter narrows the numerator, never the year base, which stays every deck.
+    either, main, side = cell(None), cell("Main"), cell("Side")
+    assert (either.count, either.year_total) == (3, 4)
+    assert (main.count, main.year_total) == (2, 4)
+    assert (side.count, side.year_total) == (1, 4)
