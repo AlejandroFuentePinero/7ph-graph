@@ -170,6 +170,12 @@ def _luminance(hex_colour: str) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+def _rgba(hex_colour: str, alpha: float) -> str:
+    """A hex palette colour as an ``rgba()`` string at the given opacity."""
+    r, g, b = pc.hex_to_rgb(hex_colour)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 # A long qualitative palette so the ~15 lines of the default cut stay distinct
 # rather than recycling a 10-colour wheel into look-alike pairs. Filtered to a
 # mid-luminance band because the chart background is transparent and inherits the
@@ -340,6 +346,33 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     return fig
 
 
+def _between_line_polys(points):
+    """Polygons filling the gap between two lines, one per segment, split at crossings.
+
+    ``points`` is a date-ordered list of ``(x, a, b)`` where ``a`` and ``b`` are the
+    two lines' y at ``x``, either ``None`` for a value the source never scored. Yields
+    ``(xs, ys, a_above)``: the region between the lines over one segment, with
+    ``a_above`` True where line ``a`` is the upper edge. A segment with a null end on
+    either line is skipped (the lines break there, so the fill does too, ADR 0013,
+    never fabricating area over an unscored event); a segment where the lines cross is
+    split at the crossing so each half carries the line above it there. A pure geometry
+    seam so the crossing/gap cases can be tested without building a figure.
+    """
+    for (x0, a0, b0), (x1, a1, b1) in zip(points, points[1:]):
+        if None in (a0, b0, a1, b1):
+            continue
+        d0, d1 = a0 - b0, a1 - b1
+        if d0 == 0 and d1 == 0:
+            continue
+        if d0 * d1 < 0:  # the lines cross inside this segment: split at the crossing
+            t = d0 / (d0 - d1)
+            xc, yc = x0 + (x1 - x0) * t, a0 + (a1 - a0) * t
+            yield [x0, xc, x0], [a0, yc, b0], d0 > 0
+            yield [xc, x1, x1], [yc, a1, b1], d1 > 0
+        else:  # one line stays above across the whole segment: a single trapezoid
+            yield [x0, x1, x1, x0], [a0, a1, b1, b0], d0 + d1 > 0
+
+
 def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure:
     """Two pilots' rivalry over their shared events, on a registration-date x-axis.
 
@@ -354,7 +387,10 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     size (``5/143`` is 5th of a 143-entrant field): the position and the tournament
     size the score is normalised against, the two numbers the plotted score is
     computed from. The points are the data; the thin dashed line only joins them and
-    asserts no direction. A dotted line at 0.5 marks a random finisher's expected
+    asserts no direction. A translucent band fills between the two lines, tinted with
+    the colour of whichever pilot is above, so the size and direction of the gap read
+    at a glance; it breaks over any event one pilot did not score and splits at a
+    crossing. A dotted line at 0.5 marks a random finisher's expected
     score, as on the performance chart. A range slider aligned under the x-axis is the
     time-range filter: its own trace preview is suppressed (it mirrored the lines and
     read as a bug), leaving a plain tinted band, labelled, that drags to slice the
@@ -362,10 +398,41 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     """
     cells = sorted(series.cells, key=lambda c: c.date)
     fig = pgo.Figure()
+    colour_a, colour_b = _PALETTE[0], _PALETTE[1]
+
+    # A translucent band between the two lines, tinted with the colour of whichever
+    # pilot sits higher, so the eye reads the size and the direction of the gap at a
+    # glance without decoding the two lines apart. The score inverts the finish (1 a
+    # win), a null left null so the band breaks over an event a pilot did not score
+    # (ADR 0013). Each pilot's polygons collect into one trace, their subpaths joined
+    # by a None gap so ``toself`` closes each on its own, keeping this to two fill
+    # traces rather than one per segment. Added first so the markers and the dashed
+    # joins draw on top.
+    def score(norm):
+        return None if norm is None else 1 - norm
+    points = [(c.date, score(c.norm_a), score(c.norm_b)) for c in cells]
+    bands = {True: ([], []), False: ([], [])}  # a_above -> (xs, ys)
+    for xs, ys, a_above in _between_line_polys(points):
+        bx, by = bands[a_above]
+        if bx:  # a None gap separates this polygon from the previous one
+            bx.append(None)
+            by.append(None)
+        bx.extend(xs)
+        by.extend(ys)
+    for a_above, (bx, by) in bands.items():
+        if not bx:
+            continue
+        fig.add_trace(pgo.Scatter(
+            x=bx, y=by, fill="toself",
+            fillcolor=_rgba(colour_a if a_above else colour_b, 0.18),
+            mode="lines", line=dict(width=0),
+            hoverinfo="skip", showlegend=False,
+        ))
+
     pilots = [
-        (name_a, _PALETTE[0],
+        (name_a, colour_a,
          [(c.date, c.placement_a, c.norm_a, c.field_size) for c in cells]),
-        (name_b, _PALETTE[1],
+        (name_b, colour_b,
          [(c.date, c.placement_b, c.norm_b, c.field_size) for c in cells]),
     ]
     for name, colour, points in pilots:
@@ -404,7 +471,10 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     # Label the band so it reads as a filter, not a stray strip. Centred both ways
     # over the slider in paper coords (the band sits below the axis, roughly y -0.09
     # to -0.32, so its middle is near -0.20); the bottom margin below seats the
-    # slider. Amber, matching the slider tint against the neutral chart.
+    # slider. Amber, matching the slider tint against the neutral chart. Paper x=0.5
+    # is the true centre only because the legend is horizontal above the plot (below):
+    # a right-side legend shrinks the plot area by its own width, which changes with
+    # the pilot names, drifting this label left as the names lengthen.
     fig.add_annotation(
         x=0.5, y=-0.20, xref="paper", yref="paper", xanchor="center", yanchor="middle",
         showarrow=False, text="◀ Time range filter (drag to slice) ▶",
@@ -415,9 +485,22 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     # the performance chart: same scale, same 0.5 reference line.
     fig.update_yaxes(tickformat=".2f", range=[0, 1], autorange=False)
     fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
-    # Room below the axis for the slider band and its label (the shared styler sets a
-    # tight b=8 for the label-free charts).
-    fig.update_layout(legend=dict(title="Pilot"), margin=dict(b=90))
+    # A horizontal legend above the plot, not the shared styler's default right-side
+    # one: an external right legend widens with the pilot names and eats into the plot
+    # area, which drifts the paper-centred time-range label (above) and leaves it off
+    # true centre. A top strip keeps the plot full-width and stable. The title is
+    # pinned to the top of a taller margin and the legend seated just above the plot,
+    # so a long "A vs B" title and the centred legend sit on their own rows rather than
+    # colliding. Room below the axis for the slider band and its label (the shared
+    # styler sets a tight b=8 for the label-free charts).
+    fig.update_layout(
+        title=dict(y=0.97, yanchor="top"),
+        legend=dict(
+            title="Pilot", orientation="h",
+            xanchor="center", x=0.5, yanchor="bottom", y=1.02,
+        ),
+        margin=dict(t=96, b=90),
+    )
     return fig
 
 
