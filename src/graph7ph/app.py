@@ -15,6 +15,8 @@ from pathlib import Path
 
 import gradio as gr
 import ladybug
+import plotly.colors as pc
+import plotly.graph_objects as pgo
 
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess
@@ -32,6 +34,12 @@ from graph7ph.query import (
     run_query,
 )
 from graph7ph.render import render_subgraph
+from graph7ph.trends import (
+    MetaShareOverTime,
+    Series,
+    pooled_share_cut,
+    run_series,
+)
 
 _PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Explore.</p>"
 
@@ -128,6 +136,69 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     ]
 
 
+# The pooled cumulative-share cut, as labelled radio choices (ADR 0013). The cut
+# is display legibility only: the tool always returns the full matrix, and this
+# picks which of the ~125 archetypes are drawn as lines, default 50%.
+_CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
+_DEFAULT_CUT = "Top 50%"
+
+
+# A long qualitative palette so the ~15 lines of the default cut stay distinct
+# rather than recycling a 10-colour wheel into look-alike pairs.
+_PALETTE = pc.qualitative.Dark24 + pc.qualitative.Light24
+
+
+def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
+    """A line chart of the chosen archetypes' meta share over time.
+
+    One trace per archetype, coloured apart, with the data foregrounded: the
+    points are the observations, so they are drawn large and hollow with a thick
+    rim, while the connecting line is thin and dashed, a reminder that it only
+    joins points and asserts no trend between them (ADR 0013). Only cells that
+    clear the floor are plotted, ordered by year, so a line skips a gap year
+    rather than dropping to a false zero; each point's hover carries its year,
+    share, and deck count N, the sample size the reader reasons with.
+    """
+    by_arch: dict[str, list] = {}
+    for cell in sorted(series.cells, key=lambda c: c.year):
+        if cell.tag in tags and cell.share is not None:
+            by_arch.setdefault(cell.archetype, []).append(cell)
+
+    fig = pgo.Figure()
+    for i, (archetype, cells) in enumerate(sorted(by_arch.items())):
+        colour = _PALETTE[i % len(_PALETTE)]
+        fig.add_trace(pgo.Scatter(
+            x=[str(c.year) for c in cells],
+            y=[c.share for c in cells],
+            customdata=[c.n for c in cells],
+            name=archetype,
+            mode="lines+markers",
+            line=dict(width=1, dash="dash", color=colour),
+            marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+            hovertemplate=f"%{{x}} · {archetype} · %{{y:.1%}} · n=%{{customdata}}<extra></extra>",
+        ))
+    # Transparent backgrounds so the chart sits on the app's own panel rather than
+    # Plotly's white card, with theme-neutral grey text and faint gridlines that
+    # read on either the light or dark theme the app inherits from the browser.
+    grid = "rgba(128,128,128,0.2)"
+    axis = "rgba(128,128,128,0.35)"
+    fig.update_layout(
+        title=title, hovermode="closest",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#9ca3af"),
+        legend=dict(title="Archetype"), margin=dict(t=48, r=8, b=8, l=8),
+    )
+    fig.update_xaxes(
+        title="Year", type="category", categoryorder="category ascending",
+        gridcolor=grid, linecolor=axis, zeroline=False,
+    )
+    fig.update_yaxes(
+        title="Share of meta", tickformat=".0%", rangemode="tozero",
+        gridcolor=grid, linecolor=axis, zerolinecolor=axis,
+    )
+    return fig
+
+
 def build_app(artifact: Path) -> gr.Blocks:
     # The Database is shared and each request opens its own Connection over
     # Gradio's worker threads. That is a simplicity choice, not a safety
@@ -151,6 +222,28 @@ def build_app(artifact: Path) -> gr.Blocks:
     # rest would be an invitation to a result we cannot stand behind (ADR 0012).
     archetypes = _distinguish(gem_archetypes(catalogue))
 
+    # The trend surface reads the full matrix once (a static, read-only graph), so
+    # the manual panel can list every archetype and each draw just filters it. The
+    # tool never sees the cut; it returns everything (ADR 0013).
+    trend_series = run_series(catalogue, MetaShareOverTime())
+    trend_archetypes = _distinguish(sorted(
+        {(c.archetype, c.tag) for c in trend_series.cells}, key=lambda p: p[0]
+    ))
+
+    def draw_cut(cut_label: str) -> pgo.Figure:
+        tags = set(pooled_share_cut(trend_series, _CUTS[cut_label]))
+        return _trend_figure(trend_series, tags, f"Meta share, {cut_label.lower()} of decks")
+
+    def draw_manual(manual_tags: list[str]):
+        # A focused second chart, drawn only once specific archetypes are chosen, so
+        # the manual pick reads on its own rather than crowding the cut chart.
+        tags = set(manual_tags or [])
+        if not tags:
+            return gr.update(visible=False)
+        return gr.update(
+            value=_trend_figure(trend_series, tags, "Selected archetypes"), visible=True
+        )
+
     def explore(view: str, *values: object) -> str:
         # Gradio passes the widget values positionally in `keys` order.
         spec = _spec(view, dict(zip(keys, values)))
@@ -168,50 +261,76 @@ def build_app(artifact: Path) -> gr.Blocks:
         return _embed(render_subgraph(subgraph))
 
     with gr.Blocks(title="7 Point Highlander Graph") as demo:
-        gr.Markdown(
-            "# 7 Point Highlander Graph\n"
-            "Pick what to explore, set filters, and see a filtered subgraph of the "
-            "result. Click a node for its details; a deck links out to Moxfield."
-        )
-        view = gr.Dropdown(
-            choices=list(_VIEWS), label="Explore", value="Pilot head-to-head"
-        )
-        # The fixed widget set; each view shows only the widgets it names.
-        w = {
-            "pilot": gr.Dropdown(choices=pilots, label="Pilot", value=None),
-            "pilot2": gr.Dropdown(
-                choices=pilots, label="Second pilot (optional, for head-to-head)",
-                value=None,
-            ),
-            "card": gr.Dropdown(choices=cards, label="Card", value=None, visible=False),
-            "card_board": gr.Dropdown(
-                choices=[("Main or side", ""), ("Main", "Main"), ("Side", "Side")],
-                label="Board", value="", visible=False,
-            ),
-            "cooccur_card2": gr.Dropdown(
-                choices=cards, label="Second card (optional, for shared packages)",
-                value=None, visible=False,
-            ),
-            "cooccur_top_n": gr.Dropdown(
-                choices=[5, 15, 25], value=15,
-                label="Top cards by co-occurrence rate", visible=False,
-            ),
-            "cooccur_drop_lands": gr.Checkbox(
-                value=False, label="Filter out lands", visible=False,
-            ),
-            "gem_archetype": gr.Dropdown(choices=archetypes, label="Archetype (optional)",
-                                         value=None, visible=False),
-        }
-        go = gr.Button("Explore", variant="primary")
-        out = gr.HTML(_PROMPT)
+        gr.Markdown("# 7 Point Highlander Graph")
+        with gr.Tab("Explore"):
+            gr.Markdown(
+                "Pick what to explore, set filters, and see a filtered subgraph of "
+                "the result. Click a node for its details; a deck links out to "
+                "Moxfield."
+            )
+            view = gr.Dropdown(
+                choices=list(_VIEWS), label="Explore", value="Pilot head-to-head"
+            )
+            # The fixed widget set; each view shows only the widgets it names.
+            w = {
+                "pilot": gr.Dropdown(choices=pilots, label="Pilot", value=None),
+                "pilot2": gr.Dropdown(
+                    choices=pilots, label="Second pilot (optional, for head-to-head)",
+                    value=None,
+                ),
+                "card": gr.Dropdown(choices=cards, label="Card", value=None, visible=False),
+                "card_board": gr.Dropdown(
+                    choices=[("Main or side", ""), ("Main", "Main"), ("Side", "Side")],
+                    label="Board", value="", visible=False,
+                ),
+                "cooccur_card2": gr.Dropdown(
+                    choices=cards, label="Second card (optional, for shared packages)",
+                    value=None, visible=False,
+                ),
+                "cooccur_top_n": gr.Dropdown(
+                    choices=[5, 15, 25], value=15,
+                    label="Top cards by co-occurrence rate", visible=False,
+                ),
+                "cooccur_drop_lands": gr.Checkbox(
+                    value=False, label="Filter out lands", visible=False,
+                ),
+                "gem_archetype": gr.Dropdown(choices=archetypes, label="Archetype (optional)",
+                                             value=None, visible=False),
+            }
+            go = gr.Button("Explore", variant="primary")
+            out = gr.HTML(_PROMPT)
 
-        keys = list(w)
+            keys = list(w)
 
-        def _show(chosen: str):
-            wanted = _VIEWS[chosen]
-            return [gr.update(visible=k in wanted) for k in keys]
+            def _show(chosen: str):
+                wanted = _VIEWS[chosen]
+                return [gr.update(visible=k in wanted) for k in keys]
 
-        view.change(_show, inputs=view, outputs=[w[k] for k in keys])
-        go.click(explore, inputs=[view, *[w[k] for k in keys]], outputs=out)
+            view.change(_show, inputs=view, outputs=[w[k] for k in keys])
+            go.click(explore, inputs=[view, *[w[k] for k in keys]], outputs=out)
+
+        # The trend tab is a separate surface, decoupled from the vis.js graph
+        # renderer: it draws the Series as a line chart, never a subgraph (ADR 0013).
+        with gr.Tab("Trends"):
+            gr.Markdown(
+                "Each archetype's share of the meta, per year. The points are the "
+                "data; the thin dashed line only joins them and asserts no trend "
+                "between years. A year too thin to trust is left as a gap, not a "
+                "false zero. Hover a point for its share and deck count."
+            )
+            cut = gr.Radio(
+                list(_CUTS), value=_DEFAULT_CUT,
+                label="Archetypes to show (by pooled share of decks)",
+            )
+            cut_plot = gr.Plot(value=draw_cut(_DEFAULT_CUT))
+            manual = gr.Dropdown(
+                choices=trend_archetypes, value=[], multiselect=True,
+                label="Or focus on specific archetypes",
+            )
+            # Hidden until a pick is made, so the tab opens on the cut chart alone.
+            manual_plot = gr.Plot(visible=False)
+
+            cut.change(draw_cut, inputs=cut, outputs=cut_plot)
+            manual.change(draw_manual, inputs=manual, outputs=manual_plot)
 
     return demo
