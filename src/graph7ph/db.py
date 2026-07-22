@@ -23,6 +23,30 @@ class NotABundle(ValueError):
     """
 
 
+class UnopenableGraph(ValueError):
+    """The engine would not open the database inside a bundle.
+
+    A placeholder standing in for one, a copy from another engine, a file
+    truncated in transit, a path that is a directory, a read-only open of a
+    database that is not there: Ladybug answers all of them with a bare
+    ``RuntimeError`` carrying its own account of what it found, so the type is all
+    there is to catch on and its words are carried through rather than guessed at.
+    Named for the failure to open and not for a bad file, because this seam opens
+    for writing too and not every refusal is corruption: a full disk arrives here
+    as readily as a truncated database, and the engine's own words are the only
+    thing that can tell them apart.
+
+    Named beside :class:`NotABundle` and for its reason (issue #52), but with a
+    shorter reach than that one's, which is worth knowing before relying on it.
+    Only ``RuntimeError`` is translated, so an engine raising anything else goes
+    back to surfacing raw; and only the baseline gate reports this as an abort
+    (``__main__._baseline``), while ``graph7ph app`` and ``graph7ph build`` still
+    let it escape as a traceback. The gate is where the difference is
+    load-bearing: the deploy preflight reads a clean refusal as a bundle it cannot
+    grade, and a traceback as a crash (issue #71).
+    """
+
+
 def _require_bundle_path(path: Path) -> Path:
     """``path`` as a Path, refused by name if something that is not a bundle is there.
 
@@ -80,8 +104,16 @@ def open_database(artifact: Path, *, read_only: bool = False) -> ladybug.Databas
     ``ladybug.Connection`` itself, deliberately, so that the per-request model
     stays visible at the point it matters. A change of engine therefore still
     touches ``app.py``; only the opening of the database is centralised here.
+
+    Being the single place is also what makes this the place to name the engine's
+    refusal to open one at all: see :class:`UnopenableGraph`. The engine's own
+    account is the whole reason given, since it is the only thing that knows
+    whether it found a bad file or a full disk.
     """
-    return ladybug.Database(str(database_path(artifact)), read_only=read_only)
+    try:
+        return ladybug.Database(str(database_path(artifact)), read_only=read_only)
+    except RuntimeError as exc:
+        raise UnopenableGraph(f"Cannot open {database_path(artifact)}: {exc}") from exc
 
 
 def open_for_reading(artifact: Path) -> ladybug.Connection:

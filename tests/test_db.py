@@ -3,6 +3,7 @@ import pytest
 from graph7ph.db import (
     DB_ENV_VAR,
     NotABundle,
+    UnopenableGraph,
     artifact_path,
     database_path,
     open_for_reading,
@@ -104,6 +105,22 @@ def test_a_file_where_the_bundle_should_be_is_refused_by_name(tmp_path):
 
     # The file is left where it was: refusing is not a licence to delete it.
     assert artifact.read_text() == "not a bundle"
+
+
+def test_a_database_the_engine_will_not_open_is_refused_by_name(tmp_path):
+    # The bundle is a directory holding a file of the right name, so every guard
+    # that stats the bundle is satisfied and only the engine can say the file is
+    # not one of its databases. It says so with a bare RuntimeError, which reads
+    # as a crash rather than as a verdict on the bundle; named here for the same
+    # reason `NotABundle` is (issue #52), so a bundle that cannot be opened is
+    # refused identically wherever it is opened. The deploy preflight is what
+    # depends on the difference (issue #71).
+    artifact = tmp_path / "graph"
+    artifact.mkdir()
+    database_path(artifact).write_bytes(b"not this engine's database")
+
+    with pytest.raises(UnopenableGraph, match=str(database_path(artifact))):
+        open_for_reading(artifact)
 
 
 def test_the_read_path_sees_the_settled_graph_and_cannot_write_to_it(tmp_path):
