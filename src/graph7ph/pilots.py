@@ -171,13 +171,14 @@ class JoinedName:
 
 @dataclass(frozen=True)
 class SplitName:
-    """One display name a curated split kept apart into several people (#35).
+    """One display name a curated decision kept apart into several people (#35).
 
     The identical-name join (ADR 0007) folds every id sharing a display name into
-    one person; a ``[[split]]`` entry declares that two of those ids are strangers
-    who share a name (one Grixis "James L", one Walks "James L"). This records the
-    override: the ``people`` are the canonical ids the name group was split into,
-    so the separation is never silent."""
+    one person; a ``[[split]]`` (issue #35) or a ``[[reject]]`` (issue #74) entry
+    declares that two of those ids are strangers who share a name (one Grixis
+    "James L", one Walks "James L"). This records the override: the ``people`` are
+    the canonical ids the name group was split into, so the separation is never
+    silent."""
 
     display_name: str
     people: list[str]
@@ -220,7 +221,7 @@ class Reconciliation:
     curated: int  # decided pairs off the review list: rejections plus applied merges
     dead_entries: list[DeadEntry] = field(default_factory=list)  # entries matching no id (issue #37)
     multi_name_ids: list[MultiNameId] = field(default_factory=list)  # ids spanning >1 surname (issue #39)
-    name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split (issue #35)
+    name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split or reject (issues #35, #74)
 
 
 @dataclass(frozen=True)
@@ -491,19 +492,24 @@ def _join_identical_names(
 def _partition_by_split(
     group: list[ResolvedPilot], curation: Curation
 ) -> list[list[ResolvedPilot]]:
-    """Partition one identical-name group by any curated splits (issue #35).
+    """Partition one identical-name group by any curated splits or rejects.
 
-    Absent a split the whole group is one person (ADR 0007). A ``[[split]]``
-    declares two of its ids strangers, so the group is partitioned: every pair is
-    unioned *unless* a split keeps it apart. A split pair that still lands in one
-    component (a third id transitively rejoins them) is an under-specified split,
-    raised rather than silently re-fused -- the trust hole this ticket closes.
+    Absent any separator the whole group is one person (ADR 0007). A ``[[split]]``
+    declares two of its ids strangers (issue #35); a ``[[reject]]`` records the
+    same "different people" judgement from the merge-candidate review (issue #74).
+    Either keeps a pair apart: names are not stable identity, so a rejected pair
+    one edit apart can converge on a later fetch, and the join must not then fuse
+    ids a human recorded as distinct. The group is partitioned: every pair is
+    unioned *unless* a split or reject keeps it apart. A separated pair that still
+    lands in one component (a third id transitively rejoins them) is
+    under-specified, raised rather than silently re-fused -- the trust hole this
+    closes.
 
     Only real ids take part: a synthetic ``nan:`` key is unstable and cannot be
-    named in a split (ADR 0009), so once a split separates the real bearers of a
-    name, a null-bucket orphan of that name cannot be attributed to either. It
-    becomes its own low-confidence node rather than transitively re-fusing the
-    split (which would abort the build) or silently attaching to one side.
+    named in a split (ADR 0009), so once a name is separated, a null-bucket orphan
+    of that name cannot be attributed to either side. It becomes its own
+    low-confidence node rather than transitively re-fusing the separation (which
+    would abort the build) or silently attaching to one side.
     """
     real_ids = [p.pilot for p in group if not p.pilot.startswith("nan:")]
     parent = {i: i for i in real_ids}
@@ -514,23 +520,27 @@ def _partition_by_split(
             x = parent[x]
         return x
 
-    split_here = False
+    def apart(a: str, b: str) -> bool:
+        return curation.is_split(a, b) or curation.is_rejected(a, b)
+
+    separated_here = False
     for i, a in enumerate(real_ids):
         for b in real_ids[i + 1:]:
-            if curation.is_split(a, b):
-                split_here = True
+            if apart(a, b):
+                separated_here = True
             else:
                 parent[find(a)] = find(b)
-    if not split_here:
+    if not separated_here:
         return [group]  # untouched: the ADR-0007 single-person fold
 
     for i, a in enumerate(real_ids):
         for b in real_ids[i + 1:]:
-            if curation.is_split(a, b) and find(a) == find(b):
+            if apart(a, b) and find(a) == find(b):
                 raise CurationError(
-                    f"[[split]] of {a!r} and {b!r} (both {group[0].display_name!r}) "
-                    "is under-specified: another real id transitively rejoins them; "
-                    "split that id from one side too"
+                    f"[[split]]/[[reject]] of {a!r} and {b!r} "
+                    f"(both {group[0].display_name!r}) is under-specified: another "
+                    "real id transitively rejoins them; separate that id from one "
+                    "side too"
                 )
 
     by_root: dict[str, list[ResolvedPilot]] = {}
@@ -909,10 +919,11 @@ def name_relation(a: str, b: str) -> str | None:
     nothing; only the curation dictionary does (issue #9). The shape alone cannot
     tell "Chris"/"Christopher" (one person) from "Joe"/"Joel" (two), nor
     "Cordel"/"Cordell" (one) from "Ramona"/"Damon" (two), and deck overlap cannot
-    break the tie either (teammates play each other's lists). ``exact`` never
-    reaches the sole caller (:func:`_under_merges`): case-only duplicates are
-    already folded by the display-name join upstream; it is kept here so the
-    classifier stays complete for direct use.
+    break the tie either (teammates play each other's lists). ``exact`` reaches
+    the sole caller (:func:`_under_merges`) only for a rejected pair whose names
+    have converged: the join folds every other case-only duplicate upstream, but
+    keeps a ``[[reject]]`` pair apart (issue #74), and :func:`_under_merges`
+    counts that pair as rejected rather than listing it as a candidate.
     """
     if a.casefold() == b.casefold():
         return "exact"  # differs only in case: "Nathan S" / "Nathan s"

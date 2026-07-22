@@ -723,6 +723,49 @@ def test_rejected_candidate_stays_suppressed_across_a_rebuild():
     assert resolve_pilots(decks).report.under_merges != []
 
 
+def test_reject_survives_a_display_name_convergence():
+    # Display names are not stable identity (ADR 0007): a rejected pair one edit
+    # apart ("Chris K" vs "Chris KH") can converge on the next fetch. When it
+    # does, the identical-name join (ADR 0007) would fuse two ids a human
+    # explicitly recorded as different people. A [[reject]] must hold: it keeps
+    # the pair apart exactly as a [[split]] would, so the decision sticks.
+    decks = [
+        _deck("LunarMaroonWolf", "LunarMaroonWolf", "01st Chris K - Grixis - E1", event="E1"),
+        _deck("SolarJadeHeron", "SolarJadeHeron", "02nd Chris K - Walks - E2", event="E2"),
+    ]
+    rejected = frozenset({frozenset({"LunarMaroonWolf", "SolarJadeHeron"})})
+    curation = Curation(merges={}, rejected=rejected, names={}, deck_pilots={})
+
+    res = resolve_pilots(decks, curation)
+
+    assert {p.pilot for p in res.pilots} == {"LunarMaroonWolf", "SolarJadeHeron"}
+    assert res.deck_pilot["LunarMaroonWolf"] != res.deck_pilot["SolarJadeHeron"]
+    assert res.report.joined_names == []  # nothing fused
+    # The separation is recorded, never silent: it surfaces in the report.
+    split = next(s for s in res.report.name_splits if s.display_name == "Chris K")
+    assert sorted(split.people) == ["LunarMaroonWolf", "SolarJadeHeron"]
+    # Without the rejection the identical names fuse into one node.
+    assert len({p.pilot for p in resolve_pilots(decks).pilots}) == 1
+
+
+def test_reject_in_a_converged_name_trio_raises():
+    # Three ids all recover "Chris K" and only one rejected pair is recorded (A,B).
+    # The third id C rejoins both and transitively re-fuses the rejected pair, so
+    # the reject is under-specified. Like an under-specified [[split]], this aborts
+    # loudly (the old artifact keeps serving) rather than guess-attaching C to a
+    # side or silently re-fusing a pair a human recorded as distinct.
+    decks = [
+        _deck("A", "A", "01st Chris K - Grixis - E1", event="E1"),
+        _deck("B", "B", "02nd Chris K - Walks - E2", event="E2"),
+        _deck("C", "C", "03rd Chris K - Storm - E3", event="E3"),
+    ]
+    rejected = frozenset({frozenset({"A", "B"})})
+    curation = Curation(merges={}, rejected=rejected, names={}, deck_pilots={})
+
+    with pytest.raises(CurationError):
+        resolve_pilots(decks, curation)
+
+
 def test_null_deck_resolved_to_a_real_pilot_via_override():
     # A null-pilot deck a human traced to its real owner is reassigned before the
     # name vote, so it strengthens that pilot rather than minting a lone node.
