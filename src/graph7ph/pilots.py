@@ -641,40 +641,53 @@ def _thread_careers(decks, decklists: dict[str, object] | None) -> dict[str, int
 
     A career is one person: one entry per event, playing a recognisable deck
     over time. Decks are grouped so alike decks share a career and each career
-    holds at most one deck per event. Events are threaded oldest first (smallest
-    deck id first, since ids are assigned in registration order); at each event
-    every deck joins the career it most overlaps, and a deck with no career free
-    (the event runs deeper than the careers so far) opens a new one. The number
-    of careers therefore equals the pilot's deepest same-event collision: a pilot
-    with no collision threads into a single career, untouched.
+    holds at most one deck per event. Events are threaded oldest first by
+    registration time (``created_at``); at each event every deck joins the career
+    it most overlaps, and a deck with no career free (the event runs deeper than
+    the careers so far) opens a new one. The number of careers therefore equals
+    the pilot's deepest same-event collision: a pilot with no collision threads
+    into a single career, untouched.
 
-    Careers are numbered by their earliest deck (smallest deck id). That anchor
-    is what makes the threading append-stable: a later-ingested deck carries a
-    larger id, so within its event it is assigned after the decks already there
-    and can neither displace an incumbent from its career nor move a career's
-    anchor. Stable input therefore yields the same careers and a new deck joins
-    its thread without renumbering the others. Returns each deck id's career
-    index (0-based, anchor-ordered).
+    Careers are numbered by their earliest deck's registration time. That anchor
+    is what makes the threading append-stable: a later-registered deck is assigned
+    after the decks already there and can neither displace an incumbent from its
+    career nor move a career's anchor. Stable input therefore yields the same
+    careers and a backfilled deck joins its thread without renumbering the others.
+    Deck ids are random Moxfield GUIDs carrying no order (issue #68), so ordering
+    on them was not append-stable at all: a backfilled deck whose GUID sorted low
+    became a career's anchor and renumbered the family.
+
+    ``created_at`` is not a total order -- date-only stamps and organiser bulk
+    uploads leave decks sharing one instant -- so the deck id is the secondary
+    tie-break. For those ties threading falls back to deck-id order, i.e. exactly
+    the un-stable behaviour above; this restores append-stability for the large
+    majority of affected data, not all of it. Returns each deck id's career index
+    (0-based, anchor-ordered).
     """
     def cards(deck_id: str) -> frozenset:
         sig = decklists.get(deck_id) if decklists else None
         return _card_set(sig) if sig is not None else frozenset()
 
     card_of = {deck.deck_id: cards(deck.deck_id) for deck in decks}
+    # Registration time, deck id as the tie-break (issue #68). Threading anchors
+    # on this so a backfilled deck files by when it was registered, not by where
+    # its random GUID happens to sort.
+    when = {deck.deck_id: (deck.created_at, deck.deck_id) for deck in decks}
     by_event: dict[str, list] = {}
     for deck in decks:
         by_event.setdefault(deck.event, []).append(deck)
 
     careers: list[list[str]] = []  # each career is its member deck ids, oldest first
-    for event in sorted(by_event, key=lambda e: min(d.deck_id for d in by_event[e])):
-        _assign_event(sorted(by_event[event], key=lambda d: d.deck_id), careers, card_of)
+    for event in sorted(by_event, key=lambda e: min(when[d.deck_id] for d in by_event[e])):
+        _assign_event(sorted(by_event[event], key=lambda d: when[d.deck_id]), careers, card_of, when)
 
-    order = sorted(range(len(careers)), key=lambda i: min(careers[i]))
+    order = sorted(range(len(careers)), key=lambda i: min(when[did] for did in careers[i]))
     rank = {orig: new for new, orig in enumerate(order)}
     return {did: rank[i] for i, ids in enumerate(careers) for did in ids}
 
 
-def _assign_event(event_decks, careers: list[list[str]], card_of: dict[str, frozenset]) -> None:
+def _assign_event(event_decks, careers: list[list[str]], card_of: dict[str, frozenset],
+                  when: dict[str, tuple]) -> None:
     """Assign one event's decks to distinct careers by card overlap.
 
     Each deck joins the available career it most overlaps (max card-set Jaccard
@@ -685,17 +698,22 @@ def _assign_event(event_decks, careers: list[list[str]], card_of: dict[str, froz
     Two cases, because the split deepens only at a *seeding* event (one with more
     decks than there are careers so far):
 
-    - Not seeding (decks fit inside the existing careers): take decks oldest first,
-      each claiming its best free career. Oldest-first keeps a later-ingested deck
-      append stable -- assigned after the decks already there, it cannot bump an
-      incumbent off its career (ADR 0010).
+    - Not seeding (decks fit inside the existing careers): take decks oldest first
+      by registration time, each claiming its best free career. Oldest-first keeps
+      a later-registered deck append stable -- assigned after the decks already
+      there, it cannot bump an incumbent off its career (ADR 0010). The caller
+      passes ``event_decks`` already in registration order.
     - Seeding: the best-fitting decks claim the existing (accumulated) careers, and
       the leftover decks open the new ones. Here oldest-first would instead hand an
-      accumulated career to whichever colliding deck sorts first by id, stranding
+      accumulated career to whichever colliding deck registered first, stranding
       the deck that actually continues that history on a fresh career. There is no
       incumbent to protect on the new careers, so best-fit is safe (ADR 0010).
 
-    Ties go to the earliest career, then the smallest deck id, for determinism.
+    Ties on overlap go to the earliest-registered deck, then the smallest deck id,
+    then the earliest career, for determinism. Registration time (``when``, a
+    ``(created_at, deck_id)`` pair) drives both the seeding sort and the tie-break,
+    matching the anchor order in ``_thread_careers`` (issue #68); when two decks
+    share a ``created_at`` the deck id decides, the residual limitation noted there.
     """
     n_existing = len(careers)
     if len(event_decks) <= n_existing:
@@ -714,13 +732,13 @@ def _assign_event(event_decks, careers: list[list[str]], card_of: dict[str, froz
 
     scored = [
         (max((_jaccard(card_of[deck.deck_id], card_of[m]) for m in careers[ci]), default=0.0),
-         deck.deck_id, ci)
+         when[deck.deck_id], ci)
         for deck in event_decks for ci in range(n_existing)
     ]
     scored.sort(key=lambda s: (-s[0], s[1], s[2]))
     claimed: dict[str, int] = {}
     taken_careers: set[int] = set()
-    for _, deck_id, ci in scored:
+    for _, (_created, deck_id), ci in scored:
         if deck_id in claimed or ci in taken_careers:
             continue
         claimed[deck_id] = ci

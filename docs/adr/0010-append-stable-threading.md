@@ -11,8 +11,8 @@ ADR replaces that with threading the decks into careers by card-set similarity.
 
 A pilot's decks are grouped into careers so that alike decks share a career and
 each career holds at most one deck per event (a career is one person, one entry
-per event). Events are threaded oldest first (smallest deck id first, since the
-source assigns ids in registration order). Overlap is the maximum card-set
+per event). Events are threaded oldest first by registration time (the deck's
+`created_at`, deck id as the tie-break). Overlap is the maximum card-set
 Jaccard against any deck already in the career (ADR 0005's definition), so a
 career's signature does not dilute as it accumulates decks.
 
@@ -24,8 +24,8 @@ deepens at a *seeding* event (one with more decks than there are careers so far)
   later-ingested deck append stable (see below).
 - **Seeding**: the best-fitting decks claim the existing (accumulated) careers,
   and the leftover decks open the new ones. Oldest-first would instead hand an
-  accumulated career to whichever colliding deck happens to sort first by id,
-  stranding the deck that actually continues that history on a fresh career. A
+  accumulated career to whichever colliding deck registered first, stranding the
+  deck that actually continues that history on a fresh career. A
   live example: a Walkers pilot who at one event fields both a Walkers list and a
   one-off Mardu list; oldest-first can put Mardu on the Walkers career and exile
   the Walkers deck to a new person. There is no incumbent to protect on the new
@@ -47,15 +47,16 @@ identities already there.
 
 ## Append-stable numbering
 
-Careers are numbered by their earliest deck (smallest deck id). That anchor is
-what makes threading append-stable. A newly ingested deck carries a larger id than
-everything before it, so within its event it is assigned after the decks already
-there: it either joins an existing career (without moving that career's anchor and
-without bumping an incumbent, since the incumbents chose their careers first) or
-opens a new career that sorts last. Either way it never renumbers the careers
-already there, and no prior deck's career membership changes. Re-ingesting stable
-input yields the same careers, and the grouping is a deterministic function of
-deck ids and card sets, independent of input order.
+Careers are numbered by their earliest deck's registration time (`created_at`,
+deck id as the tie-break). That anchor is what makes threading append-stable. A
+newly registered deck carries a later `created_at` than everything before it, so
+within its event it is assigned after the decks already there: it either joins an
+existing career (without moving that career's anchor and without bumping an
+incumbent, since the incumbents chose their careers first) or opens a new career
+that sorts last. Either way it never renumbers the careers already there, and no
+prior deck's career membership changes. Re-ingesting stable input yields the same
+careers, and the grouping is a deterministic function of registration times, deck
+ids and card sets, independent of input order.
 
 Oldest-first at a non-seeding event is the load-bearing detail for stability. A
 global best-overlap match there would let a high-overlap newcomer seize a career
@@ -65,10 +66,21 @@ decks first closes that. The best-fit rule is confined to seeding events, where
 the careers being claimed are new and hold no incumbent to displace, so it buys
 correct grouping without reopening the drift.
 
-This all rests on the source assigning deck ids in registration order, the same
-monotonicity the multi-snapshot union already assumes (ADR 0003). A backfilled
-historical deck with a small id would re-thread rather than append, which is
-correct: it is a genuinely new fact about the past, not an append.
+This rests on registration time (`created_at`) ordering the decks, not on the
+deck id. Deck ids are random Moxfield GUIDs and carry no order: on the snapshot
+union, sorting by `created_at` and walking adjacent pairs gives ~50% deck-id
+inversions, so an earlier design that threaded on deck id was not append-stable at
+all (issue #68). A backfilled historical deck registered before the others (a
+smaller `created_at`) still re-threads rather than appends, which is correct: it
+is a genuinely new fact about the past, not an append.
+
+`created_at` is not a total order. About 19% of decks are date-only (stamped
+`T00:00:00`), whole events share one identical `created_at` where the organiser
+bulk-uploaded the field, and a handful of the pilot-plus-event collisions this
+code exists for tie on it. For those ties the deck id is the secondary key, which
+falls back to exactly the un-stable deck-id behaviour. That is accepted, not
+papered over: this design restores append-stability for the large majority of
+affected data, not all of it.
 
 ## What it does not decide
 
