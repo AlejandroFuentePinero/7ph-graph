@@ -15,8 +15,20 @@ from pathlib import Path
 
 import gradio as gr
 import ladybug
+import pandas  # noqa: F401  (imported for its side effect; see below)
 import plotly.colors as pc
 import plotly.graph_objects as pgo
+
+# Imported here, unused, to warm it at import time before any request thread runs.
+# Nothing in this app imports pandas at startup, but plotly reaches for it lazily
+# while building a figure (`is_homogeneous_array` does `isinstance(v, pd.Series)`
+# via `sys.modules.get("pandas")`), and Gradio's queue imports it lazily on a
+# worker thread for its per-event analytics. On the first import, Python leaves a
+# half-initialised `pandas` in `sys.modules`, and a figure-building thread hitting
+# `pd.Series` in that window raised `partially initialized module 'pandas' has no
+# attribute 'Series'` as a red error box, gone on reload once the process was warm.
+# Importing it fully at module load closes that window before launch, so the Trends
+# charts cannot lose the race on a cold start.
 
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess
@@ -40,6 +52,8 @@ from graph7ph.trends import (
     MetaShareOverTime,
     PilotPerformanceOverTime,
     Series,
+    drawable_tags,
+    latest_deck_year,
     latest_year_share_cut,
     pilots_with_history,
     run_series,
@@ -226,18 +240,28 @@ def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
     One trace per archetype, coloured apart, with the data foregrounded: the
     points are the observations, so they are drawn large and hollow with a thick
     rim, while the connecting line is thin and dashed, a reminder that it only
-    joins points and asserts no trend between them (ADR 0013). Only cells that
-    clear the floor are plotted, ordered by year, so a line skips a gap year
-    rather than dropping to a false zero; each point's hover carries its year,
-    share, and deck count N, the sample size the reader reasons with.
+    joins points and asserts no trend between them (ADR 0013). A gap year (a cell
+    too thin to state a share for) is passed through as a ``None`` y, which breaks
+    the line there rather than dropping it out of the trace: an omitted year would
+    let the line run straight across it and read as a value the floor exists to
+    withhold. A year the archetype was genuinely absent is a real zero, so the line
+    drops to it rather than breaking. Each point's hover carries its year, share,
+    and deck count N, the sample size the reader reasons with.
+
+    Traces are keyed by tag, not by display name, because two tags can share a name
+    (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
+    every year: keyed by name they would merge into one trace holding two y values
+    per year and draw as a sawtooth between two archetypes.
     """
-    by_arch: dict[str, list] = {}
+    by_tag: dict[str, list] = {}
     for cell in sorted(series.cells, key=lambda c: c.year):
-        if cell.tag in tags and cell.share is not None:
-            by_arch.setdefault(cell.archetype, []).append(cell)
+        if cell.tag in tags:
+            by_tag.setdefault(cell.tag, []).append(cell)
 
     fig = pgo.Figure()
-    for i, (archetype, cells) in enumerate(sorted(by_arch.items())):
+    ordered = sorted(by_tag.values(), key=lambda cells: (cells[0].archetype, cells[0].tag))
+    for i, cells in enumerate(ordered):
+        archetype = cells[0].archetype
         colour = _PALETTE[i % len(_PALETTE)]
         fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
@@ -536,11 +560,10 @@ def build_app(artifact: Path) -> gr.Blocks:
     # the manual panel can list the archetypes and each draw just filters it. The
     # tool never sees the cut; it returns everything (ADR 0013).
     trend_series = run_series(catalogue, MetaShareOverTime())
-    # Only archetypes with at least one year above the cell floor are offered:
-    # `_trend_figure` plots a cell only where it clears the floor (a thinner cell is
-    # a gap), so an archetype thin in every year would draw an empty line, a control
-    # that answers with nothing. Offer only what can draw, as `gem_archetypes` does.
-    drawable = {c.tag for c in trend_series.cells if c.share is not None}
+    # Only archetypes the trend can actually draw are offered, the way
+    # `gem_archetypes` and `pilots_with_history` do; the floor rule behind that stays
+    # in `trends`, so this asks what is drawable rather than restating how.
+    drawable = drawable_tags(trend_series)
     trend_archetypes = _distinguish(sorted(
         {(c.archetype, c.tag) for c in trend_series.cells if c.tag in drawable},
         key=lambda p: p[0],
@@ -548,8 +571,9 @@ def build_app(artifact: Path) -> gr.Blocks:
 
     # The year the cut ranks on, read from the data so it follows the graph forward
     # rather than being pinned; named here only to say so in the chart title and the
-    # radio's label, since "top 50%" means nothing without the year it is 50% of.
-    latest_year = max(c.year for c in trend_series.cells)
+    # radio's label, since "top 50%" means nothing without the year it is 50% of. The
+    # same helper the cut ranks with, so the title cannot name a different year.
+    latest_year = latest_deck_year(trend_series)
 
     def draw_cut(cut_label: str) -> pgo.Figure:
         tags = set(latest_year_share_cut(trend_series, _CUTS[cut_label]))
@@ -707,7 +731,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                     "Each archetype's share of the meta, per year. The points are "
                     "the data; the thin dashed line only joins them and asserts no "
                     "trend between years. A year too thin to trust is left as a gap, "
-                    "not a false zero. Hover a point for its share and deck count."
+                    "not a false zero; a year the archetype was absent is a real "
+                    "zero. Hover a point for its share and deck count."
                 )
                 cut = gr.Radio(
                     list(_CUTS), value=_DEFAULT_CUT,

@@ -13,7 +13,9 @@ from graph7ph.trends import (
     Series,
     SeriesCell,
     card_adoption_over_time,
+    drawable_tags,
     head_to_head_timeline,
+    latest_deck_year,
     latest_year_share_cut,
     meta_share_over_time,
     pilot_performance_over_time,
@@ -111,13 +113,49 @@ def test_meta_share_year_shares_sum_sanely_and_thin_cells_are_gaps(tmp_path, bui
     assert storm_2025.n == 1
     assert storm_2025.share is None
 
-    # Shares are only asserted where the cell clears the floor.
+    # A share is withheld exactly on a thin cell (one to below the floor); a cell
+    # that clears the floor and an empty cell (a real zero) both carry a share.
     for cell in series.cells:
         if cell.share is None:
-            assert cell.n < MIN_CELL_DECKS
+            assert 0 < cell.n < MIN_CELL_DECKS
         else:
-            assert cell.n >= MIN_CELL_DECKS
+            assert cell.n == 0 or cell.n >= MIN_CELL_DECKS
             assert cell.share == pytest.approx(cell.n / cell.year_total)
+
+
+def test_an_archetype_absent_in_a_year_is_a_zero_not_a_missing_row(tmp_path, built_graph):
+    # 2024: 5 Storm only, so Grixis sat the year out and Boros did not exist yet.
+    # 2025: 6 Grixis, 2 Boros (thin), 2 Storm (thin) - 10 decks, so all three
+    # distinctions are live in one series: a zero, a gap, and a real share.
+    decks = (
+        [(f"s24-{i}", "E2024", 2024, "storm") for i in range(5)]
+        + [(f"g25-{i}", "E2025", 2025, "grixis") for i in range(6)]
+        + [(f"b25-{i}", "E2025", 2025, "boros") for i in range(2)]
+        + [(f"s25-{i}", "E2025", 2025, "storm") for i in range(2)]
+    )
+    conn = built_graph(tmp_path, _write_snapshot(tmp_path, decks))
+    by_key = {(c.archetype, c.year): c for c in meta_share_over_time(conn).cells}
+
+    # Every archetype has a cell in every year: the matrix is rectangular.
+    assert set(by_key) == {(a, y) for a in ("Boros", "Grixis", "Storm")
+                           for y in (2024, 2025)}
+    # An absent year is a real zero (a share of 0, plotted), not a gap and not a
+    # missing row, so the line drops to zero rather than jumping the year.
+    for absent in (by_key[("Grixis", 2024)], by_key[("Boros", 2024)]):
+        assert absent.n == 0
+        assert absent.share == 0.0
+        assert absent.year_total == 5
+    # A thin year stays a gap: present, honestly counted, share withheld. A zero and
+    # a gap are the two distinct answers, not one.
+    boros_2025 = by_key[("Boros", 2025)]
+    assert boros_2025.n == 2
+    assert boros_2025.share is None
+    # And a year that clears the floor carries its share against the year's total,
+    # which counts every deck that year, not just the archetype's own.
+    grixis_2025 = by_key[("Grixis", 2025)]
+    assert grixis_2025.n == 6
+    assert grixis_2025.year_total == 10
+    assert grixis_2025.share == pytest.approx(6 / 10)
 
 
 def test_cut_keeps_the_strongest_archetypes_until_the_share_is_reached():
@@ -143,6 +181,31 @@ def test_cut_follows_the_latest_year_in_the_data():
     assert latest_year_share_cut(Series(cells=older), 0.5) == ["a"]
     newer = older + [_cell("a", 2026, 10), _cell("b", 2026, 40)]
     assert latest_year_share_cut(Series(cells=newer), 0.5) == ["b"]
+
+
+def test_drawable_tags_are_those_clearing_the_floor_in_some_year():
+    # "a" clears the floor in 2025, so it can draw; "b" is thin in every year (a gap
+    # in 2024, a zero in 2025) and would draw a line of gaps and zeros, so it is not
+    # offered. The zero cell must not qualify "b" just by carrying a share of 0.
+    series = Series(cells=[
+        SeriesCell("a", "A", 2024, 3, None, 8), SeriesCell("a", "A", 2025, 6, 6 / 8, 8),
+        SeriesCell("b", "B", 2024, 2, None, 8), SeriesCell("b", "B", 2025, 0, 0.0, 8),
+    ])
+    assert drawable_tags(series) == {"a"}
+
+
+def test_cut_ranks_on_the_latest_year_with_decks_not_an_all_zero_year():
+    # The rectangular matrix can hand the cut a latest year of all zeros (a newest
+    # year whose decks all reached the graph without a primary archetype). The cut
+    # ranks on the latest year that actually has decks, so it draws the meta rather
+    # than blanking the chart.
+    series = Series(cells=[
+        _cell("a", 2025, 60), _cell("b", 2025, 30),
+        SeriesCell("a", "A", 2026, 0, 0.0, 40),
+        SeriesCell("b", "B", 2026, 0, 0.0, 40),
+    ])
+    assert latest_year_share_cut(series, 0.5) == ["a"]
+    assert latest_deck_year(series) == 2025
 
 
 def test_cut_counts_thin_gap_cells():
