@@ -36,6 +36,7 @@ from graph7ph.query import (
 from graph7ph.render import render_subgraph
 from graph7ph.trends import (
     CardAdoptionOverTime,
+    HeadToHeadTimeline,
     MetaShareOverTime,
     PilotPerformanceOverTime,
     Series,
@@ -150,7 +151,8 @@ _DEFAULT_CUT = "Top 50%"
 _META_TREND = "Meta share over time"
 _ADOPTION_TREND = "Card adoption over time"
 _PERFORMANCE_TREND = "Pilot performance over time"
-_TRENDS = [_META_TREND, _ADOPTION_TREND, _PERFORMANCE_TREND]
+_H2H_TREND = "Pilot head-to-head timeline"
+_TRENDS = [_META_TREND, _ADOPTION_TREND, _PERFORMANCE_TREND, _H2H_TREND]
 _DEFAULT_TREND = _META_TREND
 
 # The board filter, shared by the card views: the label the dropdown shows, the
@@ -338,6 +340,87 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     return fig
 
 
+def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure:
+    """Two pilots' rivalry over their shared events, on a registration-date x-axis.
+
+    One line per pilot, coloured apart, the finish on the y-axis (the only quantity
+    comparable across events of different field sizes). Unlike every other trend this
+    reads a per-deck date, not a Year node (ADR 0013): the x is the event's
+    registration date, so two events shared in one year sit apart rather than
+    collapsing onto the same year tick. The y-axis is the finish inverted to a
+    higher-is-better score (1 a win, 0 last), the same scale as the pilot-performance
+    chart so the two read alike, while the tool keeps the raw ``placementNorm`` (0 a
+    win) the agent reads. Each point's hover carries the raw finish over the field
+    size (``5/143`` is 5th of a 143-entrant field): the position and the tournament
+    size the score is normalised against, the two numbers the plotted score is
+    computed from. The points are the data; the thin dashed line only joins them and
+    asserts no direction. A dotted line at 0.5 marks a random finisher's expected
+    score, as on the performance chart. A range slider aligned under the x-axis is the
+    time-range filter: its own trace preview is suppressed (it mirrored the lines and
+    read as a bug), leaving a plain tinted band, labelled, that drags to slice the
+    date range with no server round-trip.
+    """
+    cells = sorted(series.cells, key=lambda c: c.date)
+    fig = pgo.Figure()
+    pilots = [
+        (name_a, _PALETTE[0],
+         [(c.date, c.placement_a, c.norm_a, c.field_size) for c in cells]),
+        (name_b, _PALETTE[1],
+         [(c.date, c.placement_b, c.norm_b, c.field_size) for c in cells]),
+    ]
+    for name, colour, points in pilots:
+        fig.add_trace(pgo.Scatter(
+            x=[date for date, _, _, _ in points],
+            # The finish inverted to a score (1 a win), matching the performance
+            # chart. A null norm is a finish the source never scored: a gap the line
+            # breaks across rather than a fabricated point.
+            y=[1 - norm if norm is not None else None for _, _, norm, _ in points],
+            customdata=[(placement, field) for _, placement, _, field in points],
+            name=name,
+            mode="lines+markers",
+            line=dict(width=1, dash="dash", color=colour),
+            marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+            cliponaxis=False,
+            hovertemplate=(
+                f"%{{x|%d %b %Y}} · {name} · score %{{y:.2f}} · "
+                "%{customdata[0]}/%{customdata[1]}<extra></extra>"
+            ),
+        ))
+    _style_trend_chart(fig, f"Head-to-head: {name_a} vs {name_b}", "Finish (1 = 1st, 0 = last)")
+    # A registration-date x-axis (ADR 0013), not the category-Year axis the shared
+    # styler sets, with a range slider as the time-range filter. Its mini-axis is
+    # fixed to an off-data band (the score is 0-1, this is 10-11), which parks the
+    # trace preview out of view: the slider stays a plain tinted control instead of
+    # a second copy of the lines that reads as a bug. A tint distinct from the plot
+    # marks it as a control.
+    fig.update_xaxes(
+        title="Registration date", type="date", categoryorder=None, autorange=True,
+        rangeslider=dict(
+            visible=True, thickness=0.12,
+            bgcolor="rgba(245,158,11,0.12)", bordercolor="rgba(245,158,11,0.55)",
+            borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
+        ),
+    )
+    # Label the band so it reads as a filter, not a stray strip. Centred both ways
+    # over the slider in paper coords (the band sits below the axis, roughly y -0.09
+    # to -0.32, so its middle is near -0.20); the bottom margin below seats the
+    # slider. Amber, matching the slider tint against the neutral chart.
+    fig.add_annotation(
+        x=0.5, y=-0.20, xref="paper", yref="paper", xanchor="center", yanchor="middle",
+        showarrow=False, text="◀ Time range filter (drag to slice) ▶",
+        font=dict(color="rgba(245,158,11,0.95)", size=11),
+    )
+    # The 0-1 score (1 a win at the top), fixed to the full range so a small gap is
+    # not stretched, overriding the shared styler's percent format and zoom. Matches
+    # the performance chart: same scale, same 0.5 reference line.
+    fig.update_yaxes(tickformat=".2f", range=[0, 1], autorange=False)
+    fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
+    # Room below the axis for the slider band and its label (the shared styler sets a
+    # tight b=8 for the label-free charts).
+    fig.update_layout(legend=dict(title="Pilot"), margin=dict(b=90))
+    return fig
+
+
 def build_app(artifact: Path) -> gr.Blocks:
     # The Database is shared and each request opens its own Connection over
     # Gradio's worker threads. That is a simplicity choice, not a safety
@@ -430,6 +513,34 @@ def build_app(artifact: Path) -> gr.Blocks:
         if not series.cells:
             return gr.update(visible=False)
         return gr.update(value=_performance_figure(pilot_names[pilot], series), visible=True)
+
+    # Head-to-head offers every pilot in both slots (like the Explore tab), since the
+    # drawable set is pairwise and too large to precompute; a pair that shares too
+    # few events is refused with a message rather than drawn as a dot (ADR 0013).
+    pilot_labels = {key: label for label, key in pilots}
+
+    def draw_head_to_head(a: str, b: str):
+        # Hide both the chart and the note until a valid pair is picked; the note is
+        # the "refused, not a dot" surface for a pair the tool comes back empty on.
+        if not a or not b:
+            return gr.update(visible=False), gr.update(visible=False)
+        if a == b:
+            return gr.update(visible=False), gr.update(
+                value="Pick two different pilots to see their rivalry.", visible=True
+            )
+        series = run_series(ladybug.Connection(db), HeadToHeadTimeline(a, b))
+        if not series.cells:
+            return gr.update(visible=False), gr.update(
+                value=(
+                    f"{pilot_labels[a]} and {pilot_labels[b]} share fewer than two "
+                    "events, so there is no rivalry to trace over time."
+                ),
+                visible=True,
+            )
+        # The in-chart range slider does the time-range slice client-side, so the
+        # callback draws the whole rivalry and never re-filters by date here.
+        fig = _head_to_head_figure(pilot_labels[a], pilot_labels[b], series)
+        return gr.update(value=fig, visible=True), gr.update(visible=False)
 
     def explore(view: str, *values: object) -> str:
         # Gradio passes the widget values positionally in `keys` order.
@@ -556,12 +667,34 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # Hidden until a pilot is chosen, matching the other on-demand charts.
                 performance_plot = gr.Plot(visible=False)
 
+            with gr.Group(visible=False) as h2h_window:
+                gr.Markdown(
+                    "Two pilots' rivalry over the events they both entered: each "
+                    "point is one shared event, the finish on the y-axis drawn so "
+                    "higher is better (1 is a win, 0 is last), the same scale as the "
+                    "pilot-performance chart. The x-axis is the registration date, so "
+                    "two events shared in one year sit apart. Hover a point for the "
+                    "raw finish over the field size (its position and the tournament "
+                    "size the score is normalised against). Drag the range slider "
+                    "under the chart to slice a time range. A pair sharing fewer than "
+                    "two events is a dot, not a timeline, so it is refused rather than "
+                    "drawn."
+                )
+                h2h_pilot_a = gr.Dropdown(choices=pilots, value=None, label="Pilot")
+                h2h_pilot_b = gr.Dropdown(choices=pilots, value=None, label="Second pilot")
+                # The "refused, not a dot" surface for a pair with too few shared
+                # events; hidden until a pick lands on it.
+                h2h_note = gr.Markdown(visible=False)
+                # Hidden until a valid pair is chosen, matching the other on-demand charts.
+                h2h_plot = gr.Plot(visible=False)
+
             # Each window shows exactly when it is the chosen trend, keyed by name,
             # so a trend added to the picker cannot ride under a "not meta" branch.
             trend_windows = {
                 _META_TREND: meta_window,
                 _ADOPTION_TREND: adoption_window,
                 _PERFORMANCE_TREND: performance_window,
+                _H2H_TREND: h2h_window,
             }
 
             def _show_trend(chosen: str):
@@ -579,5 +712,10 @@ def build_app(artifact: Path) -> gr.Blocks:
             performance_pilot.change(
                 draw_performance, inputs=performance_pilot, outputs=performance_plot
             )
+            for control in (h2h_pilot_a, h2h_pilot_b):
+                control.change(
+                    draw_head_to_head, inputs=[h2h_pilot_a, h2h_pilot_b],
+                    outputs=[h2h_plot, h2h_note],
+                )
 
     return demo

@@ -12,6 +12,7 @@ last (ADR 0013).
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import ladybug
 
@@ -57,6 +58,13 @@ MIN_PILOT_YEAR_EVENTS = 2
 # one point is not a trajectory. Named, not a bare literal, because the rule lives in
 # two places (the tool and its dropdown catalogue) and must not drift between them.
 MIN_QUALIFYING_YEARS = 2
+
+# A pilot pair needs this many shared events or it is a dot, not a timeline, so the
+# head-to-head tool returns nothing rather than a lone point (ADR 0013). Each point
+# is one real registration, so there is no within-point floor; the floor is on the
+# pair, not the event. Two, the same reason as MIN_QUALIFYING_YEARS: one point is not
+# a trajectory.
+MIN_SHARED_EVENTS = 2
 
 
 @dataclass(frozen=True)
@@ -116,6 +124,36 @@ class PerformanceCell:
     events: int
 
 
+@dataclass(frozen=True)
+class HeadToHeadPoint:
+    """One shared event in two pilots' rivalry: a direct observation, so no floor.
+
+    Each point is one real registration, not an aggregate, so it carries no
+    within-point floor (ADR 0013); the floor lives on the pair (at least
+    :data:`MIN_SHARED_EVENTS` shared events) rather than the event. ``date`` is the
+    event's registration date, the earliest ``createdAt`` across its whole field,
+    the same proxy ADR 0006 dates the event by but at day rather than year
+    granularity, so both pilots' points share one x per event and the two lines
+    align. ``field_size`` is the entrant count the placement was ranked against,
+    recovered from the norm rather than counted from the decks: a top-cut event
+    records only its top finishers and a teams event folds many decks onto few
+    places, so the decks-at-event count is neither, and a raw finish is only
+    readable against the field the norm actually used. ``placement_a``/``norm_a``
+    are pilot ``a``'s raw finish and ``placementNorm``, ``_b`` pilot ``b``'s; a
+    placement or norm the source never scored is ``None``. The y-axis is ``norm``
+    (comparable across field sizes); the raw placement and field size ride along for
+    the point's label.
+    """
+
+    event: str
+    date: datetime
+    field_size: int
+    placement_a: int | None
+    norm_a: float | None
+    placement_b: int | None
+    norm_b: float | None
+
+
 @dataclass
 class Series:
     """A tabular trend result: the full matrix of cells, no truncation.
@@ -127,7 +165,10 @@ class Series:
     card's per-year adoption.
     """
 
-    cells: list[SeriesCell] | list[AdoptionCell] | list[PerformanceCell]
+    cells: (
+        list[SeriesCell] | list[AdoptionCell] | list[PerformanceCell]
+        | list[HeadToHeadPoint]
+    )
 
 
 @dataclass(frozen=True)
@@ -155,7 +196,18 @@ class PilotPerformanceOverTime:
     pilot: str
 
 
-SeriesSpec = MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
+@dataclass(frozen=True)
+class HeadToHeadTimeline:
+    """Spec for :func:`head_to_head_timeline`; takes two pilots' ``pilot`` keys."""
+
+    a: str
+    b: str
+
+
+SeriesSpec = (
+    MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
+    | HeadToHeadTimeline
+)
 
 
 def _year_totals(conn: ladybug.Connection) -> dict[int, int]:
@@ -279,6 +331,73 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     return Series(cells=qualifying if len(qualifying) >= MIN_QUALIFYING_YEARS else [])
 
 
+def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
+    """Two pilots' rivalry over their shared events, one row per shared event.
+
+    A shared event is one both pilots entered. Each row carries the event's field
+    size and registration date (the earliest ``createdAt`` across the event's whole
+    field, ADR 0006's proxy at day granularity, so both pilots' points share one x)
+    and each pilot's raw placement and ``placementNorm``. This is the only trend to
+    read the per-deck ``createdAt`` rather than group by the ``Year`` node (ADR
+    0013): its x-axis needs a coordinate finer than year, or two events shared in
+    one year collapse onto the same x.
+
+    The rows are direct observations, so they carry no within-point floor; the floor
+    is on the pair. A pair sharing fewer than :data:`MIN_SHARED_EVENTS` events is a
+    dot, not a timeline, so the series comes back empty (refused) rather than drawing
+    a lone point. Rows are ordered by date, the x-axis order; the connecting line
+    asserts no direction, only joins the points.
+
+    A pilot has no rivalry with themselves, so ``a == b`` is refused here rather than
+    matching every event the pilot played to itself and drawing two identical lines.
+    The guard lives in the tool, not only the app, because the tool is the seam an
+    agent reaches without the UI's distinct-pilot check.
+    """
+    if a == b:
+        return Series(cells=[])
+    points = sorted(
+        (
+            HeadToHeadPoint(
+                event=event,
+                date=date,
+                field_size=round(implied) if implied is not None else deck_count,
+                placement_a=placement_a,
+                norm_a=norm_a,
+                placement_b=placement_b,
+                norm_b=norm_b,
+            )
+            for event, date, implied, deck_count, placement_a, norm_a,
+            placement_b, norm_b
+            in rows(conn.execute(
+                # field_size is the entrant count placementNorm was ranked against,
+                # recovered from the norm (norm = (placement-1)/(field-1), so field =
+                # (placement-1)/norm + 1), not the deck count: a top-cut event records
+                # only its top finishers and a teams event folds many decks onto few
+                # placements, so the decks-at-event count is neither the field the norm
+                # uses nor the readable denominator for a raw finish. It is constant
+                # across an event's placed decks (max just reads it off one), so a
+                # winner (norm 0) does not have to yield it. An event with no placed
+                # deck at all falls back to the deck count, the only field left.
+                """MATCH (:Pilot {pilot: $a})<-[:PILOTED_BY]-(da:Deck)
+                         -[:PLAYED_AT]->(e:Event),
+                         (:Pilot {pilot: $b})<-[:PILOTED_BY]-(db:Deck)
+                         -[:PLAYED_AT]->(e),
+                         (f:Deck)-[:PLAYED_AT]->(e)
+                   RETURN e.event, min(f.createdAt),
+                          max(CASE WHEN f.placementNorm > 0
+                              THEN (f.placement - 1) / f.placementNorm + 1
+                              ELSE NULL END),
+                          count(DISTINCT f),
+                          da.placement, da.placementNorm,
+                          db.placement, db.placementNorm""",
+                {"a": a, "b": b},
+            ))
+        ),
+        key=lambda p: p.date,
+    )
+    return Series(cells=points if len(points) >= MIN_SHARED_EVENTS else [])
+
+
 def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:
     """``(displayName, pilot)`` for every pilot the performance trend can draw.
 
@@ -317,6 +436,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return card_adoption_over_time(conn, canon, board)
         case PilotPerformanceOverTime(pilot):
             return pilot_performance_over_time(conn, pilot)
+        case HeadToHeadTimeline(a, b):
+            return head_to_head_timeline(conn, a, b)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 

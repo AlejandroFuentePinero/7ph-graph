@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -6,11 +7,13 @@ import pytest
 from graph7ph.trends import (
     MIN_CELL_DECKS,
     CardAdoptionOverTime,
+    HeadToHeadTimeline,
     MetaShareOverTime,
     PilotPerformanceOverTime,
     Series,
     SeriesCell,
     card_adoption_over_time,
+    head_to_head_timeline,
     latest_year_share_cut,
     meta_share_over_time,
     pilot_performance_over_time,
@@ -441,5 +444,138 @@ def test_run_series_routes_pilot_performance_through_its_own_seam(tmp_path, buil
     conn = _performance_graph(tmp_path, built_graph)
     routed = run_series(conn, PilotPerformanceOverTime("ada"))
     direct = pilot_performance_over_time(conn, "ada")
+    assert isinstance(routed, Series)
+    assert routed.cells == direct.cells
+
+
+def _write_h2h_snapshot(
+    root: Path, decks: list[tuple[str, str, str, str, int, float | None]]
+) -> Path:
+    """Write a snapshot of ``(deck_id, pilot, event, created_at, placement, norm)``.
+
+    A shared event is one both pilots entered, so a head-to-head test needs two
+    pilots' decks at the same event plus filler decks under other pilots to give
+    the event a field size larger than the pair. Each deck carries its own
+    ``createdAt``, the registration date the timeline reads; decks of one event
+    stay inside one calendar year so the build does not abort on a straddle. A
+    distinct pilot per deck keeps the fuzzy pilot merge and the duplicate-list
+    drop (ADR 0004, 0007) from folding fixtures meant to stay separate.
+    """
+    snap = root / "snap"
+    snap.mkdir()
+    deck_records = [
+        {
+            "deckId": deck_id,
+            "name": f"{placement}st {pilot} - Deck - {event}",
+            "deckName": "Deck",
+            "pilot": pilot,
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventType": "Tournament",
+            "placement": placement,
+            "placementNorm": norm,
+            "createdAt": created_at,
+            "colour": "colour:U",
+            "macro": "macro:combo",
+            "engineTags": ["engine:deck"],
+            "engineTagLabels": {"engine:deck": "Deck"},
+            "primaryTag": "engine:deck",
+            "primaryTagWeights": {"engine:deck": 100},
+        }
+        for deck_id, pilot, event, created_at, placement, norm in decks
+    ]
+    (snap / "decks.json").write_text(json.dumps(deck_records))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 1,
+        "cards": [],
+        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+    }))
+    return snap
+
+
+def _h2h_graph(root, built_graph):
+    """A built graph where ``ann`` and ``bob`` share three events, plus fillers.
+
+    E1 (registered 2025-03) is a full 5-deck field, placements 1..5 with norms
+    ``(place-1)/4``, so its norm-implied field and its deck count both read 5.
+    ``ann`` finishes 1st (norm 0.0), ``bob`` 4th (norm 0.75). EM (registered
+    2025-05) is a 3-deck field the pair also both entered. E2 (registered 2025-07,
+    last) is a **top-cut** field: 20 real entrants but only four decks recorded,
+    norms ``(place-1)/19``, so the norm implies a field of 20 while the
+    decks-at-event count is 4. ``ann`` finishes 2nd, ``bob`` 5th. E2 is what holds
+    the tool to reading the field off the norm rather than counting decks. ``ann``
+    also played a lone EA that ``bob`` did not, so it is never a shared event.
+    """
+    decks = [
+        ("e1-ann", "ann", "E1", "2025-03-01T00:00:00+00:00", 1, 0.0),
+        ("e1-bob", "bob", "E1", "2025-03-01T09:00:00+00:00", 4, 0.75),
+        ("e1-f1", "e1f1", "E1", "2025-03-02T00:00:00+00:00", 2, 0.25),
+        ("e1-f2", "e1f2", "E1", "2025-03-02T00:00:00+00:00", 3, 0.5),
+        ("e1-f3", "e1f3", "E1", "2025-03-02T00:00:00+00:00", 5, 1.0),
+        ("em-ann", "ann", "EM", "2025-05-01T00:00:00+00:00", 3, 1.0),
+        ("em-bob", "bob", "EM", "2025-05-01T00:00:00+00:00", 1, 0.0),
+        ("em-f1", "emf1", "EM", "2025-05-02T00:00:00+00:00", 2, 0.5),
+        ("e2-ann", "ann", "E2", "2025-07-01T00:00:00+00:00", 2, 1 / 19),
+        ("e2-bob", "bob", "E2", "2025-07-01T00:00:00+00:00", 5, 4 / 19),
+        ("e2-f1", "e2f1", "E2", "2025-07-02T00:00:00+00:00", 1, 0.0),
+        ("e2-f2", "e2f2", "E2", "2025-07-02T00:00:00+00:00", 10, 9 / 19),
+        ("ea-ann", "ann", "EA", "2025-09-01T00:00:00+00:00", 1, 0.0),
+    ]
+    return built_graph(root, _write_h2h_snapshot(root, decks))
+
+
+def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
+    tmp_path, built_graph
+):
+    conn = _h2h_graph(tmp_path, built_graph)
+    series = head_to_head_timeline(conn, "ann", "bob")
+    by_event = {c.event: c for c in series.cells}
+
+    # The three shared events, ordered by registration date. EA was ann's alone, so
+    # it is absent: a timeline is over shared events only.
+    assert [c.event for c in series.cells] == ["E1", "EM", "E2"]
+
+    # Each row carries both pilots' raw placement and norm and the event's field
+    # size, so the chart can label a point with the finish while plotting the norm.
+    e1 = by_event["E1"]
+    assert e1.field_size == 5
+    assert e1.date == datetime(2025, 3, 1, 0, 0)  # min createdAt across the field
+    assert (e1.placement_a, e1.norm_a) == (1, pytest.approx(0.0))
+    assert (e1.placement_b, e1.norm_b) == (4, pytest.approx(0.75))
+
+    # The top-cut event: 4 decks recorded but the norm was ranked against 20
+    # entrants, so field_size reads the norm's field (20), not the deck count (4).
+    e2 = by_event["E2"]
+    assert e2.field_size == 20
+    assert (e2.placement_a, e2.norm_a) == (2, pytest.approx(1 / 19))
+    assert (e2.placement_b, e2.norm_b) == (5, pytest.approx(4 / 19))
+
+
+def test_head_to_head_of_a_pair_sharing_one_event_is_refused(tmp_path, built_graph):
+    # A pair needs at least two shared events or it is a dot, not a timeline, so a
+    # one-event pair comes back empty rather than a lone point (ADR 0013). Here
+    # ``ann`` and ``bob`` share only E1; E2 and E3 are ann's alone.
+    decks = [
+        ("e1-ann", "ann", "E1", "2025-03-01T00:00:00+00:00", 1, 0.0),
+        ("e1-bob", "bob", "E1", "2025-03-01T00:00:00+00:00", 2, 0.2),
+        ("e2-ann", "ann", "E2", "2025-07-01T00:00:00+00:00", 1, 0.0),
+        ("e3-ann", "ann", "E3", "2025-09-01T00:00:00+00:00", 1, 0.0),
+    ]
+    conn = built_graph(tmp_path, _write_h2h_snapshot(tmp_path, decks))
+    assert head_to_head_timeline(conn, "ann", "bob").cells == []
+
+
+def test_head_to_head_of_a_pilot_against_themselves_is_refused(tmp_path, built_graph):
+    # A pilot has no rivalry with themselves, so a == b is refused rather than drawing
+    # two identical lines. Guarded in the tool (not only the app) since the tool is
+    # the agent-facing seam a direct caller reaches without the UI's a != b check.
+    conn = _h2h_graph(tmp_path, built_graph)
+    assert head_to_head_timeline(conn, "ann", "ann").cells == []
+
+
+def test_run_series_routes_head_to_head_through_its_own_seam(tmp_path, built_graph):
+    conn = _h2h_graph(tmp_path, built_graph)
+    routed = run_series(conn, HeadToHeadTimeline("ann", "bob"))
+    direct = head_to_head_timeline(conn, "ann", "bob")
     assert isinstance(routed, Series)
     assert routed.cells == direct.cells

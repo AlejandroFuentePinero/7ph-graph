@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from datetime import datetime
 
 import ladybug
 import pytest
@@ -293,6 +294,20 @@ def test_deck_carries_colour_identity_and_dimension_edges(tmp_path, snapshot_dir
         "MATCH (:Deck {deckId: $id})-[:PLAYED_AT]->(e:Event) RETURN e.event",
         {"id": grixis},
     ) == "CFWAT25"
+
+
+def test_deck_persists_created_at_as_a_property(tmp_path):
+    # The registration date is stored on the Deck node so the head-to-head timeline
+    # can read it as a sub-year x-axis (ADR 0013's amendment to ADR 0006). Every
+    # other trend still groups by the Year node; only this one reads the per-deck
+    # date. createdAt is UTC throughout the source, so it round-trips as UTC.
+    _write_snapshot(tmp_path, [_deck("d1", "E", "2025-06-01T09:30:00+00:00")])
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(tmp_path), artifact)
+    conn = open_for_reading(artifact)
+
+    stored = _scalar(conn, "MATCH (d:Deck {deckId: 'd1'}) RETURN d.createdAt")
+    assert stored == datetime(2025, 6, 1, 9, 30)
 
 
 def test_deck_to_archetype_carries_weight_and_primary_flag(tmp_path, snapshot_dir, built_graph):
