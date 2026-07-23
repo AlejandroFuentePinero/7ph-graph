@@ -141,9 +141,20 @@ def build_graph(
     curation = curation if curation is not None else load_curation()
     snapshot = _apply_deck_archetypes(snapshot, curation)
     pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
+    # Deliberately above the duplicate drop, so the straddle guard reads the
+    # population the source gave rather than the one de-duplication left. The
+    # survivor rule never consults a date (it tie-breaks on placement, then deck
+    # id), so a dropped registration is free to be the only deck carrying its
+    # event's second year: rewriting the one real duplicate loser's createdAt
+    # across a New Year makes this call raise YearStraddle for NHC26
+    # (2025/2026), while calling it after the drop returns a confident 2026 with
+    # no signal of any kind (issue #103). Free on the data held: the two
+    # populations return identical dicts across all 108 events, and reading the
+    # larger one cannot lose an event key, since the survivor rule always keeps
+    # one member of every group.
+    years = _event_years(snapshot.decks)
     if pilots.dropped_decks:
         snapshot = _without_decks(snapshot, pilots.dropped_decks)
-    years = _event_years(snapshot.decks)
 
     remove_artifact(artifact)
 

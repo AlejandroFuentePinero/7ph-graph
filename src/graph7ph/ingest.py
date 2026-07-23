@@ -105,8 +105,32 @@ def _hash(projection: object) -> str:
 def _deck_hash(deck: Deck, conts: list[Containment]) -> str:
     """Hash a deck's immutable projection: its historical facts (ADR 0003).
 
-    Pilot, event, placement, and decklist are historical and flagged when they
-    change; everything else (name, colour, macro, classification) is volatile.
+    Pilot, event, placement and decklist are historical, so a rewrite of any of
+    them is flagged. Everything else the model carries takes the latest value in
+    silence, and the list is worth spelling out rather than closing with an
+    "everything else": name, deckName, eventId, eventType, placementNorm,
+    colour, macro, engineTags, engineTagLabels, primaryTag, primaryTagWeights
+    and createdAt. (deckId is the key the two sides are compared across, so it
+    cannot move without reading as a drop plus an addition.) That silence is
+    what ADR 0003 asks for on fields the source is entitled to restate: between
+    the two fetches held here, 723 of the 4553 shared decks were rewritten in a
+    field this model carries, and every one of those rewrites was volatile.
+
+    ``createdAt`` sits on that side knowingly, not by classification. It is the
+    sole input to the Year dimension and to :class:`build.YearStraddle` (ADR
+    0006), the sole x-coordinate of the head-to-head timeline (ADR 0013), and
+    the sole ordering anchor of career threading in :mod:`graph7ph.pilots`, so a
+    rewrite of it moves drawn values while this gate stays quiet.
+    ``YearStraddle`` is its partial guard, and only partial: one deck restamped
+    across a New Year makes its event's year-set a pair and aborts the build,
+    but a whole event restamped together keeps that set a singleton and re-years
+    every one of its decks in silence, and a move inside one year is invisible
+    to every guard we have while still moving the timeline and the career order.
+    Nothing has moved yet: createdAt differs for 0 of the 4553 decks the two
+    snapshots share, and 6 of 108 events sit within a week of a New Year (issue
+    #103). Whether a corrected registration date is a fact to accept or a change
+    to review is an open question; this records which of the two the code
+    answers today.
     """
     return _hash({
         "pilot": deck.pilot,

@@ -68,6 +68,66 @@ def test_split_with_three_ids_keeps_every_pair_apart(tmp_path):
     assert not curation.is_split("A", "D")
 
 
+def test_merge_repeating_one_id_raises(tmp_path):
+    # A merge of an id into itself is a typo that folds nobody: before the guard
+    # counted distinct ids it loaded clean and emitted no merge at all, so the
+    # build printed the same counts as if the entry had never been written.
+    path = _write(tmp_path, """
+        [[merge]]
+        ids = ["A", "A"]
+        canonical = "A"
+    """)
+    with pytest.raises(CurationError):
+        load_curation(path)
+
+
+def test_reject_repeating_one_id_raises(tmp_path):
+    # Same typo on a reject stores a size-1 frozenset, which `is_rejected` can
+    # never match because it always builds a 2-element one: a decision that is
+    # recorded, reported nowhere, and permanently unmatchable.
+    path = _write(tmp_path, """
+        [[reject]]
+        ids = ["A", "A"]
+    """)
+    with pytest.raises(CurationError):
+        load_curation(path)
+
+
+def test_reject_repeating_an_id_alongside_a_second_raises(tmp_path):
+    # The half-live shape: ["A", "A", "B"] would store the live A/B pair plus a
+    # dead size-1 set, so the entry works and is partly discarded at once. The
+    # guard counts distinct ids, so this is refused rather than half-applied.
+    path = _write(tmp_path, """
+        [[reject]]
+        ids = ["A", "A", "B"]
+    """)
+    with pytest.raises(CurationError):
+        load_curation(path)
+
+
+def test_every_stored_pair_holds_exactly_two_ids(tmp_path):
+    # The postcondition `_pairs` states in its own docstring, and the one ADR
+    # 0009 repeats: an all-pairs decision is stored as size-2 frozensets, whether
+    # it was authored with two ids or expanded from more.
+    path = _write(tmp_path, """
+        [[reject]]
+        ids = ["A", "B"]
+
+        [[reject]]
+        ids = ["C", "D", "E"]
+
+        [[split]]
+        ids = ["F", "G"]
+
+        [[split]]
+        ids = ["H", "I", "J", "K"]
+    """)
+    curation = load_curation(path)
+    assert len(curation.rejected) == 4 and len(curation.splits) == 7
+    for pair in curation.rejected | curation.splits:
+        assert len(pair) == 2
+
+
 def _mixed_curation() -> Curation:
     """A dictionary with one live and one dead entry of every type."""
     return Curation(

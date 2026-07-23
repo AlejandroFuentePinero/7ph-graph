@@ -3,7 +3,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from graph7ph.models import Card, Deck, colours_from_mana_cost, load_snapshot
+from graph7ph.models import (
+    Card,
+    Deck,
+    colours_from_mana_cost,
+    load_snapshot,
+    resolve_cut_placements,
+)
 
 
 @pytest.mark.parametrize(
@@ -85,9 +91,11 @@ def _deck(**overrides):
         # Pats Birthday Brawl numbers nothing, though every title says the rank.
         ("1st - Robert L - Pats Birthday Brawl", None, 1),
         ("2nd - Jared A - Pats Birthday Brawl", None, 2),
-        # A range reads as its worst rank, as the source itself numbers them.
-        ("3rd/4th - Brennan C - Pats Birthday Brawl", None, 4),
-        ("5th-8th - Liam B - Pats Birthday Brawl", None, 8),
+        # An explicit range reads its best rank, as the source itself numbers them
+        # (best end 573 of 573 times, issue #103). A "Top N" cut above gives a
+        # single bound, not two ends, so it is still read as that bound.
+        ("3rd/4th - Brennan C - Pats Birthday Brawl", None, 3),
+        ("5th-8th - Liam B - Pats Birthday Brawl", None, 5),
         # A real placement always wins; the title never overrides the source.
         ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", 3, 3),
         # A placeholder rank carries no number, so it stays unknown.
@@ -95,10 +103,45 @@ def _deck(**overrides):
         ("XXth Jayden G - Storm - PogNov25", None, None),
         # No placement token at all (the null-pilot titles at Area52IQ).
         ("Darcy - Mono R - Area52IQ", None, None),
+        # A leading digit run of four or more characters is not read as a rank:
+        # the largest placement anywhere is 306, so a three-character bound
+        # leaves 3.26x headroom. Untaken by the corpus (0 of 4592 titles open on
+        # four digits), so nothing but this case holds the clause in place.
+        ("2024th Ben H - Jeskai Tempo - CanBrawl2", None, None),
+        # The bound is on token length and not on value, so a four-character
+        # zero-pad is knowingly discarded even though 0077 is a valid 77th.
+        ("0077th - X", None, None),
     ],
 )
 def test_placement_recovered_from_the_title_when_source_has_none(title, placement, expected):
     assert _deck(name=title, placement=placement).placement == expected
+
+
+def test_top_n_cuts_resolve_to_their_cohort_best_rank():
+    # CanBrawl2's shape: four "Top 4" and four "Top 8" sit above a numbered 9th and
+    # below. The title-only pass could only read each cut's worst rank (4 and 8);
+    # the cohort makes the best rank recoverable, so Top 4 is 1st and Top 8 is 5th.
+    cuts = (
+        [_deck(deckId=f"t4-{i}", name=f"Top 4 P{i} - Jund - CanBrawl2",
+               event="CanBrawl2") for i in range(4)]
+        + [_deck(deckId=f"t8-{i}", name=f"Top 8 P{i} - Jund - CanBrawl2",
+                 event="CanBrawl2") for i in range(4)]
+    )
+    numbered = _deck(deckId="n9", name="09th P9 - Eclipse - CanBrawl2",
+                     event="CanBrawl2", placement=9)
+    decks = cuts + [numbered]
+    resolve_cut_placements(decks)
+    assert [d.placement for d in cuts[:4]] == [1, 1, 1, 1]
+    assert [d.placement for d in cuts[4:]] == [5, 5, 5, 5]
+    assert numbered.placement == 9  # a source-numbered finish is never touched
+
+
+def test_lone_top_cut_is_first():
+    # With no deeper tier above it, a "Top 8" cut spans 1st to 8th, so its best is 1st.
+    decks = [_deck(deckId=f"t8-{i}", name=f"Top 8 P{i} - Jund - E", event="E")
+             for i in range(4)]
+    resolve_cut_placements(decks)
+    assert [d.placement for d in decks] == [1, 1, 1, 1]
 
 
 def test_out_of_range_card_id_raises_a_clear_error(tmp_path):

@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 import pytest
 
 from graph7ph.build import build_graph
-from graph7ph.db import open_for_writing
+from graph7ph.db import artifact_path, database_path, open_for_reading, open_for_writing, rows
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     MAX_GEM_SHARE,
@@ -62,16 +62,24 @@ def _archetype_fields(tag):
     A ``tag`` of ``None`` writes a deck the classifier gave no engine tag, which
     is what an unclassified deck looks like upstream: it still has a macro, so it
     reaches the affinity query's archetype hop with nothing to bind there.
+
+    A ``tag`` may also be a list, for a deck the classifier gave several engine
+    tags at once. That is the modal shape upstream (2332 of 4591 real decks carry
+    more than one), so a fixture of single-tag decks alone leaves the common case
+    untested. The first tag is the primary and the weights split evenly, which is
+    all any query under test reads them for.
     """
     if tag is None:
         return {
             "engineTags": [], "engineTagLabels": {},
             "primaryTag": "", "primaryTagWeights": {},
         }
+    tags = [tag] if isinstance(tag, str) else list(tag)
     return {
-        "engineTags": [f"engine:{tag}"],
-        "engineTagLabels": {f"engine:{tag}": tag.title()},
-        "primaryTag": f"engine:{tag}", "primaryTagWeights": {f"engine:{tag}": 100},
+        "engineTags": [f"engine:{t}" for t in tags],
+        "engineTagLabels": {f"engine:{t}": t.title() for t in tags},
+        "primaryTag": f"engine:{tags[0]}",
+        "primaryTagWeights": {f"engine:{t}": 100 // len(tags) for t in tags},
     }
 
 
@@ -927,6 +935,42 @@ def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path, built_
     assert edges[("macro:aggro", "arch:boros")] == "PLAYS:1"
 
 
+def test_pilot_affinity_macro_edges_over_cover_a_multi_tag_deck(tmp_path, built_graph):
+    # One deck carrying two archetypes under one macro, the modal shape in the
+    # real data (2332 of 4591 decks) and one no other affinity fixture has: every
+    # other one gives a deck a single tag, so the tiers happen to partition and
+    # nothing pins what happens when they do not.
+    #
+    # `d1` is Storm and Grixis at once at E1, `d2` is Storm alone at E2. The macro
+    # is 2 events, and its two outgoing edges are 2 and 1, so the children total 3
+    # against a parent of 2. That is the documented behaviour and not a fault: a
+    # macro's archetypes are a cover, not a partition, because a deck can be
+    # several archetypes at once. The tree drawing is what invites the reader to
+    # add them up, which is why the sum is asserted rather than left implicit.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": ["storm", "grixis"], "norm": 0.0, "event": "E1", "m": ["a"]},
+            {"id": "d2", "tag": "storm", "norm": 0.0, "event": "E2", "m": ["a"]},
+        ],
+        ["a"],
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    sub = pilot_affinity_subgraph(conn, "p")
+
+    macro = next(n for n in sub.nodes if n.kind == "Macro")
+    assert (macro.id, macro.weight) == ("macro:control", 2)
+    children = {
+        e.target: e.events for e in sub.edges if e.source == "macro:control"
+    }
+    assert children == {"arch:storm": 2, "arch:grixis": 1}
+    assert sum(children.values()) > macro.weight
+    # Each child still nests inside the parent on its own: over-covering is the
+    # sum exceeding the macro, never any single archetype exceeding it.
+    assert max(children.values()) <= macro.weight
+
+
 def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot_dir, built_graph):
     conn = built_graph(tmp_path, snapshot_dir)
 
@@ -1014,6 +1058,60 @@ def test_pilot_affinity_of_a_pilot_with_no_decks_is_the_pilot_alone(tmp_path, sn
 
     assert [(n.id, n.label, n.kind) for n in sub.nodes] == [("pilot:ghost", "Ghost", "Pilot")]
     assert sub.edges == []
+
+
+@pytest.fixture(scope="module")
+def live_graph():
+    """The built artifact at :func:`artifact_path`, for the one test that needs it.
+
+    Everything else here builds its own graph from a hand-authored snapshot,
+    which is what keeps the suite hermetic. The nesting invariant below cannot:
+    it is a statement about all 1083 real pilots at once, and a fixture holding a
+    handful of decks would only restate the case the fixture was built to show.
+    The bundle is gitignored, so a checkout that has not run a build skips rather
+    than fails.
+    """
+    artifact = artifact_path()
+    if not database_path(artifact).exists():
+        pytest.skip(f"no graph artifact at {artifact}; build one with `uv run graph7ph build`")
+    return open_for_reading(artifact)
+
+
+def test_an_archetype_under_one_macro_never_outweighs_it(live_graph):
+    # Macros and archetypes are drawn on one shared radius scale, so an archetype
+    # sitting under a single macro and drawn larger than it would have the picture
+    # asserting that a part is bigger than the whole it belongs to. It cannot
+    # happen while both tiers count distinct events, because the archetype's
+    # events under its only parent are a subset of that parent's: the macro is
+    # sized by every event the pilot played it at, which includes every event they
+    # played this archetype at. Measured over the live graph, the invariant holds
+    # 3458 of 3458 times (the archetype nodes with exactly one incoming macro
+    # edge; the other 367 sit under two or more macros and are legitimately larger
+    # than any one of them).
+    #
+    # Pinned because the invariant rests entirely on the unit. A later change that
+    # sized either tier by decks rather than events would break it silently: an
+    # archetype counted by decks against a macro counted by events inverts the
+    # moment a pilot enters two variants on one day, and nothing would raise.
+    sole_parent = 0
+    inversions = []
+    for row in rows(live_graph.execute("MATCH (p:Pilot) RETURN p.pilot")):
+        sub = pilot_affinity_subgraph(live_graph, row[0])
+        weights = {n.id: n.weight for n in sub.nodes}
+        parents = defaultdict(list)
+        for edge in sub.edges:
+            if edge.source.startswith("macro:"):
+                parents[edge.target].append(edge.source)
+        for archetype, macros in parents.items():
+            if len(macros) == 1:
+                sole_parent += 1
+                if weights[archetype] > weights[macros[0]]:
+                    inversions.append((row[0], archetype, macros[0]))
+
+    assert inversions == []
+    # The population is asserted too, so a change that stops reaching the nesting
+    # case at all cannot pass this by leaving nothing to check.
+    assert sole_parent == 3458
 
 
 def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir, built_graph):

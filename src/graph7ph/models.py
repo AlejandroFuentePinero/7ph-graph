@@ -6,6 +6,12 @@ the card catalogue (``cards``, where a card's list position is its id) and, per
 deck, the Main (``m``) and Side (``s``) boards as lists of those ids. This
 module joins the two into typed Deck, Card, and Containment objects keyed on the
 domain's stable identities: a Deck on its ``deckId``, a Card on its ``canon``.
+
+That list position is an id inside one file and nowhere else. The catalogue is
+canon-sorted, so a later fetch that inserts a card displaces every position after
+it: 4728 of the 4967 positions the two held snapshots share resolve to a
+different canon in the newer one. Resolving ids to canons here, before anything
+downstream is keyed on them, is what keeps that drift from reaching the graph.
 """
 
 import json
@@ -41,17 +47,57 @@ PLACEMENT_TOKEN = re.compile(
 def placement_from_title(title: str | None) -> int | None:
     """The placement a title records, or ``None`` if it records none.
 
-    A range reads as its worst rank, the same convention the source itself uses
-    when it numbers a "05th-8th" finisher 8th, and a "Top 8" cut is that range's
-    worst rank too. A placeholder rank (``??st``, ``XXth``) carries no number and
-    stays unknown. A run of four or more digits is a year or other noise, not a
-    rank (these events never seat a thousand players), so it is not read.
+    An explicit range reads as its best rank, so "05th-8th" is 5th. This matches
+    the source: across every deck the source itself scored whose title carries an
+    explicit range, it assigns the best end 573 times out of 573 and the worst end
+    0 times (issue #103). The rule used to read the worst end, justified as "the
+    same convention the source uses", which was false; it was corrected to the best
+    end, moving 16 title-recovered decks (14 from 8th to 5th, 2 from 4th to 3rd).
+
+    A "Top 8" cut, which gives a single bound rather than two ends, is read here
+    as that bound (8th), because the best rank of the cut cannot be read off the
+    title alone: "Top 8" ranges over 1st to 8th. Its true value comes from the
+    event's cohort, so :func:`resolve_cut_placements` corrects it after load where
+    the cohort makes it recoverable; this function is only the first, title-only
+    pass. A placeholder rank (``??st``, ``XXth``) carries no number and stays
+    unknown.
+
+    Best-of assumes an explicit range is a tie-band ("5th-8th", four people tied),
+    not a cut written as a full range ("1st-8th", a top-eight where everyone is
+    scored their real finish). The two are indistinguishable from the title, so
+    the rule would score a source-null "1st-8th" as 1st for all eight. It is safe
+    only because every range that opens at 1st is source-scored today (38 of 38),
+    so the recovery never runs on one; a future source that left one null would
+    need cohort handling like :func:`resolve_cut_placements`, not this branch.
+
+    A leading digit run of four or more characters is not read as a rank. The
+    largest field anywhere seats 306 and the largest placement anywhere is 306,
+    so a three-character bound leaves 3.26x headroom. The hazard is not a year:
+    a year in the rank position occurs 0 of 4592 times and cannot, because the
+    pattern is anchored to the start of the title and years live in the event
+    segment at its end. The long digit run that really sits beside a rank is a
+    numeric pilot handle ("026th 106462910 - 8pt Mardu - SydneyShowdown", 30 of
+    4592 titles), and all 30 carry a source-given placement, so this function
+    never runs on them. The bound is on token length and not on value, so a
+    zero-padded four-character rank ("0077th") would be discarded despite being
+    a valid 77.
     """
     token = PLACEMENT_TOKEN.match(title or "")
     if not token:
         return None
-    worst = token.group(2) or token.group(1)
-    return int(worst) if worst.isdigit() and len(worst) <= 3 else None
+    low, high = token.group(1), token.group(2)
+    # An explicit range reads its best rank (the source's own convention); a single
+    # bound, including a "Top N" cut, is read as given (issue #103).
+    if high is not None and low.isdigit() and high.isdigit():
+        pick = str(min(int(low), int(high)))
+    else:
+        pick = high or low
+    return int(pick) if pick.isdigit() and len(pick) <= 3 else None
+
+
+# A title that opens "Top N" is a cut, not a rank: the bound says how deep the cut
+# was, not where inside it the deck finished.
+_TOP_CUT = re.compile(r"^\s*\*?\s*-?\s*top\s*(\d+)", re.IGNORECASE)
 
 # The five Magic colours, in canonical WUBRG order.
 COLOURS: tuple[str, ...] = ("W", "U", "B", "R", "G")
@@ -187,6 +233,37 @@ class Snapshot(BaseModel):
     containments: list[Containment]
 
 
+def resolve_cut_placements(decks: list[Deck]) -> None:
+    """Correct each "Top N" cut's placement to its cohort's best rank, in place.
+
+    A bare "Top N" title records that a deck made the cut, not its finish inside
+    it, so the title-only pass in :func:`placement_from_title` can read no better
+    than the cut's worst rank (N). Where an event numbers every finisher below its
+    cuts and leaves the top as nested "Top 4"/"Top 8" tiers, each tier's best rank
+    is recoverable from the cohort: the deepest cut (smallest N) starts at 1st and
+    each shallower tier starts one past the tier below, so "Top 4" is 1st and
+    "Top 8" is 5th. A lone "Top 8" with no tier above it is 1st.
+
+    Only decks whose title is a "Top N" cut are touched, and the source scores with
+    a numeric rank rather than a "Top N" title, so this never overrides a finish
+    the source recorded. On the graph today it corrects the 8 cut decks at
+    CanBrawl2 (four "Top 4" to 1st, four "Top 8" to 5th), the one event that
+    structures its top this way, and moves nothing else (issue #103).
+    """
+    by_event: dict[str, list[tuple[int, Deck]]] = {}
+    for deck in decks:
+        cut = _TOP_CUT.match(deck.name or "")
+        if cut:
+            by_event.setdefault(deck.event, []).append((int(cut.group(1)), deck))
+    for cohort in by_event.values():
+        # Ascending distinct bounds, so each tier starts one past the tier below:
+        # [4, 8] gives Top 4 -> 1st, Top 8 -> 5th; [8] alone gives Top 8 -> 1st.
+        bounds = sorted({bound for bound, _ in cohort})
+        best = {b: (bounds[i - 1] if i else 0) + 1 for i, b in enumerate(bounds)}
+        for bound, deck in cohort:
+            deck.placement = best[bound]
+
+
 def load_snapshot(path: Path) -> Snapshot:
     """Parse the JSON files in ``path`` into a Snapshot of domain objects."""
     path = Path(path)
@@ -195,6 +272,9 @@ def load_snapshot(path: Path) -> Snapshot:
 
     cards = [Card.model_validate(c) for c in index_raw["cards"]]
     decks = [Deck.model_validate(d) for d in decks_raw]
+    # The per-deck validator recovered each "Top N" cut as its worst rank; now that
+    # every deck is loaded, correct those to the cohort's best rank (issue #103).
+    resolve_cut_placements(decks)
 
     canon_by_id = [c.canon for c in cards]
     containments = [
@@ -212,7 +292,15 @@ def load_snapshot(path: Path) -> Snapshot:
 
 
 def _canon(canon_by_id: list[str], deck_id: str, card_id: int) -> str:
-    """Resolve a card id to its canon, with a clear error if it is out of range."""
+    """Resolve a card id to its canon, with a clear error if it is out of range.
+
+    Inert on the data that exists: 0 of 673,442 checked ids fall outside their own
+    index, and both held indexes are exactly dense. The lower bound is the
+    load-bearing half all the same, because the two ends fail differently. An id
+    past the end raises unguarded; a negative id raises nothing at all and
+    silently indexes from the end of the list, resolving to a real card that is
+    not the one the file named.
+    """
     if not 0 <= card_id < len(canon_by_id):
         raise ValueError(
             f"deck {deck_id!r} references card id {card_id}, "

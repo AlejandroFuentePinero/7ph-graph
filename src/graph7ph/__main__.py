@@ -58,11 +58,12 @@ def _build(args: argparse.Namespace) -> None:
               f"(dropped ids or changed facts): {ingest_report_path(args.db)}")
 
     recon = json.loads(reconciliation_path(args.db).read_text())
-    dupes, joined, candidates, curated, multi, splits = (
+    dupes, joined, candidates, curated, multi, splits, unexplained = (
         len(recon["dropped_duplicates"]), len(recon["joined_names"]),
         len(recon["under_merges"]), recon["curated"],
         len(recon.get("multi_name_ids", [])),
         len(recon.get("name_splits", [])),
+        len(recon.get("unexplained_names", [])),
     )
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
@@ -72,6 +73,9 @@ def _build(args: argparse.Namespace) -> None:
         print(f"  {splits} display name(s) split into separate people by curation")
     if multi:
         print(f"  {multi} id(s) recovered more than one surname (review the report)")
+    if unexplained:
+        print(f"  {unexplained} id(s) discarded a name spelling nothing relates to the "
+              "winner (review the report)")
     print(f"  pilot identity: {candidates} candidate(s) to review, {curated} already curated")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
     # The promotion renamed the directory an already-running app opened, and its

@@ -27,7 +27,7 @@ Two decks that share an upstream id, an event, a recovered name, and a card-for-
 
 ## Title parsing corrected
 
-Name recovery previously misread several title shapes. A leading `*` or a `Top N` cut is a placement, not a name; a name that is only a points marker (`8pt Blue Moon`) means the pilot field was empty; and a separator-less title (`1st Ben N Lurrus Breach PoGTeams2024`) is split by subtracting the source's own deck name and event from the tail. A placement the source left null is also recovered from the title, taking a range's worst rank (`5th-8th` and `Top 8` both read as 8), while the source value always wins when present.
+Name recovery previously misread several title shapes. A leading `*` or a `Top N` cut is a placement, not a name; a name that is only a points marker (`8pt Blue Moon`) means the pilot field was empty; and a separator-less title (`1st Ben N Lurrus Breach PoGTeams2024`) is split by subtracting the source's own deck name and event from the tail. A placement the source left null is also recovered from the title, taking an explicit range's best rank (`5th-8th` reads as 5, the source's own convention 573 of 573 times, issue #103); a `Top N` cut is read off its event's cohort instead (`resolve_cut_placements`), so CanBrawl2's four `Top 4` decks read 1st and its four `Top 8` read 5th. The source value always wins when present.
 
 ## Wave 2/3: adjudication heuristics
 

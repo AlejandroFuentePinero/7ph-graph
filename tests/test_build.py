@@ -241,6 +241,67 @@ def test_event_straddling_two_calendar_years_fails_the_build(tmp_path):
         build_graph(load_snapshot(tmp_path), tmp_path / "graph")
 
 
+def _one_registration_entered_twice(event, kept_date, dropped_date):
+    """A duplicate pair at ``event``: same pilot, name and list, two dates.
+
+    ``_deck`` gives every fixture its own pilot key and its own title so that
+    hand-authored decks stay separate registrations, which is the opposite of
+    what a duplicate needs. Overriding both puts the pair on one resolved pilot
+    and one recovered display name, and ``_write_snapshot`` already gives every
+    deck the same one-card list, so the pair matches on the whole duplicate key
+    (pilot, event, name, card signature) and the resolution folds it (ADR 0004).
+    Both carry placement 1, so the survivor is decided by the deck id tie-break:
+    ``d1`` is kept and ``d2`` is dropped whatever dates they are given.
+    """
+    pair = [_deck("d1", event, kept_date), _deck("d2", event, dropped_date)]
+    for deck in pair:
+        deck["pilot"] = "same"
+        deck["name"] = f"1st Same Person - n - {event}"
+    return pair
+
+
+def test_a_dropped_duplicate_still_counts_toward_the_year_straddle(tmp_path):
+    # The straddle guard has to read the source's own population rather than the
+    # one left after duplicate registrations are removed, or a duplicate can
+    # silence it: the deck carrying the out-of-year date is exactly the deck that
+    # gets dropped, and the guard then sees a single-year event and derives a
+    # confident year for it with nothing printed. Measured on the live snapshot,
+    # rewriting the one real duplicate loser's date across a New Year makes the
+    # pre-drop call raise and the post-drop call return 2026 (issue #103).
+    #
+    # `test_event_straddling_two_calendar_years_fails_the_build` builds a straddle
+    # with no duplicates in it, so it holds the guard but not its position in the
+    # build. This is the test that holds the ordering.
+    #
+    # The control build first, because the abort below proves nothing about the
+    # ordering unless the pair really is a duplicate and `d2` really is the deck
+    # the resolution removes. Dated inside one year, the same pair builds, and the
+    # graph keeps one deck of the two.
+    control = tmp_path / "control"
+    control.mkdir()
+    _write_snapshot(control, _one_registration_entered_twice(
+        "NYE", "2025-12-30T00:00:00+00:00", "2025-12-31T00:00:00+00:00"))
+    artifact = tmp_path / "control-graph"
+
+    counts = build_graph(load_snapshot(control), artifact)
+
+    assert counts.decks == 1
+    report = json.loads(reconciliation_path(artifact).read_text())
+    assert [(d["dropped_deck"], d["kept_deck"]) for d in report["dropped_duplicates"]] == [
+        ("d2", "d1")
+    ]
+
+    # Now the same pair with the dropped deck alone on the far side of a New Year.
+    # Post-drop the event reads as a clean 2025; the build must still abort.
+    straddle = tmp_path / "straddle"
+    straddle.mkdir()
+    _write_snapshot(straddle, _one_registration_entered_twice(
+        "NYE", "2025-12-31T00:00:00+00:00", "2026-01-01T00:00:00+00:00"))
+
+    with pytest.raises(ValueError, match="NYE"):
+        build_graph(load_snapshot(straddle), tmp_path / "straddle-graph")
+
+
 def test_a_failed_build_leaves_the_bundle_it_was_pointed_at_untouched(
     tmp_path, snapshot_dir
 ):
