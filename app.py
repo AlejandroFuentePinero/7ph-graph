@@ -8,6 +8,7 @@ alongside this file.
 
 from graph7ph.app import build_app
 from graph7ph.db import artifact_path, database_path
+from graph7ph.serve import APP_KWARGS
 
 DB_PATH = artifact_path()
 
@@ -22,4 +23,4 @@ if not database_path(DB_PATH).exists():
 demo = build_app(DB_PATH)
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(app_kwargs=APP_KWARGS)

@@ -161,8 +161,9 @@ def _capture(conn, args: argparse.Namespace) -> None:
 
 def _app(args: argparse.Namespace) -> None:
     from graph7ph.app import build_app
+    from graph7ph.serve import APP_KWARGS
 
-    build_app(args.db).launch()
+    build_app(args.db).launch(app_kwargs=APP_KWARGS)
 
 
 def main() -> None:
