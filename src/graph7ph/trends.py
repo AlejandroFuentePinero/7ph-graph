@@ -18,22 +18,10 @@ import ladybug
 
 from graph7ph.db import rows
 
-# The per-``(archetype, year)`` cell floor: the fewest decks of an archetype in a
-# year for its share that year to be a point worth plotting. An absolute count,
-# not a share, following ADR 0012 and ``MIN_GEM_DECKS``: evidence is sample size
-# and does not scale with the meta, so the floor holds the same in a thin year and
-# a fat one. A cell below it is a gap, not a zero, so a line reading "share is near
-# zero" is told apart from one too thin to say.
-#
-# Tuned against real counts the way ``MIN_GEM_DECKS`` was: of 372 primary-archetype
-# by-year cells, 172 hold one to four decks (a one-off to a handful of
-# registrations), and a line drawn through them manufactures a trend from noise.
-# Five gaps those and keeps the 200 cells of five-plus. In the thinnest honest year
-# (2023, 192 decks) five decks is 2.6% of the meta; in the fattest (2025, 2095) it
-# is 0.24%: the floor governs a cell's evidence, not the size of the share it backs.
-# It lands on the same value as ``MIN_GEM_DECKS`` by the same reasoning, kept as its
-# own constant because it is a distinct floor over a distinct population.
-MIN_CELL_DECKS = 5
+# There is deliberately no meta-share cell floor here. A share is a count over a
+# known denominator, not an estimate, so it is a direct observation and ADR 0013's
+# rule exempts it; the floor this module used to hold was removed for that reason
+# (see the amendment in ADR 0013 before adding one back).
 
 # The per-``(pilot, year)`` event floor: the fewest distinct events a pilot needs in
 # a year for that year's mean ``placementNorm`` to be a mean worth plotting rather
@@ -49,8 +37,8 @@ MIN_CELL_DECKS = 5
 # events) are kept, and each point is labelled on the chart with the event count it
 # averages, so a thin two-event mean carries its own sample size rather than being
 # silently trusted or silently dropped. Kept as its own constant, distinct from
-# :data:`MIN_CELL_DECKS`: that governs an archetype's share of the whole meta, this a
-# pilot's own mean over its own finishes.
+# the gem floor: that governs a mean over the decks running a card, this a pilot's
+# own mean over its own finishes.
 MIN_PILOT_YEAR_EVENTS = 2
 
 # A pilot needs this many qualifying years or the tool returns "not enough history"
@@ -72,22 +60,22 @@ class SeriesCell:
     """One archetype's share of the meta in one year.
 
     ``n`` is the count of decks of this archetype (by its primary archetype) in
-    this year, always the honest figure. ``share`` is ``n / year_total`` where the
-    cell clears :data:`MIN_CELL_DECKS`, and ``None`` where it does not: a gap, so a
-    thin cell is not read as a near-zero share. A cell of ``n == 0`` is the
-    exception: an archetype absent that year is a real zero share, not a thin
-    sample, so it is never gapped (the same reading :class:`AdoptionCell` gives a
-    year a card sat out). ``year_total`` is every deck that year, the base the share
-    is of, returned so a coarse year is visible (a thin year is honest, not
-    dropped). ``tag`` is the archetype's stable key, ``archetype`` its display name
-    (two tags can share a name, so the tag is what identifies it).
+    this year, and ``share`` is ``n / year_total``, always stated and never
+    withheld: a share is a direct observation, so a low count is the signal of an
+    archetype entering or leaving the format, not the noise a floor exists to gap
+    (the same reading :class:`AdoptionCell` gives a card, ADR 0013). ``year_total``
+    is every deck that year, the base the share is of, returned so a coarse year is
+    visible (a thin year is honest, not dropped) and so a small share is read
+    against the sample it came from. A cell of ``n == 0`` is a real zero, the
+    archetype absent that year. ``tag`` is the archetype's stable key, ``archetype``
+    its display name (two tags can share a name, so the tag is what identifies it).
     """
 
     tag: str
     archetype: str
     year: int
     n: int
-    share: float | None
+    share: float
     year_total: int
 
 
@@ -238,17 +226,17 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
     sum to one only where every deck carries a primary archetype; a deck without
     one is left uncounted in the numerators and dilutes the shares honestly rather
     than inflating them. The full ``(archetype, year, share, n)`` matrix is returned,
-    every cell carrying its year's total N; a cell below :data:`MIN_CELL_DECKS` comes
-    back a gap (``share`` is ``None``), never a silent zero and never dropped. Thin
-    years are kept whole, since a coarse year is honest as long as its N is visible.
+    every cell carrying its year's total N and its share, which is never withheld:
+    a share is a direct observation, so a two-deck year states the 0.21% it is
+    rather than a hole the eye reads as a zero (ADR 0013). Thin years are kept
+    whole, since a coarse year is honest as long as its N is visible.
 
     The matrix is rectangular: every archetype gets a cell in every year of the
     graph, so an ``(archetype, year)`` pair with no decks comes back a real zero
     rather than a missing row, exactly as ``card_adoption`` fills a year a card sat
     out. A line then drops to zero across a year its archetype was absent instead
-    of jumping the gap and reading as continuous presence, and a zero stays told
-    apart from a gap (present but too thin to trust). The trend tab, not this tool,
-    decides which of the ~125 archetypes to draw.
+    of jumping the gap and reading as continuous presence. The trend tab, not this
+    tool, decides which of the ~125 archetypes to draw.
     """
     year_total = _year_totals(conn)
     names: dict[str, str] = {}
@@ -270,10 +258,7 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
                 archetype=name,
                 year=year,
                 n=n,
-                # A zero is an observation (the archetype was not played that
-                # year), not a thin sample, so the floor never gaps it: only a
-                # cell of one to four decks is too thin to state a share for.
-                share=(n / total if n == 0 or n >= MIN_CELL_DECKS else None),
+                share=n / total,
                 year_total=total,
             ))
     return Series(cells=cells)
@@ -285,9 +270,9 @@ def card_adoption_over_time(
     """One card's adoption per year: decks running it, its share, and the year base.
 
     Decks running the card are grouped by their event's year via the ``IN_YEAR``
-    edge and counted. Unlike ``meta_share``, adoption carries no floor: it is a
-    direct observation, so a low count is the signal of a card entering the format,
-    not noise to gap (ADR 0013). Every year in the graph gets a cell, so a year the
+    edge and counted. Adoption carries no floor, the same as ``meta_share``: both
+    are direct observations, so a low count is the signal of a card entering the
+    format, not noise to gap (ADR 0013). Every year in the graph gets a cell, so a year the
     card sat out comes back a real ``count`` of zero rather than a missing row, and
     each cell carries its year's total decks so a thin year's small count is not
     misread against a fat year's. A card absent from the whole graph returns a zero
@@ -423,8 +408,9 @@ def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:
     trajectory: at least two years each clearing :data:`MIN_PILOT_YEAR_EVENTS` distinct
     events. The floor rule lives in both places (the same constant and the same
     two-year gate), so the trend tab offers only pilots that draw rather than letting
-    a pick land on "not enough history", the way the meta-share tab offers only
-    drawable archetypes.
+    a pick land on "not enough history", the way ``gem_archetypes`` offers only the
+    slices the gem band can answer for. The meta-share tab has no such catalogue:
+    its measure carries no floor, so every archetype draws.
     """
     return [(name, key) for name, key in rows(conn.execute(
         """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)
@@ -458,18 +444,6 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return head_to_head_timeline(conn, a, b)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
-
-
-def drawable_tags(series: Series) -> set[str]:
-    """The archetype tags with at least one year worth drawing a point for.
-
-    An archetype below :data:`MIN_CELL_DECKS` in every year draws a line of gaps and
-    zeros and nothing else, so the trend tab offers only the tags this returns, the
-    way it offers only the pilots :func:`pilots_with_history` returns. The floor rule
-    lives here rather than in the app, because it is this module's rule: the app asks
-    what can be drawn and never restates how the floor is applied.
-    """
-    return {cell.tag for cell in series.cells if cell.n >= MIN_CELL_DECKS}
 
 
 def latest_deck_year(series: Series) -> int | None:
