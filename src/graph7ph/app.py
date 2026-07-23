@@ -156,7 +156,7 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 # The latest-year cumulative-share cut, as labelled radio choices (ADR 0013). The
 # cut is display legibility only: the tool always returns the full matrix, and this
-# picks which of the ~125 archetypes are drawn as lines, default 50%.
+# picks which of the 126 archetypes are drawn as lines, default 50%.
 _CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
 _DEFAULT_CUT = "Top 50%"
 
@@ -237,14 +237,22 @@ def _style_trend_chart(fig: pgo.Figure, title: str, y_title: str) -> None:
 def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
     """A line chart of the chosen archetypes' meta share over time.
 
-    One trace per archetype, coloured apart, with the data foregrounded: the
-    points are the observations, so they are drawn large and hollow with a thick
-    rim, while the connecting line is thin and dashed, a reminder that it only
-    joins points and asserts no trend between them (ADR 0013). Every year draws a
-    point: meta share carries no floor, so a thin year states its real share and a
-    year the archetype was absent drops to a real zero, with no holes for the eye
-    to read as zeros of its own. Each point's hover carries its year, share, and
-    deck count N, the sample size the reader reasons with.
+    One trace per archetype, with the data foregrounded: the points are the
+    observations, so they are drawn large and hollow with a thick rim, while the
+    connecting line is thin and dashed, a reminder that it only joins points and
+    asserts no trend between them (ADR 0013). Every year draws a point: meta share
+    carries no floor, so a thin year states its real share and a year the archetype
+    was absent drops to a real zero, with no holes for the eye to read as zeros of
+    its own. Each point's hover carries its year, share, and deck count N, the
+    sample size the reader reasons with.
+
+    Colour separates the traces up to the palette's 32 entries and recycles past
+    that, so a 33rd selected archetype repeats a colour already on the canvas. A
+    trace's colour is also its alphabetical position within the current selection,
+    not a property of the archetype: all 14 archetypes drawn at the Top 50% cut
+    take a different colour at Top 75%, because a wider cut inserts names above
+    them. The legend, not the colour, is what identifies a line, and no colour
+    carries across two charts.
 
     Traces are keyed by tag, not by display name, because two tags can share a name
     (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
@@ -279,16 +287,20 @@ def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
 def _adoption_figure(cards: list[tuple[str, Series]], board_label: str) -> pgo.Figure:
     """One or more cards' adoption (share of that year's decks) over the years.
 
-    A trace per card, coloured apart, so several cards can be compared on one axis.
-    Adoption carries no floor: every year is plotted, including the zeros of years
-    a card sat out, so a line shows the card entering rather than skipping a gap
-    (ADR 0013). Share, not raw count, is the y-value, because the year bases differ
-    (a thin early year against a fat recent one) and a count line would read a
-    bigger meta as more adoption; each point's hover carries the raw count over the
-    year total so the sample size is in hand. As with the meta-share chart the
-    points are drawn large and hollow and the connecting line thin and dashed, a
-    reminder it only joins observations and asserts no trend between them. The board
-    the count is scoped to rides in the title, since it changes what the line means.
+    A trace per card, so several cards can be compared on one axis. Colour separates
+    them up to the palette's 32 entries and recycles past that, and a trace's colour
+    is its position in the current selection rather than anything about the card, so
+    the same card takes a different colour as the selection changes and the legend,
+    not the colour, is what identifies a line. Adoption carries no floor: every year
+    is plotted, including the zeros of years a card sat out, so a line shows the
+    card entering rather than skipping a gap (ADR 0013). Share, not raw count, is
+    the y-value, because the year bases differ (a thin early year against a fat
+    recent one) and a count line would read a bigger meta as more adoption; each
+    point's hover carries the raw count over the year total so the sample size is
+    in hand. As with the meta-share chart the points are drawn large and hollow and
+    the connecting line thin and dashed, a reminder it only joins observations and
+    asserts no trend between them. The board the count is scoped to rides in the
+    title, since it changes what the line means.
     """
     fig = pgo.Figure()
     for i, (card_name, series) in enumerate(cards):
@@ -431,9 +443,13 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     higher-is-better score (1 a win, 0 last), the same scale as the pilot-performance
     chart so the two read alike, while the tool keeps the raw ``placementNorm`` (0 a
     win) the agent reads. Each point's hover carries the raw finish over the field
-    size (``5/143`` is 5th of a 143-entrant field): the position and the tournament
-    size the score is normalised against, the two numbers the plotted score is
-    computed from. The points are the data; the thin dashed line only joins them and
+    size (``5/143`` is a 5th read against a field of 143): the placement and the
+    tournament size the score is normalised against, the two numbers the plotted
+    score is computed from. The placement is not always the pilot's alone: at the 4
+    teams events every one is shared between the 1 to 11 pilots on a team. That
+    denominator is the field the finish was ranked against, which is not an entrant
+    count: it counts teams at 4 events and ranking slots at 5 more, and sits below
+    the number of pilots who entered at 10 of 108 events. The points are the data; the thin dashed line only joins them and
     asserts no direction. A translucent band fills between the two lines, tinted with
     the colour of whichever pilot is above, so the size and direction of the gap read
     at a glance; it breaks over any event one pilot did not score and splits at a
@@ -769,12 +785,22 @@ def build_app(artifact: Path) -> gr.Blocks:
             )
             with gr.Group() as meta_window:
                 gr.Markdown(
-                    "Each archetype's share of the meta, per year. The points are "
-                    "the data; the thin dashed line only joins them and asserts no "
-                    "trend between years. Every year is stated, including the thin "
-                    "ones an archetype enters or leaves the format on, and a year "
-                    "it was absent is a real zero. Hover a point for its share and "
-                    "deck count, the sample the share came from."
+                    "Each archetype's share of the meta, per year, a year being the "
+                    "UTC year the lists were registered in rather than a confirmed "
+                    "event date. The points are the data; the thin dashed line only "
+                    "joins them and asserts no trend between years. Every year is "
+                    "stated, including the thin ones an archetype enters or leaves "
+                    "the format on, and a year it was absent is a real zero. That "
+                    "zero is a smaller claim than it looks: the share is by primary "
+                    "archetype, so it says no deck led with the archetype that "
+                    "year, not that none carried it. Decks are grouped by the "
+                    "source's classification as of the latest fetch, applied to "
+                    "every year alike, so a rerun after a refresh can restate a "
+                    "past year: over the two fetches held here, 723 of 4553 decks "
+                    "were rewritten in 5 days and 16 changed primary archetype, "
+                    "moving 17 of 504 cells (0 of 56 at the default cut). Hover a "
+                    "point for its share and deck count, the sample the share came "
+                    "from."
                 )
                 cut = gr.Radio(
                     list(_CUTS), value=_DEFAULT_CUT,
@@ -791,7 +817,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             with gr.Group(visible=False) as adoption_window:
                 gr.Markdown(
                     "How cards' adoption moves across the years: the decks running "
-                    "each as a share of that year's decks. A low count is the signal "
+                    "each as a share of that year's decks, a year being the UTC "
+                    "year the lists were registered in rather than a confirmed "
+                    "event date. A low count is the signal "
                     "of a card entering the format, not noise, so nothing is "
                     "withheld; a year a card sat out reads as a real zero. Pick "
                     "several to compare. Hover a point for its raw count over the "
@@ -809,7 +837,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             with gr.Group(visible=False) as performance_window:
                 gr.Markdown(
                     "A pilot's mean finish per year, over every year they played, "
-                    "drawn so higher is better (1 is a win, 0 is last). A year with "
+                    "a year being the UTC year the lists were registered in rather "
+                    "than a confirmed event date, drawn so higher is better (1 is "
+                    "a win, 0 is last). A year with "
                     "only one event to average is left as a gap, an empty tick the "
                     "line breaks across, captioned with what it holds; a pilot short "
                     "of two averageable years is not listed. Each point is labelled "
@@ -831,8 +861,9 @@ def build_app(artifact: Path) -> gr.Blocks:
                     "higher is better (1 is a win, 0 is last), the same scale as the "
                     "pilot-performance chart. The x-axis is the registration date, so "
                     "two events shared in one year sit apart. Hover a point for the "
-                    "raw finish over the field size (its position and the tournament "
-                    "size the score is normalised against). Drag the range slider "
+                    "raw finish over the field size (the placement, which other "
+                    "pilots at the same event can share, and the tournament size "
+                    "the score is normalised against). Drag the range slider "
                     "under the chart to slice a time range. A pair sharing fewer than "
                     "two events is a dot, not a timeline, so it is refused rather than "
                     "drawn."

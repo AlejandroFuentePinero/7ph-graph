@@ -969,9 +969,16 @@ canonical = "LunarAzureEagle"
 ids = ["CleverCrimsonTiger", "CleverMaroonOrca"]
 canonical = "CleverMaroonOrca"
 
-# Pass 6 display-name pins: where the merged node's name vote landed on a handle
-# or a bare first name because it carried more deck-registrations than the real
-# name. Pin the real name.
+# Pass 6 display-name pins. Measured over the buckets these ids resolve to, the
+# vote is mostly not a loss the pin reverses: 6 of the 8 are dead-even (AarW15 1 /
+# Aaron W 1, ThoL36 1 / Thomas L 1, ThoW15 1 / Thore W 1, ZanD2 1 / Zane D 1,
+# FilK 2 / Filip K 2, Tom 1 / Tom L 1) and the (count, name) tie-break already
+# lands every one of them on the real name, so the pin holds a coin flip rather
+# than overturns a defeat. ShadowTealPanda's vote is the misspelling "Tristian G",
+# not a handle or a bare first name. Only AmberMaroonViper ("Quinci" 2 against
+# "Quinci C" 1) is a case where the shorter form actually carried more
+# deck-registrations than the real name: 1 of the 8. The pins stay regardless, a
+# dead-even tie being one registration away from flipping to the handle.
 [[name]]
 pilot = "SilentBlueOrca"
 display_name = "Aaron W"
@@ -1186,7 +1193,12 @@ canonical = "ShinyTealHawk"
 pilot = "BraveBlackLynxC54"
 display_name = "Gerard N"
 
-# Pass 9 display pins: the merge vote surfaced a handle / misspelling; pin the real name.
+# Pass 9 display pins. Only 1 of the 3 overturns the vote: LunarJadeRaven votes
+# "Chia L" (5 decks) against the pinned "Chia Wei L" (1). BraveSilverOrca is a
+# 2-2 tie with the handle JakB19 that the tie-break already resolves to "Jake B",
+# and FlyingCyanCobra913's vote is "Fraser P" already ("Fraiser P" consolidates
+# into that cluster), so those two hold the name the vote had reached rather than
+# replace it.
 [[name]]
 pilot = "BraveSilverOrca"
 display_name = "Jake B"

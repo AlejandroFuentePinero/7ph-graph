@@ -253,9 +253,30 @@ def _pairs(entries: list[dict], path: Path, kind: str) -> frozenset[frozenset[st
 
 
 def _ids(entry: dict, path: Path, kind: str) -> list[str]:
+    """The entry's ``ids``: two or more, and mutually distinct.
+
+    Distinctness is the load-bearing half, not the count. A repeated id (``ids =
+    ["A", "A"]``) is a typo that no later stage can catch, because every shape it
+    takes loads cleanly and then fires nothing: :func:`_merges` unions an id with
+    itself and emits no mapping, and :func:`_pairs` stores a size-1 frozenset that
+    :meth:`Curation.is_rejected` and :meth:`Curation.is_split` can never match,
+    since both call sites only ever ask about two distinct ids. ``dead_entries``
+    cannot report it either, the id being live -- that is why it was written down
+    -- so the decision is discarded with a build output identical to never having
+    written it. ``["A", "A", "B"]`` is the half-live shape, one real pair stored
+    beside one permanently dead singleton, and it is refused rather than partly
+    applied: mutual distinctness is what :func:`_pairs` promises (ADR 0009), so it
+    is checked here, where the author is still looking at the entry.
+
+    Rejects nothing on file today: 0 of the 209 merge, reject and split entries in
+    ``curation/pilots.toml`` repeat an id, and the dictionary loads to an equal
+    ``Curation`` either way (186 merges, 34 rejected pairs).
+    """
     ids = entry.get("ids")
-    if not isinstance(ids, list) or len(ids) < 2:
-        raise CurationError(f"{path}: a [[{kind}]] entry needs `ids` of two or more")
+    if not isinstance(ids, list) or len(ids) < 2 or len(set(ids)) != len(ids):
+        raise CurationError(
+            f"{path}: a [[{kind}]] entry needs `ids` of two or more distinct ids"
+        )
     return ids
 
 

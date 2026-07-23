@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from graph7ph.db import artifact_path, database_path, open_for_reading, rows
 from graph7ph.trends import (
     CardAdoptionOverTime,
     HeadToHeadTimeline,
@@ -242,8 +243,29 @@ def test_cut_counts_thin_cells():
         SeriesCell("a", "A", 2025, 4, 4 / 8, 8),
         SeriesCell("b", "B", 2025, 4, 4 / 8, 8),
     ])
-    assert latest_year_share_cut(series, 0.5) in (["a"], ["b"])
+    # Pinned to the tie-break the cut actually applies, ascending tag, rather than
+    # accepting either equal: `in (["a"], ["b"])` passed whichever way the policy
+    # went, so flipping it left the suite green while changing which line a future
+    # chart draws.
+    assert latest_year_share_cut(series, 0.5) == ["a"]
     assert set(latest_year_share_cut(series, 1.0)) == {"a", "b"}
+
+
+def test_cut_landing_inside_a_band_of_equals_splits_it_on_the_tie_break():
+    # The cut's only genuinely undetermined case: 2026 holds a=6 and three equals
+    # at 3 each, 15 decks in all. `a` alone is 6/15, short of the 50% cut, and any
+    # one of b, c and d lifts it to 9/15, so the tie-break alone decides which of
+    # the three is drawn and which two are dropped. Asserting the whole kept list
+    # rather than the survivor holds both halves of that split.
+    #
+    # Inert on the current snapshot, but not inert historically: the mechanism
+    # decided the drawn set on 11 of 41 of this year's own graph states at the
+    # default cut, most recently 2026-06-28 (issue #103).
+    series = Series(cells=[
+        _cell("a", 2026, 6), _cell("b", 2026, 3),
+        _cell("c", 2026, 3), _cell("d", 2026, 3),
+    ])
+    assert latest_year_share_cut(series, 0.5) == ["a", "b"]
 
 
 def test_cut_of_an_empty_series_is_empty():
@@ -685,6 +707,73 @@ def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
     assert e2.field_size == 20
     assert (e2.placement_a, e2.norm_a) == (2, pytest.approx(1 / 19))
     assert (e2.placement_b, e2.norm_b) == (5, pytest.approx(4 / 19))
+
+
+@pytest.fixture(scope="module")
+def live_graph():
+    """The built artifact at :func:`artifact_path`, for the two tests that need it.
+
+    Almost everything here builds its own graph from a hand-authored snapshot,
+    which is what keeps the suite hermetic. These two cannot: they pin
+    ``field_size`` at named real events, and the events that reach the fallback
+    arm and the events whose recovered field far exceeds their deck count both
+    exist only in the real data. The bundle is gitignored, so a checkout that has
+    not run a build skips rather than fails.
+    """
+    artifact = artifact_path()
+    if not database_path(artifact).exists():
+        pytest.skip(f"no graph artifact at {artifact}; build one with `uv run graph7ph build`")
+    return open_for_reading(artifact)
+
+
+def test_head_to_head_field_size_falls_back_to_the_deck_count(live_graph):
+    # The `else deck_count` arm, which is the only arm of `field_size` no fixture
+    # reaches. It fires at 3 of 108 events, the ones where no deck carries a norm
+    # above 0 and there is therefore nothing to invert, and it reaches 0 of
+    # 268,281 drawn chart markers today, so nothing on screen currently depends
+    # on the number it produces.
+    #
+    # These are knowingly *not* the source's own `eventSize`, which is what the
+    # recovery arm returns and what these events have no norm to yield. The
+    # source ships Area52IQ as eventSize 1 (against the 7 decks it holds) and
+    # DeckaDiceIQ as 6 (against 5), so the fallback disagrees with the source at
+    # 2 of the 3; only Pats Birthday Brawl's 8 agrees. That is pinned as the
+    # measured behaviour, not endorsed: the deck count is the only field left
+    # once the norm cannot be inverted.
+    #
+    # DeckaDiceIQ is unreachable through this seam and so is not pinned here: 5
+    # pilots played it and no two of them share a second event, so no pair clears
+    # MIN_SHARED_EVENTS and the tool refuses before it can return the row.
+    for (a, b), (event, deck_count) in {
+        ("CleverAzureFalcon", "CleverCyanStag"): ("Pats Birthday Brawl", 8),
+        ("AmberAmberPanda", "BraveJadeEagle"): ("Area52IQ", 7),
+    }.items():
+        by_event = {c.event: c.field_size for c in head_to_head_timeline(live_graph, a, b).cells}
+        assert by_event[event] == deck_count
+
+
+def test_head_to_head_field_size_recovers_a_top_cut_field_from_seven_held_decks(live_graph):
+    # The recovery arm at a real top cut, where the two arms are furthest apart:
+    # SSWam holds 7 decks and the norm they were ranked against implies a field of
+    # 88. Pinned because the alternative is not an exception but a plausible wrong
+    # number, and because the engine makes the recovery positional. Run the tool's
+    # own query with `count(DISTINCT f)` moved ahead of the `max(CASE ...)` and
+    # the max comes back NULL on every row, so `field_size` returning anything at
+    # all depends on the order the RETURN happens to list its aggregates in.
+    # Reordering it would move all 108 events onto the deck-count fallback with no
+    # error raised anywhere, and every one of them would still draw an integer in
+    # range. The fixture test above pins 20 against a 4-deck field and would catch
+    # the reorder too; this one catches it against the real graph and states the
+    # size of the gap being defended.
+    held = next(rows(live_graph.execute(
+        "MATCH (d:Deck)-[:PLAYED_AT]->(:Event {event: 'SSWam'}) RETURN count(d)")))[0]
+    assert held == 7
+
+    by_event = {
+        c.event: c.field_size
+        for c in head_to_head_timeline(live_graph, "BraveJadeEagle", "HiddenTealOtter").cells
+    }
+    assert by_event["SSWam"] == 88
 
 
 def test_head_to_head_of_a_pair_sharing_one_event_is_refused(tmp_path, built_graph):

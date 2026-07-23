@@ -153,15 +153,25 @@ class HeadToHeadPoint:
     event's registration date, the earliest ``createdAt`` across its whole field,
     the same proxy ADR 0006 dates the event by but at day rather than year
     granularity, so both pilots' points share one x per event and the two lines
-    align. ``field_size`` is the entrant count the placement was ranked against,
-    recovered from the norm rather than counted from the decks: a top-cut event
-    records only its top finishers and a teams event folds many decks onto few
-    places, so the decks-at-event count is neither, and a raw finish is only
-    readable against the field the norm actually used. ``placement_a``/``norm_a``
-    are pilot ``a``'s raw finish and ``placementNorm``, ``_b`` pilot ``b``'s; a
-    placement or norm the source never scored is ``None``. The y-axis is ``norm``
-    (comparable across field sizes); the raw placement and field size ride along for
-    the point's label.
+    align. ``field_size`` is the size the source itself ranked the norm against: the
+    source ships it on every deck as ``eventSize``, the repo never reads that field,
+    so it is recovered here by inverting the norm, and the recovery equals the
+    source's own number on 105 of 105 events that can yield one. It is the source's
+    published entrant count wherever the source publishes one (36 of 108 events carry
+    a ``players`` field, and ``eventSize`` equals it in 36 of 36) and the last
+    recorded placement on the other 71 of 71, and at the 4 ``eventType='Teams'``
+    events it counts teams rather than people (TMCTeams25 is 39 against 117 decks).
+    It is not the decks-at-event count, which it exceeds at 58 of 108 events: a
+    top-cut event records only its top finishers and a teams event folds many decks
+    onto few places, so the decks-at-event count is neither, and a raw finish is only
+    readable against the field the norm actually used. It is not always recovered
+    either: an event with no invertible norm falls back to that deck count, which is
+    30 of 134,806 currently drawn rows. ``placement_a``/``norm_a`` are pilot ``a``'s
+    raw finish and ``placementNorm``, ``_b`` pilot ``b``'s. A norm the source never
+    scored is ``None``, but a placement is not always:
+    :func:`models.placement_from_title` recovers one from the title for 27 decks the
+    source left unscored. The y-axis is ``norm`` (comparable across field sizes); the
+    raw placement and field size ride along for the point's label.
     """
 
     event: str
@@ -458,15 +468,17 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
             for event, date, implied, deck_count, placement_a, norm_a,
             placement_b, norm_b
             in rows(conn.execute(
-                # field_size is the entrant count placementNorm was ranked against,
-                # recovered from the norm (norm = (placement-1)/(field-1), so field =
-                # (placement-1)/norm + 1), not the deck count: a top-cut event records
-                # only its top finishers and a teams event folds many decks onto few
-                # placements, so the decks-at-event count is neither the field the norm
-                # uses nor the readable denominator for a raw finish. It is constant
-                # across an event's placed decks (max just reads it off one), so a
-                # winner (norm 0) does not have to yield it. An event with no placed
-                # deck at all falls back to the deck count, the only field left.
+                # field_size recovers the source's own eventSize by inverting the norm
+                # (norm = (placement-1)/(field-1), so field = (placement-1)/norm + 1);
+                # what that value is, and why it is not the deck count, is the contract
+                # on HeadToHeadPoint above. Two things are specific to this query. The
+                # value is constant across an event's placed decks, so max just reads it
+                # off one and a winner (norm 0) does not have to yield it. And an event
+                # where no deck carries a norm above 0 (including one whose only scored
+                # deck is the winner, norm 0 being uninvertible) falls back to the deck
+                # count, the only field left; that fallback is a different quantity from
+                # the recovery, firing at 3 of 108 events and reaching 0 drawn markers
+                # today.
                 """MATCH (:Pilot {pilot: $a})<-[:PILOTED_BY]-(da:Deck)
                          -[:PLAYED_AT]->(e:Event),
                          (:Pilot {pilot: $b})<-[:PILOTED_BY]-(db:Deck)
@@ -564,7 +576,9 @@ def latest_year_share_cut(series: Series, cut: float = 0.50) -> list[str]:
     a dead archetype with a fat past crowd out a live one. The set is still computed
     once, so the same lines span the whole x-axis rather than entering and leaving per
     year; the trend tab's manual panel is the escape hatch for an archetype large
-    only earlier. Returned in rank order, strongest first.
+    only earlier. Returned in rank order, strongest first, with archetypes on the
+    same deck count ranked by ascending tag: when the cut lands inside a band of
+    equal counts, that tie-break alone decides which of the equals is drawn.
     """
     latest = latest_deck_year(series)
     if latest is None:

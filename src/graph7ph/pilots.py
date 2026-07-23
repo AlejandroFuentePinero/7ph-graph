@@ -211,6 +211,30 @@ class MultiNameId:
 
 
 @dataclass(frozen=True)
+class UnexplainedName:
+    """One id whose decks recovered a spelling nothing connects to the winner.
+
+    :func:`_choose_display_name` returns the winning cluster only, so a spelling
+    that both lost the vote and fell outside that cluster reaches no field: not
+    the :class:`VariantCluster` (which logs the winner's own cluster), and not
+    :class:`MultiNameId` unless the id happens to span two surname families as
+    well. Where the loser is a recognisable handle, nickname or typo of the
+    winner, the id itself plus the shape of the name is the evidence, and nothing
+    is open. Where :func:`name_relation` finds no relation at all, the id
+    registered under two names that read like two people, and that is exactly the
+    case the data cannot resolve on its own (ADR 0004), so it is surfaced here.
+
+    Ids already carrying a :class:`MultiNameId` row are left to that field rather
+    than repeated, the same way the null bucket is kept out of the under-merge
+    scan.
+    """
+
+    pilot: str
+    display_name: str  # the name that won the node
+    discarded: list[str]  # the recovered spellings with no relation to it
+
+
+@dataclass(frozen=True)
 class Reconciliation:
     variant_clusters: list[VariantCluster]
     under_merges: list[UnderMerge]  # UNCURATED candidates only; curated ones drop off
@@ -222,6 +246,7 @@ class Reconciliation:
     dead_entries: list[DeadEntry] = field(default_factory=list)  # entries matching no id (issue #37)
     multi_name_ids: list[MultiNameId] = field(default_factory=list)  # ids spanning >1 surname (issue #39)
     name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split or reject (issues #35, #74)
+    unexplained_names: list[UnexplainedName] = field(default_factory=list)  # discarded spellings nothing relates to the winner (issue #103)
 
 
 @dataclass(frozen=True)
@@ -266,6 +291,7 @@ def resolve_pilots(
     null_pilots: list[ResolvedPilot] = []
     variant_clusters: list[VariantCluster] = []
     multi_name_ids: list[MultiNameId] = []
+    unexplained: list[UnexplainedName] = []
 
     real: dict[str, list] = {}
     null: dict[str, list] = {}
@@ -286,6 +312,15 @@ def resolve_pilots(
         multi = _multi_name_id(pilot_id, display, group, names)
         if multi:
             multi_name_ids.append(multi)
+        unrelated = _unexplained_name(pilot_id, display, merged, names)
+        if unrelated:
+            unexplained.append(unrelated)
+
+    # An id whose decks span two surname families is already surfaced above with
+    # every spelling it recovered, so reporting it twice would add a row and no
+    # evidence (issue #103).
+    multi_reported = {m.pilot for m in multi_name_ids}
+    unexplained = [u for u in unexplained if u.pilot not in multi_reported]
 
     # Null decks: one synthetic, low-confidence pilot per distinct recovered
     # name. A deck whose title yields no name is keyed on its own deck id, so
@@ -338,6 +373,7 @@ def resolve_pilots(
     report = Reconciliation(
         variant_clusters, candidates, null_pilots, event_splits, dropped,
         joined_names, rejected + merged, dead, multi_name_ids, name_splits,
+        unexplained,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
@@ -368,6 +404,26 @@ def _multi_name_id(
     if len(families) > 1 and len(events) > 1:
         return MultiNameId(pilot, display, sorted(distinct))
     return None
+
+
+def _unexplained_name(
+    pilot: str, display: str, merged: dict[str, int], names: list[str | None]
+) -> "UnexplainedName | None":
+    """A report entry for recovered spellings that lost and explain nothing.
+
+    ``merged`` is the winning cluster :func:`_choose_display_name` returned, so
+    every other recovered spelling was discarded: it neither named the node nor
+    consolidated into the cluster that did. A discard :func:`name_relation` ties
+    back to the winner ("EdwF4" against "Ed F") is corroborated by its own shape
+    and needs no human; one it cannot ("Rashad" against "Brandon R") is a second
+    name under one id with nothing to account for it, so it is surfaced (#103).
+    """
+    discarded = sorted(
+        name
+        for name in {n for n in names if n} - set(merged)
+        if not name_relation(name, display)
+    )
+    return UnexplainedName(pilot, display, discarded) if discarded else None
 
 
 def _drop_duplicates(

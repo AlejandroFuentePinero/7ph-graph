@@ -259,9 +259,10 @@ def card_usage_subgraph(
     card-running decks sit, so the macro above it always contains decks running the
     card and its tier percent never reads a contradictory zero above an adopted
     archetype; the archetype's shown adoption stays the honest archetype-wide
-    figure. Every archetype the card appears in is drawn, strongest adoption first,
-    so a staple that runs everywhere may exceed the render limit and refine rather
-    than draw. Pilot and event are left out on purpose: this is a card-level view.
+    figure. Every archetype the card appears in is drawn, strongest adoption first
+    at whole-percent resolution, then the larger archetype, so a staple that runs
+    everywhere may exceed the render limit and refine rather than draw. Pilot and
+    event are left out on purpose: this is a card-level view.
 
     ``board`` scopes the numerator: ``None`` counts a deck running the card in
     either board, ``"Main"`` or ``"Side"`` only the decks running it there. The
@@ -328,10 +329,17 @@ def card_usage_subgraph(
     ]
     edges: list[Edge] = []
 
-    # Every archetype the card appears in, strongest adoption first; ties broken by
-    # the larger archetype, then name. An archetype without a grouping macro (a
-    # card-running deck missing a macro) is skipped, so the edge target below is
-    # always a macro node that exists.
+    # Every archetype the card appears in, strongest adoption first at whole-percent
+    # resolution, then the larger archetype, then name. Only at whole-percent
+    # resolution because pct() rounds to an int before it is used as a sort key, so
+    # two adoption rates that round to the same percent fall through to the size and
+    # name tie-break and the weaker one can be drawn first. That is invisible rather
+    # than misleading: 9169 of 9169 pairs drawn weaker-first carry identical drawn
+    # labels, and no surface renders this order as a rank. Sorting on the unrounded
+    # rate was costed at 16,703 archetype positions moved across 2398 of 4995 cards
+    # for 0 changed labels, so it was not taken. An archetype without a grouping
+    # macro (a card-running deck missing a macro) is skipped, so the edge target
+    # below is always a macro node that exists.
     kept = sorted(
         (
             (pct(arch_run.get(tag, 0), total), total, tag, name)
@@ -348,10 +356,11 @@ def card_usage_subgraph(
     # adoption percent rides the edge that reaches it. Dots keep every node a
     # uniform size with its name beside it, where a circle would stretch to fit
     # the text and read as a bigger node for no analytic reason.
-    # Strongest adoption first, ties broken on name as they are for archetypes
-    # below: two macros can round to the same percent, and without the tie-break
-    # their order falls out of an unordered set, so the same query on the same
-    # graph answers differently between runs.
+    # Strongest adoption first at whole-percent resolution, then name, as for the
+    # archetypes below: this sort carries the same rounded pct(), so two macros
+    # whose adoption rates round to the same percent are separated only by the name
+    # tie-break, and without it their order falls out of an unordered set, so the
+    # same query on the same graph answers differently between runs.
     shown_macros = {dominant[tag][1] for _, _, tag, _ in kept}
     for macro in sorted(
         shown_macros, key=lambda m: (-pct(macro_run.get(m, 0), macro_total[m]), m)
@@ -505,9 +514,22 @@ def card_cooccurrence_subgraph(
 
     Surfaces card packages (user story 15). With one seed the hub is the card and
     each edge is labelled with the co-occurrence rate, the percent of the seed's
-    own decks that also run the partner; the top ``top_n`` partners by that rate
-    are kept, so a popular seed refines to its strongest packages rather than
-    flooding the view with every card it ever shared a deck with.
+    own decks where the partner sits in the *same board* as the seed. The two
+    terms are scoped differently on purpose: the numerator counts same-board
+    pairings (``_cooccurrence_partners``) while the denominator counts the seed's
+    decks across both boards (``_card_and_deck_count``), so a deck running both
+    cards in opposite boards still counts in the denominator but not in the
+    numerator, and the rate reads below deck-level membership. That is the
+    deliberate scoping ``_cooccurrence_partners`` argues for (a card in the main
+    and another in the side are not a functional pairing) rather than a mismatch
+    to repair: 2899 of the 6000 edges drawn over the 400 seeds the audit swept
+    differ from the deck-level reading, 425 of them by 25 percentage points or
+    more, and moving the numerator to deck level was measured at those same 2899
+    relabelled edges plus a different top-15 node set for 391 of 400 seeds. The
+    number therefore stands and this sentence is what moved. The top ``top_n``
+    partners by that rate are kept, so a popular seed refines to its strongest
+    packages rather than flooding the view with every card it ever shared a deck
+    with.
 
     With a second seed the view answers "what do these two cards share": it keeps
     the top ``top_n`` cards by the *double* co-occurrence rate, the percent of the
@@ -562,7 +584,11 @@ def card_cooccurrence_subgraph(
     # graph: each seed links to it (the fraction of that seed's decks that fall in
     # the intersection) and every shared card hangs off it with one edge (its
     # double rate), so edges carry information instead of a redundant double fan.
-    # The deck count on the hub is the denominator every percent is read against.
+    # The deck count on the hub is the denominator every hub-to-card edge is read
+    # against, true of 9780 of 9780 measured hub edges. The two seed edges are the
+    # exception: each is read against that seed's own deck count, which differs
+    # from the hub count on 1299 of 1312 measured seed edges and is rendered on no
+    # surface, so a reader applying the hub's number to a seed edge reads it wrong.
     # Deliberately a synthetic count node, not a real macro/archetype: the decks
     # running a given pair span many macros with no dominant one (e.g. Blood Moon +
     # Price of Progress split aggro 48% / tempo 26% / control 12% / ...), so a real
