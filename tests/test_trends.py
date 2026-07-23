@@ -8,6 +8,7 @@ from graph7ph.trends import (
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
+    NotEnoughHistory,
     PilotPerformanceOverTime,
     Series,
     SeriesCell,
@@ -114,6 +115,30 @@ def test_meta_share_states_every_cell_including_the_thin_ones(tmp_path, built_gr
 
     # No cell anywhere in the matrix is withheld. A reintroduced floor fails here.
     assert all(cell.share is not None for cell in series.cells)
+
+
+def test_an_archetype_no_deck_leads_with_is_a_line_of_zeros_not_a_missing_line(
+    tmp_path, built_graph
+):
+    # ``boros`` reaches the graph as an Archetype but never as anyone's primary, the
+    # real case of a sub-variant every deck carries alongside a broader engine. The
+    # matrix used to take its archetypes from the primary-archetype join, so such an
+    # archetype had no row anywhere and no entry in the manual picker: rectangular
+    # only over the archetypes the join happened to see (issue #101).
+    decks = (
+        [(f"s24-{i}", "E2024", 2024, "storm") for i in range(3)]
+        + [(f"s25-{i}", "E2025", 2025, "storm") for i in range(2)]
+        + [("b25-0", "E2025", 2025, "boros")]
+    )
+    conn = built_graph(tmp_path, _write_snapshot(tmp_path, decks, unprimaried={"b25-0"}))
+    by_key = {(c.archetype, c.year): c for c in meta_share_over_time(conn).cells}
+
+    assert set(by_key) == {(a, y) for a in ("Boros", "Storm") for y in (2024, 2025)}
+    # Boros is a real zero in both years: no deck leads with it, which is a fact the
+    # chart can state, not a reason to leave it off the axis.
+    assert [by_key[("Boros", y)].n for y in (2024, 2025)] == [0, 0]
+    # And the deck still dilutes its year, so 2025's shares are over 3 decks, not 2.
+    assert by_key[("Storm", 2025)].share == pytest.approx(2 / 3)
 
 
 def test_an_archetype_absent_in_a_year_is_a_zero_not_a_missing_row(tmp_path, built_graph):
@@ -471,12 +496,15 @@ def test_pilot_performance_of_a_single_year_pilot_is_not_enough_history(
     tmp_path, built_graph
 ):
     # ``bo`` has decks in only one year, so he never reaches two qualifying years:
-    # the tool returns nothing rather than a lone point on an empty line (ADR 0013).
+    # the tool refuses by name rather than drawing a lone point on an empty line
+    # (ADR 0013), and says how many qualifying years it did find (issue #101).
     conn = _performance_graph(tmp_path, built_graph)
-    assert pilot_performance_over_time(conn, "bo").cells == []
+    with pytest.raises(NotEnoughHistory) as refusal:
+        pilot_performance_over_time(conn, "bo")
+    assert refusal.value.found == 1
 
 
-def test_pilot_performance_drops_a_thin_year_and_means_over_ranked_decks_only(
+def test_pilot_performance_refuses_a_thin_years_mean_but_still_states_the_year(
     tmp_path, built_graph
 ):
     # ``cy`` has two fat years (2024, 2025) and a thin 2023 of a single event. 2025
@@ -488,12 +516,55 @@ def test_pilot_performance_drops_a_thin_year_and_means_over_ranked_decks_only(
     conn = built_graph(tmp_path, _write_performance_snapshot(tmp_path, decks))
     by_year = {c.year: c for c in pilot_performance_over_time(conn, "cy").cells}
 
-    # The thin 2023 (one event, below the floor) is a gap: absent, not a false point.
-    assert set(by_year) == {2024, 2025}
+    # The thin 2023 is still a year ``cy`` played, so it comes back as a cell: the
+    # mean is refused (None) and the single event that refused it is stated. Dropping
+    # the row made "too thin to average" identical to "did not play", and since a thin
+    # year is usually a pilot's first or last, that erased their arrival (issue #101).
+    assert set(by_year) == {2023, 2024, 2025}
+    assert by_year[2023].mean_norm is None
+    assert by_year[2023].events == 1
+    # The floor still fires on the mean: no thin year is ever given a value.
+    assert by_year[2024].mean_norm == pytest.approx(0.5)
     # 2025's unranked deck neither shifts the mean nor pads the event count: the mean
     # is 0.2 over the three ranked decks, and events counts only the ranked events.
     assert by_year[2025].events == 3
     assert by_year[2025].mean_norm == pytest.approx(0.2)
+
+
+def test_a_year_the_source_never_scored_is_a_cell_of_zero_events_not_a_missing_year(
+    tmp_path, built_graph
+):
+    # ``ez`` played two events in 2023 and neither was placed, then had two scored
+    # years. Filtering the years by the same null test that filters the decks would
+    # cut 2023 off the front and the chart would claim a 2024 debut, which is the
+    # erasure of issue #101 surviving in a second form: six of the live graph's
+    # drawable pilots have a wholly unscored year and in all six it is their first.
+    decks = [(f"ez23-{i}", "ez", f"E23E{i}", 2023, None) for i in range(2)]
+    decks += [(f"ez24-{i}", "ez", f"E24E{i}", 2024, 0.4) for i in range(2)]
+    decks += [(f"ez25-{i}", "ez", f"E25E{i}", 2025, 0.2) for i in range(2)]
+    conn = built_graph(tmp_path, _write_performance_snapshot(tmp_path, decks))
+    by_year = {c.year: c for c in pilot_performance_over_time(conn, "ez").cells}
+
+    assert set(by_year) == {2023, 2024, 2025}
+    # ``events`` counts the scored events the mean rests on, so zero is its honest
+    # value for a year nobody recorded, and the year keeps its place on the axis.
+    assert by_year[2023].mean_norm is None
+    assert by_year[2023].events == 0
+
+
+def test_a_thin_year_does_not_count_toward_the_two_qualifying_years(
+    tmp_path, built_graph
+):
+    # ``dz`` played three years but averaged only one of them: 2024 and 2026 are a
+    # single event each. Returning the thin years as cells must not smuggle them past
+    # the two-qualifying-year rule, or "not enough history" would quietly weaken.
+    decks = [("dz24-0", "dz", "D24E0", 2024, 0.4)]
+    decks += [(f"dz25-{i}", "dz", f"D25E{i}", 2025, 0.3) for i in range(2)]
+    decks += [("dz26-0", "dz", "D26E0", 2026, 0.7)]
+    conn = built_graph(tmp_path, _write_performance_snapshot(tmp_path, decks))
+    with pytest.raises(NotEnoughHistory) as refusal:
+        pilot_performance_over_time(conn, "dz")
+    assert refusal.value.found == 1
 
 
 def test_pilots_with_history_offers_only_pilots_that_draw(tmp_path, built_graph):
@@ -618,24 +689,39 @@ def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
 
 def test_head_to_head_of_a_pair_sharing_one_event_is_refused(tmp_path, built_graph):
     # A pair needs at least two shared events or it is a dot, not a timeline, so a
-    # one-event pair comes back empty rather than a lone point (ADR 0013). Here
-    # ``ann`` and ``bob`` share only E1; E2 and E3 are ann's alone.
+    # one-event pair is refused rather than drawn as a lone point (ADR 0013). Here
+    # ``ann`` and ``bob`` share only E1; E2 and E3 are ann's alone. The refusal counts
+    # the meeting it found, so a pair who met once stays distinguishable from a pair
+    # who never met: both used to come back as the same empty series (issue #101).
     decks = [
         ("e1-ann", "ann", "E1", "2025-03-01T00:00:00+00:00", 1, 0.0),
         ("e1-bob", "bob", "E1", "2025-03-01T00:00:00+00:00", 2, 0.2),
         ("e2-ann", "ann", "E2", "2025-07-01T00:00:00+00:00", 1, 0.0),
         ("e3-ann", "ann", "E3", "2025-09-01T00:00:00+00:00", 1, 0.0),
+        # ``cal`` plays the two events bob was not at, so the pair never met at all.
+        ("e2-cal", "cal", "E2", "2025-07-01T00:00:00+00:00", 3, 0.4),
+        ("e3-cal", "cal", "E3", "2025-09-01T00:00:00+00:00", 3, 0.4),
     ]
     conn = built_graph(tmp_path, _write_h2h_snapshot(tmp_path, decks))
-    assert head_to_head_timeline(conn, "ann", "bob").cells == []
+    with pytest.raises(NotEnoughHistory) as met_once:
+        head_to_head_timeline(conn, "ann", "bob")
+    assert met_once.value.found == 1
+
+    with pytest.raises(NotEnoughHistory) as never_met:
+        head_to_head_timeline(conn, "bob", "cal")
+    assert never_met.value.found == 0
 
 
 def test_head_to_head_of_a_pilot_against_themselves_is_refused(tmp_path, built_graph):
     # A pilot has no rivalry with themselves, so a == b is refused rather than drawing
     # two identical lines. Guarded in the tool (not only the app) since the tool is
     # the agent-facing seam a direct caller reaches without the UI's a != b check.
+    # Not as NotEnoughHistory: a malformed question is not a thin answer, and saying
+    # "no history" here would tell the caller these two never met (issue #101).
     conn = _h2h_graph(tmp_path, built_graph)
-    assert head_to_head_timeline(conn, "ann", "ann").cells == []
+    with pytest.raises(ValueError) as refusal:
+        head_to_head_timeline(conn, "ann", "ann")
+    assert not isinstance(refusal.value, NotEnoughHistory)
 
 
 def test_run_series_routes_head_to_head_through_its_own_seam(tmp_path, built_graph):

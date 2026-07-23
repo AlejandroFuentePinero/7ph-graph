@@ -55,6 +55,30 @@ MIN_QUALIFYING_YEARS = 2
 MIN_SHARED_EVENTS = 2
 
 
+class NotEnoughHistory(ValueError):
+    """Raised when a trend is refused for want of evidence, and says how much it found.
+
+    The sibling of ``query.SliceTooSmall``, and for the same reason: an empty result
+    is not an answer, it is four answers wearing one coat. ``Series(cells=[])`` used
+    to mean "refused as too thin", "never played", "never met" and "met once" alike,
+    so the agent seam could not tell a refusal from a zero (issue #101). Raising
+    names the refusal, and the message carries the count that caused it, so a pair
+    who met once is distinguishable from a pair who never met.
+
+    It does not distinguish a pilot key the graph has never heard of, which still
+    arrives here as a pilot with no history. That is a caller error rather than an
+    answer about the format, and no surface can reach it: both trend dropdowns are
+    built from the graph's own pilots.
+    """
+
+    def __init__(self, message: str, found: int):
+        super().__init__(message)
+        # The evidence actually found: qualifying years, or shared events. Carried as
+        # a number as well as words so a caller can say "they met once" rather than
+        # having to read it back out of the sentence.
+        self.found = found
+
+
 @dataclass(frozen=True)
 class SeriesCell:
     """One archetype's share of the meta in one year.
@@ -99,19 +123,23 @@ class AdoptionCell:
 
 @dataclass(frozen=True)
 class PerformanceCell:
-    """One pilot's mean finish in one qualifying year: an aggregate, so a floor.
+    """One pilot's finish in one year they played: a mean, or a stated refusal.
 
     ``mean_norm`` is the mean ``placementNorm`` of the pilot's ranked decks that
     year (0 is a win, 1 is last), and ``events`` the count of distinct events those
     decks were played at, the number of independent finishes the mean is taken over,
-    always alongside so the reader has the sample size in hand. A cell only exists
-    where ``events`` clears :data:`MIN_PILOT_YEAR_EVENTS`: a thinner year is a gap
-    (dropped), never a lone point, and a pilot short of two such years yields no
-    cells at all ("not enough history", ADR 0013).
+    always alongside so the reader has the sample size in hand. ``events`` counts
+    **scored** events, so a year the source placed none of is a real zero here, and a
+    cell of zero events is a year the pilot played and nobody recorded. A year below
+    :data:`MIN_PILOT_YEAR_EVENTS` still gets a cell, with ``mean_norm`` ``None`` and
+    its real ``events``: the mean is refused (a thin mean can land anywhere by luck)
+    but the year the pilot played is a fact, and dropping the row hid it. The cell
+    is the refusal, stated with the sample size that caused it, so "too thin to say"
+    and "did not play" stay different answers (ADR 0013's amendment, issue #101).
     """
 
     year: int
-    mean_norm: float
+    mean_norm: float | None
     events: int
 
 
@@ -237,16 +265,22 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
     out. A line then drops to zero across a year its archetype was absent instead
     of jumping the gap and reading as continuous presence. The trend tab, not this
     tool, decides which of the ~125 archetypes to draw.
+
+    The archetypes are read from the ``Archetype`` nodes, not from the rows the
+    primary-archetype join returned, so an archetype no deck ever carried as its
+    primary is a line of real zeros rather than no line at all. Reading them off the
+    join made the matrix rectangular only over the archetypes that happened to appear
+    in it, which is the same hole ``card_adoption`` avoids by filling every year for a
+    card the graph does not hold (issue #101).
     """
     year_total = _year_totals(conn)
-    names: dict[str, str] = {}
+    names = dict(rows(conn.execute("MATCH (a:Archetype) RETURN a.tag, a.name")))
     counts: dict[tuple[str, int], int] = {}
-    for tag, name, year, n in rows(conn.execute(
+    for tag, year, n in rows(conn.execute(
         """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
                  (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
-           RETURN a.tag, a.name, y.year, count(DISTINCT d)"""
+           RETURN a.tag, y.year, count(DISTINCT d)"""
     )):
-        names[tag] = name
         counts[(tag, year)] = n
     cells = []
     years = sorted(year_total.items())
@@ -310,28 +344,74 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     ``placementNorm`` is an unfinished record the source never scored, left out so it
     neither shifts the mean nor pads the event count). ``placementNorm`` is an
     aggregate, so it carries a floor (ADR 0013): a year below
-    :data:`MIN_PILOT_YEAR_EVENTS` distinct events is dropped, its mean too thin to be
-    honest, and the pilot needs at least two surviving years or the series comes back
-    empty, the "not enough history" answer that refuses a lone point on an empty line
-    rather than drawing one. The floor counts events, not decks, so a list reused
-    across events counts as the several finishes it is. Cells are ordered by year;
-    the connecting line asserts no direction, only joins the points.
+    :data:`MIN_PILOT_YEAR_EVENTS` distinct events has its mean refused, too thin to be
+    honest. The floor counts events, not decks, so a list reused across events counts
+    as the several finishes it is.
+
+    The refused year is still returned, as a cell whose ``mean_norm`` is ``None``
+    carrying the event count that refused it. Dropping the row instead made the
+    refusal indistinguishable from a year the pilot did not play, and because a thin
+    year is overwhelmingly a pilot's first or last, the drop deleted exactly the
+    arrival and departure a career chart exists to show (issue #101, the same defect
+    the ADR 0013 amendment found in ``meta_share``). So the series is rectangular over
+    the years the pilot **played**, the way ``meta_share`` and ``card_adoption`` are
+    rectangular over the graph's years; a year the pilot sat out entirely has no cell,
+    because it is not their history.
+
+    Played, not scored: a year whose decks the source never placed at all comes back
+    as a cell of ``events`` zero and no mean, not as no cell. Filtering the years by
+    the same null test that filters the decks would truncate a career exactly as the
+    thin-year drop did, and it fires on the same end: six of the graph's drawable
+    pilots have a wholly unscored year, and in every one of the six it is their first.
+    ``events`` counts the scored events the mean rests on, so zero is its honest value
+    for such a year, and the year still holds its place on the axis.
+
+    :data:`MIN_QUALIFYING_YEARS` still counts only the years whose mean survived, so
+    a pilot short of two of them raises :class:`NotEnoughHistory` rather than drawing
+    a lone point on an empty line. Cells are ordered by year; the connecting line
+    asserts no direction, only joins the points.
     """
-    qualifying = sorted(
-        (
-            PerformanceCell(year=year, mean_norm=mean, events=events)
-            for year, mean, events in rows(conn.execute(
-                """MATCH (:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)
-                         -[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year)
-                   WHERE d.placementNorm IS NOT NULL
-                   RETURN y.year, avg(d.placementNorm), count(DISTINCT e)""",
-                {"pilot": pilot},
-            ))
-            if events >= MIN_PILOT_YEAR_EVENTS
-        ),
-        key=lambda c: c.year,
-    )
-    return Series(cells=qualifying if len(qualifying) >= MIN_QUALIFYING_YEARS else [])
+    # The mean and its sample, over the ranked decks only: a null placementNorm is a
+    # finish the source never scored, so it neither shifts the mean nor pads the count.
+    scored = {
+        year: (mean, events)
+        for year, mean, events in rows(conn.execute(
+            """MATCH (:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)
+                     -[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year)
+               WHERE d.placementNorm IS NOT NULL
+               RETURN y.year, avg(d.placementNorm), count(DISTINCT e)""",
+            {"pilot": pilot},
+        ))
+    }
+    # The years are taken without that filter, so a year the source scored none of
+    # keeps its place rather than being cut off the end of the career.
+    played = sorted(year for (year,) in rows(conn.execute(
+        """MATCH (:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(:Deck)
+                 -[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
+           RETURN DISTINCT y.year""",
+        {"pilot": pilot},
+    )))
+    cells = [
+        PerformanceCell(
+            year=year,
+            # The floor is on the mean, not on the year: a thin year states its
+            # sample size and withholds only the value that sample cannot carry.
+            mean_norm=mean if events >= MIN_PILOT_YEAR_EVENTS else None,
+            events=events,
+        )
+        for year, (mean, events) in (
+            (year, scored.get(year, (None, 0))) for year in played
+        )
+    ]
+    qualifying = [cell for cell in cells if cell.mean_norm is not None]
+    if len(qualifying) < MIN_QUALIFYING_YEARS:
+        raise NotEnoughHistory(
+            f"{pilot} has {len(qualifying)} year(s) of at least "
+            f"{MIN_PILOT_YEAR_EVENTS} scored events; a trajectory needs "
+            f"{MIN_QUALIFYING_YEARS}",
+            found=len(qualifying),
+        )
+    return Series(cells=cells)
 
 
 def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
@@ -347,17 +427,23 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
 
     The rows are direct observations, so they carry no within-point floor; the floor
     is on the pair. A pair sharing fewer than :data:`MIN_SHARED_EVENTS` events is a
-    dot, not a timeline, so the series comes back empty (refused) rather than drawing
-    a lone point. Rows are ordered by date, the x-axis order; the connecting line
-    asserts no direction, only joins the points.
+    dot, not a timeline, so it raises :class:`NotEnoughHistory` naming the number of
+    events it did find, rather than coming back empty: an empty series read the same
+    for a pair who met once and a pair who never met, which made the refusal
+    indistinguishable from the fact (issue #101). Rows are ordered by date, the
+    x-axis order; the connecting line asserts no direction, only joins the points.
 
     A pilot has no rivalry with themselves, so ``a == b`` is refused here rather than
     matching every event the pilot played to itself and drawing two identical lines.
     The guard lives in the tool, not only the app, because the tool is the seam an
-    agent reaches without the UI's distinct-pilot check.
+    agent reaches without the UI's distinct-pilot check. It raises a plain
+    ``ValueError`` rather than :class:`NotEnoughHistory`, because a pilot compared to
+    themselves is a malformed question, not a thin answer: reporting it as no history
+    would tell the caller these two never met, which is the conflation the typed
+    refusal exists to end.
     """
     if a == b:
-        return Series(cells=[])
+        raise ValueError(f"{a} has no rivalry with themselves; pick two pilots")
     points = sorted(
         (
             HeadToHeadPoint(
@@ -398,7 +484,13 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
         ),
         key=lambda p: p.date,
     )
-    return Series(cells=points if len(points) >= MIN_SHARED_EVENTS else [])
+    if len(points) < MIN_SHARED_EVENTS:
+        raise NotEnoughHistory(
+            f"{a} and {b} share {len(points)} event(s); "
+            f"a rivalry to trace over time needs {MIN_SHARED_EVENTS}",
+            found=len(points),
+        )
+    return Series(cells=points)
 
 
 def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:

@@ -108,3 +108,12 @@ Recorded so that future confidence claims about the Kùzu to Ladybug migration d
 - Why it matters: #79/#80/#81 reuse this exact `_trend_figure`/`gr.Plot` surface. Anyone asked for chart interactivity there will re-hit this wall and re-weigh the same payload trade-off unless they read this first.
 
 [handoff] If hover-highlight is ever wanted, do it once in `_trend_figure`'s render path (iframe + plotly.js + JS), not per tab.
+
+## 2026-07-23 - A trend defect has two layers, and fixing one does not fix the other
+
+ADR 0013 gives the trend tools one aggregation layer with two consumers: the tool returns a `Series` an agent reads as numbers, and the trend tab draws it. That split means a guard's *data* behaviour and its *rendered* behaviour can diverge badly, and #101 showed the divergence is not a corner case.
+
+- **A measured claim in a ticket can be right about the data and wrong about the picture.** #101 correctly measured that 7 of 238 drawable pilots have a below-floor year inside their drawn span, then inferred the chart drew a straight line across it. It did not: `_performance_figure` already spanned the drawn years and paired missing ones with `None`, so plotly broke the line. Meanwhile the real defect was the 83 refused cells falling *outside* the span, erased from the x-axis entirely across 74 pilots, which the ticket never mentioned. Fixing what the ticket described would have been close to a no-op.
+- **It happened twice in one session.** After the tool was fixed to return a refused year as a cell (`mean_norm=None` plus the event count), the chart still drew that year and a year the pilot sat out as the same blank tick, throwing away the very count that made the refusal legible. The tool was honest and the picture was not.
+
+Why it matters: the same `Series` plus `gr.Plot` surface backs all four trends, so any future claim of the form "this trend hides X" has to be checked at both layers before it is acted on. Read the figure function, not only the tool, and confirm what a reader actually sees. `.venv/bin/python` plus `fig.data[0]` and `fig.layout.annotations` reads a built trace back without launching the app, which is how both of the above were settled.
