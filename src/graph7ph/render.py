@@ -1,18 +1,22 @@
-"""Render a Subgraph to a standalone interactive pyvis widget (HTML string).
+"""Render a Subgraph to an interactive pyvis widget (HTML string).
 
-vis.js assets are inlined so the returned HTML is self-contained and can be
-dropped straight into a Gradio ``HTML`` component. Clicking a node shows its
-details beside the graph; a deck's details link out to its Moxfield page.
+The widget names the vis.js library the app serves itself rather than carrying a
+copy, so a result is a few KB and the library is downloaded once (issue #97).
+Clicking a node shows its details beside the graph; a deck's details link out to
+its Moxfield page.
 
 This is thin glue over the tested query seam, not itself unit tested: pyvis's
-generated HTML shape is deliberately not asserted (per the PRD testing plan).
+generated HTML shape is deliberately not asserted (per the PRD testing plan),
+beyond the two library tags this rewrites.
 """
 
 import json
+import re
 
 from pyvis.network import Network
 
 from graph7ph.query import Node, Subgraph
+from graph7ph.serve import VIS_CSS_URL, VIS_JS_URL
 
 _COLOURS = {
     "Pilot": "#e15759",
@@ -43,10 +47,40 @@ def _moxfield_url(node: Node) -> str | None:
     return _MOXFIELD.format(node.id.removeprefix("deck:"))
 
 
-def render_subgraph(subgraph: Subgraph) -> str:
-    net = Network(
-        height="700px", width="100%", directed=True, cdn_resources="in_line"
+def _hosted_library(doc: str) -> str:
+    """Point the widget's two library tags at the copy the app serves.
+
+    pyvis offers its library inlined or from a CDN and nothing in between, so the
+    widget is generated in its CDN shape and the tags are rewritten here. They are
+    rebuilt rather than their URLs substituted, because pyvis's carry a Subresource
+    Integrity hash for the CDN's bytes that a browser would then check ours against.
+
+    The URLs are root-relative, which holds the app to being served at the root of
+    its origin. It is, on all three ways it runs: the Space, ``graph7ph app``, and
+    Colab, where ``proxyPort`` hands the notebook a per-port hostname of its own.
+    Mounting it under a path (a ``root_path``, or ``mount_gradio_app`` inside a
+    larger API) would break this and nothing else, silently: the widget is embedded
+    through an iframe ``srcdoc``, which has no URL of its own, so these resolve
+    against the parent document, and a prefix the parent carries is not in them.
+    """
+    tags = (
+        (r"<link[^>]*cdnjs[^>]*vis-network[^>]*>",
+         f'<link rel="stylesheet" href="{VIS_CSS_URL}"/>'),
+        (r"<script[^>]*cdnjs[^>]*vis-network[^>]*></script>",
+         f'<script src="{VIS_JS_URL}"></script>'),
     )
+    for pattern, tag in tags:
+        doc, found = re.subn(pattern, tag, doc)
+        if found != 1:
+            raise RuntimeError(
+                f"pyvis emitted {found} tags matching {pattern}, expected 1: its "
+                "template has changed, and the graph would draw with no library."
+            )
+    return doc
+
+
+def render_subgraph(subgraph: Subgraph) -> str:
+    net = Network(height="700px", width="100%", directed=True, cdn_resources="remote")
     # A stable colour per player group present, so the two chains stay distinct.
     groups = sorted({n.group for n in subgraph.nodes if n.group is not None})
     palette = {g: _GROUP_COLOURS[i % len(_GROUP_COLOURS)] for i, g in enumerate(groups)}
@@ -102,7 +136,8 @@ def render_subgraph(subgraph: Subgraph) -> str:
         }
         for node in subgraph.nodes
     }
-    return _with_details_panel(net.generate_html(notebook=False), meta)
+    doc = _hosted_library(net.generate_html(notebook=False))
+    return _with_details_panel(doc, meta)
 
 
 _PROMPT = "Click a node to see its details."
