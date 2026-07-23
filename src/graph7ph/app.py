@@ -50,6 +50,7 @@ from graph7ph.trends import (
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
+    NotEnoughHistory,
     PilotPerformanceOverTime,
     Series,
     latest_deck_year,
@@ -326,28 +327,40 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     one sit on the same line and only the count tells them apart. A dotted line at 0.5
     marks a random finisher's expected placement (a normalised rank averages 0.5), so
     a point above it is a season that beat the field, below it one that trailed it.
-    A year inside the pilot's span with no qualifying data (a thin middle year) stays
-    an empty tick and the line breaks across it rather than bridging a fabricated
-    point, since this lone trace has no sibling series to hold the gap year open the
-    way the meta and adoption charts do. A pilot short of two qualifying years never
-    gets this far (an empty series).
+    A year whose mean was refused as too thin stays an empty tick and the line breaks
+    across it rather than bridging a fabricated point, since this lone trace has no
+    sibling series to hold the gap year open the way the meta and adoption charts do.
+    That now holds at the ends of a career as well as in the middle: the span runs
+    from the pilot's first year to their last, not from the first year that cleared
+    the floor to the last, because a thin year is overwhelmingly a pilot's first or
+    last and spanning only the drawn years erased it from the axis altogether, so the
+    chart claimed a later debut or an earlier exit than the pilot had (issue #101).
+    A refused year is captioned under its tick with the events that refused it, so it
+    reads as a refusal rather than as a year the pilot sat out, which is the same
+    empty tick. A pilot short of two qualifying years never gets this far (the tool
+    refuses).
     """
     fig = pgo.Figure()
     cells = sorted(series.cells, key=lambda c: c.year)
-    # Span every year from the first qualifying year to the last, pairing each with
-    # its cell or None, so a thin middle year is a visible gap (an empty tick, a
-    # broken line), not two points collapsed adjacent as if the season never existed.
-    # The pairing is built once here rather than re-looked-up per plotted attribute.
+    # Span every year from the pilot's first year to their last, pairing each with its
+    # cell or None, so a thin year is a visible gap (an empty tick, a broken line), not
+    # two points collapsed adjacent as if the season never existed. The series covers
+    # every year the pilot played, so the only years without a cell here are years they
+    # genuinely sat out. The pairing is built once rather than re-looked-up per
+    # plotted attribute.
     by_year = {c.year: c for c in cells}
     spanned = [(year, by_year.get(year)) for year in range(cells[0].year, cells[-1].year + 1)]
+    # A refused year has a cell but no mean, so it plots as a null exactly like a year
+    # with no cell at all: the line breaks and no point is drawn either way.
+    drawn = [c if c and c.mean_norm is not None else None for _, c in spanned]
     colour = _PALETTE[0]
     fig.add_trace(pgo.Scatter(
         x=[str(year) for year, _ in spanned],
-        y=[1 - c.mean_norm if c else None for _, c in spanned],
-        customdata=[c.events if c else None for _, c in spanned],
+        y=[1 - c.mean_norm if c else None for c in drawn],
+        customdata=[c.events if c else None for c in drawn],
         name=pilot_name,
         mode="lines+markers+text",
-        text=[f"{c.events} ev" if c else "" for _, c in spanned],
+        text=[f"{c.events} ev" if c else "" for c in drawn],
         textposition="top center",
         textfont=dict(color="#9ca3af", size=11),
         line=dict(width=1, dash="dash", color=colour),
@@ -361,6 +374,19 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     # A bounded 0-1 score, not a share, so a plain decimal axis over the full range,
     # overriding the shared styler's percent format and auto-zoom.
     fig.update_yaxes(tickformat=".2f", range=[0, 1], autorange=False)
+    # A refused year and a year the pilot sat out both leave an empty tick, so the
+    # refused ones are captioned with what was refused and why. Without it the chart
+    # re-creates at the display layer the very conflation the tool was changed to
+    # end: a bare gap says only "nothing plotted", where "1 ev" says the pilot turned
+    # up and one event is not a season. Captioned under the axis rather than in the
+    # plot, so it can never be read as a position on the score.
+    for year, cell in spanned:
+        if cell and cell.mean_norm is None:
+            fig.add_annotation(
+                x=str(year), y=0, xref="x", yref="paper", yshift=-32,
+                text="played, unscored" if not cell.events else f"{cell.events} ev, too thin",
+                showarrow=False, font=dict(color="#9ca3af", size=10),
+            )
     # A plain reference line at 0.5, a random finisher's expected normalised rank
     # (the flip leaves it at 0.5): above it beat the field, below it trailed.
     fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
@@ -617,10 +643,16 @@ def build_app(artifact: Path) -> gr.Blocks:
     def draw_performance(pilot: str):
         if not pilot:
             return gr.update(visible=False)
-        series = run_series(ladybug.Connection(db), PilotPerformanceOverTime(pilot))
-        # The dropdown only lists pilots that qualify, so an empty series should not
-        # arise; guard anyway so a non-drawable pilot hides the chart rather than
-        # crashing `_performance_figure` on `cells[0]` if the two floor queries drift.
+        # The dropdown only lists pilots that qualify, so the refusal should not
+        # arise; catch it anyway so a non-drawable pilot hides the chart rather than
+        # surfacing a traceback if the two floor queries drift.
+        try:
+            series = run_series(ladybug.Connection(db), PilotPerformanceOverTime(pilot))
+        except NotEnoughHistory:
+            return gr.update(visible=False)
+        # The refusal above is the only way the tool declines, so an empty series
+        # should not arise; guard anyway so a drift between the two floor queries
+        # hides the chart rather than crashing `_performance_figure` on `cells[0]`.
         if not series.cells:
             return gr.update(visible=False)
         return gr.update(value=_performance_figure(pilot_names[pilot], series), visible=True)
@@ -639,12 +671,22 @@ def build_app(artifact: Path) -> gr.Blocks:
             return gr.update(visible=False), gr.update(
                 value="Pick two different pilots to see their rivalry.", visible=True
             )
-        series = run_series(ladybug.Connection(db), HeadToHeadTimeline(a, b))
-        if not series.cells:
+        try:
+            series = run_series(ladybug.Connection(db), HeadToHeadTimeline(a, b))
+        except NotEnoughHistory as e:
+            # The refusal carries the shared events it found, so the note says how
+            # many rather than lumping every refused pair together: a single meeting
+            # is a fact, and "fewer than two" hid it (issue #101). Phrased from the
+            # number itself, so raising MIN_SHARED_EVENTS cannot leave this asserting
+            # that a pair who did meet never did.
+            met = (
+                "have never met" if not e.found
+                else f"share only {e.found} event" + ("s" if e.found > 1 else "")
+            )
             return gr.update(visible=False), gr.update(
                 value=(
-                    f"{pilot_labels[a]} and {pilot_labels[b]} share fewer than two "
-                    "events, so there is no rivalry to trace over time."
+                    f"{pilot_labels[a]} and {pilot_labels[b]} {met}, so there is no "
+                    "rivalry to trace over time."
                 ),
                 visible=True,
             )
@@ -766,10 +808,12 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             with gr.Group(visible=False) as performance_window:
                 gr.Markdown(
-                    "A pilot's mean finish per year, over the years they have real "
-                    "history, drawn so higher is better (1 is a win, 0 is last). A year "
-                    "with only one event to average is left as a gap; a pilot short of "
-                    "two such years is not listed. Each point is labelled with the "
+                    "A pilot's mean finish per year, over every year they played, "
+                    "drawn so higher is better (1 is a win, 0 is last). A year with "
+                    "only one event to average is left as a gap, an empty tick the "
+                    "line breaks across, captioned with what it holds; a pilot short "
+                    "of two averageable years is not listed. Each point is labelled "
+                    "with the "
                     "number of events it averages, and a dotted line marks the 0.5 "
                     "midpoint. The points are the data; the thin dashed line only joins "
                     "them and asserts no direction."
