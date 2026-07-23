@@ -52,7 +52,6 @@ from graph7ph.trends import (
     MetaShareOverTime,
     PilotPerformanceOverTime,
     Series,
-    drawable_tags,
     latest_deck_year,
     latest_year_share_cut,
     pilots_with_history,
@@ -240,13 +239,11 @@ def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
     One trace per archetype, coloured apart, with the data foregrounded: the
     points are the observations, so they are drawn large and hollow with a thick
     rim, while the connecting line is thin and dashed, a reminder that it only
-    joins points and asserts no trend between them (ADR 0013). A gap year (a cell
-    too thin to state a share for) is passed through as a ``None`` y, which breaks
-    the line there rather than dropping it out of the trace: an omitted year would
-    let the line run straight across it and read as a value the floor exists to
-    withhold. A year the archetype was genuinely absent is a real zero, so the line
-    drops to it rather than breaking. Each point's hover carries its year, share,
-    and deck count N, the sample size the reader reasons with.
+    joins points and asserts no trend between them (ADR 0013). Every year draws a
+    point: meta share carries no floor, so a thin year states its real share and a
+    year the archetype was absent drops to a real zero, with no holes for the eye
+    to read as zeros of its own. Each point's hover carries its year, share, and
+    deck count N, the sample size the reader reasons with.
 
     Traces are keyed by tag, not by display name, because two tags can share a name
     (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
@@ -560,13 +557,15 @@ def build_app(artifact: Path) -> gr.Blocks:
     # the manual panel can list the archetypes and each draw just filters it. The
     # tool never sees the cut; it returns everything (ADR 0013).
     trend_series = run_series(catalogue, MetaShareOverTime())
-    # Only archetypes the trend can actually draw are offered, the way
-    # `gem_archetypes` and `pilots_with_history` do; the floor rule behind that stays
-    # in `trends`, so this asks what is drawable rather than restating how.
-    drawable = drawable_tags(trend_series)
+    # Every archetype is offered: meta share carries no floor, so each one draws a
+    # line of real shares and real zeros with nothing withheld (ADR 0013). Unlike
+    # the gem view and the pilot trend, which offer only slices their floor can
+    # answer for, there is nothing here a pick can land on that cannot be drawn.
+    # Sorted on the whole pair, not the name alone: two archetypes can share a
+    # display name, and a name-only key would leave their order to the set's
+    # iteration order, so the dropdown would list them differently per process.
     trend_archetypes = _distinguish(sorted(
-        {(c.archetype, c.tag) for c in trend_series.cells if c.tag in drawable},
-        key=lambda p: p[0],
+        {(c.archetype, c.tag) for c in trend_series.cells}
     ))
 
     # The year the cut ranks on, read from the data so it follows the graph forward
@@ -610,8 +609,8 @@ def build_app(artifact: Path) -> gr.Blocks:
         )
 
     # Only pilots the trend can actually draw (at least two qualifying years); the
-    # rest would land on "not enough history", so they are withheld the way the
-    # meta-share panel offers only drawable archetypes. Names paired with their key.
+    # rest would land on "not enough history", so they are withheld the way the gem
+    # view offers only answerable slices. Names paired with their key.
     performance_pilots = _distinguish(pilots_with_history(catalogue))
     pilot_names = {key: label for label, key in performance_pilots}
 
@@ -730,9 +729,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                 gr.Markdown(
                     "Each archetype's share of the meta, per year. The points are "
                     "the data; the thin dashed line only joins them and asserts no "
-                    "trend between years. A year too thin to trust is left as a gap, "
-                    "not a false zero; a year the archetype was absent is a real "
-                    "zero. Hover a point for its share and deck count."
+                    "trend between years. Every year is stated, including the thin "
+                    "ones an archetype enters or leaves the format on, and a year "
+                    "it was absent is a real zero. Hover a point for its share and "
+                    "deck count, the sample the share came from."
                 )
                 cut = gr.Radio(
                     list(_CUTS), value=_DEFAULT_CUT,

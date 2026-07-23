@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from graph7ph.trends import (
-    MIN_CELL_DECKS,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
@@ -13,7 +12,6 @@ from graph7ph.trends import (
     Series,
     SeriesCell,
     card_adoption_over_time,
-    drawable_tags,
     head_to_head_timeline,
     latest_deck_year,
     latest_year_share_cut,
@@ -27,7 +25,7 @@ from graph7ph.trends import (
 def _cell(tag, year, n):
     """A cell with an arbitrary but consistent share/year_total, for cut tests."""
     return SeriesCell(tag=tag, archetype=tag.title(), year=year, n=n,
-                      share=None, year_total=n)
+                      share=1.0, year_total=n)
 
 
 def _write_snapshot(
@@ -80,10 +78,10 @@ def _write_snapshot(
 
 
 def _meta_share_graph(root, built_graph):
-    """A built graph with a fat cell, two thin cells, and archetypes across years.
+    """A built graph with fat and thin cells, and archetypes across years.
 
-    2025: 6 Grixis (fat), 1 Storm (thin). 2024: 5 Storm (fat), 3 Grixis (thin).
-    So Grixis is real in 2025 and a gap in 2024, Storm the mirror. The floor is 5.
+    2025: 6 Grixis, 1 Storm. 2024: 5 Storm, 3 Grixis. So each archetype is large in
+    one year and down to a handful in the other, the shape a floor used to withhold.
     """
     decks = (
         [(f"g25-{i}", "E2025", 2025, "grixis") for i in range(6)]
@@ -94,39 +92,34 @@ def _meta_share_graph(root, built_graph):
     return built_graph(root, _write_snapshot(root, decks))
 
 
-def test_meta_share_year_shares_sum_sanely_and_thin_cells_are_gaps(tmp_path, built_graph):
+def test_meta_share_states_every_cell_including_the_thin_ones(tmp_path, built_graph):
     conn = _meta_share_graph(tmp_path, built_graph)
     series = meta_share_over_time(conn)
     by_key = {(c.archetype, c.year): c for c in series.cells}
 
     # 2025 has 7 decks: 6 Grixis, 1 Storm. Every cell reports that year total.
     assert {c.year_total for c in series.cells if c.year == 2025} == {7}
-    # The fat Grixis cell carries a real share; the year's cell counts partition it.
+    # The fat Grixis cell carries its share; the year's cell counts partition it.
     grixis_2025 = by_key[("Grixis", 2025)]
     assert grixis_2025.n == 6
     assert grixis_2025.share == pytest.approx(6 / 7)
     assert sum(c.n for c in series.cells if c.year == 2025) == 7
 
-    # The 1-deck Storm cell is below the floor, so it comes back a gap, not a zero:
-    # its deck count is honest but its share is withheld.
+    # The 1-deck Storm cell states its share too, against the whole year rather
+    # than its own count: a share is a direct observation, exact whatever its size,
+    # so a thin cell is a low point and not a hole.
     storm_2025 = by_key[("Storm", 2025)]
     assert storm_2025.n == 1
-    assert storm_2025.share is None
+    assert storm_2025.share == pytest.approx(1 / 7)
 
-    # A share is withheld exactly on a thin cell (one to below the floor); a cell
-    # that clears the floor and an empty cell (a real zero) both carry a share.
-    for cell in series.cells:
-        if cell.share is None:
-            assert 0 < cell.n < MIN_CELL_DECKS
-        else:
-            assert cell.n == 0 or cell.n >= MIN_CELL_DECKS
-            assert cell.share == pytest.approx(cell.n / cell.year_total)
+    # No cell anywhere in the matrix is withheld. A reintroduced floor fails here.
+    assert all(cell.share is not None for cell in series.cells)
 
 
 def test_an_archetype_absent_in_a_year_is_a_zero_not_a_missing_row(tmp_path, built_graph):
     # 2024: 5 Storm only, so Grixis sat the year out and Boros did not exist yet.
-    # 2025: 6 Grixis, 2 Boros (thin), 2 Storm (thin) - 10 decks, so all three
-    # distinctions are live in one series: a zero, a gap, and a real share.
+    # 2025: 6 Grixis, 2 Boros, 2 Storm - 10 decks, so both answers are live in one
+    # series: a year with no decks at all, and a year with a handful.
     decks = (
         [(f"s24-{i}", "E2024", 2024, "storm") for i in range(5)]
         + [(f"g25-{i}", "E2025", 2025, "grixis") for i in range(6)]
@@ -139,19 +132,20 @@ def test_an_archetype_absent_in_a_year_is_a_zero_not_a_missing_row(tmp_path, bui
     # Every archetype has a cell in every year: the matrix is rectangular.
     assert set(by_key) == {(a, y) for a in ("Boros", "Grixis", "Storm")
                            for y in (2024, 2025)}
-    # An absent year is a real zero (a share of 0, plotted), not a gap and not a
-    # missing row, so the line drops to zero rather than jumping the year.
+    # An absent year is a real zero (a share of 0, plotted), not a missing row, so
+    # the line drops to zero rather than jumping the year.
     for absent in (by_key[("Grixis", 2024)], by_key[("Boros", 2024)]):
         assert absent.n == 0
         assert absent.share == 0.0
         assert absent.year_total == 5
-    # A thin year stays a gap: present, honestly counted, share withheld. A zero and
-    # a gap are the two distinct answers, not one.
+    # A thin year is a small share, told apart from that zero by being non-zero:
+    # two decks of ten is the archetype entering the format, the signal the chart
+    # is for, so it is stated rather than withheld.
     boros_2025 = by_key[("Boros", 2025)]
     assert boros_2025.n == 2
-    assert boros_2025.share is None
-    # And a year that clears the floor carries its share against the year's total,
-    # which counts every deck that year, not just the archetype's own.
+    assert boros_2025.share == pytest.approx(2 / 10)
+    # And a fat year carries its share against the year's total, which counts every
+    # deck that year, not just the archetype's own.
     grixis_2025 = by_key[("Grixis", 2025)]
     assert grixis_2025.n == 6
     assert grixis_2025.year_total == 10
@@ -183,15 +177,23 @@ def test_cut_follows_the_latest_year_in_the_data():
     assert latest_year_share_cut(Series(cells=newer), 0.5) == ["b"]
 
 
-def test_drawable_tags_are_those_clearing_the_floor_in_some_year():
-    # "a" clears the floor in 2025, so it can draw; "b" is thin in every year (a gap
-    # in 2024, a zero in 2025) and would draw a line of gaps and zeros, so it is not
-    # offered. The zero cell must not qualify "b" just by carrying a share of 0.
-    series = Series(cells=[
-        SeriesCell("a", "A", 2024, 3, None, 8), SeriesCell("a", "A", 2025, 6, 6 / 8, 8),
-        SeriesCell("b", "B", 2024, 2, None, 8), SeriesCell("b", "B", 2025, 0, 0.0, 8),
-    ])
-    assert drawable_tags(series) == {"a"}
+def test_a_one_deck_archetype_draws_a_full_line_of_real_values(tmp_path, built_graph):
+    # The case the removed floor used to blank: an archetype at a single deck in a
+    # year. Every year it holds comes back a stated share, so a fringe archetype
+    # drawn from the manual panel is a line of real points, never a line of holes.
+    decks = (
+        [(f"g24-{i}", "E2024", 2024, "grixis") for i in range(9)]
+        + [("b24-0", "E2024", 2024, "boros")]
+        + [(f"g25-{i}", "E2025", 2025, "grixis") for i in range(10)]
+    )
+    conn = built_graph(tmp_path, _write_snapshot(tmp_path, decks))
+    boros = sorted(
+        (c for c in meta_share_over_time(conn).cells if c.archetype == "Boros"),
+        key=lambda c: c.year,
+    )
+    assert [(c.year, c.n, c.share) for c in boros] == [
+        (2024, 1, pytest.approx(1 / 10)), (2025, 0, 0.0)
+    ]
 
 
 def test_cut_ranks_on_the_latest_year_with_decks_not_an_all_zero_year():
@@ -208,12 +210,12 @@ def test_cut_ranks_on_the_latest_year_with_decks_not_an_all_zero_year():
     assert latest_deck_year(series) == 2025
 
 
-def test_cut_counts_thin_gap_cells():
-    # A gap cell (share withheld) still holds real decks, so its count is part of
-    # the population the cut ranks on.
+def test_cut_counts_thin_cells():
+    # A handful of decks is still decks, so a thin cell is part of the population
+    # the cut ranks on rather than being invisible to it.
     series = Series(cells=[
-        SeriesCell("a", "A", 2025, 4, None, 8),   # a gap, but 4 real decks
-        SeriesCell("b", "B", 2025, 4, None, 8),
+        SeriesCell("a", "A", 2025, 4, 4 / 8, 8),
+        SeriesCell("b", "B", 2025, 4, 4 / 8, 8),
     ])
     assert latest_year_share_cut(series, 0.5) in (["a"], ["b"])
     assert set(latest_year_share_cut(series, 1.0)) == {"a", "b"}
