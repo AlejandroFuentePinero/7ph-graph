@@ -101,6 +101,19 @@ def build_css() -> str:
 /* Reading measure: bound prose, not the widgets, so paragraphs stay legible on a
    wide monitor while controls and charts still fill their space. */
 .prose p, .prose li, .t-lede, .t-body {{ max-width: {MEASURE_CH}ch; }}
+
+/* Result framing (§ result, issue #110). The result region is set off from the
+   controls above it by a hairline rule and space, so the answer reads apart from
+   the inputs. The page-type title sits at the top of the region (§3). */
+.result-region {{
+  border-top: 1px solid var(--border);
+  margin-top: 1rem; padding-top: 1rem;
+}}
+.result-region .t-result-title {{ margin-bottom: 0.15rem; }}
+
+/* The subject is the control everything else in a tab hangs off, so it is marked
+   visually primary with an accent edge, distinct from the surrounding filters. */
+.primary-control {{ border-left: 3px solid var(--accent); padding-left: 0.75rem; }}
 """
 
 

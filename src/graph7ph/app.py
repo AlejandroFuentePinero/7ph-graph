@@ -91,6 +91,30 @@ def _picker(tab: dict[str, str]) -> list[tuple[str, str]]:
     return [(label, view_id) for view_id, label in tab.items()]
 
 
+# The reader-language name of every view, keyed by its id: the picker labels do
+# double duty as the result title's view name, so the title and the picker cannot
+# name the same view two ways.
+_VIEW_LABELS: dict[str, str] = {**_PILOTS_TAB, **_CARDS_TAB, **_META_TAB}
+
+
+def _result_header(view: str, subject: str, filters: list[str], node_count: int) -> str:
+    """Frame a query result in page type (issue #110, §3): the view and its subject
+    as the title, the filters and how many nodes came back as the caption, so an
+    answer is never left as an unlabelled graph. Prepended to the drawn result, the
+    empty state, and the refine alert alike, so every post-query state speaks the
+    same way. The subject and filters are display labels (free text), so they are
+    escaped into the markup."""
+    title = f"{_VIEW_LABELS[view]}: {subject}"
+    # A drawn result is under the render threshold (250 nodes), so the count needs no
+    # thousands separator; the refine alert carries the large counts.
+    tail = f"{node_count} node" + ("" if node_count == 1 else "s")
+    caption = " · ".join([*filters, tail])
+    return (
+        f"<div class='t-result-title'>{html.escape(title)}</div>"
+        f"<div class='t-caption'>{html.escape(caption)}</div>"
+    )
+
+
 def _embed(doc: str) -> str:
     """Wrap a standalone pyvis document in an iframe so its scripts run.
 
@@ -623,6 +647,7 @@ def build_app(artifact: Path) -> gr.Blocks:
     # lookup must cover every entity the dropdown offers, not a per-view subset.
     pilot_labels = {key: label for label, key in pilots}
     card_names = {canon: label for label, canon in cards}
+    archetype_labels = {key: label for label, key in archetypes}
 
     # The trend surface reads the full matrix once (a static, read-only graph), so
     # the manual panel can list the archetypes and each draw just filters it. The
@@ -753,6 +778,36 @@ def build_app(artifact: Path) -> gr.Blocks:
         fig = _head_to_head_figure(pilot_labels[a], pilot_labels[b], series)
         return gr.update(value=fig, visible=True), gr.update(visible=False)
 
+    def _graph_meta(view: str, values: dict) -> tuple[str, list[str]]:
+        # The subject a graph result is about and the reader-language filters under
+        # which it ran, for the result header (#110). Written from the display labels
+        # the dropdowns carry, never the raw keys, so the caption reads like the
+        # controls above it. Reached only after `_spec` confirmed the subject is set.
+        match view:
+            case "pilot_neighbourhood":
+                second = [f"vs {pilot_labels[values['pilot2']]}"] if values["pilot2"] else []
+                return pilot_labels[values["pilot"]], second
+            case "pilot_affinity":
+                return pilot_labels[values["pilot"]], []
+            case "card_usage":
+                # Named through _BOARD_LABELS ("main" / "side"), the same casing the
+                # adoption chart renders the board in, and no `_Avoid_` word.
+                board = [_BOARD_LABELS[values["card_board"]]] if values["card_board"] else []
+                return card_names[values["card"]], board
+            case "card_cooccurrence":
+                filters = []
+                if values["cooccur_card2"]:
+                    filters.append(f"with {card_names[values['cooccur_card2']]}")
+                filters.append(f"top {int(_num(values['cooccur_top_n'], 15))}")
+                if values["cooccur_drop_lands"]:
+                    filters.append("lands filtered out")
+                return card_names[values["card"]], filters
+            case "meta_gems":
+                # The archetype is optional; with none picked the gems span the format.
+                archetype = values["gem_archetype"]
+                return (archetype_labels[archetype] if archetype else "the format"), []
+        return "", []
+
     def run_graph(view: str, values: dict) -> str:
         # A graph view's button hands its view id and the values it surfaces; _spec
         # turns them into a query, or None (returns the prompt) until the subject is
@@ -765,12 +820,20 @@ def build_app(artifact: Path) -> gr.Blocks:
             subgraph = run_query(ladybug.Connection(db), spec)
         except SliceTooSmall as e:
             return _note(f"{e}, so no gem claim is made here.")
-        if not subgraph.nodes:
-            return _note("Nothing matched. The query ran and came back empty.")
+        # A result too big to draw refuses with its own node count and narrowing
+        # hints, so it carries no page-type header: a second "N nodes" caption above
+        # it would read as if N had been drawn (#110).
         plan = assess(subgraph)
         if not plan.render:
             return _refine_alert(plan)
-        return _embed(render_subgraph(subgraph))
+        # A drawn or empty result is framed in page type before it is shown (#110): a
+        # title and caption naming the view, its subject, the filters, and how much
+        # came back, so no result is left as an unlabelled graph. Empty reads 0 nodes.
+        subject, filters = _graph_meta(view, values)
+        header = _result_header(view, subject, filters, plan.node_count)
+        if not subgraph.nodes:
+            return header + _note("Nothing matched. The query ran and came back empty.")
+        return header + _embed(render_subgraph(subgraph))
 
     def _toggle(groups: dict, chosen: str) -> list:
         """Show the chosen view's group, hide the rest: the per-tab view picker."""
@@ -799,10 +862,17 @@ def build_app(artifact: Path) -> gr.Blocks:
             # tied to that same default, so reordering the tab map cannot leave the
             # picker naming one view while another's controls show (code review #4).
             pilots_default = next(iter(_PILOTS_TAB))
-            pilot = gr.Dropdown(choices=pilots, label="Pilot", value=None)
-            pilots_view = gr.Dropdown(
-                choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
-            )
+            # Subject, then view: the two shared controls sit together above the
+            # per-view filters (§ controls order, #110). Held in one group so they
+            # read as a unit and stay put as the view picker swaps the filters below.
+            with gr.Group():
+                pilot = gr.Dropdown(
+                    choices=pilots, label="Pilot", value=None,
+                    elem_classes="primary-control",
+                )
+                pilots_view = gr.Dropdown(
+                    choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
+                )
 
             with gr.Group(visible=pilots_default == "pilot_neighbourhood") as g_pilot_neighbourhood:
                 gr.Markdown(
@@ -816,7 +886,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     label="Second pilot (optional, for head-to-head)",
                 )
                 nb_go = gr.Button("Draw", variant="primary")
-                nb_out = gr.HTML(_PROMPT)
+                nb_out = gr.HTML(_PROMPT, elem_classes="result-region")
 
             with gr.Group(visible=pilots_default == "pilot_affinity") as g_pilot_affinity:
                 gr.Markdown(
@@ -825,7 +895,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     "Moxfield."
                 )
                 af_go = gr.Button("Draw", variant="primary")
-                af_out = gr.HTML(_PROMPT)
+                af_out = gr.HTML(_PROMPT, elem_classes="result-region")
 
             with gr.Group(visible=pilots_default == "pilot_performance") as g_pilot_performance:
                 gr.Markdown(
@@ -843,8 +913,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 # The "refused, not a dot" surface for a pilot short of averageable
                 # years, mirroring head-to-head; hidden until a pick lands on it.
-                performance_note = gr.Markdown(visible=False)
-                performance_plot = gr.Plot(visible=False)
+                performance_note = gr.Markdown(visible=False, elem_classes="result-region")
+                performance_plot = gr.Plot(visible=False, elem_classes="result-region")
 
             with gr.Group(visible=pilots_default == "pilot_h2h_timeline") as g_pilot_h2h:
                 gr.Markdown(
@@ -863,8 +933,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 h2h_pilot_b = gr.Dropdown(choices=pilots, value=None, label="Second pilot")
                 # The "refused, not a dot" surface for a pair with too few shared
                 # events; hidden until a pick lands on it.
-                h2h_note = gr.Markdown(visible=False)
-                h2h_plot = gr.Plot(visible=False)
+                h2h_note = gr.Markdown(visible=False, elem_classes="result-region")
+                h2h_plot = gr.Plot(visible=False, elem_classes="result-region")
 
             pilots_groups = {
                 "pilot_neighbourhood": g_pilot_neighbourhood,
@@ -924,10 +994,14 @@ def build_app(artifact: Path) -> gr.Blocks:
                 elem_classes="t-lede",
             )
             cards_default = next(iter(_CARDS_TAB))
-            card = gr.Dropdown(choices=cards, label="Card", value=None)
-            cards_view = gr.Dropdown(
-                choices=_picker(_CARDS_TAB), value=cards_default, label="View",
-            )
+            with gr.Group():
+                card = gr.Dropdown(
+                    choices=cards, label="Card", value=None,
+                    elem_classes="primary-control",
+                )
+                cards_view = gr.Dropdown(
+                    choices=_picker(_CARDS_TAB), value=cards_default, label="View",
+                )
 
             with gr.Group(visible=cards_default == "card_usage") as g_card_usage:
                 gr.Markdown(
@@ -937,7 +1011,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 usage_board = gr.Dropdown(choices=_BOARD_CHOICES, label="Board", value="")
                 usage_go = gr.Button("Draw", variant="primary")
-                usage_out = gr.HTML(_PROMPT)
+                usage_out = gr.HTML(_PROMPT, elem_classes="result-region")
 
             with gr.Group(visible=cards_default == "card_cooccurrence") as g_card_cooccurrence:
                 gr.Markdown(
@@ -954,7 +1028,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 co_drop_lands = gr.Checkbox(value=False, label="Filter out lands")
                 co_go = gr.Button("Draw", variant="primary")
-                co_out = gr.HTML(_PROMPT)
+                co_out = gr.HTML(_PROMPT, elem_classes="result-region")
 
             with gr.Group(visible=cards_default == "card_adoption") as g_card_adoption:
                 gr.Markdown(
@@ -972,7 +1046,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     label="Compare with other cards (optional)",
                 )
                 adoption_board = gr.Dropdown(choices=_BOARD_CHOICES, value="", label="Board")
-                adoption_plot = gr.Plot(visible=False)
+                adoption_plot = gr.Plot(visible=False, elem_classes="result-region")
 
             cards_groups = {
                 "card_usage": g_card_usage,
@@ -1032,9 +1106,12 @@ def build_app(artifact: Path) -> gr.Blocks:
                 elem_classes="t-lede",
             )
             meta_default = next(iter(_META_TAB))
-            meta_view = gr.Dropdown(
-                choices=_picker(_META_TAB), value=meta_default, label="View",
-            )
+            # Meta carries no subject entity, so the group holds the view picker
+            # alone; it still sits apart from the per-view filters below it.
+            with gr.Group():
+                meta_view = gr.Dropdown(
+                    choices=_picker(_META_TAB), value=meta_default, label="View",
+                )
 
             with gr.Group(visible=meta_default == "meta_share") as g_meta_share:
                 gr.Markdown(
@@ -1059,13 +1136,13 @@ def build_app(artifact: Path) -> gr.Blocks:
                     list(_CUTS), value=_DEFAULT_CUT,
                     label=f"Archetypes to show (by share of {latest_year} decks)",
                 )
-                cut_plot = gr.Plot(value=draw_cut(_DEFAULT_CUT))
+                cut_plot = gr.Plot(value=draw_cut(_DEFAULT_CUT), elem_classes="result-region")
                 manual = gr.Dropdown(
                     choices=trend_archetypes, value=[], multiselect=True,
                     label="Or focus on specific archetypes",
                 )
                 # Hidden until a pick is made, so the view opens on the cut chart.
-                manual_plot = gr.Plot(visible=False)
+                manual_plot = gr.Plot(visible=False, elem_classes="result-region")
 
             with gr.Group(visible=meta_default == "meta_gems") as g_meta_gems:
                 gr.Markdown(
@@ -1077,7 +1154,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     choices=archetypes, label="Archetype (optional)", value=None,
                 )
                 gem_go = gr.Button("Draw", variant="primary")
-                gem_out = gr.HTML(_PROMPT)
+                gem_out = gr.HTML(_PROMPT, elem_classes="result-region")
 
             meta_groups = {"meta_share": g_meta_share, "meta_gems": g_meta_gems}
             meta_view.change(

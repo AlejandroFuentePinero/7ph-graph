@@ -4,6 +4,7 @@ from graph7ph.app import (
     _PILOTS_TAB,
     _between_line_polys,
     _performance_figure,
+    _result_header,
 )
 from graph7ph.trends import PerformanceCell, Series
 
@@ -28,6 +29,43 @@ def test_the_three_subject_tabs_carry_exactly_the_nine_modality_views():
     # §11's placement note: hidden gems sits under Meta (beside meta share), so the
     # Meta tab is not a single-view tab, not under Cards.
     assert "meta_gems" in per_tab["Meta"]
+
+
+def test_a_drawn_result_is_titled_and_captioned_in_page_type():
+    # Issue #110: a query result is never left as an unlabelled graph. It opens
+    # under a title (the view named in reader language, then its subject) and a
+    # caption (the filters, then how much came back), both in the page's own type
+    # roles (§3), so the answer reads as an answer. The class names are the page-type
+    # contract: a regression to plain <p> text would drop them and trip this.
+    header = _result_header(
+        "pilot_neighbourhood", "Ada L", ["vs Bob C"], node_count=42
+    )
+
+    assert "t-result-title" in header
+    assert "t-caption" in header
+    # The picker label names the view (§11 table), the subject follows it.
+    assert "Neighbourhood &amp; head-to-head: Ada L" in header
+    # The caption carries the filters and the node count, joined as one line.
+    assert "vs Bob C · 42 nodes" in header
+
+
+def test_the_caption_reads_the_node_count_and_reduces_to_the_singular():
+    # "How much came back" is the count of nodes drawn. With no filters the caption
+    # is the count alone, and a lone node reads "1 node", not "1 nodes".
+    one = _result_header("pilot_affinity", "Ada L", [], node_count=1)
+    assert ">1 node</" in one
+
+    many = _result_header("pilot_affinity", "Ada L", [], node_count=250)
+    assert ">250 nodes</" in many
+
+
+def test_the_subject_and_filters_are_escaped_into_the_header():
+    # The subject and filter strings come from display labels, which are free text,
+    # so a name carrying an angle bracket is escaped rather than injected into the
+    # result markup.
+    header = _result_header("card_usage", "A<b>", ["main board"], node_count=3)
+    assert "A<b>" not in header
+    assert "A&lt;b&gt;" in header
 
 
 def test_band_over_a_non_crossing_segment_is_one_trapezoid_tinted_by_the_upper_line():
