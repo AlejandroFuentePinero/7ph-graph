@@ -1,5 +1,6 @@
 from graph7ph.app import (
     _CARDS_TAB,
+    _embed,
     _META_TAB,
     _PILOTS_TAB,
     _between_line_polys,
@@ -154,3 +155,13 @@ def test_a_refused_year_is_captioned_and_a_sat_out_year_is_not():
 
     # 2025 has no cell at all (sat out), so it gets a tick and no caption.
     assert captions == {("2023", "1 ev, too thin"), ("2026", "played, unscored")}
+
+
+def test_embed_iframe_height_is_responsive_not_a_fixed_slab():
+    # §7 / AC: the graph frame scales with the viewport instead of a fixed
+    # 760/700px letterbox, so a phone is not eaten by a slab and a wide desktop
+    # is not letterboxed. The details panel inside stays visible without scroll.
+    frame = _embed("<html></html>")
+
+    assert "760px" not in frame  # the fixed height is retired
+    assert "vh" in frame  # height is viewport-relative

@@ -121,7 +121,12 @@ def _embed(doc: str) -> str:
     gr.HTML does not execute injected <script> tags, so the widget is isolated in
     an iframe via srcdoc (which the browser renders as its own document)."""
     srcdoc = html.escape(doc, quote=True)
-    return f'<iframe srcdoc="{srcdoc}" style="width:100%;height:760px;border:none"></iframe>'
+    # Responsive height (§7): the frame scales with the viewport rather than a fixed
+    # 760px slab, capped so a wide desktop is not letterboxed and floored so a phone
+    # keeps enough room for the graph plus the details panel below it (which lays out
+    # inside as flex, so it stays visible without scrolling).
+    style = "width:100%;height:min(78vh,860px);min-height:520px;border:none"
+    return f'<iframe srcdoc="{srcdoc}" style="{style}"></iframe>'
 
 
 def _refine_alert(plan: RenderPlan) -> str:
