@@ -128,17 +128,22 @@ def _result_header(plot: str, filters: list[str], node_count: int) -> str:
     )
 
 
-def _chart_heading(title: str, caption: str | None = None) -> str:
+def _chart_heading(title: str, caption: str | None = None, caption_html: str | None = None) -> str:
     """A chart's title as an insight-card head in the insight-title type role (§3/§12).
 
     The trend charts' titles leave the Plotly figure (where they were font baked into
     an image) and become a heading the app draws above the plot, so a chart reads as a
     titled answer on the page. The title names the plot type only (§14) and takes an
-    optional caption for a filter qualifier (a board, a cut). Both are free-text display
-    labels, so they are escaped into the markup, exactly as :func:`_result_header` frames
-    a graph result."""
+    optional caption for a filter qualifier (a board, a cut). Title and ``caption`` are
+    free-text display labels, so they are escaped into the markup, exactly as
+    :func:`_result_header` frames a graph result. ``caption_html`` is the escape hatch for
+    a caption the app builds itself (the performance chart's field-standing line, with the
+    share emphasised): app-generated numerics, no user free-text, so it is inserted as
+    trusted markup and takes precedence over the plain ``caption``."""
     head = f"<div class='t-result-title'>{html.escape(title)}</div>"
-    if caption:
+    if caption_html:
+        head += caption_html
+    elif caption:
         head += f"<div class='t-caption'>{html.escape(caption)}</div>"
     return head
 
@@ -353,6 +358,19 @@ def _observation_marker(colour: str) -> dict:
     return dict(size=12, symbol="circle", color=_SURFACE, line=dict(width=2, color=colour))
 
 
+def _confidence_size(events: int) -> float:
+    """Marker diameter growing with the events a year's mean is taken over.
+
+    A two-event mean and a twenty-event one sit on the same line and read alike;
+    sizing the ring by its event count puts the sample size the reader must weight
+    into the marker itself, not only its printed label, so a thin year draws as a
+    small dot the eye discounts on sight. Area (not diameter) tracks the count, the
+    honest mapping, so the diameter goes as the square root; clamped so the thinnest
+    year stays visible and the fattest does not swamp the plot.
+    """
+    return min(28.0, max(11.0, 8.0 + 3.2 * events ** 0.5))
+
+
 def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
     """The dark-theme styling both trend charts share (the meta and one card).
 
@@ -369,6 +387,13 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=_AXIS), margin=dict(t=8, r=8, b=8, l=8),
     )
+    # Caution: this is a category x-axis. An annotation anchored with xref="x" and a
+    # numeric-looking value (a year) does NOT snap to the matching category slot; Plotly
+    # places it at the linear coordinate (2024), off the categories, and autorange chases
+    # it, crushing the real points into one edge. The performance chart hit exactly this
+    # with its refusal captions and moved to a linear year axis (see `_performance_figure`);
+    # if the meta/adoption charts ever gain an x-anchored annotation, do the same rather
+    # than debugging the blow-up from scratch.
     fig.update_xaxes(
         title="Year", type="category", categoryorder="category ascending",
         gridcolor=_GRID, linecolor=_AXIS, zeroline=False,
@@ -490,6 +515,34 @@ def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
     return fig
 
 
+def _performance_caption(series: Series) -> str:
+    """The field-standing line drawn above the plot as its insight (§14), as HTML.
+
+    The flat 0-to-1 axis keeps a pilot's real spread honest but reads as eventless, so
+    the standing the plot is silent about is stated once here: the mean finish over
+    every scored year, weighted by that year's events (a twenty-event season counts ten
+    times a two-event one), phrased as the share of the field it beat, since the flipped
+    score is exactly that (a 0.74 mean beat ~74% of the field). The share is rounded to a
+    whole percent (a mean over a handful of events does not carry two decimals) and set in
+    the accent so the eye lands on it first; the event total and scored-year count trail
+    quiet as the sample it rests on. Returned as trusted markup (all app-built numerics,
+    no user text) for :func:`_chart_heading`'s ``caption_html``; empty when no year
+    cleared the floor, which the caller's refusal note has already covered.
+    """
+    scored = [c for c in series.cells if c.mean_norm is not None]
+    if not scored:
+        return ""
+    total = sum(c.events for c in scored)
+    mean_score = sum((1 - c.mean_norm) * c.events for c in scored) / total
+    years = "year" if len(scored) == 1 else "years"
+    return (
+        "<div class='t-fieldstat'>Finishes ahead of "
+        f"<span class='pct'>{round(mean_score * 100)}%</span> of the field on average"
+        f"<span class='sample'> · {total} events over {len(scored)} scored {years}</span>"
+        "</div>"
+    )
+
+
 def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     """One pilot's mean finish (placementNorm) over their qualifying years.
 
@@ -535,7 +588,12 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     # direct colour by entity, not a position in a rank.
     colour = palette.CATEGORICAL[0]
     fig.add_trace(pgo.Scatter(
-        x=[str(year) for year, _ in spanned],
+        # Numeric years on a linear axis, not category strings: the refusal captions below
+        # are anchored to the x-axis, and Plotly places an annotation's x by value, so a
+        # numeric-string year on a category axis lands at the linear coordinate 2024 (far
+        # off the three category slots), dragging autorange out to it and crushing the real
+        # markers into the opposite edge. Numeric years put caption and marker on one scale.
+        x=[year for year, _ in spanned],
         y=[1 - c.mean_norm if c else None for c in drawn],
         customdata=[[numfmt.score(1 - c.mean_norm), c.events] if c else [None, None]
                     for c in drawn],
@@ -545,7 +603,11 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
         textposition="top center",
         textfont=dict(color=_AXIS, size=11),
         line=dict(width=1, dash="dash", color=colour),
-        marker=_observation_marker(colour),
+        # The hollow ring's size carries each year's event count, so the sample size
+        # is read from the marker and not only its label; a null year takes the base
+        # size but draws no marker.
+        marker={**_observation_marker(colour),
+                "size": [_confidence_size(c.events) if c else 12 for c in drawn]},
         # Let a marker and its label at the very top (a perfect 1.0 season) draw over
         # the axis edge rather than being clipped out of the plot.
         cliponaxis=False,
@@ -558,6 +620,19 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     # A bounded 0-1 score, not a share, so a plain decimal axis over the full range,
     # overriding the shared styler's percent format and auto-zoom.
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
+    # A linear year axis overriding the shared styler's category axis (see the trace's x):
+    # one tick per spanned year with a plain integer label (no thousands comma), and a
+    # range pinned half a year past each end. The fixed range is the belt to the numeric
+    # x's braces: even a stray annotation coordinate cannot stretch the axis, so the
+    # markers keep their real spacing and a refusal caption cannot fling the plot open.
+    years = [year for year, _ in spanned]
+    fig.update_xaxes(
+        type="linear", tickmode="array", tickvals=years, ticktext=[str(y) for y in years],
+        range=[years[0] - 0.5, years[-1] + 0.5], autorange=False,
+        # The hover reads %{x}, now a raw number on the linear axis; pin the year format
+        # so the tooltip stays "2024" and never picks up a thousands separator ("2,024").
+        hoverformat="d",
+    )
     # A refused year and a year the pilot sat out both leave an empty tick, so the
     # refused ones are captioned with what was refused and why. Without it the chart
     # re-creates at the display layer the very conflation the tool was changed to
@@ -567,12 +642,14 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     for year, cell in spanned:
         if cell and cell.mean_norm is None:
             fig.add_annotation(
-                x=str(year), y=0, xref="x", yref="paper", yshift=-32,
+                x=year, y=0, xref="x", yref="paper", yshift=-32,
                 text="played, unscored" if not cell.events else f"{cell.events} ev, too thin",
                 showarrow=False, font=dict(color=_AXIS, size=10),
             )
-    # A plain reference line at 0.5, a random finisher's expected normalised rank
-    # (the flip leaves it at 0.5): above it beat the field, below it trailed.
+    # A reference line at 0.5, a random finisher's expected normalised rank (the flip
+    # leaves it at 0.5): above it beat the field, below it trailed. The field-standing
+    # caption above the plot already names where the pilot sits, so the line stays a
+    # quiet unlabelled reference rather than repeating it.
     fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
     return fig
 
@@ -887,7 +964,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             hide = gr.update(visible=False)
             return hide, hide, hide
         return (
-            gr.update(value=_chart_heading("Performance over time"), visible=True),
+            gr.update(value=_chart_heading("Performance over time", caption_html=_performance_caption(series)), visible=True),
             gr.update(value=_performance_figure(pilot_labels[pilot], series), visible=True),
             gr.update(visible=False),
         )
