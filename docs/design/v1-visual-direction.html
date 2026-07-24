@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+<title>7PH Explorer · v1 visual direction</title>
+<style>
+  :root {
+    --bg: #131110;
+    --surface: #1c1917;
+    --surface-2: #24201d;
+    --border: #37312b;
+    --border-soft: #2a2521;
+    --text: #f2ede6;
+    --text-dim: #b4aca2;
+    --text-mute: #8a8178;
+    --accent: #e26a2c;
+    --accent-bright: #f4823f;
+    --accent-soft: rgba(226,106,44,0.13);
+    --space-1: 4px; --space-2: 8px; --space-3: 12px;
+    --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-8: 48px;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, monospace;
+    /* node-kind hues, carried over from render.py _COLOURS */
+    --k-pilot: #e15759;
+    --k-deck: #6a9bd8;      /* lifted from #4e79a7 for the dark ground */
+    --k-card: #66b85c;
+    --k-arch: #f28e2b;
+    --k-macro: #edc948;
+    --k-event: #c48fb8;
+    --k-place: #c2b8b2;
+    --k-inter: #c39a78;     /* lifted from #9c755f for the dark ground */
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: var(--space-8) var(--space-5) 96px; }
+
+  /* ---- type scale ---- */
+  .eyebrow {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.11em; color: var(--accent); margin: 0 0 var(--space-3);
+  }
+  h1.title {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.12;
+    margin: 0 0 var(--space-3); text-wrap: balance;
+  }
+  .dek { font-size: 17px; color: var(--text-dim); max-width: 62ch; margin: 0; line-height: 1.5; }
+
+  h2.section {
+    font-size: 20px; font-weight: 650; letter-spacing: -0.01em;
+    margin: 0 0 var(--space-2); display: flex; align-items: baseline; gap: var(--space-3);
+  }
+  h2.section .n {
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    color: var(--accent); letter-spacing: 0; transform: translateY(-2px);
+  }
+  .section-note { color: var(--text-mute); font-size: 14px; margin: 0 0 var(--space-5); max-width: 62ch; }
+
+  section { margin-top: var(--space-8); }
+  .card {
+    background: var(--surface); border: 1px solid var(--border-soft);
+    border-radius: 12px; padding: var(--space-5);
+  }
+  .rule { height: 1px; background: var(--border); border: 0; margin: var(--space-6) 0 0; }
+
+  /* ---- coverage stat row ---- */
+  .stats { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-6); }
+  .stat {
+    flex: 1 1 130px; background: var(--surface); border: 1px solid var(--border-soft);
+    border-radius: 10px; padding: var(--space-4) var(--space-4) var(--space-3);
+  }
+  .stat .v {
+    font-family: var(--sans); font-size: 27px; font-weight: 600;
+    color: var(--text); letter-spacing: -0.01em;
+  }
+  .stat .l { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-mute); margin-top: var(--space-1); }
+
+  /* ---- type specimen ---- */
+  .spec { display: grid; grid-template-columns: 200px 1fr; gap: 1px; background: var(--border-soft);
+          border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; }
+  .spec > div { background: var(--surface); padding: var(--space-4) var(--space-5); }
+  .spec .meta { color: var(--text-mute); font-family: var(--mono); font-size: 12px; line-height: 1.5;
+                display: flex; flex-direction: column; justify-content: center; }
+  .spec .meta b { color: var(--text-dim); font-weight: 500; }
+  .spec .sample { display: flex; align-items: center; }
+
+  .s-title { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  .s-section { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  .s-result { font-size: 22px; font-weight: 680; letter-spacing: -0.01em; }
+  .s-lede { font-size: 17px; color: var(--text-dim); line-height: 1.5; }
+  .s-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-mute); }
+  .s-body { font-size: 15px; line-height: 1.6; }
+  .s-caption { font-size: 13px; color: var(--text-mute); }
+  .s-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 550; color: var(--text); }
+
+  /* ---- palette swatches ---- */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
+  .sw { border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; }
+  .sw .chip { height: 56px; }
+  .sw .info { padding: var(--space-3); }
+  .sw .info .role { font-size: 13px; font-weight: 600; }
+  .sw .info .hex { font-family: var(--mono); font-size: 12px; color: var(--text-mute); text-transform: uppercase; }
+
+  /* ---- node-kind key ---- */
+  .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--space-3) var(--space-5); }
+  .keyrow { display: flex; align-items: center; gap: var(--space-3); }
+  .dot { width: 15px; height: 15px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px rgba(0,0,0,0.25); }
+  .keyrow .kn { font-size: 14px; }
+  .keyrow .kh { font-family: var(--mono); font-size: 11px; color: var(--text-mute); margin-left: auto; }
+
+  /* ---- numerics table ---- */
+  table.conv { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.conv th, table.conv td { text-align: left; padding: var(--space-3) var(--space-3); border-bottom: 1px solid var(--border-soft); }
+  table.conv th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-mute); font-weight: 600; }
+  table.conv td.now { color: var(--text-mute); text-decoration: line-through; }
+  table.conv td .num, table.conv td.v1 { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text); }
+  table.conv td.v1 { color: var(--accent-bright); }
+
+  /* ---- before / after result framing ---- */
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .ba .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-mute); margin: 0 0 var(--space-2); }
+  .panel { border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; }
+  .panel.before .frame { background: #ffffff; color: #333; height: 150px; display: flex; align-items: center; justify-content: center; }
+  .panel.before .frame small { color: #8a8a8a; font-family: var(--sans); }
+  .panel.before .dbg { background: #fff; color: #333; font-family: var(--sans); font-size: 13px; padding: var(--space-3); border-top: 1px solid #e5e5e5; }
+  .result-head { padding: var(--space-4); border-bottom: 1px solid var(--border-soft); }
+  .result-head .rt { font-size: 20px; font-weight: 680; letter-spacing: -0.01em; }
+  .result-head .rc { font-size: 13px; color: var(--text-mute); margin-top: var(--space-1); }
+  .result-head .rc b { color: var(--text-dim); font-weight: 550; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .graph-frame { background: var(--surface-2); height: 150px; position: relative; }
+  .node-mini { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; color: var(--text-dim); }
+  .node-mini .d { width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 4px rgba(0,0,0,0.2); }
+  .detail { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-soft); font-size: 13px; }
+  .detail .field { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-mute); }
+  .detail a { color: var(--accent-bright); text-decoration: none; margin-left: auto; }
+  .detail a:hover { text-decoration: underline; }
+
+  /* ---- series palette ---- */
+  .series { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--space-2); }
+  .series .s { border: 1px solid var(--border-soft); border-radius: 9px; overflow: hidden; }
+  .series .s .bar { height: 34px; display: flex; align-items: center; padding-left: 12px; }
+  .series .s .bar span { width: 26px; height: 3px; border-radius: 2px; }
+  .series .s .m { padding: 7px 10px; font-family: var(--mono); font-size: 11px; color: var(--text-mute); text-transform: uppercase; }
+  .series .s .m b { color: var(--text-dim); font-weight: 500; }
+
+  /* ---- two-up chart demo ---- */
+  .charts2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .chartcard { border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; background: var(--surface); }
+  .chartcard .cap { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+  .chartcard .cap b { font-weight: 600; }
+  .chartcard .cap.bad b { color: var(--k-pilot); }
+  .chartcard .cap.good b { color: var(--accent-bright); }
+  .chartcard svg { display: block; width: 100%; height: auto; background: var(--surface-2); }
+
+  .spec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .spec-list li { display: grid; grid-template-columns: 148px 1fr; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-soft); font-size: 14px; line-height: 1.5; }
+  .spec-list li:last-child { border-bottom: 0; }
+  .spec-list .k { color: var(--text-dim); font-weight: 600; }
+  .spec-list .v { color: var(--text-dim); }
+  .spec-list .v code { font-family: var(--mono); font-size: 12.5px; color: var(--text-mute); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
+  .spec-list .v .was { color: var(--text-mute); text-decoration: line-through; }
+
+  /* ---- open decisions ---- */
+  ul.open { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+  ul.open li { display: flex; gap: var(--space-3); align-items: flex-start; font-size: 14px; line-height: 1.5; }
+  ul.open li::before { content: "?"; flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent-bright); font-family: var(--mono); font-weight: 600;
+    font-size: 12px; display: grid; place-items: center; margin-top: 1px; }
+  ul.open li b { font-weight: 600; }
+  .tag { display: inline-block; background: var(--accent-soft); color: var(--accent-bright); font-size: 12px;
+    font-weight: 600; padding: 3px 10px; border-radius: 999px; letter-spacing: 0.01em; }
+
+  @media (max-width: 640px) {
+    .spec { grid-template-columns: 1fr; }
+    .spec .meta { border-bottom: 1px solid var(--border-soft); }
+    .ba { grid-template-columns: 1fr; }
+    h1.title { font-size: 25px; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Issue #85 · v1 presentation overhaul</p>
+    <h1 class="title">7PH Explorer — a dark-first visual direction</h1>
+    <p class="dek">A written system to react to before any CSS lands: one type scale, one dark palette, one rule for numbers, one categorical set shared by every chart and the graph, and the answer finally titled. Grounded in the live app and the artifact it serves today.</p>
+
+    <div class="stats" role="list" aria-label="Coverage the app currently shows nowhere">
+      <div class="stat" role="listitem"><div class="v">108</div><div class="l">Events</div></div>
+      <div class="stat" role="listitem"><div class="v">1,083</div><div class="l">Pilots</div></div>
+      <div class="stat" role="listitem"><div class="v">4,591</div><div class="l">Decks</div></div>
+      <div class="stat" role="listitem"><div class="v">4,995</div><div class="l">Cards</div></div>
+      <div class="stat" role="listitem"><div class="v">2023–26</div><div class="l">Years</div></div>
+    </div>
+    <p class="section-note" style="margin-top:var(--space-3)">None of these five numbers appears anywhere in the app. The coverage row above is itself a proposal: this is what should sit under the title so a stranger knows what they are looking at.</p>
+  </header>
+
+  <hr class="rule">
+
+  <section>
+    <h2 class="section"><span class="n">A</span> Type scale</h2>
+    <p class="section-note">Eight roles, one relationship. Today the page has exactly one heading and everything else is a widget label — this is the single biggest reason it reads as a dev build. System sans throughout (zero font load, ships on every device); numbers always tabular.</p>
+    <div class="spec">
+      <div class="meta"><b>Page title</b>30 · 700 · -2%</div><div class="sample"><span class="s-title">7 Point Highlander</span></div>
+      <div class="meta"><b>Section heading</b>20 · 650 · -1%</div><div class="sample"><span class="s-section">Meta share over time</span></div>
+      <div class="meta"><b>Result title</b>22 · 680 · -1%</div><div class="sample"><span class="s-result">Aaron C · head-to-head</span></div>
+      <div class="meta"><b>Lede</b>17 · 400 · 62ch max</div><div class="sample"><span class="s-lede">Pick a pilot, a card, or an archetype and see the result as a graph.</span></div>
+      <div class="meta"><b>Control label</b>12 · 600 · caps · 6%</div><div class="sample"><span class="s-label">Second pilot</span></div>
+      <div class="meta"><b>Body</b>15 · 400 · 1.6</div><div class="sample"><span class="s-body">A result too large to read is neither drawn nor truncated.</span></div>
+      <div class="meta"><b>Caption</b>13 · mute</div><div class="sample"><span class="s-caption">Grouped by primary archetype, latest fetch.</span></div>
+      <div class="meta"><b>Numeric readout</b>mono · tabular</div><div class="sample"><span class="s-num">6.73%&nbsp;·&nbsp;134 / 2,000 decks</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section"><span class="n">B</span> Palette &amp; neutrals</h2>
+    <p class="section-note">A warm near-black, not pure #000 — the neutrals carry a faint bias toward the orange the app already uses on its primary button and tab underline, so the accent reads as chosen rather than bolted on. This is the ground that retires the white graph slab and the washed-out grey text.</p>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#131110"></div><div class="info"><div class="role">Ground</div><div class="hex">#131110</div></div></div>
+      <div class="sw"><div class="chip" style="background:#1c1917"></div><div class="info"><div class="role">Surface</div><div class="hex">#1c1917</div></div></div>
+      <div class="sw"><div class="chip" style="background:#37312b"></div><div class="info"><div class="role">Border</div><div class="hex">#37312b</div></div></div>
+      <div class="sw"><div class="chip" style="background:#f2ede6"></div><div class="info"><div class="role">Text</div><div class="hex">#f2ede6</div></div></div>
+      <div class="sw"><div class="chip" style="background:#b4aca2"></div><div class="info"><div class="role">Text dim</div><div class="hex">#b4aca2</div></div></div>
+      <div class="sw"><div class="chip" style="background:#e26a2c"></div><div class="info"><div class="role">Accent</div><div class="hex">#e26a2c</div></div></div>
+    </div>
+    <p class="section-note" style="margin-top:var(--space-4)">Text on ground clears WCAG AA at every level above; the mid-grey Plotly compromise (<span style="font-family:var(--mono);font-size:13px">#9ca3af</span>) goes away because the background is now known.</p>
+  </section>
+
+  <section>
+    <h2 class="section"><span class="n">C</span> Node-kind key</h2>
+    <p class="section-note">The eight kinds keep the hues from <span style="font-family:var(--mono);font-size:13px">render.py</span> — two lifted for the dark ground. The graph has no legend at all today; this key ships beside it. Colour stays uniform dots (per the agreed rule); the colour-blind-safe canvas cue is an open decision below, not silently resolved by giving each kind a shape.</p>
+    <div class="card">
+      <div class="keys">
+        <div class="keyrow"><span class="dot" style="background:var(--k-pilot)"></span><span class="kn">Pilot</span><span class="kh">#e15759</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-deck)"></span><span class="kn">Deck</span><span class="kh">#6a9bd8</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-card)"></span><span class="kn">Card</span><span class="kh">#66b85c</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-arch)"></span><span class="kn">Archetype</span><span class="kh">#f28e2b</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-macro)"></span><span class="kn">Macro</span><span class="kh">#edc948</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-event)"></span><span class="kn">Event</span><span class="kh">#c48fb8</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-place)"></span><span class="kn">Placement</span><span class="kh">#c2b8b2</span></div>
+        <div class="keyrow"><span class="dot" style="background:var(--k-inter)"></span><span class="kn">Intersection</span><span class="kh">#c39a78</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section"><span class="n">D</span> One rule for numbers</h2>
+    <p class="section-note">Today the same idea — sample size — is written two ways across two charts (<span style="font-family:var(--mono);font-size:13px">n=12</span> in one, <span style="font-family:var(--mono);font-size:13px">12/2000 decks</span> in the other). One convention, everywhere: a share, then the count over its base, thousands separated, tabular figures.</p>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="conv">
+        <thead><tr><th>Quantity</th><th>Today</th><th>v1 convention</th></tr></thead>
+        <tbody>
+          <tr><td>Share</td><td class="now">.2~%</td><td class="v1">6.73%&nbsp;/&nbsp;0.12%</td></tr>
+          <tr><td>Count + sample</td><td class="now">n=12&nbsp;·&nbsp;12/2000 decks</td><td class="v1">134 / 2,000 decks</td></tr>
+          <tr><td>Score</td><td class="now">%{y:.3f}</td><td class="v1">0.62&nbsp;<span style="color:var(--text-mute)">(1 = 1st)</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section"><span class="n">E</span> The answer, titled</h2>
+    <p class="section-note">The core interaction fix. Today a graph appears with no caption saying what was asked, and the details panel is a debug line on white. Right: the same result — the one I drew live for Aaron C — titled in the page's own type, on the dark ground, with a structured detail readout.</p>
+    <div class="ba">
+      <div class="panel before">
+        <p class="lab" style="padding:var(--space-3) var(--space-4) 0">Today</p>
+        <div class="frame"><small>white vis.js slab · no title · no key</small></div>
+        <div class="dbg">Deck: Mono Red · <a href="#" style="color:#1a6fc4">Open on Moxfield</a></div>
+      </div>
+      <div class="panel">
+        <p class="lab" style="padding:var(--space-3) var(--space-4) 0">v1</p>
+        <div class="result-head">
+          <div class="rt">Aaron C · head-to-head</div>
+          <div class="rc">Pilot neighbourhood · <b>4 nodes</b> · Event → Deck → Placement</div>
+        </div>
+        <div class="graph-frame" aria-hidden="true">
+          <div class="node-mini" style="left:16px;top:22px"><span class="d" style="background:var(--k-pilot)"></span>Aaron C</div>
+          <div class="node-mini" style="left:96px;top:78px"><span class="d" style="background:var(--k-event)"></span>TMC24</div>
+          <div class="node-mini" style="left:180px;top:34px"><span class="d" style="background:var(--k-deck)"></span>Mono Red</div>
+          <div class="node-mini" style="left:268px;top:80px"><span class="d" style="background:var(--k-place)"></span>126th</div>
+        </div>
+        <div class="detail"><span class="field">Deck</span><span>Mono Red</span><a href="#">Open on Moxfield ↗</a></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section"><span class="n">F</span> Charts — the primary surface</h2>
+    <p class="section-note">The plots are how the app actually answers a question, so they get their own system, not a coat of theme paint. One categorical set (below) serves every chart <em>and</em> the graph — validated colour-blind-safe on the dark ground (worst adjacent CVD ΔE 8.4). Titles leave the Plotly figure and become page headings; axes and gridlines move onto the palette's chrome tokens; every number is tabular in its column.</p>
+
+    <p class="s-label" style="margin:0 0 var(--space-3)">Categorical series — fixed order, assigned by entity, never cycled</p>
+    <div class="series">
+      <div class="s"><div class="bar"><span style="background:#3987e5"></span></div><div class="m"><b>1</b> #3987e5</div></div>
+      <div class="s"><div class="bar"><span style="background:#d95926"></span></div><div class="m"><b>2</b> #d95926</div></div>
+      <div class="s"><div class="bar"><span style="background:#199e70"></span></div><div class="m"><b>3</b> #199e70</div></div>
+      <div class="s"><div class="bar"><span style="background:#c98500"></span></div><div class="m"><b>4</b> #c98500</div></div>
+      <div class="s"><div class="bar"><span style="background:#d55181"></span></div><div class="m"><b>5</b> #d55181</div></div>
+      <div class="s"><div class="bar"><span style="background:#008300"></span></div><div class="m"><b>6</b> #008300</div></div>
+      <div class="s"><div class="bar"><span style="background:#9085e9"></span></div><div class="m"><b>7</b> #9085e9</div></div>
+      <div class="s"><div class="bar"><span style="background:#e66767"></span></div><div class="m"><b>8</b> #e66767</div></div>
+    </div>
+
+    <p class="section-note" style="margin:var(--space-6) 0 var(--space-4)"><b style="color:var(--text)">The real problem with the meta chart:</b> colour tops out at eight distinguishable series, but the Top&nbsp;50% cut draws ~15 lines and cycles a 32-colour wheel — which is why Grixis, Mardu, Nadu and Oracle were indistinguishable in the live view. No palette fixes this; more hues make it worse.</p>
+    <div class="charts2">
+      <div class="chartcard">
+        <div class="cap bad">Today — <b>~15 cycled hues</b>, a hairball</div>
+        <svg viewBox="0 0 380 168" role="img" aria-label="Fifteen dashed lines in cycled colours, hard to tell apart">
+          <line x1="40" y1="132" x2="366" y2="132" stroke="#383835" stroke-width="1"/>
+          <g stroke-dasharray="4 3" stroke-width="1.3" fill="none" opacity="0.92">
+            <polyline points="40,128 150,120 260,44 350,70" stroke="#3987e5"/>
+            <polyline points="40,55 150,40 260,55 350,64" stroke="#d95926"/>
+            <polyline points="40,118 150,86 260,86 350,72" stroke="#199e70"/>
+            <polyline points="40,120 150,92 260,60 350,66" stroke="#c98500"/>
+            <polyline points="40,122 150,100 260,96 350,60" stroke="#d55181"/>
+            <polyline points="40,126 150,118 260,110 350,100" stroke="#008300"/>
+            <polyline points="40,96 150,112 260,96 350,90" stroke="#9085e9"/>
+            <polyline points="40,116 150,110 260,100 350,86" stroke="#e66767"/>
+            <polyline points="40,129 150,124 260,118 350,88" stroke="#3987e5"/>
+            <polyline points="40,121 150,116 260,104 350,72" stroke="#d95926"/>
+            <polyline points="40,127 150,120 260,112 350,104" stroke="#199e70"/>
+            <polyline points="40,100 150,90 260,92 350,86" stroke="#c98500"/>
+            <polyline points="40,110 150,104 260,70 350,58" stroke="#d55181"/>
+            <polyline points="40,113 150,108 260,101 350,94" stroke="#9085e9"/>
+          </g>
+          <g fill="#8a8178" font-family="ui-monospace, Menlo, monospace" font-size="9">
+            <text x="34" y="150">2023</text><text x="144" y="150">2024</text><text x="254" y="150">2025</text><text x="336" y="150">2026</text>
+          </g>
+        </svg>
+      </div>
+      <div class="chartcard">
+        <div class="cap good">v1 — <b>emphasis</b>: context recedes, one line reads</div>
+        <svg viewBox="0 0 380 168" role="img" aria-label="Grey context lines with one archetype raised in the accent colour and directly labelled">
+          <line x1="40" y1="132" x2="366" y2="132" stroke="#383835" stroke-width="1"/>
+          <g stroke-width="1.1" fill="none" stroke="#6b635c" opacity="0.34">
+            <polyline points="40,55 150,40 260,55 350,64"/>
+            <polyline points="40,118 150,86 260,86 350,72"/>
+            <polyline points="40,120 150,92 260,60 350,66"/>
+            <polyline points="40,122 150,100 260,96 350,60"/>
+            <polyline points="40,126 150,118 260,110 350,100"/>
+            <polyline points="40,96 150,112 260,96 350,90"/>
+            <polyline points="40,116 150,110 260,100 350,86"/>
+            <polyline points="40,129 150,124 260,118 350,88"/>
+            <polyline points="40,121 150,116 260,104 350,72"/>
+            <polyline points="40,127 150,120 260,112 350,104"/>
+            <polyline points="40,100 150,90 260,92 350,86"/>
+            <polyline points="40,110 150,104 260,70 350,58"/>
+            <polyline points="40,113 150,108 260,101 350,94"/>
+          </g>
+          <polyline points="40,128 150,120 260,44 350,70" fill="none" stroke="#f4823f" stroke-width="2.2" stroke-dasharray="5 3"/>
+          <g fill="#1c1917" stroke="#f4823f" stroke-width="2">
+            <circle cx="40" cy="128" r="3.2"/><circle cx="150" cy="120" r="3.2"/><circle cx="260" cy="44" r="3.2"/><circle cx="350" cy="70" r="3.2"/>
+          </g>
+          <text x="230" y="36" fill="#f2ede6" font-family="-apple-system, system-ui, sans-serif" font-size="11" font-weight="600">Grixis · 11.4%</text>
+          <g fill="#8a8178" font-family="ui-monospace, Menlo, monospace" font-size="9">
+            <text x="34" y="150">2023</text><text x="144" y="150">2024</text><text x="254" y="150">2025</text><text x="336" y="150">2026</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:var(--space-5);padding:var(--space-2) var(--space-5)">
+      <ul class="spec-list">
+        <li><span class="k">Series colour</span><span class="v">≤ 8 picks (Top 25%, a few chosen cards): the eight slots, one per entity, stable across a re-cut. Past 8: everything grey, hover a legend row to raise it.</span></li>
+        <li><span class="k">Line &amp; markers</span><span class="v">Keep the ADR-0013 read — thin dashed join (asserts no trend) + hollow observation markers — now with a <code>2px</code> surface ring so overlaps don't turn to mud.</span></li>
+        <li><span class="k">Gridlines</span><span class="v"><code>#2c2c2a</code> hairline, solid <span class="was">(never dashed)</span> — recedes under the data.</span></li>
+        <li><span class="k">Axis / ticks</span><span class="v"><span class="was">#9ca3af</span> → muted <code>#898781</code>, ticks tabular &amp; thousands-comma'd.</span></li>
+        <li><span class="k">Title</span><span class="v">Leaves the figure; becomes the page's result/section heading in real type, not Plotly's font inside an image.</span></li>
+        <li><span class="k">Legend</span><span class="v">≤ 4 series: direct end-labels. More: legend present, click-to-isolate (Plotly-native, so it survives the <code>gr.Plot</code> hover limit, #78).</span></li>
+        <li><span class="k">Range slider</span><span class="v">The head-to-head time filter moves out of the figure (drop the <span class="was">◀ drag ▶</span> annotation hack) into a control row above the chart.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="section"><span class="n">G</span> The graph, on the same system</h2>
+    <p class="section-note">The eight node kinds reuse the eight series slots, so a Deck is the same blue whether it's a dot in the graph or a line in a chart — one categorical vocabulary across the whole app. Grouped views (head-to-head, co-occurrence) tint by group using slots&nbsp;1–3, the trio that stays distinct even when any two can sit adjacent.</p>
+    <div class="card" style="padding:var(--space-2) var(--space-5)">
+      <ul class="spec-list">
+        <li><span class="k">Ground</span><span class="v"><span class="was">#ffffff vis.js default</span> → surface <code>#1c1917</code>. The iframe stops being a white slab and joins the page.</span></li>
+        <li><span class="k">Nodes</span><span class="v">Uniform dots, name beside the node (the signed rule), quantities on edges. Weighted views size the dot within a bounded range.</span></li>
+        <li><span class="k">Node colour</span><span class="v">The 8 slots, one per kind — but on a graph any two kinds can touch, so colour is a <em>secondary</em> cue: the label + the on-screen key carry identity, never hue alone.</span></li>
+        <li><span class="k">Grouped colour</span><span class="v">Slots 1–3 (blue / orange / aqua) per player or seed card — the all-pairs-safe trio.</span></li>
+        <li><span class="k">Edges</span><span class="v">Hairline on a border token; tinted to the group in grouped views, neutral otherwise. Labelled quantities stay on the edge.</span></li>
+        <li><span class="k">Height</span><span class="v"><span class="was">fixed 760 / 700px</span> → responsive, so it's not a phone-eating slab or a desktop letterbox; details panel visible without scrolling.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2 class="section">Open decisions</h2>
+    <p class="section-note">Everything above is a proposal, not a decision. These are the calls I did not make for you — each changes the work, so they are yours. One at a time when you are ready.</p>
+    <ul class="open">
+      <li><span><b>Emphasis vs. ADR-0013 colouring.</b> The many-lines fix (grey context + one raised line) changes how the meta/adoption charts use colour — today ADR-0013 colours by rank and leans on the legend. Emphasis is more honest at ~15 lines, but it's ADR territory, so it needs the domain call before it's built. <span class="tag">recommend: emphasis</span></span></li>
+      <li><span><b>Per-point sample-size labels.</b> The performance chart labels <em>every</em> point with "N ev" — useful (a 2-event mean ≠ a 20-event one) but it's the "number on every point" anti-pattern. Keep them, or move to hover and label only the extremes?</span></li>
+      <li><span><b>Accent hue.</b> I kept the app's existing orange (#e26a2c). Keep it, or pick something that reads more like MTG / competitive metagame? <span class="tag">recommend: keep</span></span></li>
+      <li><span><b>Colour-blind canvas cue.</b> The signed rule is uniform dots, so I did not encode kind by shape. A labelled key covers most of it; the on-canvas cue for ~8% of readers (a kind prefix on the label, or a thin ring) is a real trade-off against clutter.</span></li>
+      <li><span><b>Cold start.</b> Land on a drawn default (one real query at startup) or two–three one-click example questions? Both kill the empty canvas; the second teaches the tool better.</span></li>
+      <li><span><b>Type stack.</b> System sans keeps load at zero and deploys clean on the Space. A self-hosted display face would add personality at the cost of bytes and one more served asset — worth it for v1, or later?</span></li>
+    </ul>
+  </section>
+</div>
+
+</body>
+</html>
