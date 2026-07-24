@@ -3,7 +3,10 @@ from datetime import datetime
 from graph7ph import palette, theme
 from graph7ph.app import (
     _CARDS_TAB,
+    _PLOT_LABELS,
     _adoption_figure,
+    _adoption_heading_text,
+    _adoption_cards,
     _chart_heading,
     _embed,
     _head_to_head_figure,
@@ -32,26 +35,57 @@ def _meta_series(*tag_year_share):
     ])
 
 
-def test_the_three_subject_tabs_carry_exactly_the_nine_modality_views():
-    # Issue #119 regroups by subject, not by render pipeline, but preserves every
-    # view: the Explore/Trends split held nine views, and the Pilots/Cards/Meta
-    # split must hold the same nine, none added, dropped, or filed under the wrong
-    # subject. The expectations are v1 §11's table, an independent source: a future
-    # edit that drops a view, duplicates one, or moves it tabs trips this.
+def test_pilots_and_cards_collapse_to_two_views_each():
+    # Issue #126 fuses each subject's graph and trend behind one Draw: Pilots goes
+    # 4 views -> 2 (Pilot overview, Head-to-head) and Cards 3 -> 2 (Card overview,
+    # Co-occurrence). Meta is untouched here (#125 owns hidden gems). The
+    # expectations are v1 §11's amended table, an independent source: a future edit
+    # that re-splits a tab or drops a view trips this.
     per_tab = {"Pilots": set(_PILOTS_TAB), "Cards": set(_CARDS_TAB), "Meta": set(_META_TAB)}
-    # §11's table splits the views 4 / 3 / 2 across the three tabs.
-    assert [len(per_tab[t]) for t in ("Pilots", "Cards", "Meta")] == [4, 3, 2]
+    assert [len(per_tab[t]) for t in ("Pilots", "Cards", "Meta")] == [2, 2, 2]
 
-    all_ids = set().union(*per_tab.values())
-    assert len(all_ids) == 9  # no view id shared across tabs
-    assert all_ids == {
-        "pilot_neighbourhood", "pilot_affinity", "pilot_performance", "pilot_h2h_timeline",
-        "card_usage", "card_cooccurrence", "card_adoption",
-        "meta_share", "meta_gems",
+    assert set(_PILOTS_TAB) == {"pilot_overview", "pilot_head_to_head"}
+    assert set(_CARDS_TAB) == {"card_overview", "card_cooccurrence"}
+    assert set(_META_TAB) == {"meta_share", "meta_gems"}
+
+
+def test_every_underlying_query_still_has_a_plot_heading():
+    # The views collapse but the queries do not: one Draw now fans out to several
+    # plots, each titled by the plot it draws rather than by the view it sits in.
+    # Every graph query the two-view shape still reaches (neighbourhood, affinity,
+    # usage, co-occurrence, gems) must keep a heading label, so the "all queries
+    # preserved" AC cannot silently drop one.
+    assert set(_PLOT_LABELS) == {
+        "pilot_neighbourhood", "pilot_affinity",
+        "card_usage", "card_cooccurrence",
+        "meta_gems",
     }
-    # §11's placement note: hidden gems sits under Meta (beside meta share), so the
-    # Meta tab is not a single-view tab, not under Cards.
-    assert "meta_gems" in per_tab["Meta"]
+
+
+def test_card_overview_adoption_heading_carries_the_board_but_cooccurrence_carries_none():
+    # AC (#126): Card overview has a board control, so its adoption heading names the
+    # board the count is scoped to. Co-occurrence is board-agnostic (no board
+    # control), so its adoption heading carries no board qualifier at all: the
+    # string "main or side" must never reach the plot, since there is no control to
+    # disambiguate it. board=None is the board-agnostic sentinel.
+    assert _adoption_heading_text("") == "Card adoption over time (main or side)"
+    assert _adoption_heading_text("Main") == "Card adoption over time (main)"
+
+    agnostic = _adoption_heading_text(None)
+    assert agnostic == "Card adoption over time"
+    assert "main or side" not in agnostic
+    assert "board" not in agnostic.lower()
+
+
+def test_cooccurrence_adoption_plots_both_cards_or_the_subject_alone():
+    # AC (#126): the co-occurrence adoption trend plots both cards when a second is
+    # chosen and the subject alone otherwise; the subject always leads (first trace),
+    # and a second card equal to the subject collapses to one line rather than two.
+    assert _adoption_cards("sol-ring", None) == ["sol-ring"]
+    assert _adoption_cards("sol-ring", "mana-crypt") == ["sol-ring", "mana-crypt"]
+    assert _adoption_cards("sol-ring", "sol-ring") == ["sol-ring"]
+    # No subject, no lines: a compare card never draws on its own.
+    assert _adoption_cards("", "mana-crypt") == []
 
 
 def test_a_drawn_result_is_titled_and_captioned_in_page_type():
@@ -66,8 +100,9 @@ def test_a_drawn_result_is_titled_and_captioned_in_page_type():
 
     assert "t-result-title" in header
     assert "t-caption" in header
-    # The picker label names the view (§11 table), the subject follows it.
-    assert "Neighbourhood &amp; head-to-head: Ada L" in header
+    # The plot label names what was drawn (#126: a view holds several plots), the
+    # subject follows it.
+    assert "Neighbourhood: Ada L" in header
     # The caption carries the filters and the node count, joined as one line.
     assert "vs Bob C · 42 nodes" in header
 

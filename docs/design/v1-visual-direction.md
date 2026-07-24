@@ -179,31 +179,46 @@ and buttons are written in reader language, not internal parameter names.
 
 ## 11. Information architecture (subject-first)
 
-The app is organised by **subject**, not by output modality. Today it splits
+The app is organised by **subject**, not by output modality. It once split
 Explore (graph views) from Trends (chart views) — a split by rendering pipeline,
-not by what a visitor wants to know, which scatters each subject across both tabs
-(Pilot head-to-head appears in both). v1 regroups the **same nine views, all
-preserved**, under three subject tabs. This is reorganisation, not reduction:
-nothing is added or removed, every query, filter, and view reachable today stays
-reachable.
+not by what a visitor wants to know, which scattered each subject across both tabs
+(Pilot head-to-head appeared in both). The subject-first regrouping (#119) put
+every view under three subject tabs behind a view-picker, and #126 takes the next
+step: where a subject's graph and its temporal trend share **exactly the same
+filters**, one Draw renders both, stacked, so the structural answer (graph) and the
+temporal answer (trend) sit together under one control set. Pilots and Cards each
+collapse to **two views**, one Draw per view rendering all of that view's plots.
 
-| Tab | Views (all existing, kept as-is) |
+| Tab | Views (one Draw per view; a view renders all its plots) |
 |---|---|
-| **Pilots** | neighbourhood & head-to-head (graph), archetype affinity (graph), performance over time (chart), head-to-head timeline (chart) |
-| **Cards** | usage (graph), co-occurrence (graph), adoption over time (chart) |
-| **Meta** | meta share over time (chart), hidden gems (graph) |
+| **Pilots** | **Pilot overview**: neighbourhood (solo) + archetype affinity + performance over time (one pilot); **Head-to-head**: neighbourhood pair + head-to-head timeline (two pilots, second required) |
+| **Cards** | **Card overview**: usage + adoption over time (one card + board); **Co-occurrence**: co-occurrence graph + adoption over time (card + second card + top-N + drop-lands, board-agnostic) |
+| **Meta** | meta share over time, hidden gems |
 
 - **Subject selected once.** The subject (a pilot, a card) is chosen at the tab
   level and reused across that tab's views, so a visitor picks a pilot once and
-  moves between their graph and their trends without re-selecting. Head-to-head,
-  which needs two pilots, takes the second in its own control.
-- **Both modalities under one subject.** A subject's graph views and its
-  time-series views sit together; the graph and chart pipelines stay separate
-  under the hood (ADR-0013), but that split is no longer visible in the
-  navigation.
-- Within a tab, a view-picker selects the specific view — the same pattern the
-  current tabs use, now scoped to one subject.
+  moves between its views without re-selecting. Head-to-head, which needs two
+  pilots, takes the second in its own control.
+- **One Draw, both modalities.** Within a view, one Draw fans out to a subgraph
+  query and a series query; the graph and chart pipelines stay separate under the
+  hood (ADR-0013), only the presentation is combined. Plots stack vertically,
+  graph(s) first then trend, each with its own heading and short explanation, the
+  methodology caveats (#101) demoted into a details panel per §8, not deleted.
+- **States compose.** Within one view a graph can hit "too large → refine" while a
+  trend hits "not enough history → refused" (or vice versa); the plot that can draw
+  draws, the other shows its own note in place, and no combination breaks a sibling.
+- **One deliberate reduction.** The old Adoption-over-time view's free "compare with
+  other cards" multi-select (arbitrarily many overlaid cards) is dropped; the
+  co-occurrence pair (subject + one second card) becomes the only multi-card
+  compare. This is a conscious reduction against #119's "preserve every view"
+  principle, accepted for the cleaner two-view shape, not an oversight to re-add.
+
+The **Adoption over time** trend is the same in both card views: Card overview scopes
+it to the chosen board, Co-occurrence draws it board-agnostic (across both boards),
+with no board qualifier text since there is no board control there. It plots both
+cards when a second is chosen in Co-occurrence, the subject alone otherwise.
 
 Placement note: *hidden gems* is entered by archetype and outputs cards; it sits
-under **Meta** (beside meta share) rather than Cards, so the Meta tab is not a
-single-view tab and the two archetype/meta-level views stay together.
+under **Meta** (beside meta share) for now. Issue #125 moves it to its own tab;
+once both land the final structure is **Pilots (2), Cards (2), Meta (1: meta share),
+Hidden gems (1)**.

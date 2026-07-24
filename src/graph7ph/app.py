@@ -62,24 +62,19 @@ from graph7ph.trends import (
 _PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Draw.</p>"
 
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
-# Three tabs (Pilots, Cards, Meta) each hold that subject's graph and chart views
-# behind a view picker, so a visitor picks the subject once and moves across its
-# views. The same nine views the old Explore/Trends split carried are all preserved;
-# only the grouping changes, and the graph and chart pipelines stay separate under
-# the hood (ADR 0013). Each tab is an ordered map of view id to the label the picker
-# shows; the graph views' ids double as the query keys `_spec` dispatches on. Held
-# as data so the tests can assert the nine views survive the regrouping intact,
-# none added or dropped.
+# Since #126 each of Pilots and Cards collapses to two views, and one Draw per view
+# fans out to all of that view's plots (a subgraph query and a series query stay two
+# seams under the hood, ADR 0013; only the presentation combines). Each tab is an
+# ordered map of view id to the label the picker shows. Meta is untouched here
+# (issue #125 owns hidden gems). Held as data so the tests can assert the two-view
+# shape.
 _PILOTS_TAB: dict[str, str] = {
-    "pilot_neighbourhood": "Neighbourhood & head-to-head",
-    "pilot_affinity": "Archetype affinity",
-    "pilot_performance": "Performance over time",
-    "pilot_h2h_timeline": "Head-to-head timeline",
+    "pilot_overview": "Pilot overview",
+    "pilot_head_to_head": "Head-to-head",
 }
 _CARDS_TAB: dict[str, str] = {
-    "card_usage": "Usage",
+    "card_overview": "Card overview",
     "card_cooccurrence": "Co-occurrence",
-    "card_adoption": "Adoption over time",
 }
 _META_TAB: dict[str, str] = {
     "meta_share": "Meta share over time",
@@ -91,20 +86,29 @@ def _picker(tab: dict[str, str]) -> list[tuple[str, str]]:
     return [(label, view_id) for view_id, label in tab.items()]
 
 
-# The reader-language name of every view, keyed by its id: the picker labels do
-# double duty as the result title's view name, so the title and the picker cannot
-# name the same view two ways.
-_VIEW_LABELS: dict[str, str] = {**_PILOTS_TAB, **_CARDS_TAB, **_META_TAB}
+# The reader-language name of each graph plot, keyed by its query id. A view now
+# holds several plots (#126), so a drawn subgraph is titled by the plot it draws
+# (neighbourhood, affinity, usage, co-occurrence, gems), not by the view it sits in.
+# The trend plots title themselves through `_chart_heading`. These ids double as the
+# query keys `_spec` and `_graph_meta` dispatch on, so every query the two-view shape
+# reaches keeps a heading here.
+_PLOT_LABELS: dict[str, str] = {
+    "pilot_neighbourhood": "Neighbourhood",
+    "pilot_affinity": "Archetype affinity",
+    "card_usage": "Usage",
+    "card_cooccurrence": "Co-occurrence",
+    "meta_gems": "Hidden gems",
+}
 
 
-def _result_header(view: str, subject: str, filters: list[str], node_count: int) -> str:
-    """Frame a query result in page type (issue #110, §3): the view and its subject
+def _result_header(plot: str, subject: str, filters: list[str], node_count: int) -> str:
+    """Frame a query result in page type (issue #110, §3): the plot and its subject
     as the title, the filters and how many nodes came back as the caption, so an
     answer is never left as an unlabelled graph. Prepended to the drawn result, the
     empty state, and the refine alert alike, so every post-query state speaks the
     same way. The subject and filters are display labels (free text), so they are
     escaped into the markup."""
-    title = f"{_VIEW_LABELS[view]}: {subject}"
+    title = f"{_PLOT_LABELS[plot]}: {subject}"
     # A drawn result is under the render threshold (250 nodes), so the count needs no
     # thousands separator; the refine alert carries the large counts.
     tail = f"{node_count} node" + ("" if node_count == 1 else "s")
@@ -162,6 +166,22 @@ def _note(message: str) -> str:
     return (
         "<div style='padding:1rem;font-family:sans-serif'>"
         f"<p>{html.escape(message)}</p></div>"
+    )
+
+
+def _plot_intro(lede: str, methodology: str | None = None) -> str:
+    """A plot's one-line lede, with any evidence-integrity caveats demoted into a
+    collapsed details panel (#113, §8, user story 5). A view now stacks several plots
+    under one Draw (#126), so each carries its own short explanation; the methodology
+    the #101 caveats hold (performance's refused years, head-to-head's normalisation,
+    adoption's real zeros) is preserved but folded away, one click from the lede,
+    rather than deleted for the sake of a clean three-plot view or left crowding it."""
+    if not methodology:
+        return lede
+    return (
+        f"{lede}\n\n"
+        "<details class='t-methodology'><summary>How this is measured</summary>\n\n"
+        f"{methodology}\n\n</details>"
     )
 
 
@@ -223,6 +243,46 @@ _DEFAULT_CUT = "Top 50%"
 # one place so the adoption chart's title label and the dropdown never disagree.
 _BOARD_CHOICES = [("Main or side", ""), ("Main", "Main"), ("Side", "Side")]
 _BOARD_LABELS = {value: label.lower() for label, value in _BOARD_CHOICES}
+
+
+# The adoption trend's methodology caveat (#101 real zeros), demoted into a details
+# panel under both card views' adoption ledes (#126). The same trend in both views,
+# so the same note; held once so the two cannot drift apart.
+_ADOPTION_METHODOLOGY = (
+    "A year is the UTC year the lists were registered in, not a confirmed event "
+    "date. A low count is the signal of a card entering the format, not noise, so "
+    "nothing is withheld; a year a card sat out reads as a real zero. Hover a point "
+    "for its raw count over the year's total decks."
+)
+
+
+def _adoption_heading_text(board: str | None) -> str:
+    """The adoption trend's page heading, board-qualified or board-agnostic (#126).
+
+    Card overview has a board control, so its heading names the board the share is
+    scoped to (``""`` reads "main or side", the same either-board reading the query
+    takes as no filter). Co-occurrence is board-agnostic: it has no board control, so
+    ``board is None`` drops the qualifier entirely. The string "main or side" must
+    never reach the co-occurrence plot, since there is no control to disambiguate it.
+    """
+    if board is None:
+        return "Card adoption over time"
+    return f"Card adoption over time ({_BOARD_LABELS[board]})"
+
+
+def _adoption_cards(subject: str, second: str | None) -> list[str]:
+    """The cards an adoption trend plots: the subject, then an optional second card.
+
+    The subject leads (its trace draws first and keeps its colour, §5), and with no
+    subject nothing draws even if a second is chosen. A second card equal to the
+    subject collapses to one line. This is the only multi-card compare (#126): the
+    arbitrary overlay is gone, so the list holds at most two cards.
+    """
+    if not subject:
+        return []
+    if second and second != subject:
+        return [subject, second]
+    return [subject]
 
 
 def _luminance(hex_colour: str) -> float:
@@ -744,32 +804,23 @@ def build_app(artifact: Path) -> gr.Blocks:
         )
 
     # Adoption is per-card, so it is run on demand (a fresh Connection like
-    # `run_graph`) rather than precomputed like the whole meta matrix. The tab's
-    # shared card is the primary line; more cards can be overlaid to compare, one
-    # tool call each, so the compare control is a multi-select (issue #119).
-    def draw_adoption(primary: str, extra: list[str], board: str):
-        # The subject leads: with no subject card nothing draws, even if compare
-        # cards are picked, so the chart never shows a lead line the visitor did not
-        # choose as the subject (issue #119).
-        if not primary:
+    # `run_graph`) rather than precomputed like the whole meta matrix. It is the same
+    # trend in both card views (#126): Card overview draws the subject alone scoped to
+    # a board, Co-occurrence draws the subject plus the co-occurrence pair's second
+    # card, board-agnostic (board is None, no board qualifier reaches the plot).
+    def draw_adoption(subject: str, second: str | None, board: str | None):
+        canons = _adoption_cards(subject, second)
+        if not canons:
             return gr.update(visible=False), gr.update(visible=False)
-        # Then the compare picks, deduped so a card chosen in both is one line, order
-        # preserved so the subject stays the first trace.
-        seen: set[str] = set()
-        canons = [
-            c for c in [primary, *(extra or [])]
-            if c and not (c in seen or seen.add(c))
-        ]
         conn = ladybug.Connection(db)
+        # `board or None` collapses the either-board reading ("") and the board-
+        # agnostic sentinel (None) to the same unfiltered count over both boards.
         series = [
             (card_names[canon], run_series(conn, CardAdoptionOverTime(canon, board or None)))
             for canon in canons
         ]
-        # The board scopes what the count means, so it rides the page heading (§6),
-        # the way it rode the Plotly title before the title moved out of the image.
-        title = f"Card adoption over time ({_BOARD_LABELS[board]})"
         return (
-            gr.update(value=_chart_heading(title), visible=True),
+            gr.update(value=_chart_heading(_adoption_heading_text(board)), visible=True),
             gr.update(value=_adoption_figure(series), visible=True),
         )
 
@@ -914,15 +965,17 @@ def build_app(artifact: Path) -> gr.Blocks:
     ) as demo:
         gr.Markdown("# 7 Point Highlander Graph")
 
-        # The app is organised by subject (issue #119): each tab picks its subject
-        # once at the top, then a view picker swaps between that subject's graph and
-        # chart views. Every view is its own group, shown only when the picker names
-        # it; the shared subject sits above the groups so it carries across the swap.
+        # The app is organised by subject (issue #119), and since #126 each subject
+        # tab collapses to two views, one Draw per view rendering all of that view's
+        # plots stacked (graph(s) first, then trend). The shared subject sits above
+        # the groups so it carries across the picker swap; every view is its own group,
+        # shown only when the picker names it. The graph and trend pipelines stay
+        # separate under the hood (ADR 0013); only the presentation is combined.
         with gr.Tab("Pilots"):
             gr.Markdown(
-                "Explore a pilot across their graph and their trends. Pick a pilot "
-                "once, then switch views; head-to-head takes a second pilot of its "
-                "own.",
+                "Explore a pilot as a whole. Pick a pilot, choose a view, and Draw: "
+                "each view renders all of that pilot's plots at once. Head-to-head "
+                "takes a second pilot of its own.",
                 elem_classes="t-lede",
             )
             # The picker opens on the first view; each group's initial visibility is
@@ -931,7 +984,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             pilots_default = next(iter(_PILOTS_TAB))
             # Subject, then view: the two shared controls sit together above the
             # per-view filters (§ controls order, #110). Held in one group so they
-            # read as a unit and stay put as the view picker swaps the filters below.
+            # read as a unit and stay put as the view picker swaps the plots below.
             with gr.Group():
                 pilot = gr.Dropdown(
                     choices=pilots, label="Pilot", value=None,
@@ -941,131 +994,135 @@ def build_app(artifact: Path) -> gr.Blocks:
                     choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
                 )
 
-            with gr.Group(visible=pilots_default == "pilot_neighbourhood") as g_pilot_neighbourhood:
-                gr.Markdown(
-                    "One pilot's neighbourhood: the decks they piloted and the "
-                    "archetypes those decks carried. Add a second pilot to compare "
-                    "the two neighbourhoods. Click a node for its details; a deck "
-                    "links out to Moxfield."
-                )
-                nb_pilot2 = gr.Dropdown(
-                    choices=pilots, value=None,
-                    label="Second pilot (optional, for head-to-head)",
-                )
-                nb_go = gr.Button("Draw", variant="primary")
-                nb_out = gr.HTML(_PROMPT, elem_classes="result-region")
+            # Pilot overview: one pilot, three plots. The neighbourhood is solo here
+            # (no second pilot); the pair is head-to-head's.
+            with gr.Group(visible=pilots_default == "pilot_overview") as g_pilot_overview:
+                po_go = gr.Button("Draw", variant="primary")
+                gr.Markdown(_plot_intro(
+                    "**Neighbourhood**: the decks this pilot piloted and the archetypes "
+                    "those decks carried. Click a node for its details; a deck links out "
+                    "to Moxfield."
+                ))
+                po_nb_out = gr.HTML(_PROMPT, elem_classes="result-region")
+                gr.Markdown(_plot_intro(
+                    "**Archetype affinity**: how strongly the pilot leans on each "
+                    "archetype across the decks they piloted."
+                ))
+                po_af_out = gr.HTML(_PROMPT, elem_classes="result-region")
+                gr.Markdown(_plot_intro(
+                    "**Performance over time**: the pilot's mean finish per year, drawn "
+                    "so higher is better (1 is a win, 0 is last); a dotted line marks the "
+                    "0.5 midpoint.",
+                    methodology=(
+                        "A year is the UTC year the lists were registered in, not a "
+                        "confirmed event date. A year with only one event to average is "
+                        "left as a gap, an empty tick the line breaks across, captioned "
+                        "with what it holds; a pilot short of two averageable years draws "
+                        "nothing. Each point is labelled with the number of events it "
+                        "averages. The points are the data; the thin dashed line only "
+                        "joins them and asserts no direction (issue #101)."
+                    ),
+                ))
+                po_perf_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                po_perf_note = gr.Markdown(visible=False, elem_classes="result-region")
+                po_perf_plot = gr.Plot(visible=False)
 
-            with gr.Group(visible=pilots_default == "pilot_affinity") as g_pilot_affinity:
-                gr.Markdown(
-                    "How strongly a pilot leans on each archetype, across the decks "
-                    "they piloted. Click a node for its details; a deck links out to "
-                    "Moxfield."
-                )
-                af_go = gr.Button("Draw", variant="primary")
-                af_out = gr.HTML(_PROMPT, elem_classes="result-region")
-
-            with gr.Group(visible=pilots_default == "pilot_performance") as g_pilot_performance:
-                gr.Markdown(
-                    "A pilot's mean finish per year, over every year they played, "
-                    "a year being the UTC year the lists were registered in rather "
-                    "than a confirmed event date, drawn so higher is better (1 is "
-                    "a win, 0 is last). A year with "
-                    "only one event to average is left as a gap, an empty tick the "
-                    "line breaks across, captioned with what it holds; a pilot short "
-                    "of two averageable years draws nothing. Each point is labelled "
-                    "with the "
-                    "number of events it averages, and a dotted line marks the 0.5 "
-                    "midpoint. The points are the data; the thin dashed line only joins "
-                    "them and asserts no direction."
-                )
-                # The "refused, not a dot" surface for a pilot short of averageable
-                # years, mirroring head-to-head; hidden until a pick lands on it. The
-                # page-type title sits above the plot (§6); it carries the result-region
-                # rule (the top of the region), so the plot below it does not repeat it.
-                perf_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
-                performance_note = gr.Markdown(visible=False, elem_classes="result-region")
-                performance_plot = gr.Plot(visible=False)
-
-            with gr.Group(visible=pilots_default == "pilot_h2h_timeline") as g_pilot_h2h:
-                gr.Markdown(
-                    "Two pilots' rivalry over the events they both entered: each "
-                    "point is one shared event, the finish on the y-axis drawn so "
-                    "higher is better (1 is a win, 0 is last), the same scale as the "
-                    "pilot-performance chart. The x-axis is the registration date, so "
-                    "two events shared in one year sit apart. Hover a point for the "
-                    "raw finish over the field size (the placement, which other "
-                    "pilots at the same event can share, and the tournament size "
-                    "the score is normalised against). Drag the range slider "
-                    "under the chart to slice a time range. A pair sharing fewer than "
-                    "two events is a dot, not a timeline, so it is refused rather than "
-                    "drawn."
-                )
-                h2h_pilot_b = gr.Dropdown(choices=pilots, value=None, label="Second pilot")
-                # The "refused, not a dot" surface for a pair with too few shared
-                # events; hidden until a pick lands on it. The title heads the region.
+            # Head-to-head: two pilots, the second required, two plots (the pair's
+            # neighbourhood and their shared-event timeline).
+            with gr.Group(visible=pilots_default == "pilot_head_to_head") as g_pilot_head_to_head:
+                h2h_pilot_b = gr.Dropdown(choices=pilots, value=None, label="Second pilot (required)")
+                h2h_go = gr.Button("Draw", variant="primary")
+                gr.Markdown(_plot_intro(
+                    "**Neighbourhood**: the two pilots' decks and archetypes together, so "
+                    "their neighbourhoods can be compared. Click a node for its details."
+                ))
+                h2h_nb_out = gr.HTML(_PROMPT, elem_classes="result-region")
+                gr.Markdown(_plot_intro(
+                    "**Head-to-head timeline**: the two pilots' finishes over the events "
+                    "they both entered, drawn so higher is better (1 is a win, 0 is last). "
+                    "Drag the range slider under the chart to slice a time range.",
+                    methodology=(
+                        "Each point is one shared event, on a registration-date x-axis, so "
+                        "two events shared in one year sit apart. Hover a point for the raw "
+                        "finish over the field size (the placement, which other pilots at "
+                        "the same event can share, and the tournament size the score is "
+                        "normalised against). A pair sharing fewer than two events is a dot, "
+                        "not a timeline, so it is refused rather than drawn (issue #101)."
+                    ),
+                ))
                 h2h_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
                 h2h_note = gr.Markdown(visible=False, elem_classes="result-region")
                 h2h_plot = gr.Plot(visible=False)
 
             pilots_groups = {
-                "pilot_neighbourhood": g_pilot_neighbourhood,
-                "pilot_affinity": g_pilot_affinity,
-                "pilot_performance": g_pilot_performance,
-                "pilot_h2h_timeline": g_pilot_h2h,
+                "pilot_overview": g_pilot_overview,
+                "pilot_head_to_head": g_pilot_head_to_head,
             }
-            pilot_chart_outs = [
-                perf_heading, performance_plot, performance_note,
-                h2h_heading, h2h_plot, h2h_note,
+            # Every plot output in the tab, for the subject-change reset.
+            pilot_outs = [
+                po_nb_out, po_af_out, po_perf_heading, po_perf_plot, po_perf_note,
+                h2h_nb_out, h2h_heading, h2h_plot, h2h_note,
             ]
 
-            def draw_pilot_chart(view: str, p: str, pb: str):
-                # Draw only the chart the picker currently shows, so selecting the
-                # shared pilot never runs the other view's query into a hidden plot
-                # (code review #1). Each chart returns its heading, its plot, and its note.
-                if view == "pilot_performance":
-                    return (*draw_performance(p), gr.update(), gr.update(), gr.update())
-                if view == "pilot_h2h_timeline":
-                    return (gr.update(), gr.update(), gr.update(), *draw_head_to_head(p, pb))
-                return (gr.update(),) * len(pilot_chart_outs)
+            def draw_pilot_overview(p: str):
+                # One Draw fans out to all three plots: two subgraph queries and a
+                # series, each independent so a graph that refines composes beside a
+                # trend that refuses (#126). draw_performance returns (heading, plot, note).
+                return (
+                    run_graph("pilot_neighbourhood", {"pilot": p, "pilot2": None}),
+                    run_graph("pilot_affinity", {"pilot": p}),
+                    *draw_performance(p),
+                )
 
-            def switch_pilot(view: str, p: str, pb: str):
-                # Show the chosen view and draw it fresh for the current pilot, so a
-                # view switched to with a pilot already picked opens drawn.
-                return [*_toggle(pilots_groups, view), *draw_pilot_chart(view, p, pb)]
+            def draw_head_to_head_view(a: str, b: str):
+                # One Draw fans out to the pair's neighbourhood and their timeline. The
+                # second pilot is required, and must differ from the first: without both
+                # the neighbourhood shows a prompt rather than falling back to the solo
+                # view (that is Pilot overview's job), and a pilot paired with itself is
+                # refused in the neighbourhood the same way the timeline already refuses
+                # it, so the two plots never disagree on the same-pilot case.
+                # draw_head_to_head returns (heading, plot, note).
+                if not a or not b:
+                    nb = _note("Head-to-head compares two pilots. Pick both pilots, then Draw.")
+                elif a == b:
+                    nb = _note("Pick two different pilots to compare their neighbourhoods.")
+                else:
+                    nb = run_graph("pilot_neighbourhood", {"pilot": a, "pilot2": b})
+                return (nb, *draw_head_to_head(a, b))
 
-            def pick_pilot(view: str, p: str, pb: str):
-                # A new pilot leaves the button-drawn graphs showing the old one, so
-                # they drop back to the prompt (re-Draw for the new pilot) while the
-                # active chart redraws (code review #3).
-                return [_PROMPT, _PROMPT, *draw_pilot_chart(view, p, pb)]
+            def reset_pilot():
+                # A new pilot leaves every drawn plot showing the old one, so they drop
+                # back to the prompt/hidden state and wait for a fresh Draw (code review
+                # #3): graphs to the prompt, trends hidden.
+                return [
+                    _PROMPT, _PROMPT,
+                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                    _PROMPT,
+                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                ]
 
             pilots_view.change(
-                switch_pilot, inputs=[pilots_view, pilot, h2h_pilot_b],
-                outputs=[*pilots_groups.values(), *pilot_chart_outs],
+                lambda v: _toggle(pilots_groups, v),
+                inputs=pilots_view, outputs=list(pilots_groups.values()),
             )
-            pilot.change(
-                pick_pilot, inputs=[pilots_view, pilot, h2h_pilot_b],
-                outputs=[nb_out, af_out, *pilot_chart_outs],
+            # Any control that determines a result drops the drawn plots back to the
+            # prompt so a stale answer never sits under changed controls (code review
+            # #3): the shared pilot for both views, the second pilot for head-to-head.
+            pilot.change(reset_pilot, outputs=pilot_outs)
+            h2h_pilot_b.change(reset_pilot, outputs=pilot_outs)
+            po_go.click(
+                draw_pilot_overview, inputs=pilot,
+                outputs=[po_nb_out, po_af_out, po_perf_heading, po_perf_plot, po_perf_note],
             )
-            # The second pilot only feeds head-to-head, which is the shown view when
-            # its control is reachable, so it just redraws that chart.
-            h2h_pilot_b.change(
-                draw_head_to_head, inputs=[pilot, h2h_pilot_b],
-                outputs=[h2h_heading, h2h_plot, h2h_note],
-            )
-            nb_go.click(
-                lambda p, p2: run_graph("pilot_neighbourhood", {"pilot": p, "pilot2": p2}),
-                inputs=[pilot, nb_pilot2], outputs=nb_out,
-            )
-            af_go.click(
-                lambda p: run_graph("pilot_affinity", {"pilot": p}),
-                inputs=pilot, outputs=af_out,
+            h2h_go.click(
+                draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
+                outputs=[h2h_nb_out, h2h_heading, h2h_plot, h2h_note],
             )
 
         with gr.Tab("Cards"):
             gr.Markdown(
-                "Explore a card across its graph and its trends. Pick a card once, "
-                "then switch views.",
+                "Explore a card as a whole. Pick a card, choose a view, and Draw: each "
+                "view renders all of that card's plots at once.",
                 elem_classes="t-lede",
             )
             cards_default = next(iter(_CARDS_TAB))
@@ -1078,101 +1135,107 @@ def build_app(artifact: Path) -> gr.Blocks:
                     choices=_picker(_CARDS_TAB), value=cards_default, label="View",
                 )
 
-            with gr.Group(visible=cards_default == "card_usage") as g_card_usage:
-                gr.Markdown(
-                    "Where a card shows up: the decks running it and the archetypes "
-                    "those decks carry, scoped to a board. Click a node for its "
-                    "details; a deck links out to Moxfield."
-                )
-                usage_board = gr.Dropdown(choices=_BOARD_CHOICES, label="Board", value="")
-                usage_go = gr.Button("Draw", variant="primary")
-                usage_out = gr.HTML(_PROMPT, elem_classes="result-region")
+            # Card overview: one card + board, two plots (usage graph and the adoption
+            # trend, both scoped to the board). No compare card.
+            with gr.Group(visible=cards_default == "card_overview") as g_card_overview:
+                cov_board = gr.Dropdown(choices=_BOARD_CHOICES, label="Board", value="")
+                cov_go = gr.Button("Draw", variant="primary")
+                gr.Markdown(_plot_intro(
+                    "**Usage**: the decks running this card and the archetypes those "
+                    "decks carry, scoped to the board. Click a node for its details; a "
+                    "deck links out to Moxfield."
+                ))
+                cov_usage_out = gr.HTML(_PROMPT, elem_classes="result-region")
+                gr.Markdown(_plot_intro(
+                    "**Adoption over time**: the decks running the card as a share of "
+                    "each year's decks, scoped to the board.",
+                    methodology=_ADOPTION_METHODOLOGY,
+                ))
+                cov_adopt_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                cov_adopt_plot = gr.Plot(visible=False)
 
+            # Co-occurrence: card + second card (optional) + top-N + drop-lands, two
+            # plots. Board-agnostic: no board control, so the adoption trend counts
+            # across both boards and carries no board qualifier text.
             with gr.Group(visible=cards_default == "card_cooccurrence") as g_card_cooccurrence:
-                gr.Markdown(
-                    "The cards that share decks with the chosen card: its most common "
-                    "companions. Add a second card to see a shared package, filter "
-                    "out lands, or widen the cut. Click a node for its details."
-                )
-                co_card2 = gr.Dropdown(
+                cooc_card2 = gr.Dropdown(
                     choices=cards, value=None,
                     label="Second card (optional, for shared packages)",
                 )
-                co_top_n = gr.Dropdown(
+                cooc_top_n = gr.Dropdown(
                     choices=[5, 15, 25], value=15, label="Top cards by co-occurrence rate",
                 )
-                co_drop_lands = gr.Checkbox(value=False, label="Filter out lands")
-                co_go = gr.Button("Draw", variant="primary")
-                co_out = gr.HTML(_PROMPT, elem_classes="result-region")
-
-            with gr.Group(visible=cards_default == "card_adoption") as g_card_adoption:
-                gr.Markdown(
-                    "How a card's adoption moves across the years: the decks running "
-                    "it as a share of that year's decks, a year being the UTC "
-                    "year the lists were registered in rather than a confirmed "
-                    "event date. A low count is the signal "
-                    "of a card entering the format, not noise, so nothing is "
-                    "withheld; a year a card sat out reads as a real zero. Add more "
-                    "cards to compare. Hover a point for its raw count over the "
-                    "year's total decks."
-                )
-                adoption_extra = gr.Dropdown(
-                    choices=cards, value=[], multiselect=True,
-                    label="Compare with other cards (optional)",
-                )
-                adoption_board = gr.Dropdown(choices=_BOARD_CHOICES, value="", label="Board")
-                # The title heads the region (§6); the plot below it does not repeat
-                # the result-region rule.
-                adoption_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
-                adoption_plot = gr.Plot(visible=False)
+                cooc_drop_lands = gr.Checkbox(value=False, label="Filter out lands")
+                cooc_go = gr.Button("Draw", variant="primary")
+                gr.Markdown(_plot_intro(
+                    "**Co-occurrence**: the cards that most often share decks with this "
+                    "card: its most common companions, or a specific shared package when "
+                    "a second card is chosen. Click a node for its details."
+                ))
+                cooc_graph_out = gr.HTML(_PROMPT, elem_classes="result-region")
+                gr.Markdown(_plot_intro(
+                    "**Adoption over time**: the card's share of each year's decks. With "
+                    "a second card chosen, both cards are plotted.",
+                    methodology=_ADOPTION_METHODOLOGY,
+                ))
+                cooc_adopt_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                cooc_adopt_plot = gr.Plot(visible=False)
 
             cards_groups = {
-                "card_usage": g_card_usage,
+                "card_overview": g_card_overview,
                 "card_cooccurrence": g_card_cooccurrence,
-                "card_adoption": g_card_adoption,
             }
-            def draw_card_chart(view: str, c: str, extra: list[str], board: str):
-                # Adoption is the tab's only chart, drawn only when it is the shown
-                # view, so selecting the shared card does not run it while a graph
-                # view is up (code review #1). Returns the heading and the plot.
-                if view == "card_adoption":
-                    return draw_adoption(c, extra, board)
-                return gr.update(), gr.update()
+            card_outs = [
+                cov_usage_out, cov_adopt_heading, cov_adopt_plot,
+                cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot,
+            ]
 
-            def switch_card(view: str, c: str, extra: list[str], board: str):
-                return [*_toggle(cards_groups, view), *draw_card_chart(view, c, extra, board)]
+            def draw_card_overview(c: str, board: str):
+                # One Draw: the usage subgraph and the adoption series, the trend scoped
+                # to the same board the graph is (#126). No compare card here, so the
+                # adoption plots the subject alone. draw_adoption returns (heading, plot).
+                return (
+                    run_graph("card_usage", {"card": c, "card_board": board}),
+                    *draw_adoption(c, None, board),
+                )
 
-            def pick_card(view: str, c: str, extra: list[str], board: str):
-                # A new card leaves the button-drawn graphs on the old one, so they
-                # drop back to the prompt while adoption (if shown) redraws (#3).
-                return [_PROMPT, _PROMPT, *draw_card_chart(view, c, extra, board)]
+            def draw_cooccurrence(c: str, c2: str, n: int, dl: bool):
+                # One Draw: the co-occurrence subgraph and the adoption series. The trend
+                # is board-agnostic (board=None, no board qualifier reaches the plot) and
+                # plots the pair: the subject alone, or both cards when a second is
+                # chosen (#126).
+                graph = run_graph("card_cooccurrence", {
+                    "card": c, "cooccur_card2": c2,
+                    "cooccur_top_n": n, "cooccur_drop_lands": dl,
+                })
+                return (graph, *draw_adoption(c, c2, None))
+
+            def reset_card():
+                # A new card drops every drawn plot back to the prompt/hidden state to
+                # wait for a fresh Draw (code review #3).
+                return [
+                    _PROMPT, gr.update(visible=False), gr.update(visible=False),
+                    _PROMPT, gr.update(visible=False), gr.update(visible=False),
+                ]
 
             cards_view.change(
-                switch_card, inputs=[cards_view, card, adoption_extra, adoption_board],
-                outputs=[*cards_groups.values(), adoption_heading, adoption_plot],
+                lambda v: _toggle(cards_groups, v),
+                inputs=cards_view, outputs=list(cards_groups.values()),
             )
-            card.change(
-                pick_card, inputs=[cards_view, card, adoption_extra, adoption_board],
-                outputs=[usage_out, co_out, adoption_heading, adoption_plot],
+            # As on the Pilots tab, every control that determines a result resets the
+            # drawn plots to the prompt: the shared card, and each view's own filters
+            # (the board, and the co-occurrence second card, cut, and land toggle), so
+            # no stale board- or filter-scoped result sits under changed controls.
+            card.change(reset_card, outputs=card_outs)
+            for _control in (cov_board, cooc_card2, cooc_top_n, cooc_drop_lands):
+                _control.change(reset_card, outputs=card_outs)
+            cov_go.click(
+                draw_card_overview, inputs=[card, cov_board],
+                outputs=[cov_usage_out, cov_adopt_heading, cov_adopt_plot],
             )
-            # Adoption's own controls only ever change while adoption is the shown
-            # view, so they just redraw it.
-            for control in (adoption_extra, adoption_board):
-                control.change(
-                    draw_adoption, inputs=[card, adoption_extra, adoption_board],
-                    outputs=[adoption_heading, adoption_plot],
-                )
-            usage_go.click(
-                lambda c, b: run_graph("card_usage", {"card": c, "card_board": b}),
-                inputs=[card, usage_board], outputs=usage_out,
-            )
-            co_go.click(
-                lambda c, c2, n, dl: run_graph(
-                    "card_cooccurrence",
-                    {"card": c, "cooccur_card2": c2, "cooccur_top_n": n,
-                     "cooccur_drop_lands": dl},
-                ),
-                inputs=[card, co_card2, co_top_n, co_drop_lands], outputs=co_out,
+            cooc_go.click(
+                draw_cooccurrence, inputs=[card, cooc_card2, cooc_top_n, cooc_drop_lands],
+                outputs=[cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot],
             )
 
         # Meta has no single subject entity, so it is a view picker only: the meta
