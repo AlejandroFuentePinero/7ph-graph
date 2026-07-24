@@ -61,6 +61,15 @@ from graph7ph.trends import (
 
 _PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Draw.</p>"
 
+# The empty state a trend chart shows before its first Draw and after a control
+# change clears it, so a chart view never opens on blank space (#113, §8): the same
+# "nothing drawn yet" surface the graph views carry as `_PROMPT`, phrased for the
+# trend it stands in place of. Shown in the note slot the refusal messages already
+# use, so the empty and refused states of a chart speak from one place.
+_EMPTY_PERFORMANCE = "Pick a pilot and Draw to see their performance over time."
+_EMPTY_TIMELINE = "Pick both pilots and Draw to see their head-to-head timeline."
+_EMPTY_ADOPTION = "Pick a card and Draw to see its adoption over time."
+
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
 # Since #126 each of Pilots and Cards collapses to two views, and one Draw per view
 # fans out to all of that view's plots (a subgraph query and a series query stay two
@@ -212,7 +221,9 @@ def _spec(view: str, values: dict) -> QuerySpec | None:
                 bool(values["cooccur_drop_lands"]),
             )
         case "meta_gems":
-            return HiddenGems(values["gem_archetype"] or None)
+            if not values["gem_archetype"]:
+                return None
+            return HiddenGems(values["gem_archetype"])
     return None
 
 
@@ -807,9 +818,15 @@ def build_app(artifact: Path) -> gr.Blocks:
     # a board, Co-occurrence draws the subject plus the co-occurrence pair's second
     # card, board-agnostic (board is None, no board qualifier reaches the plot).
     def draw_adoption(subject: str, second: str | None, board: str | None):
+        # Returns the heading, the plot, and the empty-state note: with no card picked
+        # the note carries the "Draw to see" prompt so the trend region is never blank
+        # (#113), and a drawn result hides it.
         canons = _adoption_cards(subject, second)
         if not canons:
-            return gr.update(visible=False), gr.update(visible=False)
+            return (
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(value=_EMPTY_ADOPTION, visible=True),
+            )
         conn = ladybug.Connection(db)
         # `board or None` collapses the either-board reading ("") and the board-
         # agnostic sentinel (None) to the same unfiltered count over both boards.
@@ -820,6 +837,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         return (
             gr.update(value=_chart_heading(_adoption_heading_text(board)), visible=True),
             gr.update(value=_adoption_figure(series), visible=True),
+            gr.update(visible=False),
         )
 
     def draw_performance(pilot: str):
@@ -830,7 +848,10 @@ def build_app(artifact: Path) -> gr.Blocks:
         # the floor cannot leave it asserting a pilot has none when they have some
         # (issue #101).
         if not pilot:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return (
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(value=_EMPTY_PERFORMANCE, visible=True),
+            )
         try:
             series = run_series(ladybug.Connection(db), PilotPerformanceOverTime(pilot))
         except NotEnoughHistory as e:
@@ -843,10 +864,14 @@ def build_app(artifact: Path) -> gr.Blocks:
                 visible=True,
             )
         # The refusal above is the only way the tool declines, so an empty series
-        # should not arise; guard anyway so a drift between the two floor queries
-        # hides the chart rather than crashing `_performance_figure` on `cells[0]`.
+        # should not arise; guard anyway so a drift between the two floor queries drops
+        # back to the empty state rather than crashing `_performance_figure` on
+        # `cells[0]`, keeping the "never blank" invariant (#113) on this branch too.
         if not series.cells:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return (
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(value=_EMPTY_PERFORMANCE, visible=True),
+            )
         return (
             gr.update(value=_chart_heading(f"Pilot performance: {pilot_labels[pilot]}"), visible=True),
             gr.update(value=_performance_figure(pilot_labels[pilot], series), visible=True),
@@ -860,7 +885,10 @@ def build_app(artifact: Path) -> gr.Blocks:
         # Hide both the chart and the note until a valid pair is picked; the note is
         # the "refused, not a dot" surface for a pair the tool comes back empty on.
         if not a or not b:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return (
+                gr.update(visible=False), gr.update(visible=False),
+                gr.update(value=_EMPTY_TIMELINE, visible=True),
+            )
         if a == b:
             return gr.update(visible=False), gr.update(visible=False), gr.update(
                 value="Pick two different pilots to see their rivalry.", visible=True
@@ -919,9 +947,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     filters.append("lands filtered out")
                 return card_names[values["card"]], filters
             case "meta_gems":
-                # The archetype is optional; with none picked the gems span the format.
-                archetype = values["gem_archetype"]
-                return (archetype_labels[archetype] if archetype else "the format"), []
+                return archetype_labels[values["gem_archetype"]], []
         return "", []
 
     def run_graph(view: str, values: dict) -> str:
@@ -970,6 +996,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # shown only when the picker names it. The graph and trend pipelines stay
         # separate under the hood (ADR 0013); only the presentation is combined.
         with gr.Tab("Pilots"):
+            gr.Markdown("## Pilots")
             gr.Markdown(
                 "Explore a pilot as a whole. Pick a pilot, choose a view, and Draw: "
                 "each view renders all of that pilot's plots at once. Head-to-head "
@@ -1022,7 +1049,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     ),
                 ))
                 po_perf_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
-                po_perf_note = gr.Markdown(visible=False, elem_classes="result-region")
+                po_perf_note = gr.Markdown(_EMPTY_PERFORMANCE, elem_classes="result-region")
                 po_perf_plot = gr.Plot(visible=False)
 
             # Head-to-head: two pilots, the second required, two plots (the pair's
@@ -1049,7 +1076,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     ),
                 ))
                 h2h_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
-                h2h_note = gr.Markdown(visible=False, elem_classes="result-region")
+                h2h_note = gr.Markdown(_EMPTY_TIMELINE, elem_classes="result-region")
                 h2h_plot = gr.Plot(visible=False)
 
             pilots_groups = {
@@ -1090,13 +1117,16 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             def reset_pilot():
                 # A new pilot leaves every drawn plot showing the old one, so they drop
-                # back to the prompt/hidden state and wait for a fresh Draw (code review
-                # #3): graphs to the prompt, trends hidden.
+                # back to the empty state and wait for a fresh Draw (code review #3):
+                # graphs to the prompt, trends to their "Draw to see" note (heading and
+                # plot hidden), so no trend region is left blank (#113).
                 return [
                     _PROMPT, _PROMPT,
-                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                    gr.update(visible=False), gr.update(visible=False),
+                    gr.update(value=_EMPTY_PERFORMANCE, visible=True),
                     _PROMPT,
-                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                    gr.update(visible=False), gr.update(visible=False),
+                    gr.update(value=_EMPTY_TIMELINE, visible=True),
                 ]
 
             pilots_view.change(
@@ -1118,6 +1148,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             )
 
         with gr.Tab("Cards"):
+            gr.Markdown("## Cards")
             gr.Markdown(
                 "Explore a card as a whole. Pick a card, choose a view, and Draw: each "
                 "view renders all of that card's plots at once.",
@@ -1150,6 +1181,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     methodology=_ADOPTION_METHODOLOGY,
                 ))
                 cov_adopt_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                cov_adopt_note = gr.Markdown(_EMPTY_ADOPTION, elem_classes="result-region")
                 cov_adopt_plot = gr.Plot(visible=False)
 
             # Co-occurrence: card + second card (optional) + top-N + drop-lands, two
@@ -1177,6 +1209,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     methodology=_ADOPTION_METHODOLOGY,
                 ))
                 cooc_adopt_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                cooc_adopt_note = gr.Markdown(_EMPTY_ADOPTION, elem_classes="result-region")
                 cooc_adopt_plot = gr.Plot(visible=False)
 
             cards_groups = {
@@ -1184,14 +1217,14 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "card_cooccurrence": g_card_cooccurrence,
             }
             card_outs = [
-                cov_usage_out, cov_adopt_heading, cov_adopt_plot,
-                cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot,
+                cov_usage_out, cov_adopt_heading, cov_adopt_plot, cov_adopt_note,
+                cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note,
             ]
 
             def draw_card_overview(c: str, board: str):
                 # One Draw: the usage subgraph and the adoption series, the trend scoped
                 # to the same board the graph is (#126). No compare card here, so the
-                # adoption plots the subject alone. draw_adoption returns (heading, plot).
+                # adoption plots the subject alone. draw_adoption returns (heading, plot, note).
                 return (
                     run_graph("card_usage", {"card": c, "card_board": board}),
                     *draw_adoption(c, None, board),
@@ -1209,11 +1242,15 @@ def build_app(artifact: Path) -> gr.Blocks:
                 return (graph, *draw_adoption(c, c2, None))
 
             def reset_card():
-                # A new card drops every drawn plot back to the prompt/hidden state to
-                # wait for a fresh Draw (code review #3).
+                # A new card drops every drawn plot back to the empty state to wait for a
+                # fresh Draw (code review #3): the usage graph to the prompt, the adoption
+                # trend to its "Draw to see" note (heading and plot hidden), so no trend
+                # region is left blank (#113).
                 return [
                     _PROMPT, gr.update(visible=False), gr.update(visible=False),
+                    gr.update(value=_EMPTY_ADOPTION, visible=True),
                     _PROMPT, gr.update(visible=False), gr.update(visible=False),
+                    gr.update(value=_EMPTY_ADOPTION, visible=True),
                 ]
 
             cards_view.change(
@@ -1229,40 +1266,43 @@ def build_app(artifact: Path) -> gr.Blocks:
                 _control.change(reset_card, outputs=card_outs)
             cov_go.click(
                 draw_card_overview, inputs=[card, cov_board],
-                outputs=[cov_usage_out, cov_adopt_heading, cov_adopt_plot],
+                outputs=[cov_usage_out, cov_adopt_heading, cov_adopt_plot, cov_adopt_note],
             )
             cooc_go.click(
                 draw_cooccurrence, inputs=[card, cooc_card2, cooc_top_n, cooc_drop_lands],
-                outputs=[cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot],
+                outputs=[cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note],
             )
 
         # Meta is single-view since #125 promoted hidden gems to its own tab (v1
         # §11): it holds meta share over time alone, so there is no subject entity
         # and no view picker, just the chart and its controls.
         with gr.Tab("Meta"):
+            gr.Markdown("## Meta")
             gr.Markdown(
                 "The metagame over time.",
                 elem_classes="t-lede",
             )
             with gr.Group():
-                gr.Markdown(
-                    "Each archetype's share of the meta, per year, a year being the "
-                    "UTC year the lists were registered in rather than a confirmed "
-                    "event date. The points are the data; the thin dashed line only "
-                    "joins them and asserts no trend between years. Every year is "
-                    "stated, including the thin ones an archetype enters or leaves "
-                    "the format on, and a year it was absent is a real zero. That "
-                    "zero is a smaller claim than it looks: the share is by primary "
-                    "archetype, so it says no deck led with the archetype that "
-                    "year, not that none carried it. Decks are grouped by the "
-                    "source's classification as of the latest fetch, applied to "
-                    "every year alike, so a rerun after a refresh can restate a "
-                    "past year: over the two fetches held here, 723 of 4553 decks "
-                    "were rewritten in 5 days and 16 changed primary archetype, "
-                    "moving 17 of 504 cells (0 of 56 at the default cut). Hover a "
-                    "point for its share and deck count, the sample the share came "
-                    "from."
-                )
+                gr.Markdown(_plot_intro(
+                    "Each archetype's share of the meta, per year. The points are the "
+                    "data; the thin dashed line only joins them and asserts no trend "
+                    "between years.",
+                    methodology=(
+                        "A year is the UTC year the lists were registered in rather "
+                        "than a confirmed event date. Every year is stated, including "
+                        "the thin ones an archetype enters or leaves the format on, and "
+                        "a year it was absent is a real zero. That zero is a smaller "
+                        "claim than it looks: the share is by primary archetype, so it "
+                        "says no deck led with the archetype that year, not that none "
+                        "carried it. Decks are grouped by the source's classification "
+                        "as of the latest fetch, applied to every year alike, so a "
+                        "rerun after a refresh can restate a past year: over the two "
+                        "fetches held here, 723 of 4553 decks were rewritten in 5 days "
+                        "and 16 changed primary archetype, moving 17 of 504 cells (0 of "
+                        "56 at the default cut). Hover a point for its share and deck "
+                        "count, the sample the share came from."
+                    ),
+                ))
                 cut = gr.Radio(
                     list(_CUTS), value=_DEFAULT_CUT,
                     label=f"Archetypes to show (by share of {latest_year} decks)",
@@ -1290,14 +1330,26 @@ def build_app(artifact: Path) -> gr.Blocks:
         # intact (ADR 0012). A navigation move, not a query change: the query id
         # stays `meta_gems`, so _spec, _graph_meta, and the plot heading are untouched.
         with gr.Tab("Hidden gems"):
+            gr.Markdown("## Hidden gems")
+            gr.Markdown(
+                "Under-the-radar cards for an archetype.",
+                elem_classes="t-lede",
+            )
             with gr.Group():
-                gr.Markdown(
-                    "Under-the-radar cards for an archetype: cards that over-index in "
-                    "the archetype's decks against the wider format. Click a node for "
-                    "its details; a deck links out to Moxfield."
-                )
+                gr.Markdown(_plot_intro(
+                    "The cards that over-index in the archetype's decks against the "
+                    "wider format. Click a node for its details; a deck links out to "
+                    "Moxfield.",
+                    methodology=(
+                        "Over-indexing is a card appearing in the archetype's decks at "
+                        "a higher rate than across the format as a whole, so a staple "
+                        "everyone plays does not read as a gem. A slice too thin to "
+                        "support the comparison is refused rather than drawn on a claim "
+                        "it cannot stand behind (ADR 0012)."
+                    ),
+                ))
                 gem_archetype = gr.Dropdown(
-                    choices=archetypes, label="Archetype (optional)", value=None,
+                    choices=archetypes, label="Archetype", value=None,
                 )
                 gem_go = gr.Button("Draw", variant="primary")
                 gem_out = gr.HTML(_PROMPT, elem_classes="result-region")
