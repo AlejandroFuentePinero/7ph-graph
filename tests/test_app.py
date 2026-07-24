@@ -1,5 +1,33 @@
-from graph7ph.app import _between_line_polys, _performance_figure
+from graph7ph.app import (
+    _CARDS_TAB,
+    _META_TAB,
+    _PILOTS_TAB,
+    _between_line_polys,
+    _performance_figure,
+)
 from graph7ph.trends import PerformanceCell, Series
+
+
+def test_the_three_subject_tabs_carry_exactly_the_nine_modality_views():
+    # Issue #119 regroups by subject, not by render pipeline, but preserves every
+    # view: the Explore/Trends split held nine views, and the Pilots/Cards/Meta
+    # split must hold the same nine, none added, dropped, or filed under the wrong
+    # subject. The expectations are v1 §11's table, an independent source: a future
+    # edit that drops a view, duplicates one, or moves it tabs trips this.
+    per_tab = {"Pilots": set(_PILOTS_TAB), "Cards": set(_CARDS_TAB), "Meta": set(_META_TAB)}
+    # §11's table splits the views 4 / 3 / 2 across the three tabs.
+    assert [len(per_tab[t]) for t in ("Pilots", "Cards", "Meta")] == [4, 3, 2]
+
+    all_ids = set().union(*per_tab.values())
+    assert len(all_ids) == 9  # no view id shared across tabs
+    assert all_ids == {
+        "pilot_neighbourhood", "pilot_affinity", "pilot_performance", "pilot_h2h_timeline",
+        "card_usage", "card_cooccurrence", "card_adoption",
+        "meta_share", "meta_gems",
+    }
+    # §11's placement note: hidden gems sits under Meta (beside meta share), so the
+    # Meta tab is not a single-view tab, not under Cards.
+    assert "meta_gems" in per_tab["Meta"]
 
 
 def test_band_over_a_non_crossing_segment_is_one_trapezoid_tinted_by_the_upper_line():
