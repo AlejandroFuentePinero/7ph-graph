@@ -30,7 +30,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
-from graph7ph import theme
+from graph7ph import numfmt, theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.query import (
@@ -230,7 +230,7 @@ def _style_trend_chart(fig: pgo.Figure, title: str, y_title: str) -> None:
     # below 1% (a card in a handful of a 2000-deck year), and rounding to integer
     # percents would floor them to "0%" and collide adjacent ticks on one label.
     fig.update_yaxes(
-        title=y_title, tickformat=".2~%", rangemode="tozero",
+        title=y_title, tickformat=numfmt.SHARE_TICKFORMAT, rangemode="tozero",
         gridcolor=grid, linecolor=axis, zerolinecolor=axis,
     )
 
@@ -273,12 +273,16 @@ def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
         fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
             y=[c.share for c in cells],
-            customdata=[c.n for c in cells],
+            customdata=[[numfmt.share(c.share), numfmt.count_of(c.n, c.year_total, "decks")]
+                        for c in cells],
             name=archetype,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
             marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
-            hovertemplate=f"%{{x}} · {archetype} · %{{y:.2~%}} · n=%{{customdata}}<extra></extra>",
+            hovertemplate=(
+                f"%{{x}} · {archetype} · %{{customdata[0]}} · "
+                "%{customdata[1]}<extra></extra>"
+            ),
         ))
     _style_trend_chart(fig, title, "Share of meta")
     fig.update_layout(legend=dict(title="Archetype"))
@@ -310,14 +314,15 @@ def _adoption_figure(cards: list[tuple[str, Series]], board_label: str) -> pgo.F
         fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
             y=[c.share for c in cells],
-            customdata=[(c.count, c.year_total) for c in cells],
+            customdata=[[numfmt.share(c.share), numfmt.count_of(c.count, c.year_total, "decks")]
+                        for c in cells],
             name=card_name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
             marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
             hovertemplate=(
-                f"%{{x}} · {card_name} · %{{y:.2~%}} · "
-                "%{customdata[0]}/%{customdata[1]} decks<extra></extra>"
+                f"%{{x}} · {card_name} · %{{customdata[0]}} · "
+                "%{customdata[1]}<extra></extra>"
             ),
         ))
     _style_trend_chart(fig, f"Card adoption over time ({board_label})", "Adoption (share of decks)")
@@ -370,7 +375,8 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     fig.add_trace(pgo.Scatter(
         x=[str(year) for year, _ in spanned],
         y=[1 - c.mean_norm if c else None for c in drawn],
-        customdata=[c.events if c else None for c in drawn],
+        customdata=[[numfmt.score(1 - c.mean_norm), c.events] if c else [None, None]
+                    for c in drawn],
         name=pilot_name,
         mode="lines+markers+text",
         text=[f"{c.events} ev" if c else "" for c in drawn],
@@ -381,12 +387,14 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
         # Let a marker and its label at the very top (a perfect 1.0 season) draw over
         # the axis edge rather than being clipped out of the plot.
         cliponaxis=False,
-        hovertemplate=f"%{{x}} · {pilot_name} · score %{{y:.3f}} · %{{customdata}} events<extra></extra>",
+        hovertemplate=f"%{{x}} · {pilot_name} · %{{customdata[0]}} · %{{customdata[1]}} events<extra></extra>",
     ))
-    _style_trend_chart(fig, f"Pilot performance: {pilot_name}", "Mean finish (1 = 1st, 0 = last)")
+    # The score's sense rides the readout (score() -> "0.62 (1 = 1st)"), stated once,
+    # so the axis title names the quantity without restating which end is a win.
+    _style_trend_chart(fig, f"Pilot performance: {pilot_name}", "Mean finish")
     # A bounded 0-1 score, not a share, so a plain decimal axis over the full range,
     # overriding the shared styler's percent format and auto-zoom.
-    fig.update_yaxes(tickformat=".2f", range=[0, 1], autorange=False)
+    fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
     # A refused year and a year the pilot sat out both leave an empty tick, so the
     # refused ones are captioned with what was refused and why. Without it the chart
     # re-creates at the display layer the very conflation the tool was changed to
@@ -472,9 +480,9 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     # by a None gap so ``toself`` closes each on its own, keeping this to two fill
     # traces rather than one per segment. Added first so the markers and the dashed
     # joins draw on top.
-    def score(norm):
+    def flip(norm):
         return None if norm is None else 1 - norm
-    points = [(c.date, score(c.norm_a), score(c.norm_b)) for c in cells]
+    points = [(c.date, flip(c.norm_a), flip(c.norm_b)) for c in cells]
     bands = {True: ([], []), False: ([], [])}  # a_above -> (xs, ys)
     for xs, ys, a_above in _between_line_polys(points):
         bx, by = bands[a_above]
@@ -506,18 +514,22 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
             # chart. A null norm is a finish the source never scored: a gap the line
             # breaks across rather than a fabricated point.
             y=[1 - norm if norm is not None else None for _, _, norm, _ in points],
-            customdata=[(placement, field) for _, placement, _, field in points],
+            customdata=[[numfmt.score(1 - norm), numfmt.count_of(placement, field)]
+                        if norm is not None else [None, None]
+                        for _, placement, norm, field in points],
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
             marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
             cliponaxis=False,
             hovertemplate=(
-                f"%{{x|%d %b %Y}} · {name} · score %{{y:.2f}} · "
-                "%{customdata[0]}/%{customdata[1]}<extra></extra>"
+                f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
+                "%{customdata[1]}<extra></extra>"
             ),
         ))
-    _style_trend_chart(fig, f"Head-to-head: {name_a} vs {name_b}", "Finish (1 = 1st, 0 = last)")
+    # The finish's sense rides the readout (score() -> "0.62 (1 = 1st)"), stated once,
+    # so the axis title names the quantity without restating which end is a win.
+    _style_trend_chart(fig, f"Head-to-head: {name_a} vs {name_b}", "Finish")
     # A registration-date x-axis (ADR 0013), not the category-Year axis the shared
     # styler sets, with a range slider as the time-range filter. Its mini-axis is
     # fixed to an off-data band (the score is 0-1, this is 10-11), which parks the
@@ -547,7 +559,7 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     # The 0-1 score (1 a win at the top), fixed to the full range so a small gap is
     # not stretched, overriding the shared styler's percent format and zoom. Matches
     # the performance chart: same scale, same 0.5 reference line.
-    fig.update_yaxes(tickformat=".2f", range=[0, 1], autorange=False)
+    fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
     fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
     # A horizontal legend above the plot, not the shared styler's default right-side
     # one: an external right legend widens with the pilot names and eats into the plot
