@@ -44,28 +44,60 @@ Defined once as CSS custom properties; every surface reads them by role.
 All text roles clear WCAG AA on `--bg`. No hardcoded colour may assume a
 background the app does not control.
 
-## 3. Type scale
+## 3. Type system
 
-System sans throughout: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-sans-serif`. Zero webfont load; deploys clean on the Space. Eight roles:
+**Revised by #132** (superseding the original zero-webfont decision). The type is
+now two self-hosted faces, a display serif + a grotesque sans, the same two-face
+shape Claude's own presentation system uses (a serif statement over a grotesque
+support), so copy reads as designed rather than as a neutral system-sans delivery
+vehicle:
 
-| Role | Size | Weight | Tracking | Line-height | Colour |
-|---|---|---|---|---|---|
-| Page title | 30 | 700 | -0.02em | 1.12 | text |
-| Section heading | 20 | 650 | -0.01em | 1.25 | text |
-| Result title | 22 | 680 | -0.01em | 1.2 | text |
-| Lede | 17 | 400 | — | 1.5 | text-dim |
-| Control label | 12 | 600 | 0.06em, uppercase | — | text-mute |
-| Body | 15 | 400 | — | 1.6 | text |
-| Caption | 13 | 400 | — | 1.5 | text-mute |
-| Numeric readout | 15 | 550 | — | — | text |
+| Slot | Face | Echoes | Used for | Licence |
+|---|---|---|---|---|
+| Display | **Fraunces** (variable) | Copernicus / Tiempos | page / section / insight titles | OFL |
+| Body / UI / numeric | **Hanken Grotesk** | Styrene | ledes, body, captions, control labels, tabular figures | OFL |
+
+Why open echoes and not the literal Claude faces: Styrene and Copernicus/Tiempos
+are commercially licensed (and Copernicus is proprietary to Anthropic), so they
+cannot be self-hosted and redistributed on the public Space. Fraunces and Hanken
+Grotesk are the closest OFL match to that pairing and, being warm and
+high-contrast, harmonise with the warm near-black ground (§2) already committed
+to. Numerics ride Hanken Grotesk's `tabular-nums` rather than a third face, keeping
+the system to the same two families Anthropic's does.
+
+**Loading.** Self-hosted woff2, latin-subset, base64-embedded as `@font-face` data
+URIs inside the injected stylesheet: no external request, no Space static-file
+config, no CSP surprise, deploys as clean as the system-sans it replaces. The
+faces are named once (a `FONTS` mapping beside `TOKENS`), so a face swap is one
+edit, not a sweep. `font-display: swap` and a system-sans fallback stack keep the
+first paint legible before the woff2 lands.
+
+Eight roles (sizes lift slightly for the display face's presence):
+
+| Role | Face | Size | Weight | Tracking | Line-height | Colour |
+|---|---|---|---|---|---|---|
+| Page title | Fraunces | 34 | 600 | -0.01em | 1.1 | text |
+| Section heading | Fraunces | 22 | 600 | -0.005em | 1.2 | text |
+| Insight title | Fraunces | 20 | 600 | none | 1.25 | text |
+| Lede | Hanken Grotesk | 17 | 400 | none | 1.5 | text-dim |
+| Control label | Hanken Grotesk | 12 | 600 | 0.06em, uppercase | none | text-mute |
+| Body | Hanken Grotesk | 15 | 400 | none | 1.6 | text |
+| Caption | Hanken Grotesk | 13 | 400 | none | 1.5 | text-mute |
+| Numeric readout | Hanken Grotesk | 14 | 550 | tabular-nums | none | text |
+| Subject line | Fraunces | 18 | 600 | none | 1.3 | text-dim |
+
+The **subject line** (§14) is the one role added by #132: it states the subject once
+above the cards, in the display face at 18 (between the insight title and the lede),
+so it reads as the heading of the answer, not another control label.
 
 - **Reading measure** bounded to ~62ch; no paragraph runs the full width of a
   wide monitor.
-- **Figures**: `font-variant-numeric: tabular-nums` only where digits align in a
-  column (axis ticks, table rows). Standalone large numbers (coverage stats,
-  hero) use proportional figures — tabular makes a `121` look loose at display
-  size.
+- **Figures**: `font-variant-numeric: tabular-nums` (Hanken Grotesk carries tabular
+  figures) only where digits align in a column (axis ticks, table rows). Standalone
+  large numbers (coverage stats, hero) use proportional figures, since tabular makes
+  a `121` look loose at display size.
+- The old "Result title" role is renamed **Insight title** (§12): a plot's title
+  inside its bounded card, no longer echoing the subject (§14).
 
 ## 4. One numeric convention
 
@@ -226,3 +258,108 @@ holds meta share over time alone. The structure is four tabs, **Pilots (2), Card
 (2), Meta (1: meta share), Hidden gems (1)**. The gems view itself is unchanged by
 the move (its query, archetype entry, and the `SliceTooSmall` refusal per ADR 0012
 are intact); only its placement changed.
+
+---
+
+## 12. Insight-card system (#132)
+
+A view is N answers, not one continuous sheet. Each plot (a graph or a trend) is
+bounded in its own card, so the eye reads discrete insights rather than one long
+dark scroll. This retires the hairline-only result framing from #110 (§ result),
+which set a plot off with a top rule alone.
+
+- **Card.** Fill `--surface` on the `--bg` ground (the fill is what makes the card
+  read as a raised object, not the rule), 1px `--border`, `border-radius: 12px`,
+  padding ~`1rem 1.25rem`. Adjacent cards are held apart by a real gap (a
+  `1.25rem` bottom margin), never by a shared rule, so the boundary between two
+  answers is space, not a line.
+- **Card head.** Inside the card, top: the **insight title** (§3), then a
+  **one-line caption** (§3 caption role) naming the filters and how much came back.
+  The subject is not repeated here (§14): it is stated once for the whole result set,
+  above the cards.
+- **Plot region, sized to content.** Retire the fixed `min(78vh,860px)` slab. Size
+  each plot to how much it has to show, within a bounded band:
+  - graph (pyvis iframe): every graph plot shares **one frame height** (`GRAPH_HEIGHT`,
+    760px), the size the pilot neighbourhood renders well at. A single uniform frame
+    reads as one coherent canvas across the tabs rather than each plot jumping to its
+    own node-count-scaled height; it is tall enough that a dense graph lays out legibly
+    (the reason the earlier fixed slab was too small for complex graphs) and not so tall
+    that a small one floats in emptiness;
+  - trend (Plotly): renders at its own natural figure height inside the card, which
+    is already content-sized (a chart was never the screen-tall slab the graph was).
+  The details panel stays visible inside the graph card without scrolling (§7).
+- **Empty until drawn.** A view's cards live in a results stack that is **hidden
+  until a Draw fills it** (§14), so the view opens as its controls over empty ground,
+  not a row of identical "nothing yet" prompt cards. The guidance lives in the
+  subject control's help text (§14).
+- **A card Group carries its own `visible` toggle.** When a card wraps children that
+  toggle independently (a heading + plot + refusal note), hiding all the children still
+  leaves the bordered, padded card Group drawn as an empty box. So each card that can
+  refuse (the performance and head-to-head-timeline cards) is toggled as a whole, shown
+  only when it has content: a partly shown results stack (e.g. head-to-head self-vs-self,
+  where only the neighbourhood note shows) must never leave an empty card below.
+
+## 13. Control-panel treatment (#132)
+
+The controls for a view read as one distinct input surface, obviously the place
+you drive from, set apart from the answers below. People do not read, so where to
+click is carried by the surface, not by a label.
+
+- **Panel.** The subject -> view -> filters -> Draw controls sit together in one
+  `.control-panel`: fill `--surface-2` (the raised well token, one step lighter
+  than the cards it sits above so it reads as more prominent, not less), 1px
+  `--border`, `border-radius: 12px`, padding. It is visually separate from the
+  result cards by fill and by space.
+- **Subject stays primary.** The shared subject keeps its accent left-edge
+  (`.primary-control`), now inside the panel, so the one control everything hangs
+  off still reads first.
+- **Draw** is the one bold action (`button_primary`, the amber accent), the
+  brightest thing in the panel.
+- **No control below its plot.** Every plot-affecting control lives in the panel,
+  above the plots. Meta's "focus on specific archetypes" multiselect, today
+  stranded *under* the cut chart, moves up into the panel with the cut control.
+
+## 14. Copy rules (#132)
+
+Copy is short, whole, and said once. This supersedes #113's multi-line tab ledes
+and its on-surface methodology blocks.
+
+- **Tab intro**: one short descriptive sentence, no more. (The current three-line
+  Pilots lede becomes one.)
+- **No per-plot description paragraph** and **no on-surface methodology.** The
+  `<details> How this is measured` blocks leave the plots entirely; the methodology
+  they hold moves to the FAQ / Methodology tab (#133). A plot carries only its
+  title and one-line caption.
+- **Subject once.** The chosen subject is stated a single time for the whole
+  result (a subject line above the cards), never echoed in each card title. An
+  insight is titled by its **plot type only**: `Neighbourhood`, not
+  `Neighbourhood: Brennan C`.
+- **Empty-state guidance lives in the control, not a card.** Before a Draw, the
+  "pick and Draw" invitation rides the subject dropdown's **help text** (its `info`),
+  one place at the control you drive from. This supersedes #113's per-plot empty
+  notes: the results stack is hidden until drawn (§12), so no duplicated prompt cards
+  appear. Post-Draw failure states (a refused pilot, a too-thin pair) still speak in
+  their own card as a one-line note in the interface's voice (composes with #114).
+- **Measure** stays bounded to ~62ch (§3) so prose does not fragment into short
+  lines inside a wide container.
+
+## 15. Signature (#132): tried and dropped
+
+The signature explored was the **7-point mark**: seven pips standing for 7PH's
+defining mechanic, a deck built against a 7-point budget. Prototyped in the header
+and before every insight title, it read on the page as an ambiguous "dot dot dot"
+rather than a recognised budget, so it was **removed** at the user's call (the
+frontend-design brief's own instruction to prototype a signature and confirm before
+locking, resolving to "not this one").
+
+For v1 the app carries **no separate signature mark**: its identity rests on the warm
+near-black ground, the single amber accent, and the display-serif titles (§2/§3), the
+"spend boldness in one place" restraint landing on the type and palette rather than an
+applied emblem. A distinct signature remains open for a later pass if one is wanted.
+
+## Chrome cleanup (#115, referenced here)
+
+The default-Gradio footer ("Built with Gradio / Use via API / Settings") is retired
+as part of this pass's default-furniture cleanup, so the app does not read as a
+scaffold. (Owned by #115; noted here because it is one of #132's observed
+default-Gradio tells.)
