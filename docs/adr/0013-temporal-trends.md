@@ -100,6 +100,16 @@ Issue #101 audited every guard in the package against this rule and found it had
 
 `MIN_PILOT_YEAR_EVENTS`, `MIN_QUALIFYING_YEARS` and `MIN_SHARED_EVENTS` keep their values. Only the shape of their refusals changed.
 
+## Amendment: emphasis, not colour-by-position, above eight lines (issue #116)
+
+The trend tab draws the `>8`-series charts (the meta and card-adoption default cuts, ~15 lines each) with **emphasis**: every line recedes to grey as context, and one is raised in the accent colour on **legend click-to-isolate**. This reverses the render's colour-by-position behaviour for those charts.
+
+ADR-0013's prose never fixed a colour rule for the group-by line charts; the colour-by-position behaviour was the render's default, and this amendment records the decision to replace it. That default, as `app.py` described it, gave a trace "its alphabetical position within the current selection, not a property of the archetype: all 14 archetypes drawn at the Top 50% cut take a different colour at Top 75%", drawing hues from a 32-entry palette and recycling past 32. It failed the reader three ways. At ~15 lines no palette keeps the hues distinguishable, so the chart is the rainbow issue #85 was opened to fix. Because colour tracked selection position rather than the entity, widening the cut repainted every survivor, so a line's colour was unstable across two views of the same data and carried no identity worth reading. And hue-only identity is invisible to a colour-blind reader. Emphasis is honest about all three: it never claims fifteen distinguishable hues, it shows the whole meta as one grey shape, and it isolates the one line the reader asks for.
+
+The reversal is scoped to the `>8` branch. At `≤8` series the render keeps a direct colour per entity, assigned in fixed order **by entity, never by rank, never cycled** (the palette seam from issue #109), which is itself the fix to the repaint-on-recut defect for the small case; emphasis is the same rule's answer to the case where eight distinguishable hues run out. Head-to-head (two lines coloured per player) and pilot performance (single series) are `≤8` and unaffected. The isolate is Plotly-native legend interaction, not point-level hover, which `gr.Plot` cannot provide (issue #78). The mark semantics this ADR fixed are untouched: the thin dashed join still asserts no trend between years, the hollow markers still read as observations, and no slope is inferred.
+
+This ratifies what issue #85 and `docs/design/v1-visual-direction.md` (§5-6, §9) proposed and held as "proposed, not final" pending this sign-off, and it unblocks the emphasis build. The tool surface is unchanged: every `Series` tool still returns the full matrix with each cell's `n` and `year_total`, and emphasis is a property of the trend tab's render, not of the data the agent reads.
+
 ## Consequences
 
 `Deck` gains a stored `createdAt`, which forces a golden-oracle re-capture wherever deck properties are pinned. Trends do not render through the existing renderer or `run_query`; the trend tab and the `Series` type are new surfaces built alongside them, first proven end to end by the `meta_share` tracer, then reused by the two year-siblings, with head-to-head built last because it carries this ADR's 0006 amendment and the only non-year, non-aggregate shape.
