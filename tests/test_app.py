@@ -1,13 +1,35 @@
+from datetime import datetime
+
+from graph7ph import palette, theme
 from graph7ph.app import (
     _CARDS_TAB,
+    _adoption_figure,
+    _chart_heading,
     _embed,
+    _head_to_head_figure,
     _META_TAB,
     _PILOTS_TAB,
     _between_line_polys,
     _performance_figure,
     _result_header,
+    _trend_figure,
 )
-from graph7ph.trends import PerformanceCell, Series
+from graph7ph.trends import (
+    AdoptionCell,
+    HeadToHeadPoint,
+    PerformanceCell,
+    Series,
+    SeriesCell,
+)
+
+
+def _meta_series(*tag_year_share):
+    """A meta-share Series from ``(tag, year, share)`` triples, one SeriesCell each."""
+    return Series(cells=[
+        SeriesCell(tag=t, archetype=t.title(), year=y, n=int(s * 1000),
+                   share=s, year_total=1000)
+        for t, y, s in tag_year_share
+    ])
 
 
 def test_the_three_subject_tabs_carry_exactly_the_nine_modality_views():
@@ -155,6 +177,175 @@ def test_a_refused_year_is_captioned_and_a_sat_out_year_is_not():
 
     # 2025 has no cell at all (sat out), so it gets a tick and no caption.
     assert captions == {("2023", "1 ev, too thin"), ("2026", "played, unscored")}
+
+
+def test_head_to_head_colours_each_pilot_by_entity_from_the_shared_palette():
+    # AC (§5-6): head-to-head is two lines, ≤8, so each pilot takes a direct colour
+    # from the shared eight-hue set (slot 1, slot 2), not a position in a long
+    # recycled wheel. Colour follows the entity: the pilot named first is blue.
+    series = Series(cells=[
+        HeadToHeadPoint(event="GP", date=datetime(2024, 3, 1), field_size=100,
+                        placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
+        HeadToHeadPoint(event="PT", date=datetime(2024, 6, 1), field_size=80,
+                        placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
+    ])
+    fig = _head_to_head_figure("Ada L", "Bob C", series)
+    by_name = {t.name: t for t in fig.data if t.name in ("Ada L", "Bob C")}
+
+    assert by_name["Ada L"].marker.line.color == palette.CATEGORICAL[0]
+    assert by_name["Bob C"].marker.line.color == palette.CATEGORICAL[1]
+
+
+def test_adoption_colours_each_card_by_entity_from_the_shared_palette():
+    # AC (§5): the cards on one adoption axis (subject first, then compares) each take
+    # a direct hue from the shared set in fixed order, the subject blue.
+    def one(count):
+        return Series(cells=[AdoptionCell(year=2024, count=count, share=count / 1000,
+                                          year_total=1000)])
+    fig = _adoption_figure([("Sol Ring", one(30)), ("Mana Crypt", one(20))])
+    by_name = {t.name: t for t in fig.data}
+
+    assert by_name["Sol Ring"].marker.line.color == palette.CATEGORICAL[0]
+    assert by_name["Mana Crypt"].marker.line.color == palette.CATEGORICAL[1]
+
+
+def test_a_narrower_cut_does_not_repaint_the_archetypes_it_shares_with_a_wider_one():
+    # AC (§5): colour follows the entity, never its rank, so a filter that changes the
+    # series count must not repaint the survivors. The cut returns tags strongest-first,
+    # so a narrower cut is a prefix of a wider one; both draw the shared archetypes in
+    # the same shared-palette colours. This is the reversal of ADR-0013's colour-by-
+    # position, tested at the seam that used to repaint on every re-cut.
+    series = _meta_series(
+        ("aggro", 2024, 0.4), ("control", 2024, 0.3), ("combo", 2024, 0.2),
+    )
+
+    def colour_by_archetype(tags):
+        fig = _trend_figure(series, tags)
+        return {t.name: t.marker.line.color for t in fig.data}
+
+    wider = colour_by_archetype(["aggro", "control", "combo"])
+    narrower = colour_by_archetype(["aggro", "control"])
+
+    # The two survivors keep the exact hue they had in the wider cut.
+    assert narrower["Aggro"] == wider["Aggro"] == palette.CATEGORICAL[0]
+    assert narrower["Control"] == wider["Control"] == palette.CATEGORICAL[1]
+
+
+def test_more_than_eight_series_do_not_borrow_a_ninth_hue_or_crash():
+    # AC / §5-6: colour tops out at eight distinguishable series. Past eight the
+    # shared palette assigns nothing (the signal to switch to emphasis, a separate
+    # slice), so this branch must still draw every line in a real colour rather than
+    # a None the figure chokes on. The >8 fallback is out of scope for the direct-
+    # colour AC, but it must not regress into a crash.
+    triples = [(f"arch{i}", 2024, 0.05) for i in range(9)]
+    tags = [t for t, _, _ in triples]
+    fig = _trend_figure(_meta_series(*triples), tags)
+
+    assert len(fig.data) == 9
+    assert all(isinstance(t.marker.line.color, str) and t.marker.line.color
+               for t in fig.data)
+
+
+def test_share_chart_ticks_and_hovers_speak_the_one_numeric_convention():
+    # AC (§4): every share axis tick and every hovered share is the one convention,
+    # produced by numfmt, not a second ad-hoc format. Read the tick format off the
+    # axis and the share off the hover data, both against numfmt's own output, so a
+    # chart that hardcoded `.2%` or a bare float trips this.
+    from graph7ph import numfmt
+
+    fig = _trend_figure(_meta_series(("aggro", 2024, 0.0673)), ["aggro"])
+    trace = fig.data[0]
+
+    assert fig.layout.yaxis.tickformat == numfmt.SHARE_TICKFORMAT
+    # The hover carries the share and the count/sample-size, both via numfmt.
+    assert trace.customdata[0][0] == numfmt.share(0.0673) == "6.73%"
+    assert trace.customdata[0][1] == numfmt.count_of(67, 1000, "decks")
+
+
+def test_a_chart_title_is_a_page_heading_not_plotly_font_inside_the_image():
+    # AC (§6): a chart's title leaves the Plotly figure and becomes a page heading in
+    # the app's own type, so a result reads as a heading on the page rather than font
+    # baked into an image. The heading helper carries the result-title type role (the
+    # same §3 role the graph results title in), and the figures themselves draw no
+    # Plotly title.
+    heading = _chart_heading("Pilot performance: Ada L")
+    assert "t-result-title" in heading
+    assert "Pilot performance: Ada L" in heading
+
+    figures = [
+        _performance_figure("Ada L", Series(cells=[
+            PerformanceCell(year=2024, mean_norm=0.4, events=3),
+        ])),
+        _trend_figure(_meta_series(("aggro", 2024, 0.3)), {"aggro"}),
+        _adoption_figure([("Sol Ring", Series(cells=[
+            AdoptionCell(year=2024, count=30, share=0.03, year_total=1000),
+        ]))]),
+    ]
+    for fig in figures:
+        assert not fig.layout.title.text  # no Plotly-font title baked into the image
+
+
+def test_a_chart_heading_escapes_a_subject_that_carries_markup():
+    # The subject in a heading is a free-text display label, so an angle bracket in a
+    # name is escaped into the markup rather than injected, as the graph result header
+    # already does.
+    heading = _chart_heading("Card adoption over time: A<b>")
+    assert "A<b>" not in heading
+    assert "A&lt;b&gt;" in heading
+
+
+def test_chart_gridlines_and_axes_ride_the_design_tokens_not_a_stray_grey():
+    # AC (issue #112, §2/§6): the committed dark theme retires the theme-neutral
+    # greys. Gridlines take the hairline border token, axis/tick text the muted
+    # token, and the `#9ca3af` the theme-neutral era set the font to is gone. Read
+    # off the figure the chart actually draws, so a regression to a hardcoded grey
+    # trips this.
+    fig = _performance_figure("Ada L", Series(cells=[
+        PerformanceCell(year=2024, mean_norm=0.4, events=3),
+        PerformanceCell(year=2025, mean_norm=0.2, events=5),
+    ]))
+
+    assert fig.layout.xaxis.gridcolor == theme.TOKENS["border"]
+    assert fig.layout.yaxis.gridcolor == theme.TOKENS["border"]
+    assert fig.layout.xaxis.linecolor == theme.TOKENS["text-mute"]
+    assert fig.layout.font.color == theme.TOKENS["text-mute"]
+    # The whole figure, serialised, must not carry the retired theme-neutral grey.
+    assert "#9ca3af" not in fig.to_json()
+
+
+def test_observation_markers_carry_a_surface_ring_over_a_thin_dashed_join():
+    # AC (§6): the ADR-0013 read is kept: a thin dashed line that only joins the
+    # points, hollow observation markers, and the markers gain a 2px surface ring
+    # so two that overlap do not muddy into each other. The ring is the surface
+    # colour filling the marker; the series colour is its 2px outline.
+    trace = _performance_figure("Ada L", Series(cells=[
+        PerformanceCell(year=2024, mean_norm=0.4, events=3),
+    ])).data[0]
+
+    assert trace.line.dash == "dash"  # joins points, asserts no trend (ADR 0013)
+    assert trace.line.width == 1  # thin
+    assert trace.marker.symbol == "circle"
+    assert trace.marker.color == theme.TOKENS["surface"]  # the surface ring
+    assert trace.marker.line.width == 2  # a 2px outline in the series colour
+    assert trace.marker.line.color == palette.CATEGORICAL[0]
+
+
+def test_the_app_builds_end_to_end_over_a_real_artifact(tmp_path, snapshot_dir):
+    # A smoke test over the whole wiring: build_app opens a real artifact and
+    # constructs every tab, which runs draw_cut at build time (the meta chart, its
+    # page heading, palette and marker chrome, all end to end). A broken heading
+    # thread or a figure that no longer builds trips here rather than only in the
+    # browser.
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    demo = build_app(artifact)
+
+    import gradio as gr
+    assert isinstance(demo, gr.Blocks)
 
 
 def test_embed_iframe_height_is_responsive_not_a_fixed_slab():

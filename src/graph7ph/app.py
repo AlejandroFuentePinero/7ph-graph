@@ -30,7 +30,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
-from graph7ph import numfmt, theme
+from graph7ph import numfmt, palette, theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.query import (
@@ -113,6 +113,16 @@ def _result_header(view: str, subject: str, filters: list[str], node_count: int)
         f"<div class='t-result-title'>{html.escape(title)}</div>"
         f"<div class='t-caption'>{html.escape(caption)}</div>"
     )
+
+
+def _chart_heading(title: str) -> str:
+    """A chart's title as a page heading in the result-title type role (§3/§6).
+
+    The trend charts' titles leave the Plotly figure (where they were font baked into
+    an image) and become a heading the app draws above the plot, so a chart reads as a
+    titled answer on the page. The title is a free-text display label, so it is escaped
+    into the markup, exactly as :func:`_result_header` frames a graph result."""
+    return f"<div class='t-result-title'>{html.escape(title)}</div>"
 
 
 def _embed(doc: str) -> str:
@@ -242,38 +252,59 @@ _PALETTE = [
 ]
 
 
-def _style_trend_chart(fig: pgo.Figure, title: str, y_title: str) -> None:
-    """The neutral-theme styling both trend charts share (the meta and one card).
+# The chart chrome, drawn once from the design tokens (§2/§6) so a hardcoded grey
+# can never assume a background the app no longer inherits: the gridline is the
+# hairline border token, the axis, ticks, and font the muted token. Concrete hexes
+# rather than `var(--token)` because Plotly draws the chart as SVG the CSS custom
+# properties never reach.
+_GRID = theme.TOKENS["border"]
+_AXIS = theme.TOKENS["text-mute"]
+_SURFACE = theme.TOKENS["surface"]
 
-    Transparent backgrounds so the chart sits on the app's own panel rather than
-    Plotly's white card, with theme-neutral grey text and faint gridlines that
-    read on either the light or dark theme the app inherits from the browser. Only
-    the titles differ between the two charts (the y-axis is a share of the meta, or
-    a card's adoption), so they are passed in; the rest is held in one place so the
-    two cannot drift apart. The caller adds its own legend, the one thing they do
-    not share.
+
+def _observation_marker(colour: str) -> dict:
+    """A hollow observation marker (ADR 0013) on a 2px surface ring (§6).
+
+    The points are the observations, so they read as hollow rings in the series
+    colour. The ring is a filled marker whose fill is the chart surface: on the
+    surface it reads hollow, but where two markers overlap the top one's surface
+    fill occludes the ring beneath it rather than letting the two rings cross into
+    mud. The 2px outline is the series colour; the thin dashed join stays the
+    caller's line, which only joins the points and asserts no trend between them.
     """
-    grid = "rgba(128,128,128,0.2)"
-    axis = "rgba(128,128,128,0.35)"
+    return dict(size=12, symbol="circle", color=_SURFACE, line=dict(width=2, color=colour))
+
+
+def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
+    """The dark-theme styling both trend charts share (the meta and one card).
+
+    Transparent backgrounds so the chart sits on the app's own surface rather than
+    Plotly's white card, with the axis, ticks, and gridlines on the design tokens
+    (§6). The title no longer rides the figure: it is a page heading the caller
+    draws above the plot (§6), so the figure carries no Plotly-font title. Only the
+    y-axis label differs between the two charts (a share of the meta, or a card's
+    adoption), so it is passed in; the rest is held in one place so the two cannot
+    drift apart. The caller adds its own legend, the one thing they do not share.
+    """
     fig.update_layout(
-        title=title, hovermode="closest",
+        hovermode="closest",
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#9ca3af"), margin=dict(t=48, r=8, b=8, l=8),
+        font=dict(color=_AXIS), margin=dict(t=8, r=8, b=8, l=8),
     )
     fig.update_xaxes(
         title="Year", type="category", categoryorder="category ascending",
-        gridcolor=grid, linecolor=axis, zeroline=False,
+        gridcolor=_GRID, linecolor=_AXIS, zeroline=False,
     )
     # A trimmed two-decimal percent, not a rounded whole one: fringe shares sit
     # below 1% (a card in a handful of a 2000-deck year), and rounding to integer
     # percents would floor them to "0%" and collide adjacent ticks on one label.
     fig.update_yaxes(
         title=y_title, tickformat=numfmt.SHARE_TICKFORMAT, rangemode="tozero",
-        gridcolor=grid, linecolor=axis, zerolinecolor=axis,
+        gridcolor=_GRID, linecolor=_AXIS, zerolinecolor=_AXIS,
     )
 
 
-def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
+def _trend_figure(series: Series, tags: list[str]) -> pgo.Figure:
     """A line chart of the chosen archetypes' meta share over time.
 
     One trace per archetype, with the data foregrounded: the points are the
@@ -285,29 +316,37 @@ def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
     its own. Each point's hover carries its year, share, and deck count N, the
     sample size the reader reasons with.
 
-    Colour separates the traces up to the palette's 32 entries and recycles past
-    that, so a 33rd selected archetype repeats a colour already on the canvas. A
-    trace's colour is also its alphabetical position within the current selection,
-    not a property of the archetype: all 14 archetypes drawn at the Top 50% cut
-    take a different colour at Top 75%, because a wider cut inserts names above
-    them. The legend, not the colour, is what identifies a line, and no colour
-    carries across two charts.
+    ``tags`` is drawn in the order given, which is the caller's meaningful order: the
+    cut passes them strongest-first, the manual panel in pick order. At eight or fewer
+    lines each archetype takes a direct hue from the shared eight-hue set by entity
+    (§5), assigned in that order, so a narrower cut (a prefix of a wider one) never
+    repaints the survivors it shares (the reversal of ADR-0013's colour-by-position).
+    Past eight the shared set is exhausted (the emphasis threshold, §6, a separate
+    slice), so the ninth-plus fall back to the long palette by position rather than a
+    None; that branch keeps the old rainbow until emphasis lands.
 
     Traces are keyed by tag, not by display name, because two tags can share a name
     (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
     every year: keyed by name they would merge into one trace holding two y values
     per year and draw as a sawtooth between two archetypes.
     """
+    wanted = set(tags)
     by_tag: dict[str, list] = {}
     for cell in sorted(series.cells, key=lambda c: c.year):
-        if cell.tag in tags:
+        if cell.tag in wanted:
             by_tag.setdefault(cell.tag, []).append(cell)
 
     fig = pgo.Figure()
-    ordered = sorted(by_tag.values(), key=lambda cells: (cells[0].archetype, cells[0].tag))
-    for i, cells in enumerate(ordered):
+    # Drawn in the caller's order, keeping only tags that have cells. The shared
+    # palette assigns the first eight by entity; past eight `assign` returns None (the
+    # emphasis threshold), so the ninth-plus fall back to the long palette by position,
+    # the same fallback the adoption chart uses.
+    drawn = [t for t in tags if t in by_tag]
+    slots = palette.assign(drawn)
+    for i, tag in enumerate(drawn):
+        cells = by_tag[tag]
         archetype = cells[0].archetype
-        colour = _PALETTE[i % len(_PALETTE)]
+        colour = slots.get(tag) or _PALETTE[i % len(_PALETTE)]
         fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
             y=[c.share for c in cells],
@@ -316,25 +355,25 @@ def _trend_figure(series: Series, tags: set[str], title: str) -> pgo.Figure:
             name=archetype,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+            marker=_observation_marker(colour),
             hovertemplate=(
                 f"%{{x}} · {archetype} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
         ))
-    _style_trend_chart(fig, title, "Share of meta")
+    _style_trend_chart(fig, "Share of meta")
     fig.update_layout(legend=dict(title="Archetype"))
     return fig
 
 
-def _adoption_figure(cards: list[tuple[str, Series]], board_label: str) -> pgo.Figure:
+def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
     """One or more cards' adoption (share of that year's decks) over the years.
 
-    A trace per card, so several cards can be compared on one axis. Colour separates
-    them up to the palette's 32 entries and recycles past that, and a trace's colour
-    is its position in the current selection rather than anything about the card, so
-    the same card takes a different colour as the selection changes and the legend,
-    not the colour, is what identifies a line. Adoption carries no floor: every year
+    A trace per card, so several cards can be compared on one axis. At eight or fewer
+    cards each takes a direct hue from the shared eight-hue set by entity (§5), the
+    subject first, so a card keeps its colour as the compare set changes rather than
+    repainting on its position; past eight the set is exhausted and the ninth-plus
+    fall back to the long palette. Adoption carries no floor: every year
     is plotted, including the zeros of years a card sat out, so a line shows the
     card entering rather than skipping a gap (ADR 0013). Share, not raw count, is
     the y-value, because the year bases differ (a thin early year against a fat
@@ -343,11 +382,16 @@ def _adoption_figure(cards: list[tuple[str, Series]], board_label: str) -> pgo.F
     in hand. As with the meta-share chart the points are drawn large and hollow and
     the connecting line thin and dashed, a reminder it only joins observations and
     asserts no trend between them. The board the count is scoped to rides in the
-    title, since it changes what the line means.
+    page heading the caller draws above the chart, since it changes what the line means.
     """
     fig = pgo.Figure()
+    # Each card takes a direct hue from the shared eight-hue set by entity (§5), the
+    # subject first, so a card keeps its colour as the compare set changes. Past eight
+    # cards `assign` returns None (the emphasis threshold, a separate slice), so the
+    # ninth-plus fall back to the long palette rather than a None the figure chokes on.
+    colours = palette.assign([name for name, _ in cards])
     for i, (card_name, series) in enumerate(cards):
-        colour = _PALETTE[i % len(_PALETTE)]
+        colour = colours.get(card_name) or _PALETTE[i % len(_PALETTE)]
         cells = sorted(series.cells, key=lambda c: c.year)
         fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
@@ -357,13 +401,13 @@ def _adoption_figure(cards: list[tuple[str, Series]], board_label: str) -> pgo.F
             name=card_name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+            marker=_observation_marker(colour),
             hovertemplate=(
                 f"%{{x}} · {card_name} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
         ))
-    _style_trend_chart(fig, f"Card adoption over time ({board_label})", "Adoption (share of decks)")
+    _style_trend_chart(fig, "Adoption (share of decks)")
     fig.update_layout(legend=dict(title="Card"))
     return fig
 
@@ -409,7 +453,9 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     # A refused year has a cell but no mean, so it plots as a null exactly like a year
     # with no cell at all: the line breaks and no point is drawn either way.
     drawn = [c if c and c.mean_norm is not None else None for _, c in spanned]
-    colour = _PALETTE[0]
+    # A single-series chart: the one entity takes the palette's first slot (§5), a
+    # direct colour by entity, not a position in a rank.
+    colour = palette.CATEGORICAL[0]
     fig.add_trace(pgo.Scatter(
         x=[str(year) for year, _ in spanned],
         y=[1 - c.mean_norm if c else None for c in drawn],
@@ -419,9 +465,9 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
         mode="lines+markers+text",
         text=[f"{c.events} ev" if c else "" for c in drawn],
         textposition="top center",
-        textfont=dict(color="#9ca3af", size=11),
+        textfont=dict(color=_AXIS, size=11),
         line=dict(width=1, dash="dash", color=colour),
-        marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+        marker=_observation_marker(colour),
         # Let a marker and its label at the very top (a perfect 1.0 season) draw over
         # the axis edge rather than being clipped out of the plot.
         cliponaxis=False,
@@ -429,7 +475,7 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     ))
     # The score's sense rides the readout (score() -> "0.62 (1 = 1st)"), stated once,
     # so the axis title names the quantity without restating which end is a win.
-    _style_trend_chart(fig, f"Pilot performance: {pilot_name}", "Mean finish")
+    _style_trend_chart(fig, "Mean finish")
     # A bounded 0-1 score, not a share, so a plain decimal axis over the full range,
     # overriding the shared styler's percent format and auto-zoom.
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
@@ -444,11 +490,11 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
             fig.add_annotation(
                 x=str(year), y=0, xref="x", yref="paper", yshift=-32,
                 text="played, unscored" if not cell.events else f"{cell.events} ev, too thin",
-                showarrow=False, font=dict(color="#9ca3af", size=10),
+                showarrow=False, font=dict(color=_AXIS, size=10),
             )
     # A plain reference line at 0.5, a random finisher's expected normalised rank
     # (the flip leaves it at 0.5): above it beat the field, below it trailed.
-    fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
+    fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
     return fig
 
 
@@ -508,7 +554,12 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     """
     cells = sorted(series.cells, key=lambda c: c.date)
     fig = pgo.Figure()
-    colour_a, colour_b = _PALETTE[0], _PALETTE[1]
+    # Two fixed lines, so each pilot takes a direct hue from the shared eight-hue set by
+    # position-as-entity (§5): the pilot named first is slot 1, the second slot 2, never
+    # a recycled wheel. Taken by slot rather than through `assign` keyed on the display
+    # label, so two distinct pilot ids that happen to share a label still draw apart
+    # (assign would dedup the shared label to one slot and collapse the two lines).
+    colour_a, colour_b = palette.CATEGORICAL[0], palette.CATEGORICAL[1]
 
     # A translucent band between the two lines, tinted with the colour of whichever
     # pilot sits higher, so the eye reads the size and the direction of the gap at a
@@ -558,7 +609,7 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            marker=dict(size=12, symbol="circle-open", line=dict(width=2.5, color=colour)),
+            marker=_observation_marker(colour),
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
@@ -567,7 +618,7 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
         ))
     # The finish's sense rides the readout (score() -> "0.62 (1 = 1st)"), stated once,
     # so the axis title names the quantity without restating which end is a win.
-    _style_trend_chart(fig, f"Head-to-head: {name_a} vs {name_b}", "Finish")
+    _style_trend_chart(fig, "Finish")
     # A registration-date x-axis (ADR 0013), not the category-Year axis the shared
     # styler sets, with a range slider as the time-range filter. Its mini-axis is
     # fixed to an off-data band (the score is 0-1, this is 10-11), which parks the
@@ -598,22 +649,20 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     # not stretched, overriding the shared styler's percent format and zoom. Matches
     # the performance chart: same scale, same 0.5 reference line.
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
-    fig.add_hline(y=0.5, line=dict(color="rgba(128,128,128,0.55)", width=1, dash="dot"))
+    fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
     # A horizontal legend above the plot, not the shared styler's default right-side
     # one: an external right legend widens with the pilot names and eats into the plot
     # area, which drifts the paper-centred time-range label (above) and leaves it off
-    # true centre. A top strip keeps the plot full-width and stable. The title is
-    # pinned to the top of a taller margin and the legend seated just above the plot,
-    # so a long "A vs B" title and the centred legend sit on their own rows rather than
-    # colliding. Room below the axis for the slider band and its label (the shared
-    # styler sets a tight b=8 for the label-free charts).
+    # true centre. A top strip keeps the plot full-width and stable. The title is now a
+    # page heading above the chart (§6), so the top margin only has to seat the centred
+    # legend, not a title above it. Room below the axis for the slider band and its
+    # label (the shared styler sets a tight b=8 for the label-free charts).
     fig.update_layout(
-        title=dict(y=0.97, yanchor="top"),
         legend=dict(
             title="Pilot", orientation="h",
             xanchor="center", x=0.5, yanchor="bottom", y=1.02,
         ),
-        margin=dict(t=96, b=90),
+        margin=dict(t=48, b=90),
     )
     return fig
 
@@ -675,20 +724,23 @@ def build_app(artifact: Path) -> gr.Blocks:
     # same helper the cut ranks with, so the title cannot name a different year.
     latest_year = latest_deck_year(trend_series)
 
-    def draw_cut(cut_label: str) -> pgo.Figure:
-        tags = set(latest_year_share_cut(trend_series, _CUTS[cut_label]))
-        return _trend_figure(
-            trend_series, tags, f"Meta share, {cut_label.lower()} of {latest_year} decks"
-        )
+    def draw_cut(cut_label: str):
+        # The title is a page heading above the plot now (§6), returned beside the
+        # figure. The cut's tags stay in rank order (strongest first) so a narrower
+        # cut is a prefix of a wider one and the survivors keep their colour (§5).
+        tags = latest_year_share_cut(trend_series, _CUTS[cut_label])
+        title = f"Meta share, {cut_label.lower()} of {latest_year} decks"
+        return _chart_heading(title), _trend_figure(trend_series, tags)
 
     def draw_manual(manual_tags: list[str]):
         # A focused second chart, drawn only once specific archetypes are chosen, so
         # the manual pick reads on its own rather than crowding the cut chart.
-        tags = set(manual_tags or [])
+        tags = list(dict.fromkeys(manual_tags or []))
         if not tags:
-            return gr.update(visible=False)
-        return gr.update(
-            value=_trend_figure(trend_series, tags, "Selected archetypes"), visible=True
+            return gr.update(visible=False), gr.update(visible=False)
+        return (
+            gr.update(value=_chart_heading("Selected archetypes"), visible=True),
+            gr.update(value=_trend_figure(trend_series, tags), visible=True),
         )
 
     # Adoption is per-card, so it is run on demand (a fresh Connection like
@@ -700,7 +752,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # cards are picked, so the chart never shows a lead line the visitor did not
         # choose as the subject (issue #119).
         if not primary:
-            return gr.update(visible=False)
+            return gr.update(visible=False), gr.update(visible=False)
         # Then the compare picks, deduped so a card chosen in both is one line, order
         # preserved so the subject stays the first trace.
         seen: set[str] = set()
@@ -713,24 +765,28 @@ def build_app(artifact: Path) -> gr.Blocks:
             (card_names[canon], run_series(conn, CardAdoptionOverTime(canon, board or None)))
             for canon in canons
         ]
-        return gr.update(
-            value=_adoption_figure(series, _BOARD_LABELS[board]), visible=True
+        # The board scopes what the count means, so it rides the page heading (§6),
+        # the way it rode the Plotly title before the title moved out of the image.
+        title = f"Card adoption over time ({_BOARD_LABELS[board]})"
+        return (
+            gr.update(value=_chart_heading(title), visible=True),
+            gr.update(value=_adoption_figure(series), visible=True),
         )
 
     def draw_performance(pilot: str):
-        # Return the chart and a refusal note. The shared pilot dropdown offers the
+        # Return the heading, the chart, and a refusal note. The shared pilot dropdown offers the
         # full catalogue (#119), so a pilot short of two averageable years reaches
         # here; rather than a silent blank it gets the same "refused, not a dot" note
         # head-to-head uses. Phrased from the qualifying-year count itself, so raising
         # the floor cannot leave it asserting a pilot has none when they have some
         # (issue #101).
         if not pilot:
-            return gr.update(visible=False), gr.update(visible=False)
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
         try:
             series = run_series(ladybug.Connection(db), PilotPerformanceOverTime(pilot))
         except NotEnoughHistory as e:
             had = "no year" if not e.found else f"only {e.found} year" + ("" if e.found == 1 else "s")
-            return gr.update(visible=False), gr.update(
+            return gr.update(visible=False), gr.update(visible=False), gr.update(
                 value=(
                     f"{pilot_labels[pilot]} has {had} with enough events to average, "
                     "so there is no performance trend to trace over time."
@@ -741,8 +797,9 @@ def build_app(artifact: Path) -> gr.Blocks:
         # should not arise; guard anyway so a drift between the two floor queries
         # hides the chart rather than crashing `_performance_figure` on `cells[0]`.
         if not series.cells:
-            return gr.update(visible=False), gr.update(visible=False)
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
         return (
+            gr.update(value=_chart_heading(f"Pilot performance: {pilot_labels[pilot]}"), visible=True),
             gr.update(value=_performance_figure(pilot_labels[pilot], series), visible=True),
             gr.update(visible=False),
         )
@@ -754,9 +811,9 @@ def build_app(artifact: Path) -> gr.Blocks:
         # Hide both the chart and the note until a valid pair is picked; the note is
         # the "refused, not a dot" surface for a pair the tool comes back empty on.
         if not a or not b:
-            return gr.update(visible=False), gr.update(visible=False)
+            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
         if a == b:
-            return gr.update(visible=False), gr.update(
+            return gr.update(visible=False), gr.update(visible=False), gr.update(
                 value="Pick two different pilots to see their rivalry.", visible=True
             )
         try:
@@ -771,7 +828,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "have never met" if not e.found
                 else f"share only {e.found} event" + ("s" if e.found > 1 else "")
             )
-            return gr.update(visible=False), gr.update(
+            return gr.update(visible=False), gr.update(visible=False), gr.update(
                 value=(
                     f"{pilot_labels[a]} and {pilot_labels[b]} {met}, so there is no "
                     "rivalry to trace over time."
@@ -781,7 +838,12 @@ def build_app(artifact: Path) -> gr.Blocks:
         # The in-chart range slider does the time-range slice client-side, so the
         # callback draws the whole rivalry and never re-filters by date here.
         fig = _head_to_head_figure(pilot_labels[a], pilot_labels[b], series)
-        return gr.update(value=fig, visible=True), gr.update(visible=False)
+        title = f"Head-to-head: {pilot_labels[a]} vs {pilot_labels[b]}"
+        return (
+            gr.update(value=_chart_heading(title), visible=True),
+            gr.update(value=fig, visible=True),
+            gr.update(visible=False),
+        )
 
     def _graph_meta(view: str, values: dict) -> tuple[str, list[str]]:
         # The subject a graph result is about and the reader-language filters under
@@ -917,9 +979,12 @@ def build_app(artifact: Path) -> gr.Blocks:
                     "them and asserts no direction."
                 )
                 # The "refused, not a dot" surface for a pilot short of averageable
-                # years, mirroring head-to-head; hidden until a pick lands on it.
+                # years, mirroring head-to-head; hidden until a pick lands on it. The
+                # page-type title sits above the plot (§6); it carries the result-region
+                # rule (the top of the region), so the plot below it does not repeat it.
+                perf_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
                 performance_note = gr.Markdown(visible=False, elem_classes="result-region")
-                performance_plot = gr.Plot(visible=False, elem_classes="result-region")
+                performance_plot = gr.Plot(visible=False)
 
             with gr.Group(visible=pilots_default == "pilot_h2h_timeline") as g_pilot_h2h:
                 gr.Markdown(
@@ -937,9 +1002,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 h2h_pilot_b = gr.Dropdown(choices=pilots, value=None, label="Second pilot")
                 # The "refused, not a dot" surface for a pair with too few shared
-                # events; hidden until a pick lands on it.
+                # events; hidden until a pick lands on it. The title heads the region.
+                h2h_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
                 h2h_note = gr.Markdown(visible=False, elem_classes="result-region")
-                h2h_plot = gr.Plot(visible=False, elem_classes="result-region")
+                h2h_plot = gr.Plot(visible=False)
 
             pilots_groups = {
                 "pilot_neighbourhood": g_pilot_neighbourhood,
@@ -947,17 +1013,20 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "pilot_performance": g_pilot_performance,
                 "pilot_h2h_timeline": g_pilot_h2h,
             }
-            pilot_chart_outs = [performance_plot, performance_note, h2h_plot, h2h_note]
+            pilot_chart_outs = [
+                perf_heading, performance_plot, performance_note,
+                h2h_heading, h2h_plot, h2h_note,
+            ]
 
             def draw_pilot_chart(view: str, p: str, pb: str):
                 # Draw only the chart the picker currently shows, so selecting the
                 # shared pilot never runs the other view's query into a hidden plot
-                # (code review #1). Each chart returns its plot and its note.
+                # (code review #1). Each chart returns its heading, its plot, and its note.
                 if view == "pilot_performance":
-                    return (*draw_performance(p), gr.update(), gr.update())
+                    return (*draw_performance(p), gr.update(), gr.update(), gr.update())
                 if view == "pilot_h2h_timeline":
-                    return (gr.update(), gr.update(), *draw_head_to_head(p, pb))
-                return (gr.update(),) * 4
+                    return (gr.update(), gr.update(), gr.update(), *draw_head_to_head(p, pb))
+                return (gr.update(),) * len(pilot_chart_outs)
 
             def switch_pilot(view: str, p: str, pb: str):
                 # Show the chosen view and draw it fresh for the current pilot, so a
@@ -981,7 +1050,8 @@ def build_app(artifact: Path) -> gr.Blocks:
             # The second pilot only feeds head-to-head, which is the shown view when
             # its control is reachable, so it just redraws that chart.
             h2h_pilot_b.change(
-                draw_head_to_head, inputs=[pilot, h2h_pilot_b], outputs=[h2h_plot, h2h_note],
+                draw_head_to_head, inputs=[pilot, h2h_pilot_b],
+                outputs=[h2h_heading, h2h_plot, h2h_note],
             )
             nb_go.click(
                 lambda p, p2: run_graph("pilot_neighbourhood", {"pilot": p, "pilot2": p2}),
@@ -1051,7 +1121,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                     label="Compare with other cards (optional)",
                 )
                 adoption_board = gr.Dropdown(choices=_BOARD_CHOICES, value="", label="Board")
-                adoption_plot = gr.Plot(visible=False, elem_classes="result-region")
+                # The title heads the region (§6); the plot below it does not repeat
+                # the result-region rule.
+                adoption_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                adoption_plot = gr.Plot(visible=False)
 
             cards_groups = {
                 "card_usage": g_card_usage,
@@ -1061,33 +1134,33 @@ def build_app(artifact: Path) -> gr.Blocks:
             def draw_card_chart(view: str, c: str, extra: list[str], board: str):
                 # Adoption is the tab's only chart, drawn only when it is the shown
                 # view, so selecting the shared card does not run it while a graph
-                # view is up (code review #1).
+                # view is up (code review #1). Returns the heading and the plot.
                 if view == "card_adoption":
                     return draw_adoption(c, extra, board)
-                return gr.update()
+                return gr.update(), gr.update()
 
             def switch_card(view: str, c: str, extra: list[str], board: str):
-                return [*_toggle(cards_groups, view), draw_card_chart(view, c, extra, board)]
+                return [*_toggle(cards_groups, view), *draw_card_chart(view, c, extra, board)]
 
             def pick_card(view: str, c: str, extra: list[str], board: str):
                 # A new card leaves the button-drawn graphs on the old one, so they
                 # drop back to the prompt while adoption (if shown) redraws (#3).
-                return [_PROMPT, _PROMPT, draw_card_chart(view, c, extra, board)]
+                return [_PROMPT, _PROMPT, *draw_card_chart(view, c, extra, board)]
 
             cards_view.change(
                 switch_card, inputs=[cards_view, card, adoption_extra, adoption_board],
-                outputs=[*cards_groups.values(), adoption_plot],
+                outputs=[*cards_groups.values(), adoption_heading, adoption_plot],
             )
             card.change(
                 pick_card, inputs=[cards_view, card, adoption_extra, adoption_board],
-                outputs=[usage_out, co_out, adoption_plot],
+                outputs=[usage_out, co_out, adoption_heading, adoption_plot],
             )
             # Adoption's own controls only ever change while adoption is the shown
             # view, so they just redraw it.
             for control in (adoption_extra, adoption_board):
                 control.change(
                     draw_adoption, inputs=[card, adoption_extra, adoption_board],
-                    outputs=adoption_plot,
+                    outputs=[adoption_heading, adoption_plot],
                 )
             usage_go.click(
                 lambda c, b: run_graph("card_usage", {"card": c, "card_board": b}),
@@ -1141,13 +1214,19 @@ def build_app(artifact: Path) -> gr.Blocks:
                     list(_CUTS), value=_DEFAULT_CUT,
                     label=f"Archetypes to show (by share of {latest_year} decks)",
                 )
-                cut_plot = gr.Plot(value=draw_cut(_DEFAULT_CUT), elem_classes="result-region")
+                # The title is a page heading above the plot now (§6): the heading
+                # carries the result-region rule (the top of the region), the plot
+                # below it does not. Both open on the default cut.
+                _cut_heading, _cut_fig = draw_cut(_DEFAULT_CUT)
+                cut_heading = gr.HTML(value=_cut_heading, padding=False, elem_classes="result-region")
+                cut_plot = gr.Plot(value=_cut_fig)
                 manual = gr.Dropdown(
                     choices=trend_archetypes, value=[], multiselect=True,
                     label="Or focus on specific archetypes",
                 )
                 # Hidden until a pick is made, so the view opens on the cut chart.
-                manual_plot = gr.Plot(visible=False, elem_classes="result-region")
+                manual_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
+                manual_plot = gr.Plot(visible=False)
 
             with gr.Group(visible=meta_default == "meta_gems") as g_meta_gems:
                 gr.Markdown(
@@ -1166,8 +1245,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 lambda v: _toggle(meta_groups, v),
                 inputs=meta_view, outputs=list(meta_groups.values()),
             )
-            cut.change(draw_cut, inputs=cut, outputs=cut_plot)
-            manual.change(draw_manual, inputs=manual, outputs=manual_plot)
+            cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
+            manual.change(draw_manual, inputs=manual, outputs=[manual_heading, manual_plot])
             gem_go.click(
                 lambda a: run_graph("meta_gems", {"gem_archetype": a}),
                 inputs=gem_archetype, outputs=gem_out,
