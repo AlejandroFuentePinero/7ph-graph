@@ -176,3 +176,34 @@ then, treat §5–6's emphasis as proposed, not final.
 On-screen terms match `CONTEXT.md`'s vocabulary (Pilot, Deck, Board, Archetype,
 Macro, Year, Placement, Points); nothing from its `_Avoid_` list appears; labels
 and buttons are written in reader language, not internal parameter names.
+
+## 11. Information architecture (subject-first)
+
+The app is organised by **subject**, not by output modality. Today it splits
+Explore (graph views) from Trends (chart views) — a split by rendering pipeline,
+not by what a visitor wants to know, which scatters each subject across both tabs
+(Pilot head-to-head appears in both). v1 regroups the **same nine views, all
+preserved**, under three subject tabs. This is reorganisation, not reduction:
+nothing is added or removed, every query, filter, and view reachable today stays
+reachable.
+
+| Tab | Views (all existing, kept as-is) |
+|---|---|
+| **Pilots** | neighbourhood & head-to-head (graph), archetype affinity (graph), performance over time (chart), head-to-head timeline (chart) |
+| **Cards** | usage (graph), co-occurrence (graph), adoption over time (chart) |
+| **Meta** | meta share over time (chart), hidden gems (graph) |
+
+- **Subject selected once.** The subject (a pilot, a card) is chosen at the tab
+  level and reused across that tab's views, so a visitor picks a pilot once and
+  moves between their graph and their trends without re-selecting. Head-to-head,
+  which needs two pilots, takes the second in its own control.
+- **Both modalities under one subject.** A subject's graph views and its
+  time-series views sit together; the graph and chart pipelines stay separate
+  under the hood (ADR-0013), but that split is no longer visible in the
+  navigation.
+- Within a tab, a view-picker selects the specific view — the same pattern the
+  current tabs use, now scoped to one subject.
+
+Placement note: *hidden gems* is entered by archetype and outputs cards; it sits
+under **Meta** (beside meta share) rather than Cards, so the Meta tab is not a
+single-view tab and the two archetype/meta-level views stay together.
