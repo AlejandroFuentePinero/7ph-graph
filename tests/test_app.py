@@ -12,6 +12,7 @@ from graph7ph.app import (
     _head_to_head_figure,
     _PILOTS_TAB,
     _between_line_polys,
+    _performance_caption,
     _performance_figure,
     _result_header,
     _subject_line,
@@ -341,7 +342,7 @@ def test_a_refused_year_at_the_end_of_a_career_is_an_empty_tick_not_a_missing_ye
     ])
     trace = _performance_figure("Ada L", series).data[0]
 
-    assert trace.x == ("2023", "2024", "2025", "2026")
+    assert trace.x == (2023, 2024, 2025, 2026)  # numeric years on a linear axis
     # The score inverts the finish (1 is a win), and a refused year plots as a null.
     assert trace.y == (None, 0.6, 0.8, None)
     assert trace.text == ("", "3 ev", "5 ev", "")
@@ -357,7 +358,7 @@ def test_a_year_the_pilot_sat_out_still_holds_the_axis_open():
     ])
     trace = _performance_figure("Ada L", series).data[0]
 
-    assert trace.x == ("2024", "2025", "2026")
+    assert trace.x == (2024, 2025, 2026)
     assert trace.y == (0.6, None, 0.8)
 
 
@@ -371,12 +372,61 @@ def test_a_refused_year_is_captioned_and_a_sat_out_year_is_not():
         PerformanceCell(year=2024, mean_norm=0.4, events=3),
         PerformanceCell(year=2026, mean_norm=None, events=0),
     ])
+    # The refused-year captions sit under the axis (yref="paper"); the midpoint
+    # reference-line label rides the y-axis, so filter to the captions this test is about.
     captions = {
         (a.x, a.text) for a in _performance_figure("Ada L", series).layout.annotations
+        if a.yref == "paper"
     }
 
     # 2025 has no cell at all (sat out), so it gets a tick and no caption.
-    assert captions == {("2023", "1 ev, too thin"), ("2026", "played, unscored")}
+    assert captions == {(2023, "1 ev, too thin"), (2026, "played, unscored")}
+
+
+def test_performance_markers_grow_with_the_events_behind_each_year():
+    # A two-event mean and a twenty-event one sit on the same line; the ring's size
+    # carries the sample size so the eye discounts the thin year without hovering.
+    series = Series(cells=[
+        PerformanceCell(year=2024, mean_norm=0.4, events=2),
+        PerformanceCell(year=2025, mean_norm=0.4, events=25),
+    ])
+    sizes = _performance_figure("Ada L", series).data[0].marker.size
+
+    assert sizes[1] > sizes[0]  # the 25-event year draws a broader ring than the 2-event one
+
+
+def test_performance_caption_states_the_field_share_and_the_sample():
+    # The flat axis is silent on the standing, so the caption states it: the mean
+    # score weighted by events, as the share of the field beaten, with the sample.
+    caption = _performance_caption(Series(cells=[
+        PerformanceCell(year=2024, mean_norm=0.4, events=2),   # score 0.6
+        PerformanceCell(year=2025, mean_norm=0.2, events=8),   # score 0.8
+        PerformanceCell(year=2026, mean_norm=None, events=1),  # refused, not in the mean
+    ]))
+
+    # Weighted mean score = (0.6*2 + 0.8*8) / 10 = 0.76, rounded to a whole percent, and
+    # set in the accent span so the eye lands on it; the sample trails in its own span.
+    assert "<span class='pct'>76%</span>" in caption
+    assert "10 events over 2 scored years" in caption
+
+
+def test_a_leading_refused_year_does_not_stretch_the_axis():
+    # A leading refused year is a null-only point that draws no marker, but its refusal
+    # caption is anchored to the x-axis. On a category axis the numeric-string year lands
+    # at the linear coordinate 2024, off the category slots, dragging autorange out to it
+    # so the real markers crush to one edge and the caption strands at the other. A linear
+    # year axis with a pinned range puts caption and markers on one bounded scale.
+    fig = _performance_figure("Ada L", Series(cells=[
+        PerformanceCell(year=2024, mean_norm=None, events=1),
+        PerformanceCell(year=2025, mean_norm=0.4, events=3),
+        PerformanceCell(year=2026, mean_norm=0.2, events=5),
+    ]))
+
+    assert fig.layout.xaxis.type == "linear"
+    assert fig.layout.xaxis.range == (2023.5, 2026.5)  # bounded to the years, no blowup
+    # The refusal caption sits at its real year, inside the range, not flung past it.
+    thin = next(a for a in fig.layout.annotations if a.text == "1 ev, too thin")
+    assert thin.x == 2024
 
 
 def test_head_to_head_colours_each_pilot_by_entity_from_the_shared_palette():

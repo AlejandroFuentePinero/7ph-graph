@@ -140,6 +140,12 @@ def build_css() -> str:
 }}
 .prose p, .prose li, .t-body {{ font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text); }}
 .t-caption {{ font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--text-mute); }}
+/* Field-standing line: the one-sentence read of a performance chart, promoted above a
+   plain caption so it lands as the answer rather than fine print. The share itself
+   carries the accent so the eye catches the number first; the sample size trails quiet. */
+.t-fieldstat {{ font-size: 14.5px; font-weight: 400; line-height: 1.5; color: var(--text-dim); }}
+.t-fieldstat .pct {{ color: var(--accent-bright); font-weight: 650; font-variant-numeric: tabular-nums; }}
+.t-fieldstat .sample {{ color: var(--text-mute); font-size: 13px; }}
 /* Numeric readout (§3): the sans's tabular figures where digits align in a column.
    `.tabular` opts any run of digits back into alignment. */
 .t-numeric {{ font-size: 14px; font-weight: 550; color: var(--text); font-variant-numeric: tabular-nums; }}
