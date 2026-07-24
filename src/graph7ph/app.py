@@ -30,6 +30,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
+from graph7ph import theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess
 from graph7ph.query import (
@@ -727,13 +728,19 @@ def build_app(artifact: Path) -> gr.Blocks:
             return _refine_alert(plan)
         return _embed(render_subgraph(subgraph))
 
-    with gr.Blocks(title="7 Point Highlander Graph") as demo:
+    with gr.Blocks(
+        title="7 Point Highlander Graph",
+        theme=theme.dark_theme(),
+        css=theme.build_css(),
+        js=theme.FORCE_DARK_JS,
+    ) as demo:
         gr.Markdown("# 7 Point Highlander Graph")
         with gr.Tab("Explore"):
             gr.Markdown(
                 "Pick what to explore, set filters, and see a filtered subgraph of "
                 "the result. Click a node for its details; a deck links out to "
-                "Moxfield."
+                "Moxfield.",
+                elem_classes="t-lede",
             )
             view = gr.Dropdown(
                 choices=list(_VIEWS), label="Explore", value="Pilot head-to-head"
