@@ -5,7 +5,7 @@ from graph7ph.app import (
     _CARDS_TAB,
     _PLOT_LABELS,
     _adoption_figure,
-    _adoption_heading_text,
+    _adoption_caption,
     _adoption_cards,
     _chart_heading,
     _embed,
@@ -14,6 +14,7 @@ from graph7ph.app import (
     _between_line_polys,
     _performance_figure,
     _result_header,
+    _subject_line,
     _trend_figure,
 )
 from graph7ph.trends import (
@@ -96,38 +97,95 @@ def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
     assert len(headings) == 4
 
 
-def test_meta_and_gems_blurbs_demote_their_methodology_not_a_wall_of_text(tmp_path, snapshot_dir):
-    # AC (#113, user story 5): a view's explanatory copy is a short lede plus demoted
-    # methodology, never a wall-of-text paragraph. The Meta classification-drift caveat
-    # (the "723 of 4553 decks" note) and the Hidden gems over-indexing caveat both fold
-    # into a collapsible (`<details>`), one click from the lede rather than crowding it.
-    # Anchored on domain phrases the caveats must carry, so the demotion is what is
-    # asserted, not the exact copy.
-    mds = _markdown_values(_built_demo(tmp_path, snapshot_dir))
-
-    drift = next(m for m in mds if "723" in m)
-    assert "<details" in drift
-
-    over = next(m for m in mds if "over-index" in m)
-    assert "<details" in over
-
-
-def test_every_chart_view_opens_with_an_empty_state_not_blank(tmp_path, snapshot_dir):
-    # AC (#113, user story 18 / §8): the chart views' missing empty states are added,
-    # so a trend region never opens as controls over blank space. Each trend's note
-    # slot (the same slot its refusal messages use) carries a visible "Draw to see"
-    # prompt on open, mirroring the graph views' `_PROMPT`. Keyed on the message
-    # constants, so a note that reverts to hidden-on-open trips here.
+def _all_surface_text(demo):
+    """Every Markdown and HTML value the built app shows on its surface at open."""
     import gradio as gr
-    from graph7ph.app import _EMPTY_ADOPTION, _EMPTY_PERFORMANCE, _EMPTY_TIMELINE
+    return [b.value for b in demo.blocks.values()
+            if isinstance(b, (gr.Markdown, gr.HTML)) and b.value]
+
+
+def test_no_on_surface_methodology_or_plot_description_remains(tmp_path, snapshot_dir):
+    # AC (#132, §14): the per-plot description paragraphs and the on-surface
+    # "How this is measured" methodology blocks both leave the surface (the methodology
+    # moves to the FAQ / Methodology tab, #133). None of it survives on any Markdown or
+    # HTML surface: no `<details>` collapsible, no "How this is measured" summary, and
+    # none of the caveat prose (the Meta classification-drift "723..." note, the Hidden
+    # gems "over-index" caveat) the demoted blocks used to carry.
+    surface = " ".join(_all_surface_text(_built_demo(tmp_path, snapshot_dir)))
+
+    assert "<details" not in surface
+    assert "How this is measured" not in surface
+    assert "723" not in surface  # the Meta classification-drift caveat is gone
+    assert "over-index" not in surface  # the Hidden gems over-indexing caveat is gone
+
+
+def test_tab_intros_are_a_single_sentence(tmp_path, snapshot_dir):
+    # AC (#132, §14): a tab intro is one short descriptive sentence, no more (the old
+    # multi-line Pilots lede becomes one). The intros are the Markdowns carrying the
+    # `t-lede` class; each must read as a single sentence: it ends with a period and
+    # carries no mid-string sentence break, so a regression to a multi-sentence
+    # paragraph trips here.
+    import gradio as gr
+
+    intros = [b.value for b in _built_demo(tmp_path, snapshot_dir).blocks.values()
+              if isinstance(b, gr.Markdown) and b.value
+              and "t-lede" in (b.elem_classes or [])]
+
+    assert len(intros) == 4  # one per tab (Pilots, Cards, Meta, Hidden gems)
+    for intro in intros:
+        assert intro.rstrip().endswith("."), intro
+        assert ". " not in intro, intro  # no second sentence
+
+
+def test_meta_focus_control_sits_above_its_plot_not_below(tmp_path, snapshot_dir):
+    # AC (#132): no plot-affecting control is placed below its plot. The Meta
+    # archetype-focus multiselect used to sit under the cut chart; it moves up with
+    # the cut control. Asserted at the build seam by insertion order: the focus
+    # dropdown is created before the cut plot that its sibling control drives, so a
+    # regression that strands it below the plot again trips here.
+    import gradio as gr
+
+    blocks = list(_built_demo(tmp_path, snapshot_dir).blocks.values())
+
+    def index_where(pred):
+        return next(i for i, b in enumerate(blocks) if pred(b))
+
+    cut_radio_i = index_where(
+        lambda b: isinstance(b, gr.Radio) and "Archetypes to show" in (b.label or "")
+    )
+    focus_i = index_where(
+        lambda b: isinstance(b, gr.Dropdown)
+        and (b.label or "") == "Or focus on specific archetypes"
+    )
+    # The cut plot is the first Plot created after the cut radio (the Meta cut chart).
+    cut_plot_i = min(i for i, b in enumerate(blocks)
+                     if isinstance(b, gr.Plot) and i > cut_radio_i)
+
+    assert focus_i < cut_plot_i
+
+
+def test_a_view_opens_with_dropdown_guidance_not_duplicated_prompt_cards(tmp_path, snapshot_dir):
+    # AC (#132, §14, user feedback): a view no longer opens as a row of identical
+    # "Pick an entity and filters, then Draw." cards. The guidance moves to the subject
+    # dropdown's help text (`info`), one place at the control you drive from, and the
+    # per-view results stack starts hidden so nothing empty is drawn. Keyed on the
+    # guidance constants and the results-stack visibility, so a regression that revives
+    # the duplicated prompt cards (or drops the dropdown guidance) trips here.
+    import gradio as gr
+    from graph7ph.app import _PICK_ARCHETYPE, _PICK_CARD, _PICK_PILOT
 
     demo = _built_demo(tmp_path, snapshot_dir)
-    visible = [b.value for b in demo.blocks.values()
-               if isinstance(b, gr.Markdown) and b.value and b.visible]
 
-    assert _EMPTY_PERFORMANCE in visible
-    assert _EMPTY_TIMELINE in visible
-    assert visible.count(_EMPTY_ADOPTION) == 2  # both card views (overview, co-occurrence)
+    infos = {b.info for b in demo.blocks.values()
+             if isinstance(b, gr.Dropdown) and b.info}
+    assert {_PICK_PILOT, _PICK_CARD, _PICK_ARCHETYPE} <= infos
+
+    # No result surface carries the old duplicated prompt text on open.
+    surface = " ".join(
+        b.value for b in demo.blocks.values()
+        if isinstance(b, (gr.Markdown, gr.HTML)) and b.value
+    )
+    assert "Pick an entity and filters, then Draw" not in surface
 
 
 def test_hidden_gems_requires_an_archetype():
@@ -156,19 +214,19 @@ def test_every_underlying_query_still_has_a_plot_heading():
     }
 
 
-def test_card_overview_adoption_heading_carries_the_board_but_cooccurrence_carries_none():
-    # AC (#126): Card overview has a board control, so its adoption heading names the
-    # board the count is scoped to. Co-occurrence is board-agnostic (no board
-    # control), so its adoption heading carries no board qualifier at all: the
-    # string "main or side" must never reach the plot, since there is no control to
-    # disambiguate it. board=None is the board-agnostic sentinel.
-    assert _adoption_heading_text("") == "Card adoption over time (main or side)"
-    assert _adoption_heading_text("Main") == "Card adoption over time (main)"
+def test_card_overview_adoption_caption_carries_the_board_but_cooccurrence_carries_none():
+    # AC (#126/#132): the adoption plot title is always the plot type ("Adoption over
+    # time", §14); the board is a filter and rides the caption. Card overview has a
+    # board control, so its caption names the board the count is scoped to.
+    # Co-occurrence is board-agnostic (no board control), so its caption is None: no
+    # board qualifier reaches the plot, since there is no control to disambiguate it.
+    # board=None is the board-agnostic sentinel.
+    assert _adoption_caption("") == "Main or side board"
+    assert _adoption_caption("Main") == "Main board"
 
-    agnostic = _adoption_heading_text(None)
-    assert agnostic == "Card adoption over time"
-    assert "main or side" not in agnostic
-    assert "board" not in agnostic.lower()
+    assert _adoption_caption(None) is None
+    # The plot title never carries the subject or the board; only the plot type.
+    assert "Adoption over time" in _chart_heading("Adoption over time", _adoption_caption("Main"))
 
 
 def test_cooccurrence_adoption_plots_both_cards_or_the_subject_alone():
@@ -182,21 +240,19 @@ def test_cooccurrence_adoption_plots_both_cards_or_the_subject_alone():
     assert _adoption_cards("", "mana-crypt") == []
 
 
-def test_a_drawn_result_is_titled_and_captioned_in_page_type():
-    # Issue #110: a query result is never left as an unlabelled graph. It opens
-    # under a title (the view named in reader language, then its subject) and a
-    # caption (the filters, then how much came back), both in the page's own type
+def test_a_drawn_result_is_titled_by_its_plot_type_and_captioned():
+    # Issue #110/#132: a query result is never left as an unlabelled graph. It opens
+    # under a title (the plot type alone, §14, the subject stated once above the cards)
+    # and a caption (the filters, then how much came back), both in the page's own type
     # roles (§3), so the answer reads as an answer. The class names are the page-type
     # contract: a regression to plain <p> text would drop them and trip this.
-    header = _result_header(
-        "pilot_neighbourhood", "Ada L", ["vs Bob C"], node_count=42
-    )
+    header = _result_header("pilot_neighbourhood", ["vs Bob C"], node_count=42)
 
     assert "t-result-title" in header
     assert "t-caption" in header
-    # The plot label names what was drawn (#126: a view holds several plots), the
-    # subject follows it.
-    assert "Neighbourhood: Ada L" in header
+    # The title is the plot type only; the subject (a pilot name) never appears in it.
+    assert "Neighbourhood" in header
+    assert "Ada L" not in header
     # The caption carries the filters and the node count, joined as one line.
     assert "vs Bob C · 42 nodes" in header
 
@@ -204,20 +260,35 @@ def test_a_drawn_result_is_titled_and_captioned_in_page_type():
 def test_the_caption_reads_the_node_count_and_reduces_to_the_singular():
     # "How much came back" is the count of nodes drawn. With no filters the caption
     # is the count alone, and a lone node reads "1 node", not "1 nodes".
-    one = _result_header("pilot_affinity", "Ada L", [], node_count=1)
+    one = _result_header("pilot_affinity", [], node_count=1)
     assert ">1 node</" in one
 
-    many = _result_header("pilot_affinity", "Ada L", [], node_count=250)
+    many = _result_header("pilot_affinity", [], node_count=250)
     assert ">250 nodes</" in many
 
 
-def test_the_subject_and_filters_are_escaped_into_the_header():
-    # The subject and filter strings come from display labels, which are free text,
-    # so a name carrying an angle bracket is escaped rather than injected into the
-    # result markup.
-    header = _result_header("card_usage", "A<b>", ["main board"], node_count=3)
+def test_the_filters_are_escaped_into_the_header():
+    # The filter strings come from display labels, which are free text, so a filter
+    # carrying an angle bracket is escaped rather than injected into the result markup.
+    header = _result_header("card_usage", ["with A<b>"], node_count=3)
     assert "A<b>" not in header
     assert "A&lt;b&gt;" in header
+
+
+def test_the_subject_is_stated_once_and_escaped():
+    # AC (#132, §14): the subject is stated once for the whole result, above the cards,
+    # never echoed in each plot title. The kind prefix reads in reader language and the
+    # names are free-text display labels, escaped into the markup.
+    one = _subject_line("Pilot", "Ada L")
+    assert "subject-line" in one
+    assert "Ada L" in one
+
+    pair = _subject_line("Head-to-head", "Ada L", "Bob C")
+    assert "Ada L" in pair and "Bob C" in pair and " vs " in pair
+
+    escaped = _subject_line("Card", "A<b>")
+    assert "A<b>" not in escaped
+    assert "A&lt;b&gt;" in escaped
 
 
 def test_band_over_a_non_crossing_segment_is_one_trapezoid_tinted_by_the_upper_line():
@@ -477,11 +548,13 @@ def test_the_app_builds_end_to_end_over_a_real_artifact(tmp_path, snapshot_dir):
     assert isinstance(demo, gr.Blocks)
 
 
-def test_embed_iframe_height_is_responsive_not_a_fixed_slab():
-    # §7 / AC: the graph frame scales with the viewport instead of a fixed
-    # 760/700px letterbox, so a phone is not eaten by a slab and a wide desktop
-    # is not letterboxed. The details panel inside stays visible without scroll.
-    frame = _embed("<html></html>")
+def test_every_graph_plot_shares_one_frame_height():
+    # §12 / AC (user feedback): the pilot neighbourhood frame is the size the user liked,
+    # and every graph plot should match it, so the frame height is a single shared
+    # constant rather than scaling per node count. A dense graph and a sparse one land in
+    # the same frame, reading as one coherent canvas across the tabs.
+    from graph7ph.app import GRAPH_HEIGHT
 
-    assert "760px" not in frame  # the fixed height is retired
-    assert "vh" in frame  # height is viewport-relative
+    frame = _embed("<html></html>")
+    assert f"{GRAPH_HEIGHT}px" in frame
+    assert GRAPH_HEIGHT >= 700  # tall enough that a dense graph lays out legibly
