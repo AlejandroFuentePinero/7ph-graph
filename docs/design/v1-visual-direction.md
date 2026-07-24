@@ -193,7 +193,8 @@ collapse to **two views**, one Draw per view rendering all of that view's plots.
 |---|---|
 | **Pilots** | **Pilot overview**: neighbourhood (solo) + archetype affinity + performance over time (one pilot); **Head-to-head**: neighbourhood pair + head-to-head timeline (two pilots, second required) |
 | **Cards** | **Card overview**: usage + adoption over time (one card + board); **Co-occurrence**: co-occurrence graph + adoption over time (card + second card + top-N + drop-lands, board-agnostic) |
-| **Meta** | meta share over time, hidden gems |
+| **Meta** | meta share over time |
+| **Hidden gems** | over-indexing cards for an archetype (entered by archetype) |
 
 - **Subject selected once.** The subject (a pilot, a card) is chosen at the tab
   level and reused across that tab's views, so a visitor picks a pilot once and
@@ -218,7 +219,10 @@ it to the chosen board, Co-occurrence draws it board-agnostic (across both board
 with no board qualifier text since there is no board control there. It plots both
 cards when a second is chosen in Co-occurrence, the subject alone otherwise.
 
-Placement note: *hidden gems* is entered by archetype and outputs cards; it sits
-under **Meta** (beside meta share) for now. Issue #125 moves it to its own tab;
-once both land the final structure is **Pilots (2), Cards (2), Meta (1: meta share),
-Hidden gems (1)**.
+Placement note: *hidden gems* is entered by archetype and outputs cards. It once
+sat under **Meta** (beside meta share) only to keep Meta from being a single-view
+tab, but #125 reversed that trade-off: gems is now its own top-level tab, and Meta
+holds meta share over time alone. The structure is four tabs, **Pilots (2), Cards
+(2), Meta (1: meta share), Hidden gems (1)**. The gems view itself is unchanged by
+the move (its query, archetype entry, and the `SliceTooSmall` refusal per ADR 0012
+are intact); only its placement changed.
