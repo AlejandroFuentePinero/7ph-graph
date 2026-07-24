@@ -10,7 +10,6 @@ from graph7ph.app import (
     _chart_heading,
     _embed,
     _head_to_head_figure,
-    _META_TAB,
     _PILOTS_TAB,
     _between_line_polys,
     _performance_figure,
@@ -38,15 +37,35 @@ def _meta_series(*tag_year_share):
 def test_pilots_and_cards_collapse_to_two_views_each():
     # Issue #126 fuses each subject's graph and trend behind one Draw: Pilots goes
     # 4 views -> 2 (Pilot overview, Head-to-head) and Cards 3 -> 2 (Card overview,
-    # Co-occurrence). Meta is untouched here (#125 owns hidden gems). The
-    # expectations are v1 §11's amended table, an independent source: a future edit
-    # that re-splits a tab or drops a view trips this.
-    per_tab = {"Pilots": set(_PILOTS_TAB), "Cards": set(_CARDS_TAB), "Meta": set(_META_TAB)}
-    assert [len(per_tab[t]) for t in ("Pilots", "Cards", "Meta")] == [2, 2, 2]
+    # Co-occurrence). The expectations are v1 §11's amended table, an independent
+    # source: a future edit that re-splits a tab or drops a view trips this.
+    per_tab = {"Pilots": set(_PILOTS_TAB), "Cards": set(_CARDS_TAB)}
+    assert [len(per_tab[t]) for t in ("Pilots", "Cards")] == [2, 2]
 
     assert set(_PILOTS_TAB) == {"pilot_overview", "pilot_head_to_head"}
     assert set(_CARDS_TAB) == {"card_overview", "card_cooccurrence"}
-    assert set(_META_TAB) == {"meta_share", "meta_gems"}
+
+
+def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, snapshot_dir):
+    # Issue #125 promotes hidden gems out of Meta to its own top-level tab, so the
+    # bar reads Pilots / Cards / Meta / Hidden gems and Meta holds meta share alone
+    # (a single-view tab). The tab order is v1 §11's amended four-tab structure, an
+    # independent source; the built app is the seam so a group left under Meta trips
+    # here rather than only in the browser.
+    import gradio as gr
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    demo = build_app(artifact)
+
+    tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
+    assert tabs == ["Pilots", "Cards", "Meta", "Hidden gems"]
+    # Gems now has its own tab; Meta holds meta share alone. The gems query keeps
+    # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
+    # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
 
 
 def test_every_underlying_query_still_has_a_plot_heading():

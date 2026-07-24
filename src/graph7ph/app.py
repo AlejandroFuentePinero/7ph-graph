@@ -64,10 +64,12 @@ _PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Draw.</p>"
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
 # Since #126 each of Pilots and Cards collapses to two views, and one Draw per view
 # fans out to all of that view's plots (a subgraph query and a series query stay two
-# seams under the hood, ADR 0013; only the presentation combines). Each tab is an
-# ordered map of view id to the label the picker shows. Meta is untouched here
-# (issue #125 owns hidden gems). Held as data so the tests can assert the two-view
-# shape.
+# seams under the hood, ADR 0013; only the presentation combines). Each multi-view
+# tab is an ordered map of view id to the label the picker shows, held as data so
+# the tests can assert the two-view shape. Meta and Hidden gems are single-view
+# (since #125 promoted gems to its own top-level tab), so they carry no picker and
+# are built inline; the gems query id `meta_gems` is kept (a navigation move, not a
+# query change).
 _PILOTS_TAB: dict[str, str] = {
     "pilot_overview": "Pilot overview",
     "pilot_head_to_head": "Head-to-head",
@@ -75,10 +77,6 @@ _PILOTS_TAB: dict[str, str] = {
 _CARDS_TAB: dict[str, str] = {
     "card_overview": "Card overview",
     "card_cooccurrence": "Co-occurrence",
-}
-_META_TAB: dict[str, str] = {
-    "meta_share": "Meta share over time",
-    "meta_gems": "Hidden gems",
 }
 
 # The picker choices for each tab, as (label, view id) pairs.
@@ -1238,23 +1236,15 @@ def build_app(artifact: Path) -> gr.Blocks:
                 outputs=[cooc_graph_out, cooc_adopt_heading, cooc_adopt_plot],
             )
 
-        # Meta has no single subject entity, so it is a view picker only: the meta
-        # share chart and the archetype-entered hidden-gems graph (v1 §11 places
-        # gems here, beside meta share, not under Cards).
+        # Meta is single-view since #125 promoted hidden gems to its own tab (v1
+        # §11): it holds meta share over time alone, so there is no subject entity
+        # and no view picker, just the chart and its controls.
         with gr.Tab("Meta"):
             gr.Markdown(
-                "The metagame over time, and the hidden gems within it.",
+                "The metagame over time.",
                 elem_classes="t-lede",
             )
-            meta_default = next(iter(_META_TAB))
-            # Meta carries no subject entity, so the group holds the view picker
-            # alone; it still sits apart from the per-view filters below it.
             with gr.Group():
-                meta_view = gr.Dropdown(
-                    choices=_picker(_META_TAB), value=meta_default, label="View",
-                )
-
-            with gr.Group(visible=meta_default == "meta_share") as g_meta_share:
                 gr.Markdown(
                     "Each archetype's share of the meta, per year, a year being the "
                     "UTC year the lists were registered in rather than a confirmed "
@@ -1291,7 +1281,16 @@ def build_app(artifact: Path) -> gr.Blocks:
                 manual_heading = gr.HTML(visible=False, padding=False, elem_classes="result-region")
                 manual_plot = gr.Plot(visible=False)
 
-            with gr.Group(visible=meta_default == "meta_gems") as g_meta_gems:
+            cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
+            manual.change(draw_manual, inputs=manual, outputs=[manual_heading, manual_plot])
+
+        # Hidden gems is its own top-level tab since #125, promoted out of Meta (v1
+        # §11): entered by archetype, it outputs the cards that over-index in the
+        # archetype's decks against the wider format, the SliceTooSmall refusal
+        # intact (ADR 0012). A navigation move, not a query change: the query id
+        # stays `meta_gems`, so _spec, _graph_meta, and the plot heading are untouched.
+        with gr.Tab("Hidden gems"):
+            with gr.Group():
                 gr.Markdown(
                     "Under-the-radar cards for an archetype: cards that over-index in "
                     "the archetype's decks against the wider format. Click a node for "
@@ -1302,14 +1301,6 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 gem_go = gr.Button("Draw", variant="primary")
                 gem_out = gr.HTML(_PROMPT, elem_classes="result-region")
-
-            meta_groups = {"meta_share": g_meta_share, "meta_gems": g_meta_gems}
-            meta_view.change(
-                lambda v: _toggle(meta_groups, v),
-                inputs=meta_view, outputs=list(meta_groups.values()),
-            )
-            cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
-            manual.change(draw_manual, inputs=manual, outputs=[manual_heading, manual_plot])
             gem_go.click(
                 lambda a: run_graph("meta_gems", {"gem_archetype": a}),
                 inputs=gem_archetype, outputs=gem_out,
