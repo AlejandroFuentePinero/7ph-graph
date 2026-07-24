@@ -68,6 +68,81 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
 
 
+def _built_demo(tmp_path, snapshot_dir):
+    """Build a real artifact and the app over it, for the structural tab tests."""
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    return build_app(artifact)
+
+
+def _markdown_values(demo):
+    import gradio as gr
+    return [b.value for b in demo.blocks.values()
+            if isinstance(b, gr.Markdown) and b.value]
+
+
+def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
+    # AC (#113, user story 4): no tab opens as a bare dropdown over blank space; each
+    # of the four subject tabs (Pilots, Cards, Meta, Hidden gems) leads with a section
+    # heading. A section heading is an h2 (`## `) in the page's own type (§3), distinct
+    # from the h1 page title and the bold-led plot intros, so counting them is robust
+    # to copy edits while a dropped tab heading trips here rather than only in the browser.
+    headings = [m for m in _markdown_values(_built_demo(tmp_path, snapshot_dir))
+                if m.lstrip().startswith("## ")]
+    assert len(headings) == 4
+
+
+def test_meta_and_gems_blurbs_demote_their_methodology_not_a_wall_of_text(tmp_path, snapshot_dir):
+    # AC (#113, user story 5): a view's explanatory copy is a short lede plus demoted
+    # methodology, never a wall-of-text paragraph. The Meta classification-drift caveat
+    # (the "723 of 4553 decks" note) and the Hidden gems over-indexing caveat both fold
+    # into a collapsible (`<details>`), one click from the lede rather than crowding it.
+    # Anchored on domain phrases the caveats must carry, so the demotion is what is
+    # asserted, not the exact copy.
+    mds = _markdown_values(_built_demo(tmp_path, snapshot_dir))
+
+    drift = next(m for m in mds if "723" in m)
+    assert "<details" in drift
+
+    over = next(m for m in mds if "over-index" in m)
+    assert "<details" in over
+
+
+def test_every_chart_view_opens_with_an_empty_state_not_blank(tmp_path, snapshot_dir):
+    # AC (#113, user story 18 / §8): the chart views' missing empty states are added,
+    # so a trend region never opens as controls over blank space. Each trend's note
+    # slot (the same slot its refusal messages use) carries a visible "Draw to see"
+    # prompt on open, mirroring the graph views' `_PROMPT`. Keyed on the message
+    # constants, so a note that reverts to hidden-on-open trips here.
+    import gradio as gr
+    from graph7ph.app import _EMPTY_ADOPTION, _EMPTY_PERFORMANCE, _EMPTY_TIMELINE
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    visible = [b.value for b in demo.blocks.values()
+               if isinstance(b, gr.Markdown) and b.value and b.visible]
+
+    assert _EMPTY_PERFORMANCE in visible
+    assert _EMPTY_TIMELINE in visible
+    assert visible.count(_EMPTY_ADOPTION) == 2  # both card views (overview, co-occurrence)
+
+
+def test_hidden_gems_requires_an_archetype():
+    # The gem view is entered by archetype and no longer offers a format-wide default:
+    # with no archetype picked `_spec` returns None (so `run_graph` shows the prompt
+    # rather than drawing), and a chosen archetype builds the query. This guards the
+    # mandatory-archetype behaviour the "(optional)" label used to advertise.
+    from graph7ph.app import _spec
+    from graph7ph.query import HiddenGems
+
+    assert _spec("meta_gems", {"gem_archetype": ""}) is None
+    assert _spec("meta_gems", {"gem_archetype": None}) is None
+    assert _spec("meta_gems", {"gem_archetype": "ramp"}) == HiddenGems("ramp")
+
+
 def test_every_underlying_query_still_has_a_plot_heading():
     # The views collapse but the queries do not: one Draw now fans out to several
     # plots, each titled by the plot it draws rather than by the view it sits in.
