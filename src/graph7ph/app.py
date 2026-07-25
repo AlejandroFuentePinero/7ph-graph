@@ -118,6 +118,46 @@ def _picker(tab: dict[str, str]) -> list[tuple[str, str]]:
     return [(label, view_id) for view_id, label in tab.items()]
 
 
+# The button's label is the word, not the glyph it wears. A Gradio button's text *is*
+# its accessible name and the component takes no `aria-label`, so a bare "×" reaches a
+# screen reader as "multiplication sign, button", which names neither the action nor the
+# field it acts on. The word is the name; the stylesheet collapses it and draws the ×
+# (`theme`, `.clear-btn::before`), so the control reads as "Clear" and looks like ×.
+CLEAR_LABEL = "Clear"
+
+
+def _clearable(*, visible: bool = True, **kwargs) -> tuple[gr.Dropdown, gr.Row]:
+    """A subject or filter dropdown with a clear (×) glyph on its right edge.
+
+    Gradio's dropdown has no way back to "nothing picked": once a card, archetype,
+    or pilot is chosen, the reader can swap it but not unset it, so a comparison
+    (a second archetype, a head-to-head opponent) is a one-way door. The glyph
+    puts the empty state back within reach. Only the controls that name *data* get
+    one; the option controls (year, view, board, top-N) always hold a value, so
+    clearing them would mean nothing.
+
+    ``equal_height=False`` matters: a Gradio row stretches its children to the
+    tallest, which turns a small button into a full-height slab beside the field.
+    The glyph is then sized and quieted in CSS (``theme``, ``.clearable``), and the
+    button carries no ``scale``/``min_width`` because those render as inline styles
+    that stylesheet rules cannot reach.
+
+    Clearing writes the value through the backend, so it fires the same ``change``
+    handlers a manual pick does, and the view redraws or resets exactly as if the
+    reader had emptied the field themselves.
+
+    Returns the dropdown and the row holding the pair. ``visible`` applies to the
+    row, and a caller that shows or hides the control (the view pickers do) must
+    toggle that row: hiding the dropdown alone would strand its glyph.
+    """
+    empty = [] if kwargs.get("multiselect") else None
+    with gr.Row(elem_classes="clearable", equal_height=False, visible=visible) as row:
+        dropdown = gr.Dropdown(**kwargs)
+        clear = gr.Button(CLEAR_LABEL, elem_classes="clear-btn")
+    clear.click(lambda: gr.update(value=empty), outputs=dropdown)
+    return dropdown, row
+
+
 # The reader-language name of each graph plot, keyed by its query id. A view now
 # holds several plots (#126), so a drawn subgraph is titled by the plot it draws
 # (neighbourhood, affinity, usage, co-occurrence, gems), not by the view it sits in.
@@ -183,42 +223,40 @@ def _subject_line(prefix: str, *names: str) -> str:
     return f"<div class='subject-line'>{html.escape(prefix)} {inner}</div>"
 
 
-# The provenance links: where the app's numbers, data, and terms come from (issue
-# #115, user story 20). The repo and licence are this project; 7phstats is the
-# upstream the graph is built from (its data, credited).
-_REPO_URL = "https://github.com/AlejandroFuentePinero/7ph-graph"
-_UPSTREAM_URL = "https://7phstats.com"
-_LICENCE_URL = f"{_REPO_URL}/blob/main/LICENSE"
+# Who to reach about the graph, under the coverage line: the data behind it is
+# curated by hand, so a reader who spots a wrong archetype or a missing pilot needs
+# a person to tell, not an issue tracker.
+_MAINTAINER = "Alejandro de la Fuente"
+_CONTACT_EMAIL = "alejandrofuentepinero@gmail.com"
+_CONTACT_DISCORD = "alejandrofp92"
 
 
-def _build_snapshot(built_iso: str | None) -> str:
-    """The artifact's build date as a snapshot label, or that it is unknown.
+def _last_updated(built_iso: str | None) -> str:
+    """The artifact's build date as a last-updated line, or that it is unknown.
 
     Day granularity: the stamp records a UTC instant, but the finest thing it
     honestly identifies is which day's data the artifact was built from, so a
-    reader gets the snapshot date and not a spurious wall-clock second. An
-    unreadable or absent stamp (``None``) reads as unknown rather than as ``None``.
+    reader gets the date and not a spurious wall-clock second. An unreadable or
+    absent stamp (``None``) reads as unknown rather than as ``None``.
     """
     if not built_iso:
-        return "build snapshot unknown"
+        return "Last updated unknown"
     try:
         day = datetime.fromisoformat(built_iso).date().isoformat()
     except ValueError:
         day = built_iso
-    return f"Built from the {day} snapshot"
+    return f"Last updated {day}"
 
 
 def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
-    """The provenance, credit, and share surface (issue #115): a coverage row, the
-    build snapshot, and the links back to the source.
+    """The coverage and contact surface (issue #115): how much of the metagame the
+    graph holds, when it was last updated, and who to reach about it.
 
-    The coverage row names how much of the metagame the graph holds, in the one
-    numeric convention (§4): each count thousands-comma'd and set in tabular
-    figures so the digits align, the years as a span (a single year where the graph
-    is one year deep). Below it, when the artifact was built and the three links a
-    reader traces credit and source through: the repo, the 7phstats upstream the
-    data comes from, and the licence. Every value is an app-generated count or a
-    fixed URL, so nothing here is user free text to escape.
+    The coverage row uses the one numeric convention (§4): each count
+    thousands-comma'd and set in tabular figures so the digits align, the years as a
+    span (a single year where the graph is one year deep). Every value is an
+    app-generated count or a fixed contact string, so nothing here is user free text
+    to escape.
     """
     years = (
         str(cov.first_year) if cov.first_year == cov.last_year
@@ -231,15 +269,16 @@ def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
         f"<b>{cov.cards:,}</b> distinct cards",
         years,
     ])
-    links = " · ".join([
-        f"<a href='{_REPO_URL}'>Repository</a>",
-        f"<a href='{_UPSTREAM_URL}'>7phstats data</a>",
-        f"<a href='{_LICENCE_URL}'>MIT licence</a>",
+    contact = " · ".join([
+        _last_updated(built_iso),
+        _MAINTAINER,
+        f"<a href='mailto:{_CONTACT_EMAIL}'>{_CONTACT_EMAIL}</a>",
+        f"Discord {_CONTACT_DISCORD}",
     ])
     return (
         "<div class='provenance'>"
         f"<div class='coverage tabular'>{row}</div>"
-        f"<div class='t-caption'>{_build_snapshot(built_iso)} · {links}</div>"
+        f"<div class='t-caption'>{contact}</div>"
         "</div>"
     )
 
@@ -343,15 +382,18 @@ _CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
 _DEFAULT_CUT = "Top 50%"
 
 # The FAQ tab (#133): the how-it-is-calculated notes #132 strips off the plots, homed
-# one click away so the plot surfaces stay scannable. Each entry is (elem_id, question,
-# answer); the id anchors the box so the table of contents can link to it. Kept succinct
-# on the main metrics for now and expanded as users ask (the issue's steer). The
-# headline plots (seven since the archetype timeline, #151) reduce to a shared primitive (a
-# normalised finish) plus one entry each, so the finish is explained first and the rest
-# lean on it.
-_FAQ_ENTRIES: list[tuple[str, str, str]] = [
+# one click away so the plot surfaces stay scannable. Each entry is (elem_id, category,
+# question, answer); the id anchors the box for any deep link. Kept succinct on the main
+# metrics for now and expanded as users ask (the issue's steer). The headline plots
+# (seven since the archetype timeline, #151) reduce to a shared primitive (a normalised
+# finish) plus one entry each, so the finish is explained first and the rest lean on it.
+# The category is the subject the answer is about, from `theme.FAQ_TAGS`, and the entries
+# are held in category order: the tab renders them down the page in this order, so the
+# boxes read as grouped by subject rather than as an arbitrary sequence.
+_FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
     (
         "faq-finish",
+        "Metric",
         'What does a "finish" mean, and why is it shown as a percentage?',
         "Every event ranks its decks, but 5th out of 200 is not 5th out of 12. Each "
         "finish is normalised to where it landed in its field, on a 0-to-1 scale (1 is "
@@ -361,6 +403,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-meta",
+        "Archetypes",
         'How is "Meta share over time" calculated?',
         "Each deck is counted once, under its primary archetype. An archetype's share in "
         "a year is its decks that year divided by every deck that year. Low counts are "
@@ -372,6 +415,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-landscape",
+        "Archetypes",
         'How is the "Metagame landscape" built?',
         "Each deck is counted once, under its primary archetype, exactly as meta share "
         "is. For the year selected, an archetype's horizontal position is its share of "
@@ -384,6 +428,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-archetype-timeline",
+        "Archetypes",
         'How is an archetype\'s "Finishes over time" built?',
         "Each point is one event, placed on the date the event's first deck was "
         "registered, and its height is the average of that archetype's finishes there. "
@@ -397,6 +442,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-performance",
+        "Pilots",
         'How is a pilot\'s "Performance over time" calculated?',
         "For each year, the pilot's finishes are averaged into one normalised score "
         "(drawn flipped so higher is better; 0.5 is the coin-flip line a random finisher "
@@ -409,6 +455,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-head-to-head",
+        "Pilots",
         'How is the "Head-to-head" timeline built?',
         "It plots the two pilots' finishes at every event they both entered, placed on "
         "the event's date. Each point is one real result, not an average. A pair needs "
@@ -417,6 +464,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-adoption",
+        "Cards",
         'How is "Adoption over time" calculated?',
         "For each year, it is the share of decks that ran the card: decks with the card "
         "that year divided by all decks that year. As with meta share, low counts are "
@@ -424,6 +472,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     ),
     (
         "faq-gems",
+        "Cards",
         'What makes a card a "Hidden gem"?',
         "A gem is a card that is rare in the slice (in at least five decks but no more "
         "than 10% of them) yet finishes in the slice's top third on average. Only decks "
@@ -1238,10 +1287,12 @@ def _archetype_timeline_figure(
     What differs from the pilot chart is what a point rests on. A pilot brings one deck
     to an event, so its point is one real result; an archetype brings several, so this
     point is their mean, and usually a mean of very few (typically one to three ranked
-    decks). Every marker's size therefore carries the decks behind it, on the same
-    :func:`_confidence_size` scale as the other charts, and the hover states the count
-    per side, so a point resting on a single deck reads as the small ring it is rather
-    than as an equal to a point over eleven.
+    decks). The deck count rides the hover and the caption, not the marker: sizing the
+    rings by it (as the year charts do, #151) cost more than it bought here, because this
+    plot draws one point per *event* rather than per year, so a busy pair puts hundreds of
+    rings of a dozen sizes on one axis and the lines stop being followable. The year
+    charts keep :func:`_confidence_size`: a handful of points a year apart carry a size
+    channel; sixty overlapping ones cannot.
     """
     cells = sorted(series.cells, key=lambda c: c.date)
     colour_a, colour_b = palette.CATEGORICAL[0], palette.CATEGORICAL[1]
@@ -1276,10 +1327,14 @@ def _archetype_timeline_figure(
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            # The ring's size is the decks behind that point, so the sample size is
-            # read off the marker and not only out of the hover.
-            marker={**_observation_marker(colour),
-                    "size": [_confidence_size(decks) for _, decks in values]},
+            # Smaller than the shared observation ring: two common archetypes share most
+            # of the corpus (Grixis and Lands, 59 of its 108 events), and at that spacing
+            # the default 12px rings overlap into a band that buries the lines they sit
+            # on. The pilot head-to-head is the same form through the same styler and
+            # keeps the shared ring: it is drawn over the events one *pair of pilots*
+            # both attended, and has not crowded. If it ever does, this size belongs in
+            # one constant both rivalry charts read, not in two places.
+            marker={**_observation_marker(colour), "size": 9},
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
@@ -1687,7 +1742,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     list(_CUTS), value=_DEFAULT_CUT,
                     label=f"Archetypes to show (by share of {latest_year} decks)",
                 )
-                manual = gr.Dropdown(
+                manual, _ = _clearable(
                     choices=trend_archetypes, value=[], multiselect=True,
                     label="Or focus on specific archetypes",
                 )
@@ -1710,7 +1765,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # wins". Single-view, so no picker, and Plotly aggregates only, so no Draw
         # button either: the scatter is drawn at build time on the latest year and
         # re-draws on the year selector, the same way the Meta cut chart does.
-        with gr.Tab("Archetypes"):
+        with gr.Tab("Archetypes") as archetypes_tab:
             gr.Markdown("## Archetypes")
             gr.Markdown(
                 "Which archetypes actually win, and how many people are on them.",
@@ -1725,11 +1780,11 @@ def build_app(artifact: Path) -> gr.Blocks:
                     # The timeline's own caption says the same from the other side.
                     info="The landscape only; the timeline below spans every year.",
                 )
-                timeline_a = gr.Dropdown(
+                timeline_a, _ = _clearable(
                     choices=timeline_archetypes, value=None, label="Archetype",
                     info=_PICK_TIMELINE_ARCHETYPE, elem_classes="primary-control",
                 )
-                timeline_b = gr.Dropdown(
+                timeline_b, _ = _clearable(
                     choices=timeline_archetypes, value=None,
                     label="Second archetype (optional, to compare)",
                 )
@@ -1770,6 +1825,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                     draw_archetype_timeline, inputs=[timeline_a, timeline_b],
                     outputs=timeline_outputs,
                 )
+            # The landscape is the one plot drawn before its tab is ever shown, so it is
+            # the one that comes up at Plotly's fallback width; opening the tab measures
+            # it against the card it actually sits in (theme.RESIZE_PLOTS_JS).
+            archetypes_tab.select(fn=None, js=theme.RESIZE_PLOTS_JS)
 
         with gr.Tab("Cards"):
             gr.Markdown("## Cards")
@@ -1786,7 +1845,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # second card, top-N, and land toggle) and its Draw toggle with the picker
             # (`toggle_cards_view`), so none is stranded below a plot.
             with gr.Group(elem_classes="control-panel"):
-                card = gr.Dropdown(
+                card, _ = _clearable(
                     choices=cards, label="Card", value=None, info=_PICK_CARD,
                     elem_classes="primary-control",
                 )
@@ -1796,7 +1855,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 cov_board = gr.Dropdown(
                     choices=_BOARD_CHOICES, label="Board", value="", visible=cov_default,
                 )
-                cooc_card2 = gr.Dropdown(
+                cooc_card2, cooc_card2_row = _clearable(
                     choices=cards, value=None,
                     label="Second card (optional, for shared packages)",
                     visible=cooc_default,
@@ -1881,7 +1940,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 is_co = v == "card_cooccurrence"
                 return [
                     gr.update(visible=is_ov),   # cov_board
-                    gr.update(visible=is_co),   # cooc_card2
+                    gr.update(visible=is_co),   # cooc_card2_row
                     gr.update(visible=is_co),   # cooc_top_n
                     gr.update(visible=is_co),   # cooc_drop_lands
                     gr.update(visible=is_ov),   # cov_go
@@ -1893,7 +1952,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             reset_card_outs = [cov_subject, cov_results, cooc_subject, cooc_results]
             cards_view.change(
                 toggle_cards_view, inputs=cards_view,
-                outputs=[cov_board, cooc_card2, cooc_top_n, cooc_drop_lands,
+                outputs=[cov_board, cooc_card2_row, cooc_top_n, cooc_drop_lands,
                          cov_go, cooc_go, g_card_overview, g_card_cooccurrence],
             )
             # As on the Pilots tab, every control that determines a result hides the drawn
@@ -1925,7 +1984,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 elem_classes="t-lede",
             )
             with gr.Group(elem_classes="control-panel"):
-                gem_archetype = gr.Dropdown(
+                gem_archetype, _ = _clearable(
                     choices=archetypes, label="Archetype", value=None, info=_PICK_ARCHETYPE,
                 )
                 gem_go = gr.Button("Draw", variant="primary")
@@ -1962,14 +2021,14 @@ def build_app(artifact: Path) -> gr.Blocks:
             # than as duplicated prompt cards. The second pilot and each view's Draw
             # toggle with the picker (`toggle_pilots_view`).
             with gr.Group(elem_classes="control-panel"):
-                pilot = gr.Dropdown(
+                pilot, _ = _clearable(
                     choices=pilots, label="Pilot", value=None, info=_PICK_PILOT,
                     elem_classes="primary-control",
                 )
                 pilots_view = gr.Dropdown(
                     choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
                 )
-                h2h_pilot_b = gr.Dropdown(
+                h2h_pilot_b, h2h_pilot_b_row = _clearable(
                     choices=pilots, value=None, label="Second pilot (required)",
                     info=_PICK_PILOT2, visible=h2h_default,
                 )
@@ -2059,7 +2118,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 is_ov = v == "pilot_overview"
                 is_h2h = v == "pilot_head_to_head"
                 return [
-                    gr.update(visible=is_h2h),  # h2h_pilot_b
+                    gr.update(visible=is_h2h),  # h2h_pilot_b_row
                     gr.update(visible=is_ov),   # po_go
                     gr.update(visible=is_h2h),  # h2h_go
                     gr.update(visible=is_ov),   # g_pilot_overview
@@ -2069,7 +2128,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             reset_pilot_outs = [po_subject, po_results, h2h_subject, h2h_results]
             pilots_view.change(
                 toggle_pilots_view, inputs=pilots_view,
-                outputs=[h2h_pilot_b, po_go, h2h_go, g_pilot_overview, g_pilot_head_to_head],
+                outputs=[h2h_pilot_b_row, po_go, h2h_go, g_pilot_overview, g_pilot_head_to_head],
             )
             # Any control that determines a result hides the drawn stacks so a stale
             # answer never sits under changed controls: the shared pilot, the second pilot.
@@ -2086,29 +2145,35 @@ def build_app(artifact: Path) -> gr.Blocks:
                          h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
             )
 
-        # FAQ is the last tab (#133): static content, no controls. It leads with a
-        # contents list linking to a box per question, each box in the same insight-card
-        # frame the plots use (§12), so the methodology reads apart from the plot
-        # surfaces and is one click away rather than crowding them. The anchors are the
-        # boxes' elem_ids; the contents links jump to them.
+        # FAQ is the last tab (#133): static content, no controls. Each question is its
+        # own box in the same insight-card frame the plots use (§12), so the methodology
+        # reads apart from the plot surfaces and is one click away rather than crowding
+        # them. One box per row, each the full width of the page, and the answer runs the
+        # width of its box: an FAQ answer is four or five sentences, so held to the
+        # reading measure inside a wide box it broke into a narrow ragged column against
+        # empty space, and in two columns it did the same in half the width. The category
+        # tag on each box replaces the table of contents the tab used to lead with: eight
+        # tagged boxes are a scannable list already, so a contents list linking to what
+        # the reader can see was a page of indirection. The boxes keep their ``faq-``
+        # ids, the anchors a deep link uses.
         with gr.Tab("FAQ"):
             gr.Markdown("## FAQ")
             gr.Markdown(
                 "How the headline numbers are calculated.",
                 elem_classes="t-lede",
             )
-            _toc = "\n".join(f"- [{q}](#{eid})" for eid, q, _ in _FAQ_ENTRIES)
-            with gr.Group(elem_classes="insight-card"):
-                gr.Markdown(f"**Contents**\n\n{_toc}")
-            for _eid, _q, _a in _FAQ_ENTRIES:
-                with gr.Group(elem_classes="insight-card", elem_id=_eid):
+            for _eid, _cat, _q, _a in _FAQ_ENTRIES:
+                with gr.Group(elem_classes="insight-card faq-card", elem_id=_eid):
+                    gr.HTML(
+                        f"<span class='faq-tag faq-tag-{_cat.lower()}'>{_cat}</span>",
+                        padding=False,
+                    )
                     gr.Markdown(f"### {_q}\n\n{_a}", elem_classes="faq")
 
-        # The provenance, credit, and share surface (issue #115), below the tabs so
-        # it sits under every one as a page footer: coverage read from this graph's
-        # own counts, the build snapshot from the artifact's stamp, and the links
-        # back to the repo, the 7phstats upstream, and the licence. It replaces the
-        # retired Gradio footer (theme.py) with the app's own credit, not Gradio's.
+        # The coverage and contact surface (issue #115), below the tabs so it sits
+        # under every one as a page footer: coverage read from this graph's own
+        # counts, the last-updated date from the artifact's stamp, and who to reach.
+        # It replaces the retired Gradio footer (theme.py) with the app's own line.
         gr.HTML(_provenance_html(coverage(catalogue), built_at(artifact)), padding=False)
 
     return demo

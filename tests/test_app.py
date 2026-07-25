@@ -1,11 +1,12 @@
-import re
 from datetime import datetime
 
 import pytest
 
 from graph7ph import numfmt, palette, theme
 from graph7ph.app import (
+    CLEAR_LABEL,
     _CARDS_TAB,
+    _FAQ_ENTRIES,
     _PLOT_LABELS,
     _adoption_figure,
     _adoption_caption,
@@ -19,6 +20,7 @@ from graph7ph.app import (
     _landscape_caption,
     _landscape_figure,
     _landscape_top,
+    _observation_marker,
     _PILOTS_TAB,
     _between_line_polys,
     _performance_caption,
@@ -109,11 +111,10 @@ def test_cold_start_opens_on_the_drawn_meta_view(tmp_path, snapshot_dir):
 
 def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, snapshot_dir):
     # AC (#133): a FAQ tab homes the how-it-is-calculated notes #132 strips off the
-    # plots, reachable from the app but off the plot surfaces. It is the last tab, each
-    # entry is its own insight-card box with a stable elem_id, and a table of contents
-    # links to every box (so a box with no TOC link, or a dead link, trips here). Every
-    # headline metric is explained by its stable plot name, asserted on the names rather
-    # than the prose so a copy edit to an answer does not break it.
+    # plots, reachable from the app but off the plot surfaces. It is the last tab, and
+    # each entry is its own insight-card box with a stable elem_id (the anchor a deep
+    # link uses). Every headline metric is explained by its stable plot name, asserted
+    # on the names rather than the prose so a copy edit to an answer does not break it.
     import gradio as gr
 
     demo = _built_demo(tmp_path, snapshot_dir)
@@ -122,13 +123,18 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     box_ids = {b.elem_id for b in demo.blocks.values()
                if isinstance(b, gr.Group) and (b.elem_id or "").startswith("faq-")}
-    assert box_ids, "each FAQ entry is its own box with a faq- elem_id"
-    all_md = " ".join(b.value for b in demo.blocks.values()
-                      if isinstance(b, gr.Markdown) and b.value)
-    # The contents links and the boxes are the same set both ways: a box with no link,
-    # and a link pointing at no box, each trip here.
-    linked = set(re.findall(r"\(#(faq-[\w-]+)\)", all_md))
-    assert linked == box_ids, f"contents links {linked} != boxes {box_ids}"
+    # One box per entry, ids and all: a column that dropped or doubled an entry when the
+    # entries are split into two trips here.
+    assert box_ids == {eid for eid, _, _, _ in _FAQ_ENTRIES}
+
+    # Every box is tagged with its category, and every category is one the stylesheet
+    # tints: a tag named here and nowhere in `theme.FAQ_TAGS` would render untinted.
+    tags = [b.value for b in demo.blocks.values()
+            if isinstance(b, gr.HTML) and "faq-tag" in (b.value or "")]
+    assert len(tags) == len(_FAQ_ENTRIES)
+    for category in {cat for _, cat, _, _ in _FAQ_ENTRIES}:
+        assert category in theme.FAQ_TAGS
+        assert any(f"faq-tag-{category.lower()}'>{category}<" in tag for tag in tags)
 
     body = " ".join(b.value for b in demo.blocks.values()
                     if isinstance(b, gr.Markdown) and "faq" in (b.elem_classes or []))
@@ -725,11 +731,10 @@ def test_every_graph_plot_shares_one_frame_height():
     assert GRAPH_HEIGHT >= 700  # tall enough that a dense graph lays out legibly
 
 
-def test_provenance_surface_states_coverage_the_snapshot_and_the_three_links():
+def test_provenance_surface_states_coverage_the_update_date_and_the_contact():
     # AC (#115): a coverage row names events/pilots/decks/distinct-cards and the year
-    # range, thousands-comma'd (§4); a snapshot line says when the artifact was built;
-    # and the three provenance links (repo, 7phstats upstream, licence) are present.
-    # Pure formatter, so the content is asserted without standing up Gradio.
+    # range, thousands-comma'd (§4); below it, when the graph was last updated and who
+    # to reach. Pure formatter, so the content is asserted without standing up Gradio.
     html = _provenance_html(
         Coverage(events=108, pilots=1083, decks=4591, cards=4995,
                  first_year=2023, last_year=2026),
@@ -739,10 +744,10 @@ def test_provenance_surface_states_coverage_the_snapshot_and_the_three_links():
     for figure in ("108", "1,083", "4,591", "4,995"):
         assert figure in html
     assert "2023" in html and "2026" in html  # the year span, both ends
-    assert "2026-07-23" in html  # the build snapshot, to the day
-    assert "github.com/AlejandroFuentePinero/7ph-graph" in html  # repo
-    assert "7phstats.com" in html  # upstream
-    assert "LICENSE" in html or "licen" in html.lower()  # the licence
+    assert "2026-07-23" in html  # the last update, to the day
+    assert "Alejandro de la Fuente" in html
+    assert "mailto:alejandrofuentepinero@gmail.com" in html  # reachable, not just named
+    assert "alejandrofp92" in html  # the Discord handle
 
 
 def test_provenance_surface_collapses_a_single_year_and_survives_an_unknown_build():
@@ -760,13 +765,12 @@ def test_provenance_surface_collapses_a_single_year_and_survives_an_unknown_buil
 
 def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snapshot_dir):
     # Wiring: the built app actually renders the surface, fed this graph's own counts
-    # (2 events, 2 pilots, 3 decks, 121 cards for the fixture) and its three links, so a
-    # surface left unwired or fed stale numbers trips here rather than only in the browser.
+    # (2 events, 2 pilots, 3 decks, 121 cards for the fixture) and the contact line, so
+    # a surface left unwired or fed stale numbers trips here rather than in the browser.
     surface = " ".join(_all_surface_text(_built_demo(tmp_path, snapshot_dir)))
 
     assert "121" in surface  # the fixture's distinct card count
-    assert "github.com/AlejandroFuentePinero/7ph-graph" in surface
-    assert "7phstats.com" in surface
+    assert "alejandrofuentepinero@gmail.com" in surface
 
 
 def _landscape_cells(*rows, year=2026, total=100, year_events=10):
@@ -962,8 +966,11 @@ def test_a_solo_timeline_is_one_line_filled_down_to_the_axis():
     assert fig.layout.xaxis.type == "date"
     assert list(trace.x) == [datetime(2025, 3, d) for d in (1, 2, 3)]
 
-    # AC: the decks behind each point ride in the marker size and in the hover.
-    assert trace.marker.size == (_confidence_size(3), _confidence_size(1), _confidence_size(0))
+    # The decks behind each point ride in the hover, not in the marker: this plot draws
+    # a point per event, so a size channel over hundreds of overlapping rings buried the
+    # lines. Uniform rings, one size for every point (#151's sized markers, reverted),
+    # and smaller than the shared ring, which overlaps into a band at this plot's density.
+    assert trace.marker.size == 9 < _observation_marker("#000")["size"]
     assert "decks" in trace.hovertemplate
     assert list(trace.customdata[0]) == [numfmt.score(0.8), 3]
 
@@ -995,10 +1002,9 @@ def test_a_pair_draws_both_lines_with_the_band_shaded_toward_whoever_leads():
     assert [list(t.customdata[0]) for t in lines] == [
         [numfmt.score(0.8), 3], [numfmt.score(0.6), 2],
     ]
-    assert [t.marker.size for t in lines] == [
-        (_confidence_size(3), _confidence_size(1)),
-        (_confidence_size(2), _confidence_size(4)),
-    ]
+    # ... and only in the hover: both lines draw uniform rings, so the eye follows the
+    # lines and the band rather than a field of differently sized markers.
+    assert [t.marker.size for t in lines] == [9, 9]
 
 
 def _tab_blocks(demo, label):
@@ -1071,7 +1077,8 @@ def test_the_archetypes_tab_follows_meta_as_one_view_drawn_on_open(tmp_path, sna
     assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
 
     inside = _tab_blocks(demo, "Archetypes")
-    assert not [b for b in inside if isinstance(b, gr.Button)]
+    # Only the clear buttons on the archetype pickers, never a Draw.
+    assert not [b for b in inside if isinstance(b, gr.Button) and b.value != CLEAR_LABEL]
     assert not [b for b in inside if isinstance(b, gr.Dropdown) and b.label == "View"]
     # Drawn on open: the scatter carries a figure at build time, as the Meta cut does.
     drawn = [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
@@ -1127,6 +1134,29 @@ def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
     redraws = [fn for fn in demo.fns.values()
                if year in fn.inputs and plot in fn.outputs]
     assert len(redraws) == 1
+
+
+def test_each_archetype_picker_has_a_clear_button_that_names_itself(tmp_path, snapshot_dir):
+    # A picked archetype has to be un-pickable, or a comparison is a one-way door: each
+    # data filter carries a button wired to write the empty value back to its dropdown.
+    # The button is labelled with a word, not the bare "×" it wears: a Gradio button's
+    # text is its whole accessible name, so a glyph would reach a screen reader as
+    # "multiplication sign" and name neither the action nor the field. The stylesheet is
+    # what turns the word into the glyph, so the two must agree.
+    import gradio as gr
+
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    inside = _tab_blocks(demo, "Archetypes")
+    picks = [b for b in inside if isinstance(b, gr.Dropdown) and b.label != "Year"]
+    buttons = [b for b in inside if isinstance(b, gr.Button)]
+
+    assert [b.value for b in buttons] == [CLEAR_LABEL] * len(picks)
+    for pick in picks:
+        clears = [fn for fn in demo.fns.values()
+                  if list(fn.outputs) == [pick]
+                  and any((b._id, "click") in fn.targets for b in buttons)]
+        assert len(clears) == 1
+    assert ".clear-btn::before" in theme.build_css()
 
 
 def _timeline_demo(tmp_path, snapshot_dir):
@@ -1201,7 +1231,8 @@ def test_the_timeline_sits_under_the_scatter_and_draws_off_its_own_two_selectors
     picks = [b for b in dropdowns if b.label != "Year"]
     _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
 
-    assert not [b for b in inside if isinstance(b, gr.Button)]
+    # Only the clear buttons on the archetype pickers, never a Draw.
+    assert not [b for b in inside if isinstance(b, gr.Button) and b.value != CLEAR_LABEL]
     assert len(picks) == 2
     # AC: the second archetype is optional, so nothing is preselected in either slot
     # and the plot waits, hidden, rather than opening on an arbitrary archetype.
