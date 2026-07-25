@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from graph7ph import palette, theme
@@ -67,7 +68,7 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     # Cold start lands on the drawn Meta view (#114): Meta leads and Pilots trails, with
     # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
     # real result rather than an empty canvas, and no single pilot is anointed a default.
-    assert tabs == ["Meta", "Cards", "Hidden gems", "Pilots"]
+    assert tabs == ["Meta", "Cards", "Hidden gems", "Pilots", "FAQ"]
     # Gems still has its own tab; Meta holds meta share alone. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
@@ -90,6 +91,36 @@ def test_cold_start_opens_on_the_drawn_meta_view(tmp_path, snapshot_dir):
     cut_plots = [b for b in demo.blocks.values()
                  if isinstance(b, gr.Plot) and b.value is not None]
     assert cut_plots, "the opening Meta view draws a chart at build time"
+
+
+def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, snapshot_dir):
+    # AC (#133): a FAQ tab homes the how-it-is-calculated notes #132 strips off the
+    # plots, reachable from the app but off the plot surfaces. It is the last tab, each
+    # entry is its own insight-card box with a stable elem_id, and a table of contents
+    # links to every box (so a box with no TOC link, or a dead link, trips here). Every
+    # headline metric is explained by its stable plot name, asserted on the names rather
+    # than the prose so a copy edit to an answer does not break it.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
+    assert tabs == ["Meta", "Cards", "Hidden gems", "Pilots", "FAQ"]
+
+    box_ids = {b.elem_id for b in demo.blocks.values()
+               if isinstance(b, gr.Group) and (b.elem_id or "").startswith("faq-")}
+    assert box_ids, "each FAQ entry is its own box with a faq- elem_id"
+    all_md = " ".join(b.value for b in demo.blocks.values()
+                      if isinstance(b, gr.Markdown) and b.value)
+    # The contents links and the boxes are the same set both ways: a box with no link,
+    # and a link pointing at no box, each trip here.
+    linked = set(re.findall(r"\(#(faq-[\w-]+)\)", all_md))
+    assert linked == box_ids, f"contents links {linked} != boxes {box_ids}"
+
+    body = " ".join(b.value for b in demo.blocks.values()
+                    if isinstance(b, gr.Markdown) and "faq" in (b.elem_classes or []))
+    for metric in ("Meta share over time", "Performance over time", "Head-to-head",
+                   "Adoption over time", "Hidden gem"):
+        assert metric in body, metric
 
 
 def _built_demo(tmp_path, snapshot_dir):
@@ -117,7 +148,8 @@ def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
     # to copy edits while a dropped tab heading trips here rather than only in the browser.
     headings = [m for m in _markdown_values(_built_demo(tmp_path, snapshot_dir))
                 if m.lstrip().startswith("## ")]
-    assert len(headings) == 4
+    # Four subject tabs plus the FAQ tab (#133), each led by its own h2 section heading.
+    assert len(headings) == 5
 
 
 def _all_surface_text(demo):
@@ -154,7 +186,7 @@ def test_tab_intros_are_a_single_sentence(tmp_path, snapshot_dir):
               if isinstance(b, gr.Markdown) and b.value
               and "t-lede" in (b.elem_classes or [])]
 
-    assert len(intros) == 4  # one per tab (Pilots, Cards, Meta, Hidden gems)
+    assert len(intros) == 5  # one per tab (Pilots, Cards, Meta, Hidden gems, FAQ)
     for intro in intros:
         assert intro.rstrip().endswith("."), intro
         assert ". " not in intro, intro  # no second sentence
