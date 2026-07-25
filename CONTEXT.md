@@ -45,7 +45,7 @@ _Avoid_: Slug, key
 ### Classification
 
 **Archetype**:
-A named strategy engine a deck embodies (for example Grixis, Storm, Lands). A deck may carry several, each weighted, with one primary.
+A named strategy engine a deck embodies (for example Grixis, Storm, Lands). A deck may carry several, each weighted, with one primary. The weights are usually lopsided, so a deck normally belongs to one engine outright: median primary weight is 100 and median secondary 5. The tail is real, though, with about a fifth of secondary tags above 25 and 111 of 4590 primaries below 50. Aggregate shares and finishes by the primary tag alone, since counting every tag sums to roughly 160 percent of decks.
 _Avoid_: Deck name, tag
 
 **Macro**:
