@@ -5,7 +5,13 @@ from datetime import datetime
 import ladybug
 import pytest
 
-from graph7ph.build import build_graph, graph_counts, reconciliation_path
+from graph7ph.build import (
+    MIN_CUT_FIELD,
+    build_graph,
+    corrected_field,
+    graph_counts,
+    reconciliation_path,
+)
 from graph7ph.curation import ArchetypeOverride, Curation
 from graph7ph.db import database_path, open_database, open_for_reading, rows
 from graph7ph.models import load_snapshot
@@ -15,18 +21,25 @@ def _scalar(conn, query, params=None):
     return conn.execute(query, params or {}).get_next()[0]
 
 
-def _deck(deck_id, event, created_at):
+def _deck(deck_id, event, created_at, **overrides):
     """A minimal deck record, for snapshots crafted to exercise one behaviour.
 
     The title carries the deck id so each recovers a distinct name: same-named
     decks join on identity (ADR 0007) and a card-identical pair then collapses,
     which would silently merge fixtures meant to stay separate registrations.
+
+    ``overrides`` replaces any source field, for the fixtures that need a
+    particular placement, field size or event type.
     """
     return {"deckId": deck_id, "name": deck_id, "deckName": "n", "pilot": deck_id,
             "event": event, "eventId": f"evt_{event}", "eventType": "Tournament",
-            "placement": 1, "placementNorm": 0.0, "createdAt": created_at,
+            # A field no fixture cohort contradicts, so a deck built for some
+            # other behaviour is not swept up by the field-size correction.
+            "placement": 1, "placementNorm": 0.0, "eventSize": 32,
+            "createdAt": created_at,
             "colour": "colour:U", "macro": "macro:control", "engineTags": [],
-            "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}}
+            "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {}
+            } | overrides
 
 
 def _write_snapshot(path, decks):
@@ -509,3 +522,185 @@ def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
     )))
     # 60 Main + 15 Side for this deck.
     assert by_board == {"Main": 60, "Side": 15}
+
+
+@pytest.mark.parametrize(
+    "event_type, event_size, pilots, max_placement, expected",
+    [
+        # A Teams event's eventSize counts teams, not people, so more pilots than
+        # "field" is the normal shape there and must not read as a contradiction.
+        # eventType is the only reliable discriminator (issue #140).
+        ("Teams", 39, 117, 39, (39, None)),
+        # A whitelist, not a blacklist: an eventType nobody has classified yet is
+        # left alone rather than corrected on Tournament's assumptions.
+        ("League", 5, 7, 5, (5, None)),
+        # Rule A, provable: more people attended than the claimed field.
+        ("Tournament", 16, 28, 16, (28, "A")),
+        # Rule A, the other contradiction: someone finished past the claimed field.
+        ("Tournament", 5, 3, 7, (24, "A")),
+        # Rule B, domain: 7PH runs no 8-player events, so a field of 8 nobody
+        # finished last in is a top-8 cut reported as a field.
+        ("Tournament", 8, 8, 5, (24, "B")),
+        # Rule B's guard: someone finished 8th of 8, so the small field is
+        # corroborated by the standings and stands.
+        ("Tournament", 8, 8, 8, (8, None)),
+        # A self-consistent small event above the cut size: untouched.
+        ("Tournament", 19, 19, 19, (19, None)),
+        # Rule C, defensive: a null eventSize has never been observed.
+        ("Tournament", None, 7, 5, (24, "C")),
+        # An event nobody's finish was recorded at has a deepest placement of 0,
+        # which no claimed field can be below, so it never reads as Rule A.
+        ("Tournament", 19, 19, 0, (19, None)),
+        # The floor is a floor, not a constant: a ninth deck at a corrected
+        # 8-player event still yields the cut size, never the deck count.
+        ("Tournament", 8, 9, 5, (24, "A")),
+        # ... and a broken event bigger than the floor keeps its counted size.
+        ("Tournament", 5, 30, 5, (30, "A")),
+    ],
+)
+def test_corrected_field_applies_one_rule_per_event(
+    event_type, event_size, pilots, max_placement, expected
+):
+    assert corrected_field(event_type, event_size, pilots, max_placement) == expected
+
+
+def test_a_corrected_field_is_never_small_enough_to_break_the_division():
+    # placementNorm divides by (field - 1), so a corrected field of 1 would be a
+    # zero division and a field of 0 a negative one. Every rule floors at
+    # MIN_CUT_FIELD, so the degenerate one-entrant event either keeps its own
+    # (uncorrected, so never divided) size or is corrected well clear of it.
+    assert corrected_field("Tournament", 1, 1, 1) == (1, None)
+    assert corrected_field("Tournament", 1, 2, 1) == (MIN_CUT_FIELD, "A")
+    assert MIN_CUT_FIELD > 1
+
+
+def _scored(event, event_size, results, **overrides):
+    """One deck per ``(placement, placementNorm)`` in ``results``, at ``event``.
+
+    The norms are the source's own numbers, ranked against ``event_size``,
+    because that is what the correction has to rescale.
+    """
+    return [
+        _deck(f"{event}{i}", event, "2025-06-01T00:00:00+00:00",
+              eventSize=event_size, placement=placement, placementNorm=norm,
+              **overrides)
+        for i, (placement, norm) in enumerate(results)
+    ]
+
+
+# A "5-player" event 7 people entered: the source's field contradicts a count, so
+# Rule A corrects it to the cut floor. Three of them tied for 5th and were scored
+# a dead-last 1.000 for a top-8 finish (issue #140).
+_BROKEN = _scored("BROKEN", 5, [(1, 0.0), (2, 0.25), (3, 0.5), (4, 0.75),
+                                (5, 1.0), (5, 1.0), (5, 1.0)])
+# A Teams event: eventSize counts teams, so more pilots than "field" is its
+# normal shape and the whitelist leaves it alone.
+_TEAMS = _scored("TEAMS", 2, [(1, 0.0), (1, 0.0), (2, 1.0)], eventType="Teams")
+# A self-consistent tournament: nothing contradicts 19, so the source stands.
+_CLEAN = _scored("CLEAN", 19, [(5, 0.2222222222222222), (19, 1.0)])
+
+
+def test_event_carries_the_field_its_placements_are_normalised_against(tmp_path):
+    _write_snapshot(tmp_path, _BROKEN + _TEAMS + _CLEAN)
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    conn = open_for_reading(artifact)
+    assert {
+        event: (size, imputed)
+        for event, size, imputed in rows(conn.execute(
+            "MATCH (e:Event) RETURN e.event, e.fieldSize, e.fieldImputed"))
+    } == {"BROKEN": (24, "A"), "TEAMS": (2, None), "CLEAN": (19, None)}
+
+
+def test_a_corrected_field_rescales_the_norms_ranked_against_the_wrong_one(tmp_path):
+    _write_snapshot(tmp_path, _BROKEN + _TEAMS + _CLEAN)
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    conn = open_for_reading(artifact)
+    norms = dict(rows(conn.execute(
+        """MATCH (d:Deck)-[:PLAYED_AT]->(e:Event {event: 'BROKEN'})
+           RETURN d.deckId, d.placementNorm""")))
+    # A tied-5th of 7 was scored a dead-last 1.000 against the claimed field of
+    # 5; against a 24-player field it reads a top-8 0.174. The winner stays 0.0,
+    # which every field size agrees on.
+    assert norms["BROKEN0"] == 0.0
+    assert norms["BROKEN4"] == norms["BROKEN5"] == norms["BROKEN6"]
+    assert norms["BROKEN4"] == pytest.approx(0.17391304347826086)
+    assert norms["BROKEN1"] == pytest.approx(0.043478260869565216)
+
+    # The events the source had right keep the source's own numbers, to the bit.
+    untouched = dict(rows(conn.execute(
+        """MATCH (d:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE e.event <> 'BROKEN' RETURN d.deckId, d.placementNorm""")))
+    assert untouched == {"CLEAN0": 0.2222222222222222, "CLEAN1": 1.0,
+                         "TEAMS0": 0.0, "TEAMS1": 0.0, "TEAMS2": 1.0}
+
+
+def test_the_report_lists_every_event_whose_field_was_corrected(tmp_path):
+    # An imputed field is an assumption the build made about the data, so it is
+    # listed for a human each build rather than dissolving into the graph. The
+    # events the source had right are not listed: only what was corrected is.
+    _write_snapshot(tmp_path, _BROKEN + _TEAMS + _CLEAN)
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    report = json.loads(reconciliation_path(artifact).read_text())
+    assert report["imputed_fields"] == [
+        {"event": "BROKEN", "rule": "A", "event_size": 5, "field_size": 24,
+         "pilots": 7, "max_placement": 5}
+    ]
+
+
+def test_a_duplicate_registration_is_not_a_second_attendee(tmp_path):
+    # Rule A fires when more people attended than the claimed field, so it has to
+    # count attendees and not registrations: the same list entered twice would
+    # otherwise "contradict" a field the source had right and rescale a whole
+    # event's norms off one duplicate. This is what puts the correction after
+    # `resolve_pilots` and after the duplicate drop (issue #140).
+    # One registration entered twice: one pilot, one title, one card-identical
+    # list, so the resolution folds the pair (ADR 0004).
+    twins = [
+        _deck(f"twin{i}", "TIGHT", "2025-06-01T00:00:00+00:00", pilot="fifth",
+              name="fifth", eventSize=5, placement=5, placementNorm=1.0)
+        for i in (1, 2)
+    ]
+    _write_snapshot(tmp_path, _scored("TIGHT", 5, [(1, 0.0), (2, 0.25),
+                                                   (3, 0.5), (4, 0.75)]) + twins)
+    artifact = tmp_path / "graph"
+
+    counts = build_graph(load_snapshot(tmp_path), artifact)
+
+    # The duplicate really was dropped, so the event holds 5 decks for 5 pilots
+    # against a claimed field of 5, and nothing contradicts it.
+    assert (counts.decks, counts.pilots) == (5, 5)
+    conn = open_for_reading(artifact)
+    assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldSize") == 5
+    assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldImputed") is None
+    assert _scalar(
+        conn, "MATCH (d:Deck) WHERE d.placement = 5 RETURN d.placementNorm"
+    ) == 1.0
+
+
+def test_a_corrected_event_mints_no_norm_the_source_never_gave(tmp_path):
+    # Rescaling re-ranks the norms the source shipped. It does not score a deck
+    # the source left unranked, even at a corrected event where the title
+    # recovered a finish: that deck stays invisible to every ranked metric, so
+    # this correction moves the decks it rescales and no denominator (issue
+    # #140). Pats Birthday Brawl is exactly this shape: 8 placements, all
+    # recovered from titles, and not one source norm.
+    _write_snapshot(tmp_path, _scored("CUT", 8, [(1, None), (2, None), (3, None),
+                                                 (4, None), (5, None), (5, None),
+                                                 (5, None), (5, None)]))
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    conn = open_for_reading(artifact)
+    assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldImputed") == "B"
+    assert {n for _, n in rows(conn.execute(
+        "MATCH (d:Deck) RETURN d.deckId, d.placementNorm"))} == {None}

@@ -117,3 +117,13 @@ ADR 0013 gives the trend tools one aggregation layer with two consumers: the too
 - **It happened twice in one session.** After the tool was fixed to return a refused year as a cell (`mean_norm=None` plus the event count), the chart still drew that year and a year the pilot sat out as the same blank tick, throwing away the very count that made the refusal legible. The tool was honest and the picture was not.
 
 Why it matters: the same `Series` plus `gr.Plot` surface backs all four trends, so any future claim of the form "this trend hides X" has to be checked at both layers before it is acted on. Read the figure function, not only the tool, and confirm what a reader actually sees. `.venv/bin/python` plus `fig.data[0]` and `fig.layout.annotations` reads a built trace back without launching the app, which is how both of the above were settled.
+
+## 2026-07-25 - The golden oracle is red on `main` until #140's field-size correction is signed off
+
+Issue #140 (field-size correction, ADR 0015) re-ranks 54 decks' `placementNorm`, which moves two cards across the hidden-gem band. `uv run graph7ph baseline` therefore reports **170 differences against `baseline/subgraphs.json`, all inside `gems_whole_meta`, with zero removals**: Yawgmoth's Will and Fallen Shinobi plus the decks and edges they drag in, and slightly better means on the gems already there. This is the intended change, not a regression.
+
+- **The gate stays red until the oracle is recaptured, and that blocks deploys, not just CI.** `scripts/deploy_space.sh` refuses on a failed baseline gate, and CI only runs pytest, so nothing else flags it. Anyone who builds and tries to deploy will hit a refusal that looks like a regression and is not.
+- **The usual remedy does not scale here.** [[oracle-node-property-recapture-noop]] says to hand-edit `subgraphs.json` rather than `--capture`, because a recapture rewrites the file in a new engine row order and buries a one-node change in a ~3000-line reorder diff. That advice was written for a change touching one or two nodes. At 170 entries hand-editing is not viable, so this is the first case that genuinely forces `baseline --capture --force` and eats the reorder churn.
+- Why it matters: the choice is not "which is cleaner" but "which is possible", and the reorder diff that results is expected noise rather than evidence of a second change. Re-deriving this costs a full build plus a grade.
+
+[handoff] Awaiting the repo owner's sign-off on #140's AC 7. Once signed off, recapture with `--capture --force` and state in the commit that the row reordering is engine order, not data movement.

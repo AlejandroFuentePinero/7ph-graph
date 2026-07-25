@@ -108,13 +108,22 @@ def _deck_hash(deck: Deck, conts: list[Containment]) -> str:
     Pilot, event, placement and decklist are historical, so a rewrite of any of
     them is flagged. Everything else the model carries takes the latest value in
     silence, and the list is worth spelling out rather than closing with an
-    "everything else": name, deckName, eventId, eventType, placementNorm,
-    colour, macro, engineTags, engineTagLabels, primaryTag, primaryTagWeights
-    and createdAt. (deckId is the key the two sides are compared across, so it
-    cannot move without reading as a drop plus an addition.) That silence is
+    "everything else": name, deckName, eventId, eventType, eventSize,
+    placementNorm, colour, macro, engineTags, engineTagLabels, primaryTag,
+    primaryTagWeights and createdAt. (deckId is the key the two sides are
+    compared across, so it cannot move without reading as a drop plus an
+    addition.) That silence is
     what ADR 0003 asks for on fields the source is entitled to restate: between
     the two fetches held here, 723 of the 4553 shared decks were rewritten in a
     field this model carries, and every one of those rewrites was volatile.
+
+    ``eventSize`` and ``eventType`` sit on that side knowingly too, and are the
+    two the field-size correction reads (issue #140, ADR 0015): a restated
+    ``eventSize`` can move an event in or out of correction and re-rank its
+    norms, and a restated ``eventType`` can move it in or out of the whitelist,
+    with this gate quiet either way. Both are volatile because the source is
+    entitled to restate them; the correction re-derives every build, so a fixed
+    source stops the rules firing rather than freezing what they once decided.
 
     ``createdAt`` sits on that side knowingly, not by classification. It is the
     sole input to the Year dimension and to :class:`build.YearStraddle` (ADR

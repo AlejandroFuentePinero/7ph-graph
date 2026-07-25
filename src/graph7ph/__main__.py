@@ -65,6 +65,10 @@ def _build(args: argparse.Namespace) -> None:
         len(recon.get("name_splits", [])),
         len(recon.get("unexplained_names", [])),
     )
+    imputed = len(recon.get("imputed_fields", []))
+    if imputed:
+        print(f"  {imputed} event(s) had their field size corrected before "
+              "normalising placements (listed in the report)")
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

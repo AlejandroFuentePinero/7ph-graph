@@ -153,10 +153,15 @@ class HeadToHeadPoint:
     event's registration date, the earliest ``createdAt`` across its whole field,
     the same proxy ADR 0006 dates the event by but at day rather than year
     granularity, so both pilots' points share one x per event and the two lines
-    align. ``field_size`` is the size the source itself ranked the norm against: the
-    source ships it on every deck as ``eventSize``, the repo never reads that field,
-    so it is recovered here by inverting the norm, and the recovery equals the
-    source's own number on 105 of 105 events that can yield one. It is the source's
+    align. ``field_size`` is the size the norm was ranked against, recovered here by
+    inverting it. That is the source's own ``eventSize`` at 99 of 108 events, which
+    the recovery equals on 105 of 105 events that can yield one, and the corrected
+    field at the 9 the build re-ranks (:func:`build.corrected_field`, issue #140):
+    the inversion tracks whichever number the norm beside it was scored against, so
+    it stays the denominator that finish is readable under. The graph now stores it
+    outright as ``Event.fieldSize``, which retires this recovery; reading the node
+    instead is the follow-on to #140. Where it comes from the source it is the
+    source's
     published entrant count wherever the source publishes one (36 of 108 events carry
     a ``players`` field, and ``eventSize`` equals it in 36 of 36) and the last
     recorded placement on the other 71 of 71, and at the 4 ``eventType='Teams'``
@@ -468,8 +473,10 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
             for event, date, implied, deck_count, placement_a, norm_a,
             placement_b, norm_b
             in rows(conn.execute(
-                # field_size recovers the source's own eventSize by inverting the norm
-                # (norm = (placement-1)/(field-1), so field = (placement-1)/norm + 1);
+                # field_size recovers the field each norm was ranked against by
+                # inverting it (norm = (placement-1)/(field-1), so field =
+                # (placement-1)/norm + 1), which is the source's eventSize except at
+                # the 9 events the build corrects and re-ranks (issue #140);
                 # what that value is, and why it is not the deck count, is the contract
                 # on HeadToHeadPoint above. Two things are specific to this query. The
                 # value is constant across an event's placed decks, so max just reads it

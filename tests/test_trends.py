@@ -23,6 +23,11 @@ from graph7ph.trends import (
     run_series,
 )
 
+# Every hand-authored fixture declares a field size no cohort it builds can
+# contradict, so the build's field-size correction (issue #140) leaves it alone
+# and the placementNorms these tests craft stand as written.
+_FIELD_SIZE = 500
+
 
 def _cell(tag, year, n):
     """A cell with an arbitrary but consistent share/year_total, for cut tests."""
@@ -60,6 +65,7 @@ def _write_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
+            "eventSize": _FIELD_SIZE,
             "placement": 1,
             "placementNorm": 0.1,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
@@ -331,6 +337,7 @@ def _write_adoption_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
+            "eventSize": _FIELD_SIZE,
             "placement": 1,
             "placementNorm": 0.1,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
@@ -462,6 +469,7 @@ def _write_performance_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
+            "eventSize": _FIELD_SIZE,
             "placement": 1,
             "placementNorm": norm,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
@@ -630,6 +638,7 @@ def _write_h2h_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
+            "eventSize": _FIELD_SIZE,
             "placement": placement,
             "placementNorm": norm,
             "createdAt": created_at,

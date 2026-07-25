@@ -159,6 +159,12 @@ class Deck(_Raw):
     event_type: str
     placement: int | None = None
     placement_norm: float | None = None
+    # The field the source ranked `placement_norm` against, carried so the build
+    # can check it against what it can count and correct it where the two
+    # contradict each other (issue #140). Optional because the correction's own
+    # defensive rule is what handles a source that stops shipping it; every deck
+    # in both snapshots held today carries one.
+    event_size: int | None = None
     created_at: datetime  # when the list was registered; the proxy for the event's date (ADR 0006)
     # Classification, carried as prefixed source codes ("colour:UBR", "macro:tempo",
     # "engine:grixis"). The properties below strip the prefixes into domain values.
@@ -179,8 +185,11 @@ class Deck(_Raw):
         every title opens "1st", "3rd/4th", "5th-8th". The title is the only
         witness, so it is read when the field is null and never otherwise.
 
-        ``placement_norm`` stays null: the source derives it against the field
-        size, which is not ours to recompute.
+        ``placement_norm`` stays null. The source derives it against the field
+        size, and the build re-derives one only where a count contradicts the
+        source's own ``event_size`` (:func:`build.corrected_field`); a deck the
+        source never scored is not scored here, so a recovered placement reaches
+        the graph as a rank and not as a norm (issue #140).
         """
         if self.placement is None:
             self.placement = placement_from_title(self.name)
