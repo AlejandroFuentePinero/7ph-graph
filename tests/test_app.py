@@ -1,6 +1,8 @@
 import re
 from datetime import datetime
 
+import pytest
+
 from graph7ph import palette, theme
 from graph7ph.app import (
     _CARDS_TAB,
@@ -11,6 +13,10 @@ from graph7ph.app import (
     _chart_heading,
     _embed,
     _head_to_head_figure,
+    _confidence_size,
+    _landscape_caption,
+    _landscape_figure,
+    _landscape_top,
     _PILOTS_TAB,
     _between_line_polys,
     _performance_caption,
@@ -24,6 +30,7 @@ from graph7ph.query import Coverage
 from graph7ph.trends import (
     AdoptionCell,
     HeadToHeadPoint,
+    LandscapeCell,
     PerformanceCell,
     Series,
     SeriesCell,
@@ -53,10 +60,11 @@ def test_pilots_and_cards_collapse_to_two_views_each():
 
 def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, snapshot_dir):
     # Issue #125 promotes hidden gems out of Meta to its own top-level tab, so the
-    # bar reads Pilots / Cards / Meta / Hidden gems and Meta holds meta share alone
+    # bar reads Meta / Cards / Hidden gems / Pilots and Meta holds meta share alone
     # (a single-view tab). The tab order is v1 §11's amended four-tab structure, an
     # independent source; the built app is the seam so a group left under Meta trips
-    # here rather than only in the browser.
+    # here rather than only in the browser. Archetypes (#145) sits between Meta and
+    # Cards, splitting "who wins" off from Meta's "who is played".
     import gradio as gr
     from graph7ph.app import build_app
     from graph7ph.build import build_graph
@@ -70,7 +78,7 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     # Cold start lands on the drawn Meta view (#114): Meta leads and Pilots trails, with
     # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
     # real result rather than an empty canvas, and no single pilot is anointed a default.
-    assert tabs == ["Meta", "Cards", "Hidden gems", "Pilots", "FAQ"]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
     # Gems still has its own tab; Meta holds meta share alone. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
@@ -106,7 +114,7 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Meta", "Cards", "Hidden gems", "Pilots", "FAQ"]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
 
     box_ids = {b.elem_id for b in demo.blocks.values()
                if isinstance(b, gr.Group) and (b.elem_id or "").startswith("faq-")}
@@ -120,8 +128,8 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     body = " ".join(b.value for b in demo.blocks.values()
                     if isinstance(b, gr.Markdown) and "faq" in (b.elem_classes or []))
-    for metric in ("Meta share over time", "Performance over time", "Head-to-head",
-                   "Adoption over time", "Hidden gem"):
+    for metric in ("Meta share over time", "Metagame landscape", "Performance over time",
+                   "Head-to-head", "Adoption over time", "Hidden gem"):
         assert metric in body, metric
 
 
@@ -144,14 +152,14 @@ def _markdown_values(demo):
 
 def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
     # AC (#113, user story 4): no tab opens as a bare dropdown over blank space; each
-    # of the four subject tabs (Pilots, Cards, Meta, Hidden gems) leads with a section
+    # of the five subject tabs (Meta, Archetypes, Cards, Hidden gems, Pilots) leads with a section
     # heading. A section heading is an h2 (`## `) in the page's own type (§3), distinct
     # from the h1 page title and the bold-led plot intros, so counting them is robust
     # to copy edits while a dropped tab heading trips here rather than only in the browser.
     headings = [m for m in _markdown_values(_built_demo(tmp_path, snapshot_dir))
                 if m.lstrip().startswith("## ")]
-    # Four subject tabs plus the FAQ tab (#133), each led by its own h2 section heading.
-    assert len(headings) == 5
+    # Five subject tabs plus the FAQ tab (#133), each led by its own h2 section heading.
+    assert len(headings) == 6
 
 
 def _all_surface_text(demo):
@@ -188,7 +196,7 @@ def test_tab_intros_are_a_single_sentence(tmp_path, snapshot_dir):
               if isinstance(b, gr.Markdown) and b.value
               and "t-lede" in (b.elem_classes or [])]
 
-    assert len(intros) == 5  # one per tab (Pilots, Cards, Meta, Hidden gems, FAQ)
+    assert len(intros) == 6  # one per tab (Meta, Archetypes, Cards, Hidden gems, Pilots, FAQ)
     for intro in intros:
         assert intro.rstrip().endswith("."), intro
         assert ". " not in intro, intro  # no second sentence
@@ -755,3 +763,304 @@ def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snap
     assert "121" in surface  # the fixture's distinct card count
     assert "github.com/AlejandroFuentePinero/7ph-graph" in surface
     assert "7phstats.com" in surface
+
+
+def _landscape_cells(*rows, year=2026, total=100, year_events=10):
+    """Landscape cells from ``(tag, decks, mean_norm[, events])``, sharing one year."""
+    return [
+        LandscapeCell(tag=row[0], archetype=row[0].title(), year=year, n=row[1],
+                      share=row[1] / total, year_total=total, year_events=year_events,
+                      mean_norm=row[2], events=row[3] if len(row) > 3 else row[1])
+        for row in rows
+    ]
+
+
+def test_the_landscape_draws_the_top_archetypes_by_share_of_the_chosen_year():
+    # The chart is bounded to its top N by share, recomputed for whichever year is
+    # selected. Ranked strongest first, ties broken on the tag, so the same year
+    # always draws the same set rather than leaving it to dict order.
+    series = Series(cells=_landscape_cells(
+        ("grixis", 30, 0.45), ("zoo", 20, 0.5), ("lands", 20, 0.4),
+        ("storm", 10, 0.3), ("oracle", 5, 0.6),
+    ))
+    assert [c.tag for c in _landscape_top(series, 3)] == ["grixis", "lands", "zoo"]
+    # A cut wider than the year's field draws the whole field, never pads it.
+    assert len(_landscape_top(series, 25)) == 5
+
+
+def test_an_archetype_the_year_never_scored_is_not_a_dot_without_a_finish():
+    # A dot needs both axes. An archetype played but never scored has a share and no
+    # finish, so it cannot be placed. It is dropped after the cut, not before: the cut
+    # is over every archetype the year held, so the gap it leaves is a dot missing from
+    # the top 2 rather than the third archetype quietly promoted into it, which would
+    # make the caption's "top 2 by share" describe a set it does not describe.
+    series = Series(cells=_landscape_cells(
+        ("grixis", 30, None), ("zoo", 20, 0.5), ("lands", 10, 0.4), ("storm", 5, 0.3),
+    ))
+    assert [c.tag for c in _landscape_top(series, 2)] == ["zoo"]
+    # It is still one of the archetypes the year held, which the surface counts.
+    assert len(series.cells) == 4
+
+
+def test_the_landscape_plots_share_against_finish_with_every_dot_named():
+    # The quadrant read is the point: share on a linear x, finish on y, one named dot
+    # per archetype. The finish is flipped for the eye (higher is better) while the
+    # tool keeps the raw placementNorm, as the pilot charts do.
+    from graph7ph import numfmt
+
+    fig = _landscape_figure(_landscape_cells(
+        ("grixis", 30, 0.45), ("storm", 6, 0.25),
+    ))
+    (trace,) = fig.data
+
+    assert fig.layout.xaxis.type == "linear"  # not the shared styler's category axis
+    assert fig.layout.xaxis.tickformat == numfmt.SHARE_TICKFORMAT
+    assert list(trace.x) == [0.30, 0.06]
+    assert list(trace.y) == [pytest.approx(0.55), pytest.approx(0.75)]
+    # Every dot carries its archetype name on the chart, so it reads in a screenshot
+    # rather than only under a cursor.
+    assert list(trace.text) == ["Grixis", "Storm"]
+    assert "text" in trace.mode
+
+    # The hover carries the archetype, its share as both a percent and a deck count,
+    # its finish, and the distinct events behind that finish, all through numfmt.
+    grixis = trace.customdata[0]
+    assert list(grixis) == ["Grixis", numfmt.share(0.30),
+                            numfmt.count_of(30, 100, "decks"), numfmt.score(0.55), 30]
+    assert "events" in trace.hovertemplate
+
+
+def test_landscape_marker_size_carries_the_events_not_the_deck_count():
+    # Share is already the x axis (within a year it is monotone in decks), so sizing
+    # by decks would say the same thing twice; the marker carries the independent
+    # trials instead, on the same scale the pilot chart's rings use.
+    # Grixis: many decks, few events. Storm: few decks, many events.
+    cells = _landscape_cells(("grixis", 30, 0.45, 4), ("storm", 6, 0.25, 30))
+    sizes = _landscape_figure(cells).data[0].marker.size
+
+    assert sizes == (_confidence_size(4), _confidence_size(30))
+
+
+def test_the_landscape_keeps_the_half_way_reference_line_in_frame():
+    # The caption explains what being above 0.5 means, so the line has to be on the
+    # chart to explain. A year whose dots all beat the middle of the field would
+    # autorange the line out of view, so the range covers the data and 0.5 both.
+    fig = _landscape_figure(_landscape_cells(
+        ("storm", 30, 0.2), ("oracle", 20, 0.25), ("grixis", 10, 0.3),
+    ))
+    (line,) = fig.layout.shapes
+
+    assert (line.y0, line.y1) == (0.5, 0.5)
+    low, high = fig.layout.yaxis.range
+    assert low < 0.5 < high
+    assert high >= 0.8  # the best finish (1 - 0.2) still sits inside the frame
+
+
+def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line():
+    # The surface has to carry three things the dots cannot: which archetypes were
+    # drawn out of how many the year held, how much of a season those dots rest on,
+    # and what crossing the 0.5 line means.
+    series = Series(cells=_landscape_cells(
+        ("grixis", 30, 0.45), ("zoo", 20, 0.5), ("lands", 20, 0.4),
+        ("storm", 10, 0.3), ("oracle", 5, 0.6),
+        year=2025, total=2095, year_events=51,
+    ))
+    caption = _landscape_caption(series, _landscape_top(series, 3), 3, in_progress=False)
+
+    assert "top 3 of 5 archetypes by share" in caption
+    assert "51 events" in caption
+    assert "2,095 decks" in caption  # the one numeric convention, thousands-comma'd
+    assert "0.5" in caption and "middle of the field" in caption
+    # Counted on the drawn dots, not asserted: Grixis (.45) and Lands (.40) beat the
+    # middle of the field, Zoo (.50) sits exactly on it, so two of the three are above.
+    assert "2 of 3" in caption
+    # A finished year makes no in-progress claim.
+    assert "in progress" not in caption
+
+
+def test_the_landscape_caption_says_when_the_year_is_still_running():
+    # The latest year is partial (the newest deck is mid-year), so a reader comparing
+    # it against a full season has to be told, with the counts it has so far.
+    series = Series(cells=_landscape_cells(
+        ("grixis", 30, 0.45), ("zoo", 20, 0.5), ("lands", 10, 0.4),
+        year=2026, total=1363, year_events=32,
+    ))
+    caption = _landscape_caption(series, _landscape_top(series, 25), 25, in_progress=True)
+
+    assert "still in progress" in caption
+    assert "32 events" in caption
+    assert "1,363 decks" in caption
+    # The year holds fewer archetypes than the cut, so nothing was cut: the caption
+    # says that rather than claiming a top-25 ranking it never applied.
+    assert "all 3 archetypes the year held" in caption
+    assert "top 25" not in caption
+
+
+def _tab_blocks(demo, label):
+    """The blocks created inside one tab: from that tab up to the next one."""
+    import gradio as gr
+
+    blocks = list(demo.blocks.values())
+    start = next(i for i, b in enumerate(blocks)
+                 if isinstance(b, gr.Tab) and b.label == label)
+    ends = [i for i, b in enumerate(blocks) if isinstance(b, gr.Tab) and i > start]
+    return blocks[start:ends[0]] if ends else blocks[start:]
+
+
+def _landscape_demo(tmp_path, snapshot_dir):
+    """A built app over a snapshot fat enough for a landscape to draw.
+
+    The shared fixture holds two archetypes, one short of
+    :data:`MIN_LANDSCAPE_ARCHETYPES`, so it is copied and three more decks are added
+    to its 31-player event (distinct pilots, placements it cannot contradict, norms
+    ranked against that field). The fixture itself is left alone: a hundred other
+    tests count its decks.
+    """
+    import json
+    import shutil
+
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    snap = tmp_path / "snap"
+    shutil.copytree(snapshot_dir, snap)
+    decks = json.loads((snap / "decks.json").read_text())
+    template = decks[0]
+    for i, (archetype, placement) in enumerate(
+        [("lands", 5), ("oracle", 10), ("jund", 15)]
+    ):
+        tag = f"engine:{archetype}"
+        decks.append({
+            **template,
+            "deckId": f"extra-{i}",
+            "name": f"{placement}th Extra {i} - {archetype.title()} - PogNov25",
+            "deckName": archetype.title(),
+            "pilot": f"ExtraPilot{i}",
+            "placement": placement,
+            "placementNorm": (placement - 1) / (template["eventSize"] - 1),
+            "engineTags": [tag],
+            "engineTagLabels": {tag: archetype.title()},
+            "primaryTag": tag,
+            "primaryTagWeights": {tag: 100},
+        })
+    (snap / "decks.json").write_text(json.dumps(decks))
+    index = json.loads((snap / "cards_index.json").read_text())
+    index["decks"].update({f"extra-{i}": {"m": [], "s": []} for i in range(3)})
+    (snap / "cards_index.json").write_text(json.dumps(index))
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snap), artifact)
+    return build_app(artifact)
+
+
+def test_the_archetypes_tab_follows_meta_as_one_view_drawn_on_open(tmp_path, snapshot_dir):
+    # AC (#145): Archetypes sits directly after Meta and owns "who wins" while Meta
+    # keeps "who is played". It is a single view, so no view picker, and it draws
+    # Plotly aggregates rather than a pyvis graph, so it follows the Meta precedent of
+    # no Draw button: the scatter is already drawn when the tab is opened.
+    import gradio as gr
+
+    demo = _landscape_demo(tmp_path, snapshot_dir)
+    tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
+
+    inside = _tab_blocks(demo, "Archetypes")
+    assert not [b for b in inside if isinstance(b, gr.Button)]
+    assert not [b for b in inside if isinstance(b, gr.Dropdown) and b.label == "View"]
+    # Drawn on open: the scatter carries a figure at build time, as the Meta cut does.
+    drawn = [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
+    assert len(drawn) == 1
+
+
+def test_the_year_selector_offers_every_year_and_opens_on_the_latest(tmp_path, snapshot_dir):
+    # AC (#145): the year is a dropdown over every year in the data, defaulting to the
+    # latest, read from the graph rather than pinned. The fixture holds 2025 alone, so
+    # the assertion is against the years the graph actually has.
+    import gradio as gr
+
+    demo = _landscape_demo(tmp_path, snapshot_dir)
+    (year,) = [b for b in _tab_blocks(demo, "Archetypes")
+               if isinstance(b, gr.Dropdown) and b.label == "Year"]
+
+    offered = [value for _, value in year.choices]
+    assert offered == sorted(offered, reverse=True)  # newest first, the reader's default
+    assert set(offered) == {2025}
+    assert year.value == max(offered)
+
+
+def test_a_year_too_thin_for_a_landscape_refuses_on_the_surface(tmp_path, snapshot_dir):
+    # AC (#145): a year too thin refuses with a readable state rather than a
+    # misleading plot. The shared fixture holds two archetypes in its only year, one
+    # short of a field, so the tab opens on the refusal: a note, no figure.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    inside = _tab_blocks(demo, "Archetypes")
+
+    assert not [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
+    (note,) = [b for b in inside
+               if isinstance(b, gr.Markdown) and b.visible and b.value
+               and "t-lede" not in (b.elem_classes or [])
+               and not b.value.lstrip().startswith("## ")]
+    assert "2025" in note.value
+
+
+def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
+    # AC (#145): with no Draw button, the year selector is what re-draws the chart, so
+    # the wiring is the feature. Asserted on the built app's own event table: some
+    # event takes the year dropdown as its input and writes the landscape's plot.
+    import gradio as gr
+
+    demo = _landscape_demo(tmp_path, snapshot_dir)
+    inside = _tab_blocks(demo, "Archetypes")
+    (year,) = [b for b in inside if isinstance(b, gr.Dropdown) and b.label == "Year"]
+    (plot,) = [b for b in inside if isinstance(b, gr.Plot)]
+
+    redraws = [fn for fn in demo.fns.values()
+               if year in fn.inputs and plot in fn.outputs]
+    assert len(redraws) == 1
+
+
+def test_the_landscape_never_ranges_past_the_ends_of_the_score():
+    # The finish is bounded at 0 and 1, so headroom above a near-perfect year would be
+    # axis that no dot could ever occupy. 2023's best archetype finishes at 0.93, and
+    # the padding used to carry the axis to 1.09.
+    high = _landscape_figure(_landscape_cells(
+        ("storm", 30, 0.07), ("oracle", 20, 0.25), ("grixis", 10, 0.45),
+    )).layout.yaxis.range[1]
+    low = _landscape_figure(_landscape_cells(
+        ("storm", 30, 0.95), ("oracle", 20, 0.9), ("grixis", 10, 0.55),
+    )).layout.yaxis.range[0]
+
+    assert 0.93 <= high <= 1.0
+    assert 0.0 <= low <= 0.05
+
+
+def test_a_graph_with_no_archetype_still_builds_the_archetypes_tab(tmp_path, snapshot_dir):
+    # The Archetypes tab reads its year selector off the meta-share matrix, which is
+    # empty for a graph holding no Archetype node at all (a snapshot whose decks carry
+    # no engine tag builds into exactly that). The tab has no year to open on, so it
+    # opens on a refusal rather than taking the whole app down at construction, the way
+    # `latest_deck_year` already returns None for the Meta cut on the same series.
+    import gradio as gr
+    import json
+    import shutil
+
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    snap = tmp_path / "snap"
+    shutil.copytree(snapshot_dir, snap)
+    decks = [{**d, "engineTags": [], "engineTagLabels": {}, "primaryTag": "",
+              "primaryTagWeights": {}}
+             for d in json.loads((snap / "decks.json").read_text())]
+    (snap / "decks.json").write_text(json.dumps(decks))
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snap), artifact)
+
+    inside = _tab_blocks(build_app(artifact), "Archetypes")
+    assert not [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
+    assert [b for b in inside if isinstance(b, gr.Markdown) and b.visible and b.value
+            and "landscape" in b.value]

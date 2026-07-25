@@ -1,5 +1,7 @@
 # Temporal trends: a Series return type, a decoupled trend tab, and four agent tools
 
+> Amended by issue #145: a fifth tool, `archetype_landscape`, joins the four ([amendment](#amendment-a-fifth-tool-archetype_landscape-and-a-floor-on-the-field-rather-than-the-value-issue-145)).
+
 ADR 0006 gave the graph a `Year` dimension but nothing traversed it. This ADR decides what does. Four analytics were grilled as candidate trends: archetype share (the meta), card adoption, pilot performance, and pilot head-to-head. All four are kept, but as a new kind of result that the existing graph seam does not carry.
 
 ## A trend is a Series, not a Subgraph
@@ -123,3 +125,19 @@ Two things this ADR assumed have changed. The pipeline decision it fixed (a `Ser
 `Deck` gains a stored `createdAt`, which forces a golden-oracle re-capture wherever deck properties are pinned. Trends do not render through the existing renderer or `run_query`; the trend tab and the `Series` type are new surfaces built alongside them, first proven end to end by the `meta_share` tracer, then reused by the two year-siblings, with head-to-head built last because it carries this ADR's 0006 amendment and the only non-year, non-aggregate shape.
 
 The `Year` node, unused until now, gains its first real consumers (the three group-by trends traverse `IN_YEAR`), so the dimension survives. That settles the premise of #70 (the `YearStraddle` build guard was blocked on whether the dimension would be deleted): it will not be, and #70 becomes live work rather than moot.
+
+## Amendment: a fifth tool, `archetype_landscape`, and a floor on the field rather than the value (issue #145)
+
+The agent surface is five functions, not four. `archetype_landscape(year)` returns one year's metagame as `LandscapeCell`s, pairing each archetype's meta share with the mean finish of its scored decks. It is added rather than folded into `meta_share_over_time` for the reason the section above gives for keeping the four apart: it is a different question with a different signature (a year, not nothing) and a different shape (one row per archetype, not a rectangular matrix over years), and a `trend(metric, dimension)` tool that carried both would hand the agent a muddier model, not a smaller one. It reuses the year plumbing the three group-by trends share, which is exactly the "shared helper, yes; shared tool surface, no" line already drawn here.
+
+It groups by the primary archetype alone, as `meta_share` does: the source multi-tags at 1.6 tags per deck and the weights are lopsided (median primary 100, median secondary 5), so counting every tag would credit a deck to an archetype on 5 percent weight and sum the year's shares to about 160 percent of its decks.
+
+**The floor is on the field, not on the value.** `MIN_LANDSCAPE_ARCHETYPES = 3` refuses a year that cannot make a field: a dot reads as popular or niche, and winning or losing, only against other dots, so a pair is a comparison rather than a landscape. It is a `NotEnoughHistory`, carrying the count it found, per the "raised, not returned empty" amendment above.
+
+There is deliberately **no per-archetype event floor** beside it, though the y value is a mean of finishes and the rule above would otherwise pin one there, as `MIN_PILOT_YEAR_EVENTS` does for a pilot's own mean. The two thick years and the two thin ones reject it for different reasons, and the year selector offers all four, so both cases are live.
+
+In 2025 and 2026 what the chart draws already carries the reliability: it shows only the year's 25 most-played archetypes, and inside that cut the minimum is 11 distinct events in both years, while across their top 50 exactly one archetype (2025's `grixis_oko`, 16 decks over 4 events) sits under 5. In 2023 and 2024 the cut does not do that work: the drawn top 25's minimum is 5 events in 2024 and **1** in 2023. A floor there would not rescue the year, only empty it, since 2023 holds 8 events in total and a floor of 5 would leave about 9 dots.
+
+So the guard on a thin dot is the evidence carried beside it, exactly as the `meta_share` amendment argues: every cell ships its distinct event count, the marker size draws it (a one-event dot is the smallest ring on the chart, against a 28px maximum), the hover states it, and the caption states the whole year's events and decks, so 2023 announces its 8 events and 192 decks on the surface rather than presenting itself as a peer of 2025's 51 and 2,095.
+
+**Display cut, as with `meta_share`.** The tool returns every archetype the year held; the tab draws the top 25 by share, recomputed for the selected year. Recomputed, not fixed: `latest_year_share_cut` deliberately computes one set from the latest year so its lines span the whole x axis, which a single-year scatter has no need of, so the two cuts are siblings and not one shared function. The surface states the cut and the size of the field it came from, so a bounded chart is never read as the whole meta.

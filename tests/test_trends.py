@@ -6,6 +6,7 @@ import pytest
 
 from graph7ph.db import artifact_path, database_path, open_for_reading, rows
 from graph7ph.trends import (
+    ArchetypeLandscape,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
@@ -13,6 +14,7 @@ from graph7ph.trends import (
     PilotPerformanceOverTime,
     Series,
     SeriesCell,
+    archetype_landscape,
     card_adoption_over_time,
     head_to_head_timeline,
     latest_deck_year,
@@ -826,5 +828,157 @@ def test_run_series_routes_head_to_head_through_its_own_seam(tmp_path, built_gra
     conn = _h2h_graph(tmp_path, built_graph)
     routed = run_series(conn, HeadToHeadTimeline("ann", "bob"))
     direct = head_to_head_timeline(conn, "ann", "bob")
+    assert isinstance(routed, Series)
+    assert routed.cells == direct.cells
+
+
+def _write_landscape_snapshot(
+    root: Path, decks: list[tuple[str, str, str, int, float | None]]
+) -> Path:
+    """Write a snapshot of ``(deck_id, archetype, event, year, placement_norm)`` decks.
+
+    The landscape needs both axes at once: several archetypes inside one year, each
+    with its own decks spread over its own events, and a ``placementNorm`` per deck
+    (``None`` for a deck the source never scored, which the mean is not taken over).
+    Each deck names a distinct pilot, so neither the fuzzy pilot merge nor the
+    one-deck-per-pilot-per-event drop (ADR 0004, 0007) folds fixtures meant to stay
+    separate.
+    """
+    snap = root / "snap"
+    snap.mkdir()
+    deck_records = [
+        {
+            "deckId": deck_id,
+            "name": f"1st {deck_id} - {archetype} - {event}",
+            "deckName": archetype.title(),
+            "pilot": f"pilot-{deck_id}",
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventType": "Tournament",
+            "eventSize": _FIELD_SIZE,
+            "placement": 1,
+            "placementNorm": norm,
+            "createdAt": f"{year}-06-01T00:00:00+00:00",
+            "colour": "colour:U",
+            "macro": "macro:combo",
+            "engineTags": [f"engine:{archetype}"],
+            "engineTagLabels": {f"engine:{archetype}": archetype.title()},
+            "primaryTag": f"engine:{archetype}",
+            "primaryTagWeights": {f"engine:{archetype}": 100},
+        }
+        for deck_id, archetype, event, year, norm in decks
+    ]
+    (snap / "decks.json").write_text(json.dumps(deck_records))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 1,
+        "cards": [],
+        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+    }))
+    return snap
+
+
+def _landscape_graph(root, built_graph):
+    """A built graph holding one full year beside an earlier one.
+
+    2025 (8 decks over two events, E25A and E25B): ``storm`` has 2 decks, one at each
+    event, norms .1 and .3 (mean .2). ``grixis`` has 5 decks, four scored at E25A
+    (.4/.6/.4/.6, mean .5) and one at E25B the source never scored, so its deck count
+    spans both events while its mean rests on one. ``oracle`` has the single remaining
+    deck, so the year clears :data:`MIN_LANDSCAPE_ARCHETYPES` with a field of three.
+    2024 holds 3 ``lands`` decks, an archetype 2025 never saw.
+    """
+    decks = [
+        ("s1", "storm", "E25A", 2025, 0.1),
+        ("s2", "storm", "E25B", 2025, 0.3),
+        ("g1", "grixis", "E25A", 2025, 0.4),
+        ("g2", "grixis", "E25A", 2025, 0.6),
+        ("g3", "grixis", "E25A", 2025, 0.4),
+        ("g4", "grixis", "E25A", 2025, 0.6),
+        ("g5", "grixis", "E25B", 2025, None),
+        ("o1", "oracle", "E25B", 2025, 0.5),
+        ("l1", "lands", "E24", 2024, 0.5),
+        ("l2", "lands", "E24", 2024, 0.5),
+        ("l3", "lands", "E24", 2024, 0.5),
+    ]
+    return built_graph(root, _write_landscape_snapshot(root, decks))
+
+
+def test_landscape_pairs_each_archetypes_share_with_its_mean_finish(
+    tmp_path, built_graph
+):
+    conn = _landscape_graph(tmp_path, built_graph)
+    cells = {c.tag: c for c in archetype_landscape(conn, 2025).cells}
+
+    # Only the archetypes the chosen year holds: ``lands`` played 2024 alone, so it
+    # is not a dot on 2025's landscape (unlike the meta-share matrix, which is
+    # rectangular over every year so a line can drop to a real zero).
+    assert set(cells) == {"storm", "grixis", "oracle"}
+
+    # Share is the archetype's decks over every deck that year, the same base the
+    # meta-share trend divides by, so the year's shares sum to one.
+    storm, grixis = cells["storm"], cells["grixis"]
+    assert (storm.n, grixis.n) == (2, 5)
+    assert storm.year_total == grixis.year_total == 8
+    assert storm.share == pytest.approx(2 / 8)
+    assert grixis.share == pytest.approx(5 / 8)
+
+    # The finish is the mean placementNorm of the archetype's **scored** decks, left
+    # raw (0 is a win), the codebase convention; the chart flips it for the eye.
+    # Grixis's unscored fifth deck neither shifts the mean nor pads the event count.
+    assert storm.mean_norm == pytest.approx(0.2)
+    assert grixis.mean_norm == pytest.approx(0.5)
+
+    # ``events`` is the distinct events the mean rests on, the independent trials
+    # behind it: Storm's two decks sat at two events, Grixis's four scored decks at
+    # one, even though its unscored fifth was at a second.
+    assert (storm.events, grixis.events) == (2, 1)
+
+    # Each cell carries the year it describes and that year's own shape, so a caption
+    # can state how much of a season the landscape rests on without a second query.
+    assert {c.year for c in cells.values()} == {2025}
+    assert storm.year_events == 2
+
+
+def test_a_year_with_no_field_to_place_a_dot_in_is_refused_by_name(tmp_path, built_graph):
+    # 2024 holds one archetype, so there is no landscape: a dot is only "niche and
+    # winning" against a field, and one (or two) dots is not one. The tool refuses by
+    # name and says how many it found, the way the pilot trends refuse a thin history
+    # rather than drawing a lone point (ADR 0013, issue #101), so the app can tell a
+    # refused year from a year that drew nothing.
+    conn = _landscape_graph(tmp_path, built_graph)
+    with pytest.raises(NotEnoughHistory) as refusal:
+        archetype_landscape(conn, 2024)
+    assert refusal.value.found == 1
+    assert "2024" in str(refusal.value)
+
+    # A year the graph holds no deck in refuses the same way rather than dividing a
+    # share by a zero base.
+    with pytest.raises(NotEnoughHistory) as empty:
+        archetype_landscape(conn, 2019)
+    assert empty.value.found == 0
+
+
+def test_an_archetype_the_year_never_scored_does_not_count_toward_the_floor(
+    tmp_path, built_graph
+):
+    # Three archetypes played 2025, but two of them were never scored, so only one
+    # dot can be placed on the finish axis. The floor counts the archetypes that can
+    # be plotted, not the ones that turned up, so this refuses rather than drawing a
+    # "landscape" of a single dot with two names missing from it.
+    decks = [
+        ("s1", "storm", "E", 2025, 0.1),
+        ("g1", "grixis", "E", 2025, None),
+        ("l1", "lands", "E", 2025, None),
+    ]
+    conn = built_graph(tmp_path, _write_landscape_snapshot(tmp_path, decks))
+    with pytest.raises(NotEnoughHistory) as refusal:
+        archetype_landscape(conn, 2025)
+    assert refusal.value.found == 1
+
+
+def test_run_series_routes_the_landscape_through_its_own_seam(tmp_path, built_graph):
+    conn = _landscape_graph(tmp_path, built_graph)
+    routed = run_series(conn, ArchetypeLandscape(2025))
+    direct = archetype_landscape(conn, 2025)
     assert isinstance(routed, Series)
     assert routed.cells == direct.cells
