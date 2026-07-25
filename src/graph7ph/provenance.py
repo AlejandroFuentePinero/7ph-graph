@@ -85,6 +85,36 @@ def provenance_path(artifact: Path) -> Path:
     return Path(artifact) / "provenance.json"
 
 
+def _read_stamp(artifact: Path) -> dict | None:
+    """The build stamp for the bundle at ``artifact`` as a dict, or ``None`` when
+    there is none to read.
+
+    A missing, half-written (``write_text`` is not atomic) or non-object stamp all
+    read as absent rather than crashing: the callers are pass/fail steps and an
+    on-screen surface, none of which should spill a traceback over a stamp that a
+    fresh build would replace.
+    """
+    path = provenance_path(artifact)
+    if not path.exists():
+        return None
+    try:
+        recorded = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return recorded if isinstance(recorded, dict) else None
+
+
+def built_at(artifact: Path) -> str | None:
+    """When the bundle at ``artifact`` was built, ISO-8601, or ``None`` if the
+    stamp records no readable time.
+
+    Reads the same stamp the gate does (issue #115), so the time the app shows and
+    the time a staleness refusal names are one figure, never two that can disagree.
+    """
+    stamp = _read_stamp(artifact)
+    return stamp.get("built_at") if stamp else None
+
+
 def staleness(artifact: Path) -> str | None:
     """Why the bundle at ``artifact`` cannot be relied on, or ``None`` if it can.
 

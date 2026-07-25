@@ -11,6 +11,7 @@ tested (Gradio wiring and pyvis HTML are verified by running it).
 
 import html
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import gradio as gr
@@ -36,16 +37,19 @@ from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.query import (
     CardCooccurrence,
     CardUsage,
+    Coverage,
     HiddenGems,
     PilotAffinity,
     PilotNeighbourhood,
     QuerySpec,
     SliceTooSmall,
     card_catalogue,
+    coverage,
     gem_archetypes,
     pilot_catalogue,
     run_query,
 )
+from graph7ph.provenance import built_at
 from graph7ph.render import render_subgraph
 from graph7ph.trends import (
     CardAdoptionOverTime,
@@ -171,6 +175,67 @@ def _subject_line(prefix: str, *names: str) -> str:
         f"<span class='subject-name'>{html.escape(n)}</span>" for n in names
     )
     return f"<div class='subject-line'>{html.escape(prefix)} {inner}</div>"
+
+
+# The provenance links: where the app's numbers, data, and terms come from (issue
+# #115, user story 20). The repo and licence are this project; 7phstats is the
+# upstream the graph is built from (its data, credited).
+_REPO_URL = "https://github.com/AlejandroFuentePinero/7ph-graph"
+_UPSTREAM_URL = "https://7phstats.com"
+_LICENCE_URL = f"{_REPO_URL}/blob/main/LICENSE"
+
+
+def _build_snapshot(built_iso: str | None) -> str:
+    """The artifact's build date as a snapshot label, or that it is unknown.
+
+    Day granularity: the stamp records a UTC instant, but the finest thing it
+    honestly identifies is which day's data the artifact was built from, so a
+    reader gets the snapshot date and not a spurious wall-clock second. An
+    unreadable or absent stamp (``None``) reads as unknown rather than as ``None``.
+    """
+    if not built_iso:
+        return "build snapshot unknown"
+    try:
+        day = datetime.fromisoformat(built_iso).date().isoformat()
+    except ValueError:
+        day = built_iso
+    return f"Built from the {day} snapshot"
+
+
+def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
+    """The provenance, credit, and share surface (issue #115): a coverage row, the
+    build snapshot, and the links back to the source.
+
+    The coverage row names how much of the metagame the graph holds, in the one
+    numeric convention (§4): each count thousands-comma'd and set in tabular
+    figures so the digits align, the years as a span (a single year where the graph
+    is one year deep). Below it, when the artifact was built and the three links a
+    reader traces credit and source through: the repo, the 7phstats upstream the
+    data comes from, and the licence. Every value is an app-generated count or a
+    fixed URL, so nothing here is user free text to escape.
+    """
+    years = (
+        str(cov.first_year) if cov.first_year == cov.last_year
+        else f"{cov.first_year}–{cov.last_year}"
+    )
+    row = " · ".join([
+        f"<b>{cov.events:,}</b> events",
+        f"<b>{cov.pilots:,}</b> pilots",
+        f"<b>{cov.decks:,}</b> decks",
+        f"<b>{cov.cards:,}</b> distinct cards",
+        years,
+    ])
+    links = " · ".join([
+        f"<a href='{_REPO_URL}'>Repository</a>",
+        f"<a href='{_UPSTREAM_URL}'>7phstats data</a>",
+        f"<a href='{_LICENCE_URL}'>MIT licence</a>",
+    ])
+    return (
+        "<div class='provenance'>"
+        f"<div class='coverage tabular'>{row}</div>"
+        f"<div class='t-caption'>{_build_snapshot(built_iso)} · {links}</div>"
+        "</div>"
+    )
 
 
 def _subject_update(prefix: str, name: str | None):
@@ -1139,6 +1204,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         theme=theme.dark_theme(),
         css=theme.build_css(),
         js=theme.FORCE_DARK_JS,
+        head=theme.build_head(),  # real favicon + social preview (#115)
     ) as demo:
         gr.Markdown("# 7 Point Highlander Graph")
 
@@ -1517,5 +1583,12 @@ def build_app(artifact: Path) -> gr.Blocks:
             for _eid, _q, _a in _FAQ_ENTRIES:
                 with gr.Group(elem_classes="insight-card", elem_id=_eid):
                     gr.Markdown(f"### {_q}\n\n{_a}", elem_classes="faq")
+
+        # The provenance, credit, and share surface (issue #115), below the tabs so
+        # it sits under every one as a page footer: coverage read from this graph's
+        # own counts, the build snapshot from the artifact's stamp, and the links
+        # back to the repo, the 7phstats upstream, and the licence. It replaces the
+        # retired Gradio footer (theme.py) with the app's own credit, not Gradio's.
+        gr.HTML(_provenance_html(coverage(catalogue), built_at(artifact)), padding=False)
 
     return demo

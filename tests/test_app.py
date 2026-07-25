@@ -15,10 +15,12 @@ from graph7ph.app import (
     _between_line_polys,
     _performance_caption,
     _performance_figure,
+    _provenance_html,
     _result_header,
     _subject_line,
     _trend_figure,
 )
+from graph7ph.query import Coverage
 from graph7ph.trends import (
     AdoptionCell,
     HeadToHeadPoint,
@@ -709,3 +711,47 @@ def test_every_graph_plot_shares_one_frame_height():
     frame = _embed("<html></html>")
     assert f"{GRAPH_HEIGHT}px" in frame
     assert GRAPH_HEIGHT >= 700  # tall enough that a dense graph lays out legibly
+
+
+def test_provenance_surface_states_coverage_the_snapshot_and_the_three_links():
+    # AC (#115): a coverage row names events/pilots/decks/distinct-cards and the year
+    # range, thousands-comma'd (§4); a snapshot line says when the artifact was built;
+    # and the three provenance links (repo, 7phstats upstream, licence) are present.
+    # Pure formatter, so the content is asserted without standing up Gradio.
+    html = _provenance_html(
+        Coverage(events=108, pilots=1083, decks=4591, cards=4995,
+                 first_year=2023, last_year=2026),
+        "2026-07-23T23:05:46.403758+00:00",
+    )
+
+    for figure in ("108", "1,083", "4,591", "4,995"):
+        assert figure in html
+    assert "2023" in html and "2026" in html  # the year span, both ends
+    assert "2026-07-23" in html  # the build snapshot, to the day
+    assert "github.com/AlejandroFuentePinero/7ph-graph" in html  # repo
+    assert "7phstats.com" in html  # upstream
+    assert "LICENSE" in html or "licen" in html.lower()  # the licence
+
+
+def test_provenance_surface_collapses_a_single_year_and_survives_an_unknown_build():
+    # A one-year graph reads as that year, not "2025–2025"; and a bundle with no
+    # readable stamp (built_at is None) says so rather than printing "None".
+    one_year = _provenance_html(
+        Coverage(events=2, pilots=2, decks=3, cards=121,
+                 first_year=2025, last_year=2025),
+        None,
+    )
+    assert "2025" in one_year
+    assert "2025 – 2025" not in one_year and "2025–2025" not in one_year
+    assert "None" not in one_year
+
+
+def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snapshot_dir):
+    # Wiring: the built app actually renders the surface, fed this graph's own counts
+    # (2 events, 2 pilots, 3 decks, 121 cards for the fixture) and its three links, so a
+    # surface left unwired or fed stale numbers trips here rather than only in the browser.
+    surface = " ".join(_all_surface_text(_built_demo(tmp_path, snapshot_dir)))
+
+    assert "121" in surface  # the fixture's distinct card count
+    assert "github.com/AlejandroFuentePinero/7ph-graph" in surface
+    assert "7phstats.com" in surface

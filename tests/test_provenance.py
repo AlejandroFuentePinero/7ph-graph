@@ -11,6 +11,7 @@ from graph7ph.models import load_snapshot
 from graph7ph.provenance import (
     BUILD_INPUTS,
     PACKAGE_DIR,
+    built_at,
     provenance_path,
     source_digest,
     staleness,
@@ -177,6 +178,36 @@ def test_a_stamp_that_is_not_an_object_reads_as_stale_rather_than_crashing(
     complaint = staleness(artifact)
     assert complaint is not None
     assert "graph7ph build" in complaint
+
+
+def test_built_at_reads_the_stamped_build_time_for_the_provenance_surface(
+    snapshot_dir, tmp_path
+):
+    # The app names when the artifact was built (issue #115). It reads the same
+    # stamp the gate does, so the on-screen time and the gate agree by construction.
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+
+    stamped = json.loads(provenance_path(artifact).read_text())["built_at"]
+    assert built_at(artifact) == stamped
+
+
+@pytest.mark.parametrize("mangle", [
+    lambda p: p.unlink(),                              # no stamp
+    lambda p: p.write_text('{"source_digest": "abc"'),  # half-written
+    lambda p: p.write_text("null"),                    # good JSON, no fields
+])
+def test_built_at_is_none_when_no_readable_time_is_recorded(
+    snapshot_dir, tmp_path, mangle
+):
+    # The surface prints "unknown" rather than crashing when there is nothing
+    # honest to show, the same robustness the gate has against a half-written or
+    # absent stamp.
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    mangle(provenance_path(artifact))
+
+    assert built_at(artifact) is None
 
 
 def test_a_bundle_with_no_stamp_at_all_reads_as_stale(snapshot_dir, tmp_path):

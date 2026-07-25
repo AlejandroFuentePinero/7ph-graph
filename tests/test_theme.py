@@ -63,6 +63,23 @@ def test_the_default_gradio_footer_is_retired():
     assert footer and "display: none" in footer.group(1)
 
 
+def test_the_head_carries_a_real_favicon_and_social_preview():
+    # AC (#115): a real favicon and social preview replace the Gradio defaults. The
+    # head fragment carries our own icon as a self-hosted data URI (no external
+    # request, matching the embedded fonts), and the Open Graph / Twitter card meta a
+    # shared link unfurls from, so the link no longer wears Gradio's furniture.
+    head = theme.build_head()
+
+    icon = re.search(r"<link[^>]*rel=['\"]icon['\"][^>]*>", head)
+    assert icon and "data:image/svg+xml" in icon.group(0)  # our own mark, self-hosted
+
+    assert re.search(r"property=['\"]og:title['\"]", head)
+    assert re.search(r"property=['\"]og:description['\"]", head)
+    assert re.search(r"name=['\"]twitter:card['\"]", head)
+    # The preview names the tool, not "Gradio": the title carries the app's own name.
+    assert "7 Point Highlander" in head
+
+
 def test_every_token_is_declared_exactly_once_in_root():
     # "Defined once and referenced by role" (AC): the stylesheet's :root block declares
     # each token a single time, so no surface can quietly redefine --accent to its own
