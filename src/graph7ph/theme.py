@@ -17,6 +17,8 @@ import html
 from functools import lru_cache
 from pathlib import Path
 
+from graph7ph import palette
+
 # §2. Defined once here, referenced everywhere by role. The names are the CSS custom
 # property suffixes (``bg`` -> ``--bg``), so this dict and the stylesheet cannot drift.
 TOKENS: dict[str, str] = {
@@ -93,6 +95,42 @@ def contrast_ratio(fg: str, bg: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+# The highlighted figure in a field-standing line (`.t-fieldstat .pct`), taken from the
+# shared categorical set rather than named again here, so the number the eye lands on is
+# the same blue the charts draw a series in.
+FIGURE_BLUE = palette.CATEGORICAL[0]
+
+
+# The FAQ category tags and the hue each is tinted with. The three entity categories
+# take the graph's own colour for that node kind, so a "Pilots" tag and a pilot node are
+# the same orange; the shared primitive every metric is built on belongs to no entity, so
+# it takes the neutral surface instead of a ninth hue (§5-6: colour names entities).
+FAQ_TAGS: dict[str, str | None] = {
+    "Metric": None,
+    "Archetypes": palette.CATEGORICAL[3],
+    "Pilots": palette.CATEGORICAL[1],
+    "Cards": palette.CATEGORICAL[2],
+}
+
+
+def _faq_tag_tints() -> str:
+    """One tinted-pill rule per FAQ category, keyed by its lowercased name."""
+    rules = []
+    for name, hue in FAQ_TAGS.items():
+        fill, edge = (
+            ("var(--surface-2)", "var(--border)") if hue is None
+            else (_rgba(hue, 0.18), _rgba(hue, 0.55))
+        )
+        rules.append(f".faq-tag-{name.lower()} {{ background: {fill}; border-color: {edge}; }}")
+    return "\n".join(rules)
+
+
+def _rgba(hex_colour: str, alpha: float) -> str:
+    """A hex colour as an ``rgba()`` string at the given alpha."""
+    r, g, b = (int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def build_css() -> str:
     """The stylesheet the app injects at the ``gr.Blocks`` level.
 
@@ -148,10 +186,15 @@ def build_css() -> str:
    retires the inline-styled divs' `padding:1rem;font-family:sans-serif`. */
 .t-state {{ padding: 0.75rem 0; }}
 /* Field-standing line: the one-sentence read of a performance chart, promoted above a
-   plain caption so it lands as the answer rather than fine print. The share itself
-   carries the accent so the eye catches the number first; the sample size trails quiet. */
+   plain caption so it lands as the answer rather than fine print. In a card it *is* the
+   subtitle (no plain caption sits beside it), so it takes the same accent, below. The
+   figure is set apart so the eye catches the number first, and takes the shared palette's
+   slot-1 blue rather than a stronger orange: a highlight in the sentence's own hue would
+   read as more of the sentence. The blue is the one the charts already draw with (§5),
+   and it clears WCAG AA on both grounds, which `test_theme` holds it to. The sample size
+   trails quiet, so the line reads sentence first, figure first inside it, source last. */
 .t-fieldstat {{ font-size: 14.5px; font-weight: 400; line-height: 1.5; color: var(--text-dim); }}
-.t-fieldstat .pct {{ color: var(--accent-bright); font-weight: 650; font-variant-numeric: tabular-nums; }}
+.t-fieldstat .pct {{ color: {FIGURE_BLUE}; font-weight: 650; font-variant-numeric: tabular-nums; }}
 .t-fieldstat .sample {{ color: var(--text-mute); font-size: 13px; }}
 /* Numeric readout (§3): the sans's tabular figures where digits align in a column.
    `.tabular` opts any run of digits back into alignment. */
@@ -170,6 +213,31 @@ def build_css() -> str:
    wide monitor while controls and charts still fill their space. */
 .prose p, .prose li, .t-lede, .t-body {{ max-width: {MEASURE_CH}ch; }}
 
+/* The FAQ tab is the one place the reading measure is dropped: its boxes are full-width,
+   one per row, and the answer runs the width of its box. A measure-bound paragraph in a
+   wide box reads as a narrow ragged column against empty space, which is worse here than
+   a long line, because an answer is a handful of sentences read once rather than a page
+   of prose. The box is the bound; the paragraph fills it. */
+.faq-card p, .faq-card li {{ max-width: none; }}
+/* The question is the box's own heading and the reader's entry point into it, so it
+   takes the accent: eight boxes at a glance are scanned by their questions. */
+.faq h3 {{ color: var(--accent-bright); }}
+
+/* The category tag above each question: what the answer is about, so the boxes read as
+   grouped rather than as eight unrelated notes. Set as a quiet pill in the caption role,
+   tinted by the entity it names, and the tint is the graph's own hue for that kind
+   (render.py's `_KIND_ORDER`: Pilot slot 2, Card slot 3, Archetype slot 4), so a tag and
+   the nodes it describes agree on colour. The hue carries the tint only, never the label
+   text, which stays on `--text` and so keeps its contrast without depending on a hue
+   validated for chart marks rather than for 11px type. */
+.faq-tag {{
+  display: inline-block; margin-bottom: 0.5rem; padding: 0.1rem 0.55rem;
+  border: 1px solid; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text);
+}}
+{_faq_tag_tints()}
+
 /* §12 insight card: each plot is a bounded answer on the ground, not a slab in a
    continuous sheet. The card carries the surface, edge, radius and padding; adjacent
    cards are held apart by the bottom-margin gap, not a shared rule. The inner Gradio
@@ -178,11 +246,23 @@ def build_css() -> str:
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 1rem 1.25rem 1.25rem; margin-bottom: 1.25rem;
 }}
-.insight-card > .block, .insight-card .form,
-.insight-card > .block > .block {{
+/* Every block inside the card, at any depth: Gradio nests a component's block as deep as
+   it likes, and the two levels this used to name left the heading and the FAQ prose
+   sitting on a lighter inner slab, a card drawn inside a card. `.styler` is the wrapper
+   a `gr.Group` puts around its children; it fills itself with the block *border* colour
+   so that a 1px gap between grouped children reads as a divider, which over a card of
+   our own is one more inner surface. The card is the only surface it needs. */
+.insight-card .block, .insight-card .form, .insight-card .styler {{
   background: transparent; border: none; box-shadow: none;
 }}
 .insight-card .t-result-title {{ margin-bottom: 0.1rem; }}
+/* The plot's subtitle, under its title inside the card: it names what the plot is
+   bounded to (a cut, a board, a season), or states the read of it, which is part of
+   reading the plot rather than fine print about it, so it is set in the accent rather
+   than in the caption's mute. Both classes appear in that slot (a caption where the
+   subtitle names a bound, a field-standing line where it states a reading), and a
+   subtitle should not change colour with which of the two a plot happens to use. */
+.insight-card .t-caption, .insight-card .t-fieldstat {{ color: var(--accent-bright); }}
 
 /* The results stack wraps a view's insight cards and is toggled as a whole: hidden
    before a Draw (so the view opens as controls over empty ground, the guidance living
@@ -202,6 +282,72 @@ def build_css() -> str:
 /* The subject is the control everything else in a tab hangs off, so it is marked
    visually primary with an accent edge, distinct from the surrounding filters. */
 .primary-control {{ border-left: 3px solid var(--accent); padding-left: 0.75rem; }}
+
+/* A data control and its clear (×) button read as one field: the button on the input's
+   own baseline (bottom-aligned, since the label and any help text push the input down),
+   carrying a quiet accent square of its own.
+
+   Every rule here is anchored on `.gradio-container .row.clearable` on purpose. Gradio's
+   own row and button rules are class-scoped (`.stretch`, `.secondary`) and load after
+   this stylesheet, so a plain `.clearable` selector ties on specificity and loses on
+   order: the button would keep its variant surface and stretch to the row's full height.
+   Out-specifying is what makes these rules land, not an accident of nesting.
+
+   The row also carries the field's surface. Gradio paints that surface on the block it
+   wraps a dropdown in, and that block stops at the field's edge, so the strip the button
+   sits in showed the lighter control-panel surface behind it: a pale full-height slab
+   beside every control, which reads as the button and is not. */
+.gradio-container .row.clearable {{
+  align-items: flex-end; gap: 0.4rem; flex-wrap: nowrap;
+  background: var(--surface); border-radius: 8px;
+  /* The button is square and exactly as tall as the input beside it, so the two share a
+     top and a bottom edge. Gradio builds that input as `--spacing-md` of padding above
+     and below a single line: 4px of input margin around ~17px of 14px text for a plain
+     dropdown, or a token chip (`--spacing-md` around a 21px line) when a multiselect
+     holds a pick. An empty multiselect is the plain height, so the size follows the
+     chips rather than the control's type. Past one row of chips the field grows and the
+     button stays on its last row, which is what bottom-anchoring is for. */
+  --clear-size: 37px;
+}}
+.gradio-container .row.clearable:has(.token) {{ --clear-size: 45px; }}
+/* Descendant rather than child: Gradio wraps a dropdown in a `.form` div of its own and
+   is free to wrap the button too, so a `>` here would depend on a nesting it does not
+   promise. The field keeps its width; only the button shrinks. */
+.gradio-container .row.clearable .clear-btn {{
+  flex: 0 0 auto; align-self: flex-end; min-width: 0;
+  /* Level with the input, not with the field's whole block: the label and any help text
+     sit above the input, and `--spacing-xl` is the block's own bottom padding, so the
+     button's lower edge lands on the input's rather than below it. Square and the same
+     height, so the two read as one field, and Gradio's button centres the glyph in it.
+     `border-box` so the declared size is the outer edge the eye lines up, borders in. */
+  box-sizing: border-box; width: var(--clear-size); height: var(--clear-size);
+  /* And inset from the panel's edge by the same amount every field is: Gradio wraps a
+     field in a block padded by `--block-padding`, whose horizontal half holds the input
+     clear of the panel wall. The button is bare, so without this its right edge overhung
+     every input box in the panel by those 12px, which reads as the button sitting too
+     far right rather than as the column of fields it belongs to. */
+  margin-bottom: var(--spacing-xl); margin-right: calc(var(--spacing-xl) + 2px);
+  padding: 0;
+  /* Its own quiet accent square, so the one control in the panel that undoes something
+     is visible as a control rather than as a glyph floating beside the field. The
+     resting state is the hover state at lower strength, so hovering brightens what is
+     already there instead of introducing a box that was not there a moment ago. */
+  background: {_rgba(TOKENS["accent"], 0.10)}; box-shadow: none;
+  border: 1px solid {_rgba(TOKENS["accent"], 0.30)}; border-radius: 8px;
+  color: var(--accent); font-weight: 400; line-height: 1;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  /* The label ("Clear") is the button's accessible name and must stay in the DOM;
+     zeroing the type collapses it without hiding it from the accessibility tree, the
+     way `display: none` would. The glyph is drawn beside it at its own size. */
+  font-size: 0;
+}}
+.gradio-container .row.clearable .clear-btn::before {{
+  content: "\\00d7"; font-size: 20px; line-height: 1;
+}}
+.gradio-container .row.clearable .clear-btn:hover {{
+  background: {_rgba(TOKENS["accent"], 0.22)}; border-color: var(--accent);
+  color: var(--accent-bright); transform: none;
+}}
 
 /* The subject stated once for a whole result set (§14), above the cards: named in the
    display face so it reads as the heading of the answer, not another control label. */
@@ -352,4 +498,14 @@ FORCE_DARK_JS = """
     window.location.replace(url.href);
   }
 }
+"""
+
+# A plot drawn at build time inside a tab that is not the one the app opens on is laid
+# out while its container is display:none, so Plotly measures nothing and falls back to
+# its own default width: the chart comes up narrow against a wide card, and only
+# straightens out when something re-renders it. Plotly's responsive mode listens for
+# the window resize event, so a tab that shows such a plot fires one when it is opened.
+# The frame lets the newly shown tab lay out first, or the measurement is still zero.
+RESIZE_PLOTS_JS = """
+() => { requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); }
 """

@@ -21,6 +21,14 @@ def test_the_accents_clear_the_ui_contrast_floor_on_the_ground():
         assert theme.contrast_ratio(theme.TOKENS[role], ground) >= 3.0, role
 
 
+def test_the_highlighted_figure_is_readable_on_both_grounds():
+    # The field-standing line's figure is body-sized text carrying the reading, so it is
+    # held to AA body contrast (4.5:1), not the 3:1 UI floor: it is set in a hue chosen
+    # for chart marks, and a slot re-ordered in the palette must not quietly dim it.
+    for ground in (theme.TOKENS["bg"], theme.TOKENS["surface"]):
+        assert theme.contrast_ratio(theme.FIGURE_BLUE, ground) >= 4.5, ground
+
+
 def test_the_two_faces_are_embedded_as_woff2_data_uris():
     # AC (#132, §3): the type system is two self-hosted faces, base64-embedded so the
     # Space serves no external font request. The stylesheet carries an @font-face for
