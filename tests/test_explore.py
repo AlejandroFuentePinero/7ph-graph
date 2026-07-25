@@ -1,4 +1,4 @@
-from graph7ph.explore import RENDER_THRESHOLD, assess
+from graph7ph.explore import RENDER_THRESHOLD, assess, dominant_kind
 from graph7ph.query import Node, Subgraph
 
 
@@ -12,7 +12,6 @@ def test_a_subgraph_within_the_threshold_renders():
 
     assert plan.render is True
     assert plan.node_count == 5
-    assert plan.suggestions == []
 
 
 def test_a_subgraph_exactly_at_the_threshold_still_renders():
@@ -46,21 +45,15 @@ def test_refine_reports_the_results_own_node_kind_distribution():
     assert plan.by_kind == {"Card": 1, "Deck": 40, "Pilot": 20}
 
 
-def test_refine_suggestion_names_the_kind_flooding_the_view():
-    # Decks dominate this result, so the narrowing hint is about cutting decks.
-    sub = Subgraph(
-        nodes=(
-            [Node("card:x", "X", "Card")]
-            + [Node(f"deck:{i}", str(i), "Deck") for i in range(40)]
-        ),
-        edges=[],
-    )
-
-    plan = assess(sub, threshold=10)
-
-    joined = " ".join(plan.suggestions).lower()
-    assert "deck" in joined  # the dominant kind is named
-    assert "40" in joined  # its count, drawn from the distribution
+def test_dominant_kind_names_the_most_numerous_kind_breaking_ties_by_name():
+    # The too-large state names the axis to narrow from the kind flooding the view: the
+    # most numerous, so a reader cuts the axis that is actually oversized. Decks dominate
+    # here, so the dominant kind is Deck.
+    assert dominant_kind({"Card": 1, "Deck": 40}) == "Deck"
+    # A tie is broken by name so the pick is deterministic across processes (the state
+    # message must not name a different kind run to run): "Card" < "Deck" alphabetically.
+    assert dominant_kind({"Card": 40, "Deck": 40}) == "Deck"
+    assert dominant_kind({"Archetype": 5, "Card": 5}) == "Card"
 
 
 def test_an_empty_result_renders_the_empty_graph():
@@ -68,7 +61,6 @@ def test_an_empty_result_renders_the_empty_graph():
 
     assert plan.render is True
     assert plan.by_kind == {}
-    assert plan.suggestions == []
 
 
 def test_the_default_threshold_is_the_single_config_constant():

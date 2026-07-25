@@ -64,10 +64,32 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     demo = build_app(artifact)
 
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Pilots", "Cards", "Meta", "Hidden gems"]
-    # Gems now has its own tab; Meta holds meta share alone. The gems query keeps
+    # Cold start lands on the drawn Meta view (#114): Meta leads and Pilots trails, with
+    # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
+    # real result rather than an empty canvas, and no single pilot is anointed a default.
+    assert tabs == ["Meta", "Cards", "Hidden gems", "Pilots"]
+    # Gems still has its own tab; Meta holds meta share alone. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
+
+
+def test_cold_start_opens_on_the_drawn_meta_view(tmp_path, snapshot_dir):
+    # AC (#114): cold start shows a real drawn result, never an empty canvas, and with no
+    # default pilot. The Meta view draws its cut chart at build time (a subject-free query),
+    # so making it the opening tab lands the app on a drawn answer with zero pilot
+    # defaulting. Asserted at the build seam: the first tab is Meta, and its opening cut
+    # plot carries a value (a figure), so a regression that reorders Pilots back to the
+    # front (opening on an empty canvas) trips here.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    first_tab = next(b for b in demo.blocks.values() if isinstance(b, gr.Tab))
+    assert first_tab.label == "Meta"
+    # The Meta cut chart is drawn on open (not hidden behind a Draw), so it carries a
+    # figure value at build time: cold start is a drawn result.
+    cut_plots = [b for b in demo.blocks.values()
+                 if isinstance(b, gr.Plot) and b.value is not None]
+    assert cut_plots, "the opening Meta view draws a chart at build time"
 
 
 def _built_demo(tmp_path, snapshot_dir):
@@ -274,6 +296,53 @@ def test_the_filters_are_escaped_into_the_header():
     header = _result_header("card_usage", ["with A<b>"], node_count=3)
     assert "A<b>" not in header
     assert "A&lt;b&gt;" in header
+
+
+def test_a_state_message_reads_in_the_app_type_not_an_inline_styled_div():
+    # AC (#114): the states with nothing (or not yet) to draw share one on-theme
+    # treatment. `_state_message` is that treatment for the four rendered ones (nothing
+    # picked, empty result, SliceTooSmall, too-large-to-draw); the fifth, running, is the
+    # framework's own progress indicator (AC2), not a message this helper renders. It
+    # retires the hand-styled inline divs (`style='padding:1rem;font-family:sans-serif'`)
+    # that overrode the theme font with a system sans, rendering instead in the app's own
+    # body type role on the tokens, with no inline style. The message is free text, so escaped.
+    from graph7ph.app import _state_message
+
+    msg = _state_message("No decks match these filters.")
+    assert "t-state" in msg  # the shared state class
+    assert "t-body" in msg   # the app's own body type role, not a system sans
+    assert "font-family" not in msg  # the retired inline sans-serif is gone
+    assert "style=" not in msg       # the class carries the treatment, not inline style
+    assert "No decks match these filters." in msg
+
+    escaped = _state_message("A<b> matched")
+    assert "A<b>" not in escaped
+    assert "A&lt;b&gt;" in escaped
+
+
+def test_the_too_large_state_refuses_in_one_line_through_the_shared_treatment():
+    # AC (#114): the too-large-to-draw state (`_refine_alert`) speaks in one short line
+    # in the app's voice through the shared on-theme treatment, not the old multi-
+    # paragraph inline-styled div with a <ul> of suggestions. It states the count, the
+    # kind flooding the view, and what to do (narrow and Draw again), and shares the
+    # state class so it reads the same as every other state.
+    from graph7ph.explore import RenderPlan
+    from graph7ph.app import _refine_alert
+
+    plan = RenderPlan(
+        render=False, node_count=1234, threshold=250,
+        by_kind={"Card": 900, "Deck": 334},
+    )
+    msg = _refine_alert(plan)
+
+    assert "t-state" in msg          # the same on-theme treatment as the other states
+    assert "font-family" not in msg  # not the retired inline-styled div
+    assert "<ul>" not in msg and "<li>" not in msg  # one line, not a bulleted paragraph
+    assert "<p>" not in msg          # no multi-paragraph body
+    assert "1,234" in msg            # the count, with a thousands separator
+    assert "Cards" in msg            # names the kind flooding the view
+    assert "250" in msg              # the draw limit
+    assert "Draw" in msg             # says what to do
 
 
 def test_the_subject_is_stated_once_and_escaped():

@@ -32,7 +32,7 @@ import plotly.graph_objects as pgo
 
 from graph7ph import numfmt, palette, theme
 from graph7ph.db import open_database
-from graph7ph.explore import RenderPlan, assess
+from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.query import (
     CardCooccurrence,
     CardUsage,
@@ -59,10 +59,22 @@ from graph7ph.trends import (
     run_series,
 )
 
+def _state_message(text: str) -> str:
+    """The one on-theme treatment every state with nothing (or not yet) to draw shares
+    (#114): the message set in the app's own body type role (§3) on the tokens, in place
+    of the retired hand-styled inline divs (``style='padding:1rem;font-family:sans-serif'``)
+    that overrode the theme font with a system sans. The nothing-picked prompt, the empty
+    result, the ``SliceTooSmall`` refusal, and the too-large refine alert all speak through
+    this, so the app has one voice when it has nothing to draw, reading the same as the
+    Markdown refusal notes (the same ``.t-body`` type role as ``.prose p``). One short line
+    in the interface's voice; the message is free text, so it is escaped into the markup."""
+    return f"<div class='t-state t-body'>{html.escape(text)}</div>"
+
+
 # The run_graph fallback for a spec that cannot be built (a subject not yet chosen).
 # With the results stack hidden until a Draw with a subject, this is unreachable in
 # normal flow; kept as a defensive value so a stray call renders something, not None.
-_PROMPT = "<p style='padding:1rem'>Pick an entity and filters, then Draw.</p>"
+_PROMPT = _state_message("Pick an entity and filters, then Draw.")
 
 # The guidance that used to sit as a duplicated empty-prompt card in every plot region
 # now rides the subject dropdown's help text (§14, user feedback): one place, at the
@@ -189,28 +201,18 @@ def _embed(doc: str) -> str:
 
 
 def _refine_alert(plan: RenderPlan) -> str:
-    """The alert-and-refine message for a result too big to draw."""
-    breakdown = ", ".join(f"{n} {kind}" for kind, n in sorted(plan.by_kind.items()))
-    tips = "".join(f"<li>{html.escape(s)}</li>" for s in plan.suggestions)
-    return (
-        "<div style='padding:1rem;font-family:sans-serif'>"
-        f"<p><strong>{plan.node_count} nodes</strong> is more than the "
-        f"{plan.threshold}-node limit, so nothing is drawn (no result is dropped, "
-        "and none is silently truncated).</p>"
-        f"<p>The result breaks down as: {breakdown}.</p>"
-        f"<p>Narrow it and try again:</p><ul>{tips}</ul></div>"
-    )
+    """The too-large-to-draw state, as one line in the app's voice (#114).
 
-
-def _note(message: str) -> str:
-    """A plain message where a graph would go, for results with nothing to draw.
-
-    An empty subgraph is under the render threshold, so it would otherwise draw
-    as a blank canvas that reads as a broken app rather than as an answer.
-    """
-    return (
-        "<div style='padding:1rem;font-family:sans-serif'>"
-        f"<p>{html.escape(message)}</p></div>"
+    A result over the render threshold is never drawn or truncated; rather than the old
+    multi-paragraph inline-styled div with a ``<ul>`` of hints, it refuses in one short
+    line through the shared on-theme treatment (:func:`_state_message`): the count, the
+    kind flooding the view (the most numerous, so the reader narrows the axis that is
+    actually oversized), the draw limit, and what to do. The count carries a thousands
+    separator, since a refused result is well over the 250-node line."""
+    dominant = dominant_kind(plan.by_kind)
+    return _state_message(
+        f"{plan.node_count:,} nodes (mostly {dominant}s) is over the "
+        f"{plan.threshold}-node draw limit; narrow the query and Draw again."
     )
 
 
@@ -949,11 +951,12 @@ def build_app(artifact: Path) -> gr.Blocks:
             series = run_series(ladybug.Connection(db), PilotPerformanceOverTime(pilot))
         except NotEnoughHistory as e:
             had = "no year" if not e.found else f"only {e.found} year" + ("" if e.found == 1 else "s")
+            # One short line in the app's voice (#114, §14): what happened, from the
+            # qualifying-year count itself, with no methodology-restating tail. No "pick
+            # another" direction, since the sibling neighbourhood and affinity plots may
+            # have drawn for this same pilot and should not be waved off.
             return gr.update(visible=False), gr.update(visible=False), gr.update(
-                value=(
-                    f"{pilot_labels[pilot]} has {had} with enough events to average, "
-                    "so there is no performance trend to trace over time."
-                ),
+                value=f"{pilot_labels[pilot]} has {had} with enough events to average.",
                 visible=True,
             )
         # The refusal above is the only way the tool declines, so an empty series
@@ -993,11 +996,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "have never met" if not e.found
                 else f"share only {e.found} event" + ("s" if e.found > 1 else "")
             )
+            # One short line in the app's voice (#114, §14): what happened, from the
+            # shared-event count itself, with no methodology-restating tail.
             return gr.update(visible=False), gr.update(visible=False), gr.update(
-                value=(
-                    f"{pilot_labels[a]} and {pilot_labels[b]} {met}, so there is no "
-                    "rivalry to trace over time."
-                ),
+                value=f"{pilot_labels[a]} and {pilot_labels[b]} {met}.",
                 visible=True,
             )
         # The in-chart range slider does the time-range slice client-side, so the
@@ -1049,7 +1051,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         try:
             subgraph = run_query(ladybug.Connection(db), spec)
         except SliceTooSmall as e:
-            return _note(f"{e}, so no gem claim is made here.")
+            return _state_message(f"{e}.")
         # A result too big to draw refuses with its own node count and narrowing
         # hints, so it carries no page-type header: a second "N nodes" caption above
         # it would read as if N had been drawn (#110).
@@ -1064,7 +1066,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         filters = _graph_filters(view, values)
         header = _result_header(view, filters, plan.node_count)
         if not subgraph.nodes:
-            return header + _note("Nothing matched. The query ran and came back empty.")
+            return header + _state_message("No matches for these filters.")
         return header + _embed(render_subgraph(subgraph))
 
     with gr.Blocks(
@@ -1082,145 +1084,41 @@ def build_app(artifact: Path) -> gr.Blocks:
         # the picker, so none is ever stranded below a plot. Each plot renders in its
         # own bounded insight card (§12). The graph and trend pipelines stay separate
         # under the hood (ADR 0013); only the presentation is combined.
-        with gr.Tab("Pilots"):
-            gr.Markdown("## Pilots")
+
+        # Meta is single-view since #125 promoted hidden gems to its own tab (v1
+        # §11): it holds meta share over time alone, so there is no subject entity
+        # and no view picker, just the chart and its controls.
+        with gr.Tab("Meta"):
+            gr.Markdown("## Meta")
             gr.Markdown(
-                "Explore any pilot's decks, rivalries, and results over time.",
+                "The metagame over time.",
                 elem_classes="t-lede",
             )
-            pilots_default = next(iter(_PILOTS_TAB))
-            po_default = pilots_default == "pilot_overview"
-            h2h_default = pilots_default == "pilot_head_to_head"
-
-            # §13 control panel: subject, view, and every plot-affecting control in one
-            # raised surface above the results. The subject dropdown's help text carries
-            # the "pick and Draw" guidance (§14), so the results below open empty rather
-            # than as duplicated prompt cards. The second pilot and each view's Draw
-            # toggle with the picker (`toggle_pilots_view`).
+            # §13: both plot-affecting controls sit in the panel above the charts. The
+            # archetype-focus multiselect used to sit *below* the cut chart (#132); it
+            # moves up here with the cut, so no control is stranded below its plot.
             with gr.Group(elem_classes="control-panel"):
-                pilot = gr.Dropdown(
-                    choices=pilots, label="Pilot", value=None, info=_PICK_PILOT,
-                    elem_classes="primary-control",
+                cut = gr.Radio(
+                    list(_CUTS), value=_DEFAULT_CUT,
+                    label=f"Archetypes to show (by share of {latest_year} decks)",
                 )
-                pilots_view = gr.Dropdown(
-                    choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
+                manual = gr.Dropdown(
+                    choices=trend_archetypes, value=[], multiselect=True,
+                    label="Or focus on specific archetypes",
                 )
-                h2h_pilot_b = gr.Dropdown(
-                    choices=pilots, value=None, label="Second pilot (required)",
-                    info=_PICK_PILOT2, visible=h2h_default,
-                )
-                po_go = gr.Button("Draw", variant="primary", visible=po_default)
-                h2h_go = gr.Button("Draw", variant="primary", visible=h2h_default)
+            # The cut chart in its own insight card, open on the default cut.
+            _cut_heading, _cut_fig = draw_cut(_DEFAULT_CUT)
+            with gr.Group(elem_classes="insight-card"):
+                cut_heading = gr.HTML(value=_cut_heading, padding=False)
+                cut_plot = gr.Plot(value=_cut_fig)
+            # The focused-archetypes chart in its own card, the whole card hidden until
+            # a pick is made so the view opens on the cut chart alone (no empty card).
+            with gr.Group(elem_classes="insight-card", visible=False) as manual_card:
+                manual_heading = gr.HTML(visible=False, padding=False)
+                manual_plot = gr.Plot(visible=False)
 
-            # Pilot overview: one pilot, three plots, each in its own insight card. The
-            # results stack is hidden until a Draw fills it (§14), so the view opens as
-            # controls over empty ground, the dropdown help text guiding, not a row of
-            # duplicated empty-prompt cards. The subject line sits above the stack.
-            with gr.Group(visible=po_default) as g_pilot_overview:
-                po_subject = gr.HTML(visible=False)
-                with gr.Group(visible=False, elem_classes="results-stack") as po_results:
-                    with gr.Group(elem_classes="insight-card"):
-                        po_nb_out = gr.HTML()
-                    with gr.Group(elem_classes="insight-card"):
-                        po_af_out = gr.HTML()
-                    with gr.Group(elem_classes="insight-card"):
-                        po_perf_heading = gr.HTML(visible=False, padding=False)
-                        po_perf_note = gr.Markdown(visible=False)
-                        po_perf_plot = gr.Plot(visible=False)
-
-            # Head-to-head: two pilots, the second required, two plots (the pair's
-            # neighbourhood and their shared-event timeline).
-            with gr.Group(visible=h2h_default) as g_pilot_head_to_head:
-                h2h_subject = gr.HTML(visible=False)
-                with gr.Group(visible=False, elem_classes="results-stack") as h2h_results:
-                    with gr.Group(elem_classes="insight-card"):
-                        h2h_nb_out = gr.HTML()
-                    with gr.Group(elem_classes="insight-card", visible=False) as h2h_plot_card:
-                        h2h_heading = gr.HTML(visible=False, padding=False)
-                        h2h_note = gr.Markdown(visible=False)
-                        h2h_plot = gr.Plot(visible=False)
-
-            def draw_pilot_overview(p: str):
-                # One Draw fans out to all three plots: two subgraph queries and a
-                # series, each independent so a graph that refines composes beside a
-                # trend that refuses (#126). The results stack shows only when a pilot is
-                # picked (§14); with none, the dropdown help text guides and the stack
-                # stays hidden. draw_performance returns (heading, plot, note).
-                subject = _subject_update("Pilot", pilot_labels[p] if p else None)
-                if not p:
-                    return (subject, gr.update(visible=False),
-                            gr.update(), gr.update(), *draw_performance(None))
-                return (
-                    subject,
-                    gr.update(visible=True),
-                    gr.update(value=run_graph("pilot_neighbourhood", {"pilot": p, "pilot2": None})),
-                    gr.update(value=run_graph("pilot_affinity", {"pilot": p})),
-                    *draw_performance(p),
-                )
-
-            def draw_head_to_head_view(a: str, b: str):
-                # One Draw fans out to the pair's neighbourhood and their timeline. A
-                # missing pair keeps the stack hidden (the dropdown help text guides); a
-                # same-pilot pair shows the stack with a single "pick two different" note
-                # on the neighbourhood card, the empty timeline card hidden (self-vs-self is
-                # refused the same way the timeline refuses it, so the two plots never
-                # disagree); a valid pair draws both and names the pair once above them. The
-                # timeline card is shown only for a valid pair, so a self/empty result never
-                # leaves an empty bordered card below the note (§12).
-                hide_card = gr.update(visible=False)
-                if not a or not b:
-                    return (gr.update(visible=False), gr.update(visible=False),
-                            gr.update(), *draw_head_to_head(a, b), hide_card)
-                if a == b:
-                    return (gr.update(visible=False), gr.update(visible=True),
-                            gr.update(value=_note("Pick two different pilots to compare their neighbourhoods.")),
-                            *draw_head_to_head(a, b), hide_card)
-                subject = gr.update(
-                    value=_subject_line("Head-to-head", pilot_labels[a], pilot_labels[b]),
-                    visible=True,
-                )
-                nb = gr.update(value=run_graph("pilot_neighbourhood", {"pilot": a, "pilot2": b}))
-                return (subject, gr.update(visible=True), nb,
-                        *draw_head_to_head(a, b), gr.update(visible=True))
-
-            def reset_pilot():
-                # A changed subject drops the drawn results: hide the subject lines and
-                # both results stacks, so a stale answer never sits under changed controls.
-                hide = gr.update(visible=False)
-                return [hide, hide, hide, hide]
-
-            def toggle_pilots_view(v):
-                # The picker swaps the view: its own controls (head-to-head's second
-                # pilot), its Draw, and its cards show; the other view's hide.
-                is_ov = v == "pilot_overview"
-                is_h2h = v == "pilot_head_to_head"
-                return [
-                    gr.update(visible=is_h2h),  # h2h_pilot_b
-                    gr.update(visible=is_ov),   # po_go
-                    gr.update(visible=is_h2h),  # h2h_go
-                    gr.update(visible=is_ov),   # g_pilot_overview
-                    gr.update(visible=is_h2h),  # g_pilot_head_to_head
-                ]
-
-            reset_pilot_outs = [po_subject, po_results, h2h_subject, h2h_results]
-            pilots_view.change(
-                toggle_pilots_view, inputs=pilots_view,
-                outputs=[h2h_pilot_b, po_go, h2h_go, g_pilot_overview, g_pilot_head_to_head],
-            )
-            # Any control that determines a result hides the drawn stacks so a stale
-            # answer never sits under changed controls: the shared pilot, the second pilot.
-            pilot.change(reset_pilot, outputs=reset_pilot_outs)
-            h2h_pilot_b.change(reset_pilot, outputs=reset_pilot_outs)
-            po_go.click(
-                draw_pilot_overview, inputs=pilot,
-                outputs=[po_subject, po_results, po_nb_out, po_af_out,
-                         po_perf_heading, po_perf_plot, po_perf_note],
-            )
-            h2h_go.click(
-                draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
-                outputs=[h2h_subject, h2h_results, h2h_nb_out,
-                         h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
-            )
+            cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
+            manual.change(draw_manual, inputs=manual, outputs=[manual_card, manual_heading, manual_plot])
 
         with gr.Tab("Cards"):
             gr.Markdown("## Cards")
@@ -1364,41 +1262,6 @@ def build_app(artifact: Path) -> gr.Blocks:
                          cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note],
             )
 
-        # Meta is single-view since #125 promoted hidden gems to its own tab (v1
-        # §11): it holds meta share over time alone, so there is no subject entity
-        # and no view picker, just the chart and its controls.
-        with gr.Tab("Meta"):
-            gr.Markdown("## Meta")
-            gr.Markdown(
-                "The metagame over time.",
-                elem_classes="t-lede",
-            )
-            # §13: both plot-affecting controls sit in the panel above the charts. The
-            # archetype-focus multiselect used to sit *below* the cut chart (#132); it
-            # moves up here with the cut, so no control is stranded below its plot.
-            with gr.Group(elem_classes="control-panel"):
-                cut = gr.Radio(
-                    list(_CUTS), value=_DEFAULT_CUT,
-                    label=f"Archetypes to show (by share of {latest_year} decks)",
-                )
-                manual = gr.Dropdown(
-                    choices=trend_archetypes, value=[], multiselect=True,
-                    label="Or focus on specific archetypes",
-                )
-            # The cut chart in its own insight card, open on the default cut.
-            _cut_heading, _cut_fig = draw_cut(_DEFAULT_CUT)
-            with gr.Group(elem_classes="insight-card"):
-                cut_heading = gr.HTML(value=_cut_heading, padding=False)
-                cut_plot = gr.Plot(value=_cut_fig)
-            # The focused-archetypes chart in its own card, the whole card hidden until
-            # a pick is made so the view opens on the cut chart alone (no empty card).
-            with gr.Group(elem_classes="insight-card", visible=False) as manual_card:
-                manual_heading = gr.HTML(visible=False, padding=False)
-                manual_plot = gr.Plot(visible=False)
-
-            cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
-            manual.change(draw_manual, inputs=manual, outputs=[manual_card, manual_heading, manual_plot])
-
         # Hidden gems is its own top-level tab since #125, promoted out of Meta (v1
         # §11): entered by archetype, it outputs the cards that over-index in the
         # archetype's decks against the wider format, the SliceTooSmall refusal
@@ -1430,6 +1293,146 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             gem_go.click(
                 draw_gems, inputs=gem_archetype, outputs=[gem_subject, gem_out],
+            )
+
+        with gr.Tab("Pilots"):
+            gr.Markdown("## Pilots")
+            gr.Markdown(
+                "Explore any pilot's decks, rivalries, and results over time.",
+                elem_classes="t-lede",
+            )
+            pilots_default = next(iter(_PILOTS_TAB))
+            po_default = pilots_default == "pilot_overview"
+            h2h_default = pilots_default == "pilot_head_to_head"
+
+            # §13 control panel: subject, view, and every plot-affecting control in one
+            # raised surface above the results. The subject dropdown's help text carries
+            # the "pick and Draw" guidance (§14), so the results below open empty rather
+            # than as duplicated prompt cards. The second pilot and each view's Draw
+            # toggle with the picker (`toggle_pilots_view`).
+            with gr.Group(elem_classes="control-panel"):
+                pilot = gr.Dropdown(
+                    choices=pilots, label="Pilot", value=None, info=_PICK_PILOT,
+                    elem_classes="primary-control",
+                )
+                pilots_view = gr.Dropdown(
+                    choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
+                )
+                h2h_pilot_b = gr.Dropdown(
+                    choices=pilots, value=None, label="Second pilot (required)",
+                    info=_PICK_PILOT2, visible=h2h_default,
+                )
+                po_go = gr.Button("Draw", variant="primary", visible=po_default)
+                h2h_go = gr.Button("Draw", variant="primary", visible=h2h_default)
+
+            # Pilot overview: one pilot, three plots, each in its own insight card. The
+            # results stack is hidden until a Draw fills it (§14), so the view opens as
+            # controls over empty ground, the dropdown help text guiding, not a row of
+            # duplicated empty-prompt cards. The subject line sits above the stack.
+            with gr.Group(visible=po_default) as g_pilot_overview:
+                po_subject = gr.HTML(visible=False)
+                with gr.Group(visible=False, elem_classes="results-stack") as po_results:
+                    with gr.Group(elem_classes="insight-card"):
+                        po_nb_out = gr.HTML()
+                    with gr.Group(elem_classes="insight-card"):
+                        po_af_out = gr.HTML()
+                    with gr.Group(elem_classes="insight-card"):
+                        po_perf_heading = gr.HTML(visible=False, padding=False)
+                        po_perf_note = gr.Markdown(visible=False)
+                        po_perf_plot = gr.Plot(visible=False)
+
+            # Head-to-head: two pilots, the second required, two plots (the pair's
+            # neighbourhood and their shared-event timeline).
+            with gr.Group(visible=h2h_default) as g_pilot_head_to_head:
+                h2h_subject = gr.HTML(visible=False)
+                with gr.Group(visible=False, elem_classes="results-stack") as h2h_results:
+                    with gr.Group(elem_classes="insight-card"):
+                        h2h_nb_out = gr.HTML()
+                    with gr.Group(elem_classes="insight-card", visible=False) as h2h_plot_card:
+                        h2h_heading = gr.HTML(visible=False, padding=False)
+                        h2h_note = gr.Markdown(visible=False)
+                        h2h_plot = gr.Plot(visible=False)
+
+            def draw_pilot_overview(p: str):
+                # One Draw fans out to all three plots: two subgraph queries and a
+                # series, each independent so a graph that refines composes beside a
+                # trend that refuses (#126). The results stack shows only when a pilot is
+                # picked (§14); with none, the dropdown help text guides and the stack
+                # stays hidden. draw_performance returns (heading, plot, note).
+                subject = _subject_update("Pilot", pilot_labels[p] if p else None)
+                if not p:
+                    return (subject, gr.update(visible=False),
+                            gr.update(), gr.update(), *draw_performance(None))
+                return (
+                    subject,
+                    gr.update(visible=True),
+                    gr.update(value=run_graph("pilot_neighbourhood", {"pilot": p, "pilot2": None})),
+                    gr.update(value=run_graph("pilot_affinity", {"pilot": p})),
+                    *draw_performance(p),
+                )
+
+            def draw_head_to_head_view(a: str, b: str):
+                # One Draw fans out to the pair's neighbourhood and their timeline. A
+                # missing pair keeps the stack hidden (the dropdown help text guides); a
+                # same-pilot pair shows the stack with a single "pick two different" note
+                # on the neighbourhood card, the empty timeline card hidden (self-vs-self is
+                # refused the same way the timeline refuses it, so the two plots never
+                # disagree); a valid pair draws both and names the pair once above them. The
+                # timeline card is shown only for a valid pair, so a self/empty result never
+                # leaves an empty bordered card below the note (§12).
+                hide_card = gr.update(visible=False)
+                if not a or not b:
+                    return (gr.update(visible=False), gr.update(visible=False),
+                            gr.update(), *draw_head_to_head(a, b), hide_card)
+                if a == b:
+                    return (gr.update(visible=False), gr.update(visible=True),
+                            gr.update(value=_state_message("Pick two different pilots to compare.")),
+                            *draw_head_to_head(a, b), hide_card)
+                subject = gr.update(
+                    value=_subject_line("Head-to-head", pilot_labels[a], pilot_labels[b]),
+                    visible=True,
+                )
+                nb = gr.update(value=run_graph("pilot_neighbourhood", {"pilot": a, "pilot2": b}))
+                return (subject, gr.update(visible=True), nb,
+                        *draw_head_to_head(a, b), gr.update(visible=True))
+
+            def reset_pilot():
+                # A changed subject drops the drawn results: hide the subject lines and
+                # both results stacks, so a stale answer never sits under changed controls.
+                hide = gr.update(visible=False)
+                return [hide, hide, hide, hide]
+
+            def toggle_pilots_view(v):
+                # The picker swaps the view: its own controls (head-to-head's second
+                # pilot), its Draw, and its cards show; the other view's hide.
+                is_ov = v == "pilot_overview"
+                is_h2h = v == "pilot_head_to_head"
+                return [
+                    gr.update(visible=is_h2h),  # h2h_pilot_b
+                    gr.update(visible=is_ov),   # po_go
+                    gr.update(visible=is_h2h),  # h2h_go
+                    gr.update(visible=is_ov),   # g_pilot_overview
+                    gr.update(visible=is_h2h),  # g_pilot_head_to_head
+                ]
+
+            reset_pilot_outs = [po_subject, po_results, h2h_subject, h2h_results]
+            pilots_view.change(
+                toggle_pilots_view, inputs=pilots_view,
+                outputs=[h2h_pilot_b, po_go, h2h_go, g_pilot_overview, g_pilot_head_to_head],
+            )
+            # Any control that determines a result hides the drawn stacks so a stale
+            # answer never sits under changed controls: the shared pilot, the second pilot.
+            pilot.change(reset_pilot, outputs=reset_pilot_outs)
+            h2h_pilot_b.change(reset_pilot, outputs=reset_pilot_outs)
+            po_go.click(
+                draw_pilot_overview, inputs=pilot,
+                outputs=[po_subject, po_results, po_nb_out, po_af_out,
+                         po_perf_heading, po_perf_plot, po_perf_note],
+            )
+            h2h_go.click(
+                draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
+                outputs=[h2h_subject, h2h_results, h2h_nb_out,
+                         h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
             )
 
     return demo
