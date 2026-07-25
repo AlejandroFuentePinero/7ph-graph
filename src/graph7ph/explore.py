@@ -24,39 +24,26 @@ class RenderPlan:
     """The decision for one result: draw it, or refine because it is too big.
 
     ``render`` is True when the subgraph fits the threshold. When False nothing
-    is drawn; ``by_kind`` is the result's own node-kind distribution and
-    ``suggestions`` are narrowing hints derived from it.
+    is drawn; ``by_kind`` is the result's own node-kind distribution, from which the
+    too-large state names the axis to narrow (:func:`dominant_kind`).
     """
 
     render: bool
     node_count: int
     threshold: int
     by_kind: dict[Kind, int]
-    suggestions: list[str]
 
 
 def assess(subgraph: Subgraph, threshold: int = RENDER_THRESHOLD) -> RenderPlan:
     """Decide whether ``subgraph`` fits under ``threshold`` nodes, or must refine."""
     node_count = len(subgraph.nodes)
     by_kind = dict(Counter(n.kind for n in subgraph.nodes))
-    if node_count <= threshold:
-        return RenderPlan(True, node_count, threshold, by_kind, [])
-    return RenderPlan(False, node_count, threshold, by_kind, _suggestions(by_kind))
+    return RenderPlan(node_count <= threshold, node_count, threshold, by_kind)
 
 
-def _suggestions(by_kind: dict[Kind, int]) -> list[str]:
-    """Narrowing hints derived from the result's own node-kind distribution.
-
-    Names the kind flooding the view (the most numerous) so the user narrows the
-    axis that is actually oversized. It stays a general direction rather than
-    naming a specific control, because ``assess`` is spec-blind (a pure function
-    on a subgraph) and cannot know which filters the active view offers.
-    """
-    if not by_kind:
-        return []
-    dominant = max(by_kind, key=lambda k: (by_kind[k], k))
-    total = sum(by_kind.values())
-    return [
-        f"The result is mostly {dominant}s ({by_kind[dominant]} of {total} nodes); "
-        "narrow the query to bring it under the limit."
-    ]
+def dominant_kind(by_kind: dict[Kind, int]) -> Kind:
+    """The node kind flooding a result: the most numerous, ties broken by name so the
+    pick is deterministic. The too-large state message (:func:`graph7ph.app._refine_alert`)
+    names the oversized axis from this. Assumes a non-empty distribution (its caller only
+    reaches it for a result over the render threshold, which therefore has nodes)."""
+    return max(by_kind, key=lambda k: (by_kind[k], k))

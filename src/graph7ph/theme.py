@@ -140,6 +140,12 @@ def build_css() -> str:
 }}
 .prose p, .prose li, .t-body {{ font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text); }}
 .t-caption {{ font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--text-mute); }}
+/* State message (#114): the one on-theme surface for every state with nothing (or not
+   yet) to draw (nothing picked, empty result, SliceTooSmall, too-large-to-draw). It
+   pairs with `.t-body` for the type, adding only the padding that seats the line where a
+   plot would sit, so it reads the same as the Markdown refusal notes (`.prose p`). This
+   retires the inline-styled divs' `padding:1rem;font-family:sans-serif`. */
+.t-state {{ padding: 0.75rem 0; }}
 /* Field-standing line: the one-sentence read of a performance chart, promoted above a
    plain caption so it lands as the answer rather than fine print. The share itself
    carries the accent so the eye catches the number first; the sample size trails quiet. */
