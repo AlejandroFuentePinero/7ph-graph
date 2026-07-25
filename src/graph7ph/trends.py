@@ -54,6 +54,30 @@ MIN_QUALIFYING_YEARS = 2
 # a trajectory.
 MIN_SHARED_EVENTS = 2
 
+# The fewest plottable archetypes a year needs before its landscape is a landscape.
+# Three, because the chart's whole claim is relative: a dot reads as popular or niche,
+# and winning or losing, only against a field of other dots, and a pair is a comparison
+# rather than a field. It counts the archetypes with a finish to plot, not the ones that
+# turned up, since an archetype the year never scored has no y to place it at. No corpus
+# year comes near it (the thinnest, 2023, holds 56 archetypes over 8 events), so this
+# guards a future thin year and a year picked from outside the data, not today's.
+#
+# This is a floor on the **field**, not on the value, and the landscape deliberately
+# carries no per-archetype event floor beside it, though its y is a mean of finishes and
+# ADR 0013's rule would otherwise pin one there (as MIN_PILOT_YEAR_EVENTS does for the
+# pilot's own mean). Measured and rejected in issue #145, and the two thick years and the
+# two thin ones are rejected for different reasons. In the thick years popularity already
+# carries reliability at this cut: the minimum inside the drawn top 25 is 11 distinct
+# events for both 2025 and 2026, and across their top 50 exactly one archetype (2025) is
+# under 5 events. In the thin years a floor cannot rescue the year, only empty it: the
+# drawn top 25's minimum is 5 events in 2024 and 1 in 2023, but 2023 holds 8 events in
+# total, so a floor of 5 would leave about 9 dots, which is not a landscape either.
+# What guards a thin dot is therefore the evidence carried beside it rather than a cut:
+# every cell ships its distinct event count, the marker size draws it (a one-event dot
+# is the smallest ring on the chart), the hover states it, and the caption states the
+# whole year's events and decks, so 2023 announces its 8 events on the surface.
+MIN_LANDSCAPE_ARCHETYPES = 3
+
 
 class NotEnoughHistory(ValueError):
     """Raised when a trend is refused for want of evidence, and says how much it found.
@@ -144,6 +168,40 @@ class PerformanceCell:
 
 
 @dataclass(frozen=True)
+class LandscapeCell:
+    """One archetype's place in one year's metagame: how played it was, how it did.
+
+    The two axes of the landscape in one row. ``n`` is the decks of this archetype
+    (by its primary archetype, so each deck is counted once) in this year and
+    ``share`` is ``n / year_total``, the same direct observation over the same base
+    :class:`SeriesCell` states, never withheld. ``mean_norm`` is the mean
+    ``placementNorm`` of the archetype's **scored** decks that year, left raw (0 is a
+    win) as :class:`PerformanceCell` leaves it, so only the chart flips it; a deck the
+    source never scored neither shifts the mean nor pads the count. ``events`` is the
+    distinct events those scored decks were played at, the independent trials the mean
+    rests on, which is why it can be smaller than the events the archetype's decks
+    span. An archetype whose year holds no scored deck at all has ``mean_norm``
+    ``None`` and ``events`` zero: it was played, and nothing about its finish is known.
+
+    ``year_total`` and ``year_events`` are the year's own decks and events, the
+    season the whole landscape rests on, carried on every cell the way
+    :class:`SeriesCell` carries its year total, so a caption can state the sample
+    without a second query. ``tag`` is the archetype's stable key and ``archetype``
+    its display name (two tags can share a name, so the tag is what identifies it).
+    """
+
+    tag: str
+    archetype: str
+    year: int
+    n: int
+    share: float
+    year_total: int
+    year_events: int
+    mean_norm: float | None
+    events: int
+
+
+@dataclass(frozen=True)
 class HeadToHeadPoint:
     """One shared event in two pilots' rivalry: a direct observation, so no floor.
 
@@ -201,7 +259,7 @@ class Series:
 
     cells: (
         list[SeriesCell] | list[AdoptionCell] | list[PerformanceCell]
-        | list[HeadToHeadPoint]
+        | list[HeadToHeadPoint] | list[LandscapeCell]
     )
 
 
@@ -238,9 +296,16 @@ class HeadToHeadTimeline:
     b: str
 
 
+@dataclass(frozen=True)
+class ArchetypeLandscape:
+    """Spec for :func:`archetype_landscape`; takes the calendar ``year`` to draw."""
+
+    year: int
+
+
 SeriesSpec = (
     MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
-    | HeadToHeadTimeline
+    | HeadToHeadTimeline | ArchetypeLandscape
 )
 
 
@@ -259,6 +324,94 @@ def _year_totals(conn: ladybug.Connection) -> dict[int, int]:
                RETURN y.year, count(DISTINCT d)"""
         ))
     }
+
+
+def _year_shape(conn: ladybug.Connection, year: int) -> tuple[int, int]:
+    """One year's decks and distinct events: the season a landscape rests on.
+
+    The year-scoped sibling of :func:`_year_totals`, which counts decks alone across
+    every year. The event count rides along because the landscape's caption states
+    both (a partial year is honest only if the reader can see how much of a season it
+    holds). Both counts come off one projection: the two ``count(DISTINCT ...)``
+    agree with the same counts taken separately over all four corpus years. A year the
+    graph has never heard of comes back ``(0, 0)`` rather than no row, since an
+    ungrouped aggregate always yields one.
+    """
+    ((decks, events),) = rows(conn.execute(
+        """MATCH (d:Deck)-[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(:Year {year: $year})
+           RETURN count(DISTINCT d), count(DISTINCT e)""",
+        {"year": year},
+    ))
+    return decks, events
+
+
+def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
+    """One year's metagame as share against finish, one cell per archetype played.
+
+    The two questions the Meta tab keeps apart: how much of the year an archetype was,
+    and how it did. Decks are grouped by their primary archetype, so each deck is
+    counted once (a deck normally belongs to one engine outright, and counting every
+    tag would credit a deck to an archetype on 5% weight and push the year's shares
+    past 100%); the share's base is every deck that year, the same base
+    :func:`meta_share_over_time` divides by. The finish is the mean ``placementNorm``
+    over the archetype's scored decks, with the distinct events those decks sat at
+    beside it, so a mean is never read without the independent trials behind it.
+
+    Only the archetypes the year actually held get a cell. The meta-share matrix is
+    rectangular so a line can drop to a real zero across a year; a scatter has no line
+    to break, and an archetype with no decks has no share to plot and no finish to
+    plot it against, so it is absent rather than a dot at the origin.
+    """
+    total, year_events = _year_shape(conn, year)
+    names = dict(rows(conn.execute("MATCH (a:Archetype) RETURN a.tag, a.name")))
+    counts = dict(rows(conn.execute(
+        """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
+                 (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(:Year {year: $year})
+           RETURN a.tag, count(DISTINCT d)""",
+        {"year": year},
+    )))
+    # The mean and its sample over the scored decks only: a null placementNorm is a
+    # finish the source never scored, so it neither shifts the mean nor pads the event
+    # count. **Keep `count(DISTINCT e)` last in this projection.** A non-DISTINCT
+    # aggregate placed after a DISTINCT count in a grouped projection comes back
+    # silently wrong on Ladybug (`avg()` NaN, `count()` zero, no error raised); swapping
+    # these two returns NaN for the mean on all 112 of 2025's archetypes. It is the
+    # order, not the combination, and not the number of groups: see
+    # `docs/research/7phstats-insight-gap.md`, and the same ordered shape in
+    # `pilot_performance_over_time`. Issue #145's own note prescribes splitting this
+    # into two queries instead, which is the superseded diagnosis, not a second rule.
+    finishes = {
+        tag: (mean, events)
+        for tag, mean, events in rows(conn.execute(
+            """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
+                     (d)-[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(:Year {year: $year})
+               WHERE d.placementNorm IS NOT NULL
+               RETURN a.tag, avg(d.placementNorm), count(DISTINCT e)""",
+            {"year": year},
+        ))
+    }
+    cells = []
+    for tag, n in sorted(counts.items()):
+        mean, events = finishes.get(tag, (None, 0))
+        cells.append(LandscapeCell(
+            tag=tag,
+            archetype=names[tag],
+            year=year,
+            n=n,
+            share=n / total,
+            year_total=total,
+            year_events=year_events,
+            mean_norm=mean,
+            events=events,
+        ))
+    plottable = [cell for cell in cells if cell.mean_norm is not None]
+    if len(plottable) < MIN_LANDSCAPE_ARCHETYPES:
+        raise NotEnoughHistory(
+            f"{year} has {len(plottable)} archetype(s) with a finish to plot; "
+            f"a landscape needs {MIN_LANDSCAPE_ARCHETYPES}",
+            found=len(plottable),
+        )
+    return Series(cells=cells)
 
 
 def meta_share_over_time(conn: ladybug.Connection) -> Series:
@@ -553,6 +706,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return pilot_performance_over_time(conn, pilot)
         case HeadToHeadTimeline(a, b):
             return head_to_head_timeline(conn, a, b)
+        case ArchetypeLandscape(year):
+            return archetype_landscape(conn, year)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 

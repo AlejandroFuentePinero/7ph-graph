@@ -52,8 +52,10 @@ from graph7ph.query import (
 from graph7ph.provenance import built_at
 from graph7ph.render import render_subgraph
 from graph7ph.trends import (
+    ArchetypeLandscape,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
+    LandscapeCell,
     MetaShareOverTime,
     NotEnoughHistory,
     PilotPerformanceOverTime,
@@ -339,9 +341,10 @@ _DEFAULT_CUT = "Top 50%"
 # The FAQ tab (#133): the how-it-is-calculated notes #132 strips off the plots, homed
 # one click away so the plot surfaces stay scannable. Each entry is (elem_id, question,
 # answer); the id anchors the box so the table of contents can link to it. Kept succinct
-# on the main metrics for now and expanded as users ask (the issue's steer). The five
-# headline plots reduce to a shared primitive (a normalised finish) plus one entry each,
-# so the finish is explained first and the rest lean on it.
+# on the main metrics for now and expanded as users ask (the issue's steer). The
+# headline plots (six since the landscape, #145) reduce to a shared primitive (a
+# normalised finish) plus one entry each, so the finish is explained first and the rest
+# lean on it.
 _FAQ_ENTRIES: list[tuple[str, str, str]] = [
     (
         "faq-finish",
@@ -362,6 +365,18 @@ _FAQ_ENTRIES: list[tuple[str, str, str]] = [
         '"Top 25 / 50 / 75%" control only changes how many lines are drawn, not the '
         "data: archetypes are ranked by their share of the most recent year, and the "
         "strongest are kept until they add up to that percentage.",
+    ),
+    (
+        "faq-landscape",
+        'How is the "Metagame landscape" built?',
+        "Each deck is counted once, under its primary archetype, exactly as meta share "
+        "is. For the year selected, an archetype's horizontal position is its share of "
+        "that year's decks and its vertical position is the average of its finishes; "
+        "the dot's size is how many separate events those finishes came from. Only the "
+        "25 most-played archetypes of that year are drawn, recomputed for each year, "
+        "and the chart says how many archetypes the year held in all. More of them sit "
+        "above the halfway line than below it, because the source records top finishers "
+        "more completely than the rest of the field.",
     ),
     (
         "faq-performance",
@@ -438,6 +453,37 @@ def _adoption_cards(subject: str, second: str | None) -> list[str]:
     if second and second != subject:
         return [subject, second]
     return [subject]
+
+
+# How many archetypes the landscape draws, the display cut the tool never sees (the
+# same division of labour as `_CUTS`: `archetype_landscape` returns the year's whole
+# field and this picks what is drawn). Twenty-five, because that is 78 / 73 / 69 / 68
+# percent of the field for 2023 / 2024 / 2025 / 2026, landing near the Meta tab's own
+# "top 75%" cut vocabulary, and because every one of the 25 carries its name on the
+# chart: labelling a subset of a larger set would read as arbitrary (issue #145).
+_LANDSCAPE_TOP_N = 25
+
+
+def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
+    """The ``top_n`` archetypes of a landscape by share, strongest first.
+
+    The cut is recomputed for whichever year is drawn, so the chart follows the meta
+    rather than being pinned to one year's ranking (the opposite of
+    ``latest_year_share_cut``, which deliberately fixes one set so its lines span the
+    whole x axis, and so cannot be reused here). Ties are broken on the tag, so a year
+    always draws the same set rather than leaving it to the row order.
+
+    The cut runs over every archetype the year held and an archetype the year never
+    scored is dropped **after** it, so it leaves a gap rather than pulling a deeper
+    archetype up into the drawn set. A dot needs both axes, and such an archetype has a
+    share but no finish to place it at; promoting rank 26 in its place would quietly
+    redraw the claim the caption makes, which is a cut of the year's most-played
+    archetypes. It stays in the series either way, and so in the count of archetypes the
+    year held that the surface states. No corpus year exercises this: 2023 is the only
+    year with unscored archetypes (3 of 56) and none of them fall inside a top 25.
+    """
+    ranked = sorted(series.cells, key=lambda c: (-c.n, c.tag))[:top_n]
+    return [cell for cell in ranked if cell.mean_norm is not None]
 
 
 def _luminance(hex_colour: str) -> float:
@@ -786,6 +832,129 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     return fig
 
 
+def _landscape_caption(
+    series: Series, drawn: list[LandscapeCell], top_n: int, in_progress: bool
+) -> str:
+    """The landscape's caption: the 0.5 line, the cut, and the season it rests on.
+
+    Three things the dots cannot say for themselves, in the field-standing form
+    :func:`_performance_caption` already uses: the reading first with its number in the
+    accent, the sample quiet behind it. The line leads, because "above 0.5" is only a
+    reading if the reader is told what it means (above it, an archetype beat the middle
+    of the field) and because more dots sit above it than below, which is a property of
+    the source rather than of the archetypes, so the count is stated rather than left to
+    be noticed. Counted on the drawn dots, not asserted: it runs 15 to 19 of 25 across
+    the four corpus years, which "slightly more than half" would misdescribe. Then the
+    cut, because a bounded chart that does not say what it is bounded to reads as the
+    whole field. The cut is stated as the rule it is (``top_n`` of the field), not as
+    the number of dots that survived it, so it stays true of a year where an unscored
+    archetype leaves a gap, and a year small enough that nothing was cut says so rather
+    than claiming a ranking it never applied. Then the season, because a year is the
+    reader's only sample size here, and the latest one is partial (the corpus ends
+    mid-year), so an in-progress year says so rather than being silently compared
+    against a full one. All app-built numerics and no user free text, so it is returned
+    as trusted markup for :func:`_chart_heading`'s ``caption_html``.
+    """
+    year = series.cells[0]
+    # The flip is the chart's, so above the line reads as a raw norm below 0.5.
+    above = sum(1 for cell in drawn if cell.mean_norm < 0.5)
+    field = len(series.cells)
+    cut = (f"top {top_n} of {field} archetypes by share" if field > top_n
+           else f"all {field} archetypes the year held")
+    season = f"{year.year_events:,} events, {year.year_total:,} decks"
+    season = (
+        f"{year.year} still in progress: {season} so far" if in_progress
+        else f"{year.year}: {season}"
+    )
+    return (
+        f"<div class='t-fieldstat'><span class='pct'>{above} of {len(drawn)}</span> "
+        "above the 0.5 line, the middle of the field"
+        f"<span class='sample'> · {cut} · {season}</span></div>"
+    )
+
+
+def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
+    """One year's metagame as a scatter: meta share against mean finish.
+
+    One dot per archetype, and the quadrants are the point: popular and winning, niche
+    and winning, popular and losing. A ranked table cannot show that trade-off, which
+    is why this is a scatter and not a leaderboard. The x axis is the archetype's share
+    of the year's decks, linear (at 25 dots the share range is only 6 to 11x and steps
+    down smoothly, so a log axis crowds the left in two of the four corpus years and
+    helps in one, while linear keeps the axis truthful and needs no caveat). The y axis
+    is the finish inverted to a higher-is-better score, the same scale and the same 0.5
+    reference the pilot charts use, so the three read alike while the tool keeps the raw
+    ``placementNorm`` (0 a win) the agent reads.
+
+    Every dot carries its archetype name: the set is bounded to
+    :data:`_LANDSCAPE_TOP_N`, so labelling a subset of it would read as arbitrary, and
+    an all-hover chart says nothing in a screenshot (§14, #132/#133). Plotly has no
+    collision avoidance, so if the labels overprint in the browser the fallback is the
+    top 8 by share plus the top 5 and worst 3 by finish, about 14 labels. The ring's
+    size carries the archetype's distinct events, not its decks: within a year share is
+    monotone in decks, so sizing by decks would say the same thing the x axis already
+    does, while the events are the independent trials the finish rests on. One colour
+    throughout, the palette's first slot: the dots are one series (archetypes), so hue
+    would encode nothing (§5 tops out at eight hues, and this draws 25).
+    """
+    scores = [1 - cell.mean_norm for cell in cells]
+    colour = palette.CATEGORICAL[0]
+    fig = pgo.Figure()
+    fig.add_trace(pgo.Scatter(
+        x=[cell.share for cell in cells],
+        y=scores,
+        mode="markers+text",
+        text=[cell.archetype for cell in cells],
+        textposition="top center",
+        textfont=dict(color=_AXIS, size=11),
+        marker={**_observation_marker(colour),
+                "size": [_confidence_size(cell.events) for cell in cells]},
+        customdata=[
+            [cell.archetype, numfmt.share(cell.share),
+             numfmt.count_of(cell.n, cell.year_total, "decks"), numfmt.score(score),
+             cell.events]
+            for cell, score in zip(cells, scores)
+        ],
+        # Let a dot and its label at the edge of the field draw over the axis rather
+        # than being clipped out of the plot.
+        cliponaxis=False,
+        hovertemplate=(
+            "%{customdata[0]} · %{customdata[1]} · %{customdata[2]} · "
+            "%{customdata[3]} · %{customdata[4]} events<extra></extra>"
+        ),
+        showlegend=False,
+    ))
+    _style_trend_chart(fig, "Mean finish (1 = first, 0 = last)")
+    # A linear share axis overriding the shared styler's category-Year axis, from zero
+    # (a share reads against its whole, so the origin is not optional) and in the one
+    # share format the meta chart's axis carries.
+    fig.update_xaxes(
+        title="Share of the year's decks", type="linear", categoryorder=None,
+        tickformat=numfmt.SHARE_TICKFORMAT, rangemode="tozero",
+    )
+    # The 0-1 score, but ranged to the dots rather than pinned to the full scale the
+    # single-pilot charts use: a year's finishes span as little as 0.43 to 0.62, which
+    # a 0-to-1 axis would squash into a fifth of the height with 25 labels on top of
+    # each other. The range always covers 0.5, so the reference line the caption
+    # explains cannot autorange out of frame, and the headroom above is double, since
+    # each dot's name is drawn over it.
+    # Clamped to the ends of the score, since it is bounded: 2023's best archetype
+    # finishes at 0.93, and unclamped headroom carried the axis to 1.09, which is axis
+    # no dot could ever occupy. A label at the very top draws over the edge instead
+    # (`cliponaxis` above), rather than the axis growing to hold it.
+    low, high = min([*scores, 0.5]), max([*scores, 0.5])
+    pad = 0.02 + (high - low) * 0.1
+    fig.update_yaxes(
+        tickformat=numfmt.SCORE_TICKFORMAT, autorange=False,
+        range=[max(0.0, low - pad), min(1.0, high + pad * 2)],
+    )
+    # The reference line at 0.5: above it an archetype beat the middle of the field.
+    # Quiet and unlabelled, as on the pilot charts; the caption above the plot says
+    # what crossing it means.
+    fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
+    return fig
+
+
 def _between_line_polys(points):
     """Polygons filling the gap between two lines, one per segment, split at crossings.
 
@@ -1023,6 +1192,55 @@ def build_app(artifact: Path) -> gr.Blocks:
             _trend_figure(trend_series, tags),
         )
 
+    # Every year the graph holds, newest first: the Archetypes year selector's choices
+    # and its default. Read off the meta-share matrix already in hand, which is
+    # rectangular over every year with decks, so the selector costs no query of its own.
+    # Empty only for a graph with no archetype at all, which still has to build (a
+    # deckless artifact and one whose decks carry no engine tag both build today), so
+    # the default year is optional the way `latest_deck_year` is for the Meta cut.
+    corpus_years = sorted({c.year for c in trend_series.cells}, reverse=True)
+    latest_landscape_year = corpus_years[0] if corpus_years else None
+
+    def _landscape_view(year: int):
+        # The landscape's heading, figure, and refusal note for one year, as plain
+        # values rather than `gr.update`s, so the tab can draw itself at build time
+        # from the same code path the year selector re-draws through (the Meta
+        # precedent: a Plotly aggregate needs no Draw button). Exactly one of the
+        # figure and the note is ever set.
+        try:
+            series = run_series(ladybug.Connection(db), ArchetypeLandscape(year))
+        except NotEnoughHistory as e:
+            # One short line in the app's voice (#114, §14), phrased from the count
+            # the refusal carries, so a year with a couple of archetypes reads
+            # differently from a year with none.
+            had = ("no archetype" if not e.found
+                   else f"only {e.found} archetype" + ("" if e.found == 1 else "s"))
+            return None, None, f"{year} has {had} with a finish to place on a landscape."
+        drawn = _landscape_top(series, _LANDSCAPE_TOP_N)
+        return (
+            _chart_heading(
+                "Metagame landscape",
+                # The corpus's latest year is the year still filling: a snapshot cannot
+                # hold decks from after it was taken, so its newest year is partial
+                # unless the snapshot happened to land on a 31 December. Read off the
+                # data rather than a calendar, so it follows the graph forward.
+                caption_html=_landscape_caption(
+                    series, drawn, _LANDSCAPE_TOP_N,
+                    in_progress=year == latest_landscape_year,
+                ),
+            ),
+            _landscape_figure(drawn),
+            None,
+        )
+
+    def draw_landscape(year):
+        heading, fig, note = _landscape_view(int(year))
+        return (
+            gr.update(value=heading, visible=heading is not None),
+            gr.update(value=fig, visible=fig is not None),
+            gr.update(value=note, visible=note is not None),
+        )
+
     def draw_manual(manual_tags: list[str]):
         # A focused second chart, drawn only once specific archetypes are chosen, so
         # the manual pick reads on its own rather than crowding the cut chart. Its whole
@@ -1221,8 +1439,10 @@ def build_app(artifact: Path) -> gr.Blocks:
         # and no view picker, just the chart and its controls.
         with gr.Tab("Meta"):
             gr.Markdown("## Meta")
+            # Meta and Archetypes are both about archetypes, so each lede states the
+            # reader question that is its own (#145): who is played, against who wins.
             gr.Markdown(
-                "The metagame over time.",
+                "Who is being played, and how that has shifted year to year.",
                 elem_classes="t-lede",
             )
             # §13: both plot-affecting controls sit in the panel above the charts. The
@@ -1250,6 +1470,42 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
             manual.change(draw_manual, inputs=manual, outputs=[manual_card, manual_heading, manual_plot])
+
+        # Archetypes sits directly after Meta and splits the two archetype questions
+        # between them (#145): Meta keeps "who is played, over time", this owns "who
+        # wins". Single-view, so no picker, and Plotly aggregates only, so no Draw
+        # button either: the scatter is drawn at build time on the latest year and
+        # re-draws on the year selector, the same way the Meta cut chart does.
+        with gr.Tab("Archetypes"):
+            gr.Markdown("## Archetypes")
+            gr.Markdown(
+                "Which archetypes actually win, and how many people are on them.",
+                elem_classes="t-lede",
+            )
+            with gr.Group(elem_classes="control-panel"):
+                landscape_year = gr.Dropdown(
+                    choices=[(str(y), y) for y in corpus_years],
+                    value=latest_landscape_year, label="Year",
+                )
+            # A graph with no archetype at all has no year to open on, so the tab shows
+            # the same shape of refusal a thin year does rather than failing to build.
+            _ls_heading, _ls_fig, _ls_note = (
+                _landscape_view(latest_landscape_year) if latest_landscape_year
+                else (None, None, "This graph holds no archetype to place on a landscape.")
+            )
+            with gr.Group(elem_classes="insight-card"):
+                landscape_heading = gr.HTML(
+                    value=_ls_heading, visible=_ls_heading is not None, padding=False,
+                )
+                landscape_note = gr.Markdown(
+                    value=_ls_note, visible=_ls_note is not None,
+                )
+                landscape_plot = gr.Plot(value=_ls_fig, visible=_ls_fig is not None)
+
+            landscape_year.change(
+                draw_landscape, inputs=landscape_year,
+                outputs=[landscape_heading, landscape_plot, landscape_note],
+            )
 
         with gr.Tab("Cards"):
             gr.Markdown("## Cards")
