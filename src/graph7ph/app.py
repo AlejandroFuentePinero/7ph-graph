@@ -271,6 +271,71 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 _CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
 _DEFAULT_CUT = "Top 50%"
 
+# The FAQ tab (#133): the how-it-is-calculated notes #132 strips off the plots, homed
+# one click away so the plot surfaces stay scannable. Each entry is (elem_id, question,
+# answer); the id anchors the box so the table of contents can link to it. Kept succinct
+# on the main metrics for now and expanded as users ask (the issue's steer). The five
+# headline plots reduce to a shared primitive (a normalised finish) plus one entry each,
+# so the finish is explained first and the rest lean on it.
+_FAQ_ENTRIES: list[tuple[str, str, str]] = [
+    (
+        "faq-finish",
+        'What does a "finish" mean, and why is it shown as a percentage?',
+        "Every event ranks its decks, but 5th out of 200 is not 5th out of 12. Each "
+        "finish is normalised to where it landed in its field, on a 0-to-1 scale (1 is "
+        "a win, 0 is last). That single number is what lets finishes from "
+        "different-sized events be compared and averaged. A finish only counts where the "
+        "event actually recorded a placement.",
+    ),
+    (
+        "faq-meta",
+        'How is "Meta share over time" calculated?',
+        "Each deck is counted once, under its primary archetype. An archetype's share in "
+        "a year is its decks that year divided by every deck that year. Low counts are "
+        "kept, not hidden: a small share is a real signal of an archetype entering or "
+        "leaving the format, and a year it is absent is a real zero, not a gap. The "
+        '"Top 25 / 50 / 75%" control only changes how many lines are drawn, not the '
+        "data: archetypes are ranked by their share of the most recent year, and the "
+        "strongest are kept until they add up to that percentage.",
+    ),
+    (
+        "faq-performance",
+        'How is a pilot\'s "Performance over time" calculated?',
+        "For each year, the pilot's finishes are averaged into one normalised score "
+        "(drawn flipped so higher is better; 0.5 is the coin-flip line a random finisher "
+        "would average). A year needs at least two events, otherwise it is left as a gap "
+        "rather than a misleading single-event dot, and a pilot needs at least two such "
+        "years before the chart is drawn at all, since a line through one point is not a "
+        "trajectory. The headline \"finishes ahead of X% "
+        "of the field\" is the average across all scored years, weighted by how many "
+        "events each year held, so a busy season counts for more than a quiet one.",
+    ),
+    (
+        "faq-head-to-head",
+        'How is the "Head-to-head" timeline built?',
+        "It plots the two pilots' finishes at every event they both entered, placed on "
+        "the event's date. Each point is one real result, not an average. A pair needs "
+        "at least two shared events, otherwise there is no trajectory to draw and the "
+        "tool says so.",
+    ),
+    (
+        "faq-adoption",
+        'How is "Adoption over time" calculated?',
+        "For each year, it is the share of decks that ran the card: decks with the card "
+        "that year divided by all decks that year. As with meta share, low counts are "
+        "shown as signal and a year with none is a real zero.",
+    ),
+    (
+        "faq-gems",
+        'What makes a card a "Hidden gem"?',
+        "A gem is a card that is rare in the slice (in at least five decks but no more "
+        "than 10% of them) yet finishes in the slice's top third on average. Only decks "
+        "with a recorded finish count toward the rarity and the average. If a slice has "
+        'too few ranked decks to tell "rare" from "absent", the tool refuses rather than '
+        "guessing.",
+    ),
+]
+
 # The board filter, shared by the card views: the label the dropdown shows, the
 # empty string standing for "either board" the query reads as no filter. Kept in
 # one place so the adoption chart's title label and the dropdown never disagree.
@@ -1434,5 +1499,23 @@ def build_app(artifact: Path) -> gr.Blocks:
                 outputs=[h2h_subject, h2h_results, h2h_nb_out,
                          h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
             )
+
+        # FAQ is the last tab (#133): static content, no controls. It leads with a
+        # contents list linking to a box per question, each box in the same insight-card
+        # frame the plots use (§12), so the methodology reads apart from the plot
+        # surfaces and is one click away rather than crowding them. The anchors are the
+        # boxes' elem_ids; the contents links jump to them.
+        with gr.Tab("FAQ"):
+            gr.Markdown("## FAQ")
+            gr.Markdown(
+                "How the headline numbers are calculated.",
+                elem_classes="t-lede",
+            )
+            _toc = "\n".join(f"- [{q}](#{eid})" for eid, q, _ in _FAQ_ENTRIES)
+            with gr.Group(elem_classes="insight-card"):
+                gr.Markdown(f"**Contents**\n\n{_toc}")
+            for _eid, _q, _a in _FAQ_ENTRIES:
+                with gr.Group(elem_classes="insight-card", elem_id=_eid):
+                    gr.Markdown(f"### {_q}\n\n{_a}", elem_classes="faq")
 
     return demo
