@@ -54,6 +54,26 @@ MIN_QUALIFYING_YEARS = 2
 # a trajectory.
 MIN_SHARED_EVENTS = 2
 
+# The fewest scored events an archetype timeline needs: for one archetype the events
+# it was ranked at, for a pair the events both were ranked at. Two, the same reason as
+# MIN_QUALIFYING_YEARS and MIN_SHARED_EVENTS: one point is not a trajectory, and with
+# two archetypes a lone shared event is a comparison, not a rivalry over time.
+#
+# The floor counts **comparable** events rather than attended ones, which is where it
+# parts from MIN_SHARED_EVENTS beside it. A pilot brings one deck to an event, so a
+# shared event is a comparison by construction; an archetype's point is a mean over
+# whichever of its decks the source scored, so a shared event can hold nothing to
+# compare on one side, and counting those would clear the floor on a chart with a
+# single drawable point and a gap. Refusal is a common path here, not an edge case:
+# over the 105 archetypes with 5-plus ranked events, the median pair of 5460 shares
+# just 4 events, 9% share none and 21% share one or fewer.
+#
+# The same constant gates the selector catalogue (:func:`archetypes_with_history`), so
+# a single archetype offered on the surface always draws; a pair cannot be precomputed
+# (it is pairwise, and 121 archetypes make 7260 pairs), so a pair still lands on the
+# refusal and the surface states the count it found.
+MIN_ARCHETYPE_EVENTS = 2
+
 # The fewest plottable archetypes a year needs before its landscape is a landscape.
 # Three, because the chart's whole claim is relative: a dot reads as popular or niche,
 # and winning or losing, only against a field of other dots, and a pair is a comparison
@@ -246,6 +266,40 @@ class HeadToHeadPoint:
     norm_b: float | None
 
 
+@dataclass(frozen=True)
+class ArchetypeTimelinePoint:
+    """One event in an archetype's history, or in two archetypes' rivalry.
+
+    The archetype-scale sibling of :class:`HeadToHeadPoint`, and the one place the
+    borrowed form breaks: a pilot brings one deck to an event, but an archetype
+    brings several, so ``mean_norm_a`` is the **mean** ``placementNorm`` of side
+    ``a``'s ranked decks at this event rather than one real result. ``decks_a`` is
+    how many decks that mean rests on, carried on every point because it is usually
+    tiny: measured over the whole graph, 88% of ``(archetype, event)`` points rest on
+    one to three ranked decks and the median is one. ``_b`` is the second archetype's
+    pair of the same, ``(None, 0)`` throughout when only one archetype was asked for.
+
+    A deck the source never scored is left out of the mean, so an event an archetype
+    attended with nothing ranked comes back ``mean_norm`` ``None`` on ``decks`` zero:
+    the attendance is a fact, the finish is not known, and the line breaks over it
+    rather than fabricating a point (ADR 0013).
+
+    ``date`` is the event's registration date, the earliest ``createdAt`` across its
+    whole field, the same per-event proxy :class:`HeadToHeadPoint` carries. It is
+    derived per event and not per deck (which is what the pilot timeline effectively
+    does, one deck being one point): an event is not a single date, 21 of 108 spread
+    over more than a day and one over 12, and both sides of a shared event have to
+    sit at the same x or the band between them is drawn against a lie.
+    """
+
+    event: str
+    date: datetime
+    mean_norm_a: float | None
+    decks_a: int
+    mean_norm_b: float | None
+    decks_b: int
+
+
 @dataclass
 class Series:
     """A tabular trend result: the full matrix of cells, no truncation.
@@ -259,7 +313,7 @@ class Series:
 
     cells: (
         list[SeriesCell] | list[AdoptionCell] | list[PerformanceCell]
-        | list[HeadToHeadPoint] | list[LandscapeCell]
+        | list[HeadToHeadPoint] | list[LandscapeCell] | list[ArchetypeTimelinePoint]
     )
 
 
@@ -303,9 +357,22 @@ class ArchetypeLandscape:
     year: int
 
 
+@dataclass(frozen=True)
+class ArchetypeTimeline:
+    """Spec for :func:`archetype_timeline`: one archetype's ``tag``, or two.
+
+    ``b`` is optional, which is what lets the surface draw as soon as one archetype
+    is picked: a solo timeline is the whole tool, and a second archetype turns it into
+    a head-to-head over the events the two shared.
+    """
+
+    a: str
+    b: str | None = None
+
+
 SeriesSpec = (
     MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
-    | HeadToHeadTimeline | ArchetypeLandscape
+    | HeadToHeadTimeline | ArchetypeLandscape | ArchetypeTimeline
 )
 
 
@@ -412,6 +479,129 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
             found=len(plottable),
         )
     return Series(cells=cells)
+
+
+def _event_dates(conn: ladybug.Connection) -> dict[str, datetime]:
+    """Every event's registration date: the earliest ``createdAt`` across its field.
+
+    One date per event rather than per deck, so both sides of a shared event sit at
+    the same x (:class:`ArchetypeTimelinePoint` says why that matters). Taken over the
+    whole field, not over the archetype's own decks, so an archetype that registered
+    late does not shift the event it attended.
+    """
+    return dict(rows(conn.execute(
+        "MATCH (f:Deck)-[:PLAYED_AT]->(e:Event) RETURN e.event, min(f.createdAt)"
+    )))
+
+
+def _archetype_events(
+    conn: ladybug.Connection, tag: str
+) -> tuple[set[str], dict[str, tuple[float, int]]]:
+    """One archetype's events: the ones it attended, and its mean finish at each.
+
+    Two queries, because they count different things. The attended set is every event
+    the archetype's decks played at, scored or not, which is the archetype's history;
+    the mean is over its **ranked** decks alone, so a deck the source never scored
+    neither shifts the mean nor pads the count beside it. An event in the first and
+    not the second is an attendance with no known finish, which the caller draws as a
+    break rather than as an absence.
+    """
+    attended = {event for (event,) in rows(conn.execute(
+        """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(:Archetype {tag: $tag}),
+                 (d)-[:PLAYED_AT]->(e:Event)
+           RETURN DISTINCT e.event""",
+        {"tag": tag},
+    ))}
+    # `avg()` and `count()` share this projection, which issue #151's note says to split
+    # into two queries. That note carries the superseded diagnosis (see
+    # `archetype_landscape`): the rule the engine actually holds to is that a
+    # `count(DISTINCT ...)` must come **last** in a grouped projection, and this count
+    # is not distinct (the match yields one row per deck, so the decks are the rows).
+    # Measured over all 121 drawable archetypes on the current artifact, no mean or
+    # count comes back NaN or zero here.
+    scored = {
+        event: (mean, decks)
+        for event, mean, decks in rows(conn.execute(
+            """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(:Archetype {tag: $tag}),
+                     (d)-[:PLAYED_AT]->(e:Event)
+               WHERE d.placementNorm IS NOT NULL
+               RETURN e.event, avg(d.placementNorm), count(d)""",
+            {"tag": tag},
+        ))
+    }
+    return attended, scored
+
+
+def comparable_points(
+    cells: list[ArchetypeTimelinePoint], paired: bool
+) -> list[ArchetypeTimelinePoint]:
+    """The timeline points that carry a finish on every side the reading needs.
+
+    An archetype's point is a mean over whichever of its decks the source scored, so a
+    point can be an attendance with no value on one side or the other. Those are drawn
+    (the line breaks over them) but cannot be counted: they are neither a position on
+    the axis nor, for a pair, a comparison. ``paired`` says whether the second side is
+    part of the reading.
+
+    One definition, two readers, which is why it is a function rather than a
+    comprehension in each: :func:`archetype_timeline` floors on this count
+    (:data:`MIN_ARCHETYPE_EVENTS`) and the app's headline states a win count out of it,
+    so a drift between them would print a denominator the refusal does not use.
+    """
+    return [
+        c for c in cells
+        if c.mean_norm_a is not None and (not paired or c.mean_norm_b is not None)
+    ]
+
+
+def archetype_timeline(
+    conn: ladybug.Connection, a: str, b: str | None = None
+) -> Series:
+    """One archetype's finish over time, or two archetypes' over their shared events.
+
+    With one archetype, a point per event it attended: the mean ``placementNorm`` of
+    its ranked decks there, left raw (0 a win) as the rest of the module leaves it, the
+    decks that mean rests on beside it, and the event's registration date as the x
+    (:class:`ArchetypeTimelinePoint`). With two, the points are restricted to the events
+    **both** attended and each carries both sides, so every drawn point has a
+    counterpart to compare and the band between the two lines is continuous. That
+    restriction visibly reshapes the first archetype's line (Grixis attended 85 events
+    and Jund 73, but they shared 62), which is why the surface states it rather than
+    leaving the shift to be read as a glitch.
+
+    An archetype has no rivalry with itself, so ``a == b`` is refused here rather than
+    drawing every event twice as two identical sides. As in
+    :func:`head_to_head_timeline`, the guard lives in the tool because the tool is the
+    seam an agent reaches without the app's own distinct-archetype check, and it raises
+    a plain ``ValueError`` rather than :class:`NotEnoughHistory`, since a malformed
+    question is not a thin answer. Asking for one archetype is spelled ``b=None``.
+    """
+    if a == b:
+        raise ValueError(f"{a} has no rivalry with itself; pick one archetype or two")
+    dates = _event_dates(conn)
+    attended_a, scored_a = _archetype_events(conn, a)
+    attended_b, scored_b = _archetype_events(conn, b) if b else (None, {})
+    events = attended_a if attended_b is None else attended_a & attended_b
+    points = []
+    for event in sorted(events, key=lambda e: (dates[e], e)):
+        mean_a, decks_a = scored_a.get(event, (None, 0))
+        mean_b, decks_b = scored_b.get(event, (None, 0))
+        points.append(ArchetypeTimelinePoint(
+            event=event, date=dates[event],
+            mean_norm_a=mean_a, decks_a=decks_a,
+            mean_norm_b=mean_b, decks_b=decks_b,
+        ))
+    # The floor is on the points that can be compared, not on the events attended
+    # (see :data:`MIN_ARCHETYPE_EVENTS`).
+    comparable = comparable_points(points, paired=b is not None)
+    if len(comparable) < MIN_ARCHETYPE_EVENTS:
+        subject = f"{a} and {b} were both ranked at" if b else f"{a} was ranked at"
+        raise NotEnoughHistory(
+            f"{subject} {len(comparable)} event(s); a timeline needs "
+            f"{MIN_ARCHETYPE_EVENTS}",
+            found=len(comparable),
+        )
+    return Series(cells=points)
 
 
 def meta_share_over_time(conn: ladybug.Connection) -> Series:
@@ -690,6 +880,44 @@ def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:
     ))]
 
 
+def archetypes_with_history(conn: ladybug.Connection) -> list[tuple[str, str, int]]:
+    """``(name, tag, events)`` for every archetype :func:`archetype_timeline` can draw.
+
+    An archetype qualifies exactly when a solo timeline would return a line: at least
+    :data:`MIN_ARCHETYPE_EVENTS` events it was ranked at. The same rule in two places,
+    as ``pilots_with_history`` holds it for the pilot trend, so a pick from the
+    catalogue never lands on a refusal.
+
+    The count is the archetype's **scored** events, the evidence behind its line, and so
+    the count the floor is taken on. It is not always the number of points the solo plot
+    draws, which is every event the archetype attended: the two differ at 26 of the 121,
+    by one event at 21 of them and by two at the other 5 (``boros``, ``jund``, ``rogue``,
+    ``tokens``, ``walks``), where the archetype turned up and the source scored none of
+    its decks. The label carries the evidence
+    rather than the mark count, since what a reader is being warned about before picking
+    a thin archetype is how much of it is known, not how many gaps it will draw.
+
+    Nearly the whole catalogue qualifies (121 of 126 archetypes), which is the point:
+    this plot is the granular escape hatch for everything the landscape's top 25 hides,
+    so filtering it to the archetypes with a comfortable history would defeat its
+    purpose and put ``golgari_cradle`` (12 decks over 9 events) out of reach anywhere on
+    the tab. The event count rides along instead, for the label to carry, so a reader
+    sees how thin an archetype is before picking it. Ordered by display name, the
+    dropdown's order; the tag is what identifies it, since two archetypes can share a
+    name.
+    """
+    return [(name, tag, events) for name, tag, events in rows(conn.execute(
+        """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
+                 (d)-[:PLAYED_AT]->(e:Event)
+           WHERE d.placementNorm IS NOT NULL
+           WITH a, count(DISTINCT e) AS events
+           WHERE events >= $floor
+           RETURN a.name, a.tag, events
+           ORDER BY a.name""",
+        {"floor": MIN_ARCHETYPE_EVENTS},
+    ))]
+
+
 def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
     """Map a series spec to its trend function: the sibling of ``run_query``.
 
@@ -708,6 +936,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return head_to_head_timeline(conn, a, b)
         case ArchetypeLandscape(year):
             return archetype_landscape(conn, year)
+        case ArchetypeTimeline(a, b):
+            return archetype_timeline(conn, a, b)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 
