@@ -13,6 +13,7 @@ so a token edited to an illegible value fails a test rather than a reader.
 """
 
 import base64
+import html
 from functools import lru_cache
 from pathlib import Path
 
@@ -223,6 +224,20 @@ def build_css() -> str:
 /* Retire the default-Gradio footer ("Built with Gradio / Use via API / Settings"),
    one of #132's observed default-furniture tells (#115). */
 footer {{ display: none !important; }}
+
+/* The app's own credit surface in place of that footer (#115): coverage, the build
+   snapshot, and the source links, set apart from the tabs by a hairline and centred as
+   a page footer. The coverage counts read a step up from the caption below them, the
+   figures themselves in the primary ink so the numbers land first. */
+.provenance {{
+  border-top: 1px solid var(--border); margin-top: 2.5rem; padding-top: 1.25rem;
+  text-align: center;
+}}
+.provenance .coverage {{
+  font-size: 14px; color: var(--text-dim); margin-bottom: 0.4rem;
+}}
+.provenance .coverage b {{ color: var(--text); font-weight: 650; }}
+.provenance .t-caption {{ color: var(--text-mute); }}
 """
 
 
@@ -267,6 +282,64 @@ def dark_theme():
         button_primary_border_color="var(--accent)", button_primary_border_color_dark="var(--accent)",
         button_primary_text_color="var(--bg)", button_primary_text_color_dark="var(--bg)",
     )
+
+
+# The share surface (issue #115). Fixed copy, so the preview a link unfurls reads as
+# something the project chose rather than Gradio's default furniture. The URL is the
+# canonical Space link the README points people to.
+_APP_TITLE = "7 Point Highlander Graph"
+_APP_DESCRIPTION = (
+    "An interactive knowledge graph of the Australian 7 Point Highlander metagame: "
+    "events, pilots, decks, and cards, for exploration and analytics."
+)
+_APP_URL = "https://huggingface.co/spaces/Alejandrofupi/7ph-graph"
+
+# The 7-pip mark: seven accent dots (a hexagon around a centre) on the ground, one dot
+# per point of a 7-point deck, so the favicon is the app's own signature (§15) rather
+# than Gradio's. Drawn from the tokens, so an accent change carries into the icon.
+_PIPS = [(16, 16), (24.5, 16), (20.25, 8.64), (11.75, 8.64),
+         (7.5, 16), (11.75, 23.36), (20.25, 23.36)]
+
+
+def _favicon_data_uri() -> str:
+    """The 7-pip mark as a base64 ``image/svg+xml`` data URI.
+
+    Self-hosted like the fonts: the whole icon travels in the head, so the Space
+    serves no external favicon request and needs no static-file route (which the
+    SSR proxy would complicate, see ``serve.py``).
+    """
+    dots = "".join(
+        f"<circle cx='{x}' cy='{y}' r='2.7' fill='{TOKENS['accent-bright']}'/>"
+        for x, y in _PIPS
+    )
+    svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+        f"<rect width='32' height='32' rx='7' fill='{TOKENS['bg']}'/>"
+        f"{dots}</svg>"
+    )
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{b64}"
+
+
+def build_head() -> str:
+    """The HTML injected into ``<head>`` at the ``gr.Blocks`` level (issue #115).
+
+    Replaces the default Gradio furniture on a shared link with the app's own: a real
+    favicon (the 7-pip mark) and the Open Graph / Twitter card a preview unfurls from.
+    No preview image yet (deferred): a ``summary`` card carries the title and
+    description, which is the honest card to declare until a real image is authored.
+    """
+    title, desc = html.escape(_APP_TITLE), html.escape(_APP_DESCRIPTION)
+    return "\n".join([
+        f'<link rel="icon" href="{_favicon_data_uri()}">',
+        '<meta property="og:type" content="website">',
+        f'<meta property="og:title" content="{title}">',
+        f'<meta property="og:description" content="{desc}">',
+        f'<meta property="og:url" content="{_APP_URL}">',
+        '<meta name="twitter:card" content="summary">',
+        f'<meta name="twitter:title" content="{title}">',
+        f'<meta name="twitter:description" content="{desc}">',
+    ])
 
 
 # Retires the browser light/dark inheritance: force the ``__theme=dark`` query param

@@ -16,6 +16,7 @@ from graph7ph.query import (
     SliceTooSmall,
     card_cooccurrence_subgraph,
     card_usage_subgraph,
+    coverage,
     gem_archetypes,
     hidden_gems_subgraph,
     pilot_affinity_subgraph,
@@ -1262,3 +1263,21 @@ def test_archetypes_tied_on_adoption_and_name_are_ordered_by_tag(tmp_path, built
 
     archetypes = [n.id for n in subgraph.nodes if n.kind == "Archetype"]
     assert archetypes == ["arch:a_tag", "arch:b_tag", "arch:c_tag"]
+
+
+def test_coverage_counts_the_graph_the_snapshot_built(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    cov = coverage(conn)
+
+    # Independent oracle: the counts read off the raw snapshot files, not the
+    # graph the query walks. Pilots is the resolved count (two people across the
+    # three registrations), which conftest documents for this fixture.
+    decks = json.loads((snapshot_dir / "decks.json").read_text())
+    index = json.loads((snapshot_dir / "cards_index.json").read_text())
+    years = {int(d["createdAt"][:4]) for d in decks}
+    assert cov.events == len({d["event"] for d in decks})  # 2
+    assert cov.decks == len(decks)                          # 3
+    assert cov.cards == len(index["cards"])                 # 121
+    assert cov.pilots == 2
+    assert (cov.first_year, cov.last_year) == (min(years), max(years))  # 2025, 2025

@@ -817,6 +817,43 @@ def card_catalogue(conn: ladybug.Connection) -> list[tuple[str, str]]:
     ))]
 
 
+@dataclass(frozen=True)
+class Coverage:
+    """The scope of the graph a visitor is looking at: how many of each entity it
+    holds and the span of years it covers (issue #115)."""
+
+    events: int
+    pilots: int
+    decks: int
+    cards: int
+    first_year: int
+    last_year: int
+
+
+def coverage(conn: ladybug.Connection) -> Coverage:
+    """Count the graph's headline entities and its year span, for the on-screen
+    provenance surface (issue #115).
+
+    One node count per entity and the Year bounds, all read from the built graph
+    so the surface reports exactly what this artifact holds rather than a figure
+    baked in at build time that a later graph would silently outdate.
+    """
+    def count(node: str) -> int:
+        return next(rows(conn.execute(f"MATCH (n:{node}) RETURN count(n)")))[0]
+
+    first, last = next(rows(conn.execute(
+        "MATCH (y:Year) RETURN min(y.year), max(y.year)"
+    )))
+    return Coverage(
+        events=count("Event"),
+        pilots=count("Pilot"),
+        decks=count("Deck"),
+        cards=count("Card"),
+        first_year=first,
+        last_year=last,
+    )
+
+
 def _ranked_deck_slice(conn: ladybug.Connection, archetype: str | None) -> list[str] | None:
     """The ranked deck ids the gem hunt runs within, by archetype tag.
 
