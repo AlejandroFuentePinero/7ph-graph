@@ -85,6 +85,10 @@ _Avoid_: Accessibility deck
 A pilot's finishing rank at an event, and its normalised form for cross-event comparison.
 _Avoid_: Rank, position, result
 
+**Field Size**:
+The number of entrants a Placement is normalised against. The source ships one per Deck, and where a count contradicts it the build corrects it and re-ranks that event's norms, recording which rule decided (ADR 0015).
+_Avoid_: Event size, tournament size, entrant count (the corrected field is not always an entrant count)
+
 ---
 
 See `docs/research-log.md` for cross-session data insights and handoffs.

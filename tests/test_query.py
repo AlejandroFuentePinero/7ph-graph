@@ -23,6 +23,11 @@ from graph7ph.query import (
     run_query,
 )
 
+# Every hand-authored fixture declares a field size no cohort it builds can
+# contradict, so the build's field-size correction (issue #140) leaves it alone
+# and the placementNorms these tests craft stand as written.
+_FIELD_SIZE = 500
+
 # The fixture's three decks, by pilot display name and archetype (see conftest).
 JORDAN_DECKS = {"BsegXnsDsEWxh-vNbUrn0w", "pkUbzmgN3UeqaWdYQYRgRg"}  # Jordan C, Grixis
 
@@ -102,6 +107,7 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
             "deckName": d["id"],
             "pilot": d.get("pilot", "p"), "event": d.get("event", "E"),
             "eventId": f"evt_{d['id']}", "eventType": "Tournament", "placement": 1,
+            "eventSize": _FIELD_SIZE,
             "placementNorm": d["norm"], "createdAt": "2025-06-01T00:00:00+00:00",
             "colour": "colour:U",
             "macro": f"macro:{d.get('macro', 'control')}",
@@ -1165,7 +1171,7 @@ def _tied_macro_snapshot(path):
             decks.append({
                 "deckId": f"{macro}{i}", "name": f"{macro}{i}", "deckName": "n",
                 "pilot": f"p{macro}{i}", "event": "NYE", "eventId": "evt_1",
-                "eventType": "Tournament", "placement": 1, "placementNorm": 0.5,
+                "eventType": "Tournament", "eventSize": _FIELD_SIZE, "placement": 1, "placementNorm": 0.5,
                 "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
                 "macro": f"macro:{macro}", "engineTags": [f"engine:{macro}_arch"],
                 "engineTagLabels": {f"engine:{macro}_arch": macro.title()},
@@ -1205,7 +1211,7 @@ def _tied_archetype_snapshot(path):
             decks.append({
                 "deckId": f"{tag}{i}", "name": f"{tag}{i}", "deckName": "n",
                 "pilot": f"p{tag}{i}", "event": "NYE", "eventId": "evt_1",
-                "eventType": "Tournament", "placement": 1, "placementNorm": 0.5,
+                "eventType": "Tournament", "eventSize": _FIELD_SIZE, "placement": 1, "placementNorm": 0.5,
                 "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
                 "macro": "macro:aggro", "engineTags": [f"engine:{tag}"],
                 # One shared display name, so the name tie-break cannot separate them.

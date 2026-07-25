@@ -39,7 +39,13 @@ _SCHEMA = [
     """CREATE NODE TABLE Card(
         canon STRING, name STRING, type STRING, manaValue DOUBLE,
         reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
-    "CREATE NODE TABLE Event(event STRING, eventId STRING, eventType STRING, PRIMARY KEY(event))",
+    # fieldSize is the field the event's placements are normalised against, and
+    # fieldImputed the rule that corrected the source's own `eventSize`, or null
+    # where it stood (see `corrected_field`). Both are on the Event rather than
+    # the Deck because a field size is a fact about the event, and carrying it
+    # here lets a reader tell an arithmetic correction from a domain one.
+    "CREATE NODE TABLE Event(event STRING, eventId STRING, eventType STRING, "
+    "fieldSize INT64, fieldImputed STRING, PRIMARY KEY(event))",
     "CREATE NODE TABLE Archetype(tag STRING, name STRING, PRIMARY KEY(tag))",
     # The `Macro` label is backtick-escaped everywhere and its value lives on
     # `name` rather than a `macro` column. Both shapes are inherited from the
@@ -76,6 +82,12 @@ class YearStraddle(ValueError):
 
 
 _BATCH = 5000
+
+# The smallest field a corrected event is normalised against: 7PH's top-8 cuts
+# come out of events of at least this size, so it is the floor a corrected field
+# can never fall below (issue #140). The two events it moves across the hidden-gem
+# band are robust to the choice: 16, 19, 24, 33 and 40 all produce the same pair.
+MIN_CUT_FIELD = 24
 
 # Which Card fields land as node properties. This list drives both the CREATE
 # Cypher and the row projection, so the two never drift (the DDL above still
@@ -155,6 +167,12 @@ def build_graph(
     years = _event_years(snapshot.decks)
     if pilots.dropped_decks:
         snapshot = _without_decks(snapshot, pilots.dropped_decks)
+    # After the drop as well as after the resolution: a duplicate registration is
+    # not a second attendee, and Rule A fires on a count of attendees exceeding
+    # the claimed field, so counting the dropped registrations would correct a
+    # field the source had right (issue #140).
+    fields = _event_fields(snapshot.decks, pilots.deck_pilot)
+    snapshot = _rescale_norms(snapshot, fields)
 
     remove_artifact(artifact)
 
@@ -165,12 +183,17 @@ def build_graph(
         for ddl in _SCHEMA:
             conn.execute(ddl)
 
-        _load_nodes(conn, snapshot, pilots, years)
+        _load_nodes(conn, snapshot, pilots, years, fields)
         _load_edges(conn, snapshot, pilots, years)
 
-        reconciliation_path(artifact).write_text(
-            json.dumps(asdict(pilots.report), indent=2)
-        )
+        # The pilot resolution's own report, plus every event whose field size
+        # this build corrected: both are assumptions made about data the source
+        # gave, listed each build so they stay legible (ADR 0004, issue #140).
+        reconciliation_path(artifact).write_text(json.dumps(
+            asdict(pilots.report)
+            | {"imputed_fields": [asdict(f) for f in fields.values() if f.rule]},
+            indent=2,
+        ))
         # Stamped here rather than in `ingest`, so every path that seals a bundle
         # seals a self-describing one, and the baseline gate can tell whether the
         # artifact it is about to grade came from the code standing here (#55).
@@ -289,11 +312,165 @@ def _event_years(decks: list[Deck]) -> dict[str, int]:
     return {event: min(ys) for event, ys in seen.items()}
 
 
+@dataclass(frozen=True)
+class EventField:
+    """The field one event's placements are normalised against, and its evidence.
+
+    ``rule`` is null where the source's own ``eventSize`` stood, and a letter
+    where :func:`corrected_field` corrected it. The counts it was corrected on
+    ride along, so the reconciliation report can show the contradiction rather
+    than assert it.
+    """
+
+    event: str
+    rule: str | None
+    event_size: int | None  # what the source claimed
+    field_size: int | None  # what the placements are normalised against
+    pilots: int
+    max_placement: int
+
+
+def corrected_field(
+    event_type: str, event_size: int | None, pilots: int, max_placement: int
+) -> tuple[int | None, str | None]:
+    """The field an event's placements should be normalised against, and the rule.
+
+    The source ships ``eventSize`` on every deck, and at 9 of 108 events that
+    number is wrong. Because ``placementNorm = (placement - 1) / (eventSize - 1)``,
+    the error lands on every metric that reads a normalised finish: four pilots
+    sat at a career mean of 1.000, dead last in field, and every one of them
+    earned it by making a top 8 (issue #140). The returned rule letter is null
+    where the source's own number stands, so a reader can tell a corrected field
+    from an accepted one, and which kind of correction it was.
+
+    ``pilots`` is the number of distinct *canonical* pilots who registered, and
+    ``max_placement`` the deepest finish recorded (0 where none is), so both are
+    counted facts about the event rather than claims about it.
+
+    **Rule A's contradiction is provable, its replacement is not.** ``eventSize``
+    contradicts something countable: more people attended than the claimed field,
+    or someone finished at a rank beyond it, which is impossible under any
+    reading. That is what the letter records. The number that replaces it is a
+    different claim, and mostly the same domain one Rule B rests on: at 5 of the
+    6 Rule A events the floor decides (7 or 8 pilots against a claimed 5, all
+    landing on 24), and only ``GGWAD`` takes its field from a count (28 pilots
+    against a claimed 16). So an ``A`` in the report means "the source's number
+    is refuted", never "the new number is measured".
+
+    **Rule B is domain knowledge.** Per the repo owner, 7PH runs no 8-player
+    events, so an ``eventSize`` of 8 or less is a top-8 cut reported as a field.
+    The ``max_placement < event_size`` guard anchors it in evidence, though only
+    partly: an event somebody finished last in has its small field corroborated
+    by its own standings, and MazeIQ and Pats Birthday Brawl show a deepest
+    finish of 5th against a claimed 8, the bracket signature. It is satisfied
+    vacuously at DeckaDiceIQ, where the winner is the only finish recorded at
+    all, so nothing there corroborates or contradicts the 6 the source claims and
+    the domain rule decides it alone.
+
+    **Rule C is defensive only.** A null ``eventSize`` has never been observed.
+
+    Only ``Tournament`` is corrected, by whitelist rather than blacklist. A
+    ``Teams`` event's ``eventSize`` counts teams and not people (TMCTeams25 is 39
+    against 117 decks), so Rule A's contradiction is that event's normal shape,
+    and an ``eventType`` nobody has classified yet is left alone rather than
+    corrected on Tournament's assumptions. ``eventType`` is the only reliable
+    discriminator: a structural detector was tried and rejected, because
+    decks-per-distinct-placement does not separate the two (top-8 brackets with
+    ties reach 4.00 and overlap TMCTeams25's 3.08).
+
+    The floor is ``max(counted, MIN_CUT_FIELD)`` rather than a bare constant, so
+    the correction stays a floor as more lists arrive: MazeIQ at 9 decks still
+    yields 24, a broken 30-pilot event yields 30, and the field is never set
+    below something we counted.
+    """
+    if event_type != "Tournament":
+        return event_size, None
+    if event_size is None:
+        return max(pilots, max_placement, MIN_CUT_FIELD), "C"
+    if pilots > event_size or max_placement > event_size:
+        return max(pilots, max_placement, MIN_CUT_FIELD), "A"
+    if event_size <= 8 and max_placement < event_size:
+        return max(pilots, MIN_CUT_FIELD), "B"
+    return event_size, None
+
+
+def _event_fields(
+    decks: list[Deck], deck_pilot: dict[str, str]
+) -> dict[str, EventField]:
+    """Each event's field size, corrected where the source's contradicts a count.
+
+    Counted over canonical pilot identities rather than raw source ids, which is
+    why this runs after :func:`pilots.resolve_pilots`: Rule A's floor asserts "at
+    least N people attended", and a merge the curation dictionary confirms
+    collapses two ids onto one person, the one direction that floor must not err
+    in. It reads recovered placements for the same reason: Pats Birthday Brawl
+    has placements only through :func:`models.placement_from_title`, and
+    :func:`models.resolve_cut_placements` rewrites CanBrawl2's nested tiers, and
+    both settle at load. An event nobody's finish was recorded at counts a
+    deepest placement of 0, which no field size can be below.
+
+    ``eventSize`` is a property of the event that every one of its decks repeats,
+    identically at all 108 events held, so the first one that carries a number
+    speaks for the cohort.
+    """
+    counted: dict[str, tuple[str, int | None, set[str], int]] = {}
+    for deck in decks:
+        _, size, people, deepest = counted.setdefault(
+            deck.event, (deck.event_type, deck.event_size, set(), 0)
+        )
+        people.add(deck_pilot[deck.deck_id])
+        counted[deck.event] = (
+            # The last deck's type, which is the one `_load_nodes` writes to the
+            # Event node, so the type that decided the whitelist is the type the
+            # graph shows. They agree at all 108 events held; reading them off
+            # different decks is what would make a disagreement unexplainable.
+            deck.event_type,
+            size if size is not None else deck.event_size,
+            people,
+            max(deepest, deck.placement or 0),
+        )
+    fields = {}
+    for event, (event_type, size, people, deepest) in counted.items():
+        field_size, rule = corrected_field(event_type, size, len(people), deepest)
+        fields[event] = EventField(event, rule, size, field_size, len(people), deepest)
+    return fields
+
+
+def _rescale_norms(snapshot: Snapshot, fields: dict[str, EventField]) -> Snapshot:
+    """Re-rank each corrected event's norms against its corrected field.
+
+    ``placementNorm = (placement - 1) / (fieldSize - 1)``, the source's own
+    formula, applied to the field the event was really played in. Only a
+    corrected event is touched, and within it only a deck the source itself
+    scored: a placement the source left unranked stays unranked, so this
+    rescales 54 decks and mints no norm the source never had, which keeps
+    ``_ranked_deck_total`` and the gem denominators where they were (issue #140).
+    Every corrected field is at least :data:`MIN_CUT_FIELD`, so the division is
+    safe.
+    """
+    corrected = {e: f.field_size for e, f in fields.items() if f.rule}
+    if not corrected:
+        return snapshot
+    decks = [
+        d.model_copy(update={
+            "placement_norm": (d.placement - 1) / (corrected[d.event] - 1)
+        })
+        if d.event in corrected and d.placement_norm is not None
+        and d.placement is not None
+        else d
+        for d in snapshot.decks
+    ]
+    return Snapshot(
+        cards=snapshot.cards, decks=decks, containments=snapshot.containments
+    )
+
+
 def _load_nodes(
     conn: ladybug.Connection,
     snapshot: Snapshot,
     pilots: PilotResolution,
     years: dict[str, int],
+    fields: dict[str, EventField],
 ) -> None:
     _load(conn,
           "UNWIND $rows AS r CREATE (:Pilot {pilot: r.pilot, "
@@ -319,8 +496,10 @@ def _load_nodes(
     events = {d.event: (d.event_id, d.event_type) for d in snapshot.decks}
     _load(conn,
           "UNWIND $rows AS r CREATE (:Event {event: r.event, eventId: r.eventId, "
-          "eventType: r.eventType})",
-          [{"event": e, "eventId": eid, "eventType": et}
+          "eventType: r.eventType, fieldSize: r.fieldSize, "
+          "fieldImputed: r.fieldImputed})",
+          [{"event": e, "eventId": eid, "eventType": et,
+            "fieldSize": fields[e].field_size, "fieldImputed": fields[e].rule}
            for e, (eid, et) in events.items()])
 
     archetypes = {a.tag: a.name for d in snapshot.decks for a in d.archetypes}

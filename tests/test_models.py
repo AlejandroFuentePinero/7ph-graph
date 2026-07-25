@@ -45,6 +45,10 @@ def test_parses_decks_and_cards_with_domain_fields(snapshot_dir):
     # The only date the source carries for a deck (issue-26, ADR 0006).
     assert deck.created_at == datetime(2025, 12, 6, tzinfo=timezone.utc)
 
+    # The field the source ranked placementNorm against, kept so the build can
+    # check it against what it can count and correct it (issue #140).
+    assert deck.event_size == 19
+
     card = next(c for c in snap.cards if c.canon == "arid mesa")
     assert card.name == "Arid Mesa"
     assert card.type == "Lands"
