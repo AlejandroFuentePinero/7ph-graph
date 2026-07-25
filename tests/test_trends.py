@@ -7,6 +7,7 @@ import pytest
 from graph7ph.db import artifact_path, database_path, open_for_reading, rows
 from graph7ph.trends import (
     ArchetypeLandscape,
+    ArchetypeTimeline,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
@@ -15,6 +16,8 @@ from graph7ph.trends import (
     Series,
     SeriesCell,
     archetype_landscape,
+    archetype_timeline,
+    archetypes_with_history,
     card_adoption_over_time,
     head_to_head_timeline,
     latest_deck_year,
@@ -982,3 +985,209 @@ def test_run_series_routes_the_landscape_through_its_own_seam(tmp_path, built_gr
     direct = archetype_landscape(conn, 2025)
     assert isinstance(routed, Series)
     assert routed.cells == direct.cells
+
+
+def _write_timeline_snapshot(
+    root: Path, decks: list[tuple[str, str, str, str, float | None]]
+) -> Path:
+    """Write a snapshot of ``(deck_id, archetype, event, created_at, norm)`` decks.
+
+    The archetype timeline needs several decks of one archetype at one event (a
+    point is their mean, not one result) and its own ``createdAt`` per deck, since
+    the point's date is the earliest registration across the event's whole field.
+    Decks of one event stay inside one calendar year so the build does not abort on
+    a straddle, and each deck names a distinct pilot so neither the fuzzy pilot merge
+    nor the one-deck-per-pilot-per-event drop (ADR 0004, 0007) folds fixtures meant
+    to stay separate.
+    """
+    snap = root / "snap"
+    snap.mkdir()
+    deck_records = [
+        {
+            "deckId": deck_id,
+            "name": f"1st {deck_id} - {archetype} - {event}",
+            "deckName": archetype.title(),
+            "pilot": f"pilot-{deck_id}",
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventType": "Tournament",
+            "eventSize": _FIELD_SIZE,
+            "placement": 1,
+            "placementNorm": norm,
+            "createdAt": created_at,
+            "colour": "colour:U",
+            "macro": "macro:combo",
+            "engineTags": [f"engine:{archetype}"],
+            "engineTagLabels": {f"engine:{archetype}": archetype.title()},
+            "primaryTag": f"engine:{archetype}",
+            "primaryTagWeights": {f"engine:{archetype}": 100},
+        }
+        for deck_id, archetype, event, created_at, norm in decks
+    ]
+    (snap / "decks.json").write_text(json.dumps(deck_records))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 1,
+        "cards": [],
+        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+    }))
+    return snap
+
+
+def _timeline_graph(root, built_graph):
+    """A built graph over four events, two archetypes with an uneven attendance.
+
+    E1 (registered from 2025-03-01, a filler registering first): ``storm`` brings two
+    decks (.1 and .3, so a mean of .2) and ``jund`` one (.5). E2 (2025-05): ``storm``
+    one (.6), ``jund`` two (.2 and .4, mean .3). E3 (2025-07): ``storm`` alone, so it
+    is never a shared event. E4 (2025-09): both attend, but ``storm``'s only deck is
+    one the source never scored, so the pair shares the event with nothing to compare.
+    """
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-05T00:00:00+00:00", 0.1),
+        ("e1-s2", "storm", "E1", "2025-03-09T00:00:00+00:00", 0.3),
+        ("e1-j1", "jund", "E1", "2025-03-12T00:00:00+00:00", 0.5),
+        ("e1-f1", "lands", "E1", "2025-03-01T00:00:00+00:00", 0.9),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.6),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 0.2),
+        ("e2-j2", "jund", "E2", "2025-05-02T00:00:00+00:00", 0.4),
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", 0.4),
+        ("e4-s1", "storm", "E4", "2025-09-01T00:00:00+00:00", None),
+        ("e4-j1", "jund", "E4", "2025-09-01T00:00:00+00:00", 0.8),
+    ]
+    return built_graph(root, _write_timeline_snapshot(root, decks))
+
+
+def test_one_archetypes_timeline_averages_its_decks_at_every_event_it_attended(
+    tmp_path, built_graph
+):
+    conn = _timeline_graph(tmp_path, built_graph)
+    points = archetype_timeline(conn, "storm").cells
+
+    # Every event the archetype attended, in date order, whether or not the source
+    # scored it: E4 is a real attendance with no finish, not an absence.
+    assert [p.event for p in points] == ["E1", "E2", "E3", "E4"]
+
+    # A point is the mean of that archetype's ranked decks at that event, with the
+    # count of the decks behind it, since a mean of one deck and a mean of three read
+    # alike on the line and only the count tells them apart.
+    assert [p.mean_norm_a for p in points] == [
+        pytest.approx(0.2), pytest.approx(0.6), pytest.approx(0.4), None,
+    ]
+    assert [p.decks_a for p in points] == [2, 1, 1, 0]
+
+    # The date is the earliest registration across the event's **whole** field, not
+    # this archetype's earliest: an event spreads over days, and both sides of a
+    # shared event have to sit at one x.
+    assert points[0].date == datetime(2025, 3, 1, 0, 0)
+
+    # With one archetype there is no second side to any point.
+    assert [(p.mean_norm_b, p.decks_b) for p in points] == [(None, 0)] * 4
+
+
+def test_a_second_archetype_restricts_the_timeline_to_the_events_both_attended(
+    tmp_path, built_graph
+):
+    conn = _timeline_graph(tmp_path, built_graph)
+    points = archetype_timeline(conn, "storm", "jund").cells
+
+    # E3 was Storm's alone, so adding Jund drops it: every drawn point now has a
+    # counterpart, which is what makes the band between the two lines continuous.
+    # The restriction visibly reshapes Storm's line, and the surface says so.
+    assert [p.event for p in points] == ["E1", "E2", "E4"]
+
+    # Each point carries both sides' mean and the decks behind it, so the hover can
+    # state the sample per side rather than only the value.
+    assert [(p.mean_norm_a, p.decks_a) for p in points] == [
+        (pytest.approx(0.2), 2), (pytest.approx(0.6), 1), (None, 0),
+    ]
+    assert [(p.mean_norm_b, p.decks_b) for p in points] == [
+        (pytest.approx(0.5), 1), (pytest.approx(0.3), 2), (pytest.approx(0.8), 1),
+    ]
+
+    # E4 is a shared attendance the source scored on one side only: kept as a point
+    # both lines break over, not dropped and not half-drawn against nothing.
+    assert points[-1].date == datetime(2025, 9, 1, 0, 0)
+
+
+def test_an_archetype_scored_at_one_event_is_refused_rather_than_drawn_as_a_dot(
+    tmp_path, built_graph
+):
+    # ``lands`` turned up once, so there is no line to draw: one point is not a
+    # history. Refused by name with the count that caused it, as the pilot trends
+    # refuse a thin one (ADR 0013, issue #101), so the app can say how thin it was.
+    conn = _timeline_graph(tmp_path, built_graph)
+    with pytest.raises(NotEnoughHistory) as refusal:
+        archetype_timeline(conn, "lands")
+    assert refusal.value.found == 1
+    assert "Lands" in str(refusal.value) or "lands" in str(refusal.value)
+
+
+def test_a_pair_is_refused_on_the_events_they_can_be_compared_at(tmp_path, built_graph):
+    # The pair floor counts the events **both** were ranked at, not the ones both
+    # attended: here they turn up together twice, but at E2 the source scored nothing
+    # of Jund's, so there is one comparison and one gap. Counting the attendance would
+    # clear the floor on a chart holding a single drawable point.
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 0.5),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.6),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", None),
+        # ``lands`` never turns up beside either of them, so a pair with it never met.
+        ("e3-l1", "lands", "E3", "2025-07-01T00:00:00+00:00", 0.2),
+        ("e4-l1", "lands", "E4", "2025-08-01T00:00:00+00:00", 0.4),
+    ]
+    conn = built_graph(tmp_path, _write_timeline_snapshot(tmp_path, decks))
+
+    with pytest.raises(NotEnoughHistory) as one_comparison:
+        archetype_timeline(conn, "storm", "jund")
+    assert one_comparison.value.found == 1
+
+    # A pair who never met comes back a zero, not the same refusal as a pair who met
+    # once: the count is what keeps the two answers apart (issue #101).
+    with pytest.raises(NotEnoughHistory) as never_met:
+        archetype_timeline(conn, "storm", "lands")
+    assert never_met.value.found == 0
+
+    # Each on its own still draws: the restriction is a property of the pair.
+    assert len(archetype_timeline(conn, "storm").cells) == 2
+
+
+def test_an_archetype_compared_against_itself_is_refused(tmp_path, built_graph):
+    # An archetype has no rivalry with itself, so a == b is refused here rather than
+    # returning every event twice as two identical sides, a zero-width band and a
+    # "0 each" win count. The guard lives in the tool for the reason
+    # ``head_to_head_timeline`` gives for its own: the tool is the seam an agent reaches
+    # without the app's distinct-archetype check (the app collapses the pick to the solo
+    # line before it gets here, as the adoption chart collapses a repeated card).
+    # A plain ValueError, not NotEnoughHistory: a malformed question is not a thin
+    # answer, and reporting it as no history would say these two never met.
+    conn = _timeline_graph(tmp_path, built_graph)
+    with pytest.raises(ValueError) as refusal:
+        archetype_timeline(conn, "storm", "storm")
+    assert not isinstance(refusal.value, NotEnoughHistory)
+
+
+def test_run_series_routes_the_archetype_timeline_through_its_own_seam(
+    tmp_path, built_graph
+):
+    conn = _timeline_graph(tmp_path, built_graph)
+    solo = run_series(conn, ArchetypeTimeline("storm"))
+    pair = run_series(conn, ArchetypeTimeline("storm", "jund"))
+    assert isinstance(solo, Series)
+    # The second archetype is optional on the spec, so the seam carries both shapes.
+    assert solo.cells == archetype_timeline(conn, "storm").cells
+    assert pair.cells == archetype_timeline(conn, "storm", "jund").cells
+
+
+def test_the_timeline_catalogue_offers_every_archetype_that_draws_with_its_count(
+    tmp_path, built_graph
+):
+    # This plot is the escape hatch for everything the landscape's top 25 hides, so
+    # the catalogue is filtered by one rule only: can a line be drawn. ``lands`` was
+    # ranked once, so it cannot; ``storm`` and ``jund`` were ranked at three events
+    # each. The event count rides along so a label can show thinness before the
+    # pick rather than a refusal after it.
+    conn = _timeline_graph(tmp_path, built_graph)
+    offered = archetypes_with_history(conn)
+
+    assert offered == [("Jund", "jund", 3), ("Storm", "storm", 3)]

@@ -3,13 +3,15 @@ from datetime import datetime
 
 import pytest
 
-from graph7ph import palette, theme
+from graph7ph import numfmt, palette, theme
 from graph7ph.app import (
     _CARDS_TAB,
     _PLOT_LABELS,
     _adoption_figure,
     _adoption_caption,
     _adoption_cards,
+    _archetype_timeline_caption,
+    _archetype_timeline_figure,
     _chart_heading,
     _embed,
     _head_to_head_figure,
@@ -23,12 +25,14 @@ from graph7ph.app import (
     _performance_figure,
     _provenance_html,
     _result_header,
+    _rgba,
     _subject_line,
     _trend_figure,
 )
 from graph7ph.query import Coverage
 from graph7ph.trends import (
     AdoptionCell,
+    ArchetypeTimelinePoint,
     HeadToHeadPoint,
     LandscapeCell,
     PerformanceCell,
@@ -896,6 +900,107 @@ def test_the_landscape_caption_says_when_the_year_is_still_running():
     assert "top 25" not in caption
 
 
+def _timeline_points(*rows):
+    """Timeline points from ``(day, mean_a, decks_a[, mean_b, decks_b])`` in one month."""
+    return Series(cells=[
+        ArchetypeTimelinePoint(
+            event=f"E{row[0]}", date=datetime(2025, 3, row[0]),
+            mean_norm_a=row[1], decks_a=row[2],
+            mean_norm_b=row[3] if len(row) > 3 else None,
+            decks_b=row[4] if len(row) > 4 else 0,
+        )
+        for row in rows
+    ])
+
+
+def test_the_timeline_headline_counts_the_events_each_archetype_led():
+    # AC (#151): the individual points are thin, so the countable claim across the
+    # whole run is the headline. Storm's mean beats Lands's at two of the three
+    # events they can be compared at; the fourth is shared but unscored on one
+    # side, so it is not one of them.
+    series = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4), (3, 0.1, 2, 0.5, 1), (4, 0.4, 1, None, 0),
+    )
+    caption = _archetype_timeline_caption("Storm", "Lands", series)
+
+    assert "Storm" in caption and "2 of 3" in caption
+    # The restriction is stated as a definition, so the shape change from adding a
+    # second archetype does not read as a glitch.
+    assert "both attended" in caption
+    # The borrowed form breaks here: a point is a mean of a handful of decks, and the
+    # pilot chart's "one real result" wording must never appear.
+    assert "1 to 3" in caption
+    assert "real result" not in caption
+
+
+def test_a_solo_timeline_says_a_second_archetype_restricts_it_to_shared_events():
+    # AC (#151): the second archetype is optional, and the caption is where a reader
+    # learns that picking one narrows the view rather than adding to it.
+    series = _timeline_points((1, 0.2, 3), (2, 0.6, 1), (3, 0.4, 2))
+    caption = _archetype_timeline_caption("Storm", None, series)
+
+    assert "second archetype" in caption
+    assert "both attended" in caption
+    assert "1 to 3" in caption
+    assert "real result" not in caption
+
+
+def test_a_solo_timeline_is_one_line_filled_down_to_the_axis():
+    # AC (#151): with one archetype the plot shows every event it attended, filled
+    # down to the axis. The finish is flipped for the eye as on every other chart, and
+    # an event the source scored none of its decks at breaks the line rather than
+    # dropping to a fabricated zero.
+    fig = _archetype_timeline_figure(
+        "Storm", None, _timeline_points((1, 0.2, 3), (2, 0.6, 1), (3, None, 0)),
+    )
+    (trace,) = fig.data
+
+    assert trace.fill == "tozeroy"
+    assert list(trace.y) == [pytest.approx(0.8), pytest.approx(0.4), None]
+    # A registration-date x, not the shared styler's category-Year axis: this plot
+    # spans the whole corpus and two events in one year must not share an x.
+    assert fig.layout.xaxis.type == "date"
+    assert list(trace.x) == [datetime(2025, 3, d) for d in (1, 2, 3)]
+
+    # AC: the decks behind each point ride in the marker size and in the hover.
+    assert trace.marker.size == (_confidence_size(3), _confidence_size(1), _confidence_size(0))
+    assert "decks" in trace.hovertemplate
+    assert list(trace.customdata[0]) == [numfmt.score(0.8), 3]
+
+
+def test_a_pair_draws_both_lines_with_the_band_shaded_toward_whoever_leads():
+    # AC (#151): with two archetypes both lines are drawn and the band between them is
+    # tinted with the colour of whichever is ahead, matching the pilot head-to-head.
+    # Storm leads at the first point, Lands at the second, so the band splits.
+    series = _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4))
+    fig = _archetype_timeline_figure("Storm", "Lands", series)
+
+    lines = [t for t in fig.data if t.fill != "toself"]
+    bands = [t for t in fig.data if t.fill == "toself"]
+    assert [t.name for t in lines] == ["Storm", "Lands"]
+    # Neither line fills to the axis: the filled region is the gap between them.
+    assert {t.fill for t in lines} == {None}
+    assert [list(t.y) for t in lines] == [
+        [pytest.approx(0.8), pytest.approx(0.4)], [pytest.approx(0.6), pytest.approx(0.7)],
+    ]
+
+    # One band trace per leader, each in that archetype's own colour at the shared
+    # translucency, the same two hues the head-to-head takes by position.
+    assert {t.fillcolor for t in bands} == {
+        _rgba(palette.CATEGORICAL[0], 0.18), _rgba(palette.CATEGORICAL[1], 0.18),
+    }
+
+    # AC: the hover gives the deck count per side, so a point resting on one deck is
+    # readable as such on the side it is thin on.
+    assert [list(t.customdata[0]) for t in lines] == [
+        [numfmt.score(0.8), 3], [numfmt.score(0.6), 2],
+    ]
+    assert [t.marker.size for t in lines] == [
+        (_confidence_size(3), _confidence_size(1)),
+        (_confidence_size(2), _confidence_size(4)),
+    ]
+
+
 def _tab_blocks(demo, label):
     """The blocks created inside one tab: from that tab up to the next one."""
     import gradio as gr
@@ -1015,11 +1120,147 @@ def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
     demo = _landscape_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Archetypes")
     (year,) = [b for b in inside if isinstance(b, gr.Dropdown) and b.label == "Year"]
-    (plot,) = [b for b in inside if isinstance(b, gr.Plot)]
+    # The scatter is the first of the tab's two plots; the timeline below it (#151)
+    # has its own selectors and is deliberately not wired to the year.
+    plot, _timeline = [b for b in inside if isinstance(b, gr.Plot)]
 
     redraws = [fn for fn in demo.fns.values()
                if year in fn.inputs and plot in fn.outputs]
     assert len(redraws) == 1
+
+
+def _timeline_demo(tmp_path, snapshot_dir):
+    """A built app whose graph holds archetypes the timeline can and cannot compare.
+
+    The shared fixture's two events (PogNov25 and CFWAT25) already give ``grixis`` two
+    ranked events and ``storm`` one, so Grixis is the only archetype in it that can
+    draw a line. Two more are added without touching the fixture: ``jund`` at both of
+    those events, so Grixis and Jund share a run to compare, and ``lands`` at two events
+    of its own, so Grixis and Lands are a drawable pair that never met. ``storm`` is
+    left as it is, the archetype too thin for the catalogue to offer at all.
+    """
+    import json
+    import shutil
+
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    snap = tmp_path / "snap"
+    shutil.copytree(snapshot_dir, snap)
+    decks = json.loads((snap / "decks.json").read_text())
+    by_event = {d["event"]: d for d in decks}
+    extras = [
+        # (deck id, archetype, event template, event, field size, placement, day)
+        ("x-j1", "jund", by_event["PogNov25"], "PogNov25", 31, 8, None),
+        ("x-j2", "jund", by_event["CFWAT25"], "CFWAT25", 19, 9, None),
+        ("x-l1", "lands", by_event["PogNov25"], "LandsCupA", 10, 3, 2),
+        ("x-l2", "lands", by_event["PogNov25"], "LandsCupB", 10, 4, 3),
+    ]
+    for deck_id, archetype, template, event, size, placement, day in extras:
+        tag = f"engine:{archetype}"
+        decks.append({
+            **template,
+            "deckId": deck_id,
+            "name": f"{placement}th {deck_id} - {archetype.title()} - {event}",
+            "deckName": archetype.title(),
+            "pilot": f"Pilot{deck_id}",
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventSize": size,
+            "placement": placement,
+            "placementNorm": (placement - 1) / (size - 1),
+            **({"createdAt": f"2025-12-0{day}T00:00:00+00:00"} if day else {}),
+            "engineTags": [tag],
+            "engineTagLabels": {tag: archetype.title()},
+            "primaryTag": tag,
+            "primaryTagWeights": {tag: 100},
+        })
+    (snap / "decks.json").write_text(json.dumps(decks))
+    index = json.loads((snap / "cards_index.json").read_text())
+    index["decks"].update({d[0]: {"m": [], "s": []} for d in extras})
+    (snap / "cards_index.json").write_text(json.dumps(index))
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snap), artifact)
+    return build_app(artifact)
+
+
+def test_the_timeline_sits_under_the_scatter_and_draws_off_its_own_two_selectors(
+    tmp_path, snapshot_dir
+):
+    # AC (#151): the timeline is the tab's second plot, it draws as soon as one
+    # archetype is picked (so no Draw button), and it spans the whole timeline: the
+    # year selector governs the scatter alone and is not an input to it.
+    import gradio as gr
+
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    inside = _tab_blocks(demo, "Archetypes")
+    dropdowns = [b for b in inside if isinstance(b, gr.Dropdown)]
+    (year,) = [b for b in dropdowns if b.label == "Year"]
+    picks = [b for b in dropdowns if b.label != "Year"]
+    _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
+
+    assert not [b for b in inside if isinstance(b, gr.Button)]
+    assert len(picks) == 2
+    # AC: the second archetype is optional, so nothing is preselected in either slot
+    # and the plot waits, hidden, rather than opening on an arbitrary archetype.
+    assert [p.value for p in picks] == [None, None]
+    assert timeline_plot.value is None
+
+    draws = [fn for fn in demo.fns.values() if timeline_plot in fn.outputs]
+    assert {tuple(fn.inputs) for fn in draws} == {tuple(picks)}
+    assert not any(year in fn.inputs for fn in draws)
+
+
+def test_both_selectors_offer_the_archetypes_that_draw_with_their_event_count(
+    tmp_path, snapshot_dir
+):
+    # AC (#151): both selectors offer every archetype with at least two ranked events,
+    # each label carrying its count so a reader sees how thin one is before picking it
+    # rather than hitting a refusal after. The fixture's Grixis is ranked at both of
+    # its events; every other archetype in it turned up once, so it is the only one
+    # that can draw a line.
+    import gradio as gr
+
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    picks = [b for b in _tab_blocks(demo, "Archetypes")
+             if isinstance(b, gr.Dropdown) and b.label != "Year"]
+
+    offered = [("Grixis (2 events)", "grixis"), ("Jund (2 events)", "jund"),
+               ("Lands (2 events)", "lands")]
+    assert [p.choices for p in picks] == [offered] * 2
+
+
+def test_picking_one_archetype_draws_the_timeline_and_a_thin_pair_refuses(
+    tmp_path, snapshot_dir
+):
+    # The callback itself, since with no Draw button it is the whole interaction: one
+    # archetype draws a figure inside a shown card, and a pair too thin to compare
+    # comes back as a readable note naming the count instead of a misleading line.
+    import gradio as gr
+
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    inside = _tab_blocks(demo, "Archetypes")
+    _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
+    draw = next(fn for fn in demo.fns.values() if timeline_plot in fn.outputs).fn
+
+    card, heading, plot, note = draw("grixis", None)
+    assert plot["visible"] and plot["value"] is not None
+    assert not note["visible"]
+    assert "Grixis" in heading["value"]
+
+    # Nothing picked draws nothing: the card stays away rather than sitting empty.
+    assert not draw(None, None)[0]["visible"]
+
+    # Lands drew its two events on its own, so the pair has nothing to compare:
+    # refused inside the card with a line naming that, not drawn as one point.
+    card, heading, plot, note = draw("grixis", "lands")
+    assert card["visible"] and not plot["visible"]
+    assert "Lands" in note["value"] and "never" in note["value"]
+
+    # A pair that did meet draws both lines rather than refusing.
+    assert draw("grixis", "jund")[2]["visible"]
 
 
 def test_the_landscape_never_ranges_past_the_ends_of_the_score():
