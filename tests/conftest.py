@@ -5,9 +5,9 @@ import ladybug
 import pytest
 
 from graph7ph.build import build_graph
-from graph7ph.db import open_for_reading
+from graph7ph.db import artifact_path, database_path, open_for_reading
 from graph7ph.models import load_snapshot
-from graph7ph.provenance import provenance_path
+from graph7ph.provenance import provenance_path, staleness
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -57,6 +57,32 @@ def built_graph():
     opens its own through ``db.open_for_writing``.
     """
     return build_and_open
+
+
+@pytest.fixture(scope="module")
+def live_graph() -> ladybug.Connection:
+    """The built artifact at :func:`artifact_path`, for claims only the record makes.
+
+    Almost every test builds its own graph from a hand-authored snapshot, which is
+    what keeps the suite hermetic. A handful cannot: they are statements about the
+    whole record at once (every pilot, every deck), and a fixture holding a few
+    decks would only restate the case it was written to show. Shared here for the
+    same reason as :func:`build_and_open`, so how the real bundle is reached and
+    when it is refused is spelled once (issue #53).
+
+    Skipped rather than failed when the bundle is missing, since it is gitignored.
+    Skipped too when its stamp says it was built from other sources: an artifact is
+    derived and nothing ties it to a revision, so a stale one would grade today's
+    claims against superseded build code and pass green on it (issue #55). Both
+    skips name the rebuild.
+    """
+    artifact = artifact_path()
+    if not database_path(artifact).exists():
+        pytest.skip(f"no graph artifact at {artifact}; build one with `uv run graph7ph build`")
+    stale = staleness(artifact)
+    if stale:
+        pytest.skip(f"cannot grade the real record: {stale}")
+    return open_for_reading(artifact)
 
 
 @pytest.fixture

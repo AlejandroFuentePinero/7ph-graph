@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 import pytest
 
 from graph7ph.build import build_graph
-from graph7ph.db import artifact_path, database_path, open_for_reading, open_for_writing, rows
+from graph7ph.db import open_for_writing, rows
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     MAX_GEM_SHARE,
@@ -107,7 +107,12 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
             "deckId": d["id"], "name": f"{d.get('pilot', 'p')} - {d['id']}",
             "deckName": d["id"],
             "pilot": d.get("pilot", "p"), "event": d.get("event", "E"),
-            "eventId": f"evt_{d['id']}", "eventType": "Tournament", "placement": 1,
+            "eventId": f"evt_{d['id']}", "eventType": "Tournament",
+            # A ``norm`` of ``None`` is a deck the source scored nothing for, so it
+            # carries no placement either: the build mints a norm from any placement
+            # it can see, so a placement beside a null norm is no longer an unranked
+            # deck anywhere in the record (issue #162).
+            "placement": 1 if d["norm"] is not None else None,
             "eventSize": _FIELD_SIZE,
             "placementNorm": d["norm"], "createdAt": "2025-06-01T00:00:00+00:00",
             "colour": "colour:U",
@@ -1066,22 +1071,6 @@ def test_pilot_affinity_of_a_pilot_with_no_decks_is_the_pilot_alone(tmp_path, sn
     assert [(n.id, n.label, n.kind) for n in sub.nodes] == [("pilot:ghost", "Ghost", "Pilot")]
     assert sub.edges == []
 
-
-@pytest.fixture(scope="module")
-def live_graph():
-    """The built artifact at :func:`artifact_path`, for the one test that needs it.
-
-    Everything else here builds its own graph from a hand-authored snapshot,
-    which is what keeps the suite hermetic. The nesting invariant below cannot:
-    it is a statement about all 1083 real pilots at once, and a fixture holding a
-    handful of decks would only restate the case the fixture was built to show.
-    The bundle is gitignored, so a checkout that has not run a build skips rather
-    than fails.
-    """
-    artifact = artifact_path()
-    if not database_path(artifact).exists():
-        pytest.skip(f"no graph artifact at {artifact}; build one with `uv run graph7ph build`")
-    return open_for_reading(artifact)
 
 
 def test_an_archetype_under_one_macro_never_outweighs_it(live_graph):

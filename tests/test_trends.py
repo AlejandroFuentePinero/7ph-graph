@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from graph7ph.db import artifact_path, database_path, open_for_reading, rows
+from graph7ph.build import MIN_CUT_FIELD
+from graph7ph.db import rows
 from graph7ph.trends import (
     ArchetypeLandscape,
     ArchetypeTimeline,
@@ -468,14 +469,19 @@ def _write_performance_snapshot(
     for deck_id, pilot, event, year, norm in decks:
         deck_records.append({
             "deckId": deck_id,
-            "name": f"1st {pilot} - Deck - {event}",
+            # A ``norm`` of ``None`` is a deck the source scored nothing for, so its
+            # title opens with no placement and neither does the deck: the build mints
+            # a norm from any placement it can see, so a placement beside a null norm
+            # is no longer an unranked deck anywhere in the record (issue #162).
+            "name": (f"1st {pilot} - Deck - {event}" if norm is not None
+                     else f"{pilot} - Deck - {event}"),
             "deckName": "Deck",
             "pilot": pilot,
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
             "eventSize": _FIELD_SIZE,
-            "placement": 1,
+            "placement": 1 if norm is not None else None,
             "placementNorm": norm,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
             "colour": "colour:U",
@@ -572,8 +578,10 @@ def test_a_year_the_source_never_scored_is_a_cell_of_zero_events_not_a_missing_y
     # ``ez`` played two events in 2023 and neither was placed, then had two scored
     # years. Filtering the years by the same null test that filters the decks would
     # cut 2023 off the front and the chart would claim a 2024 debut, which is the
-    # erasure of issue #101 surviving in a second form: six of the live graph's
-    # drawable pilots have a wholly unscored year and in all six it is their first.
+    # erasure of issue #101 surviving in a second form. The population it was measured
+    # on (six drawable pilots with a wholly unscored year, in all six their first) is
+    # empty since minting, so this fixture is now the only place the shape is
+    # exercised; see `pilot_performance_over_time` for why it stays (issue #162).
     decks = [(f"ez23-{i}", "ez", f"E23E{i}", 2023, None) for i in range(2)]
     decks += [(f"ez24-{i}", "ez", f"E24E{i}", 2024, 0.4) for i in range(2)]
     decks += [(f"ez25-{i}", "ez", f"E25E{i}", 2025, 0.2) for i in range(2)]
@@ -620,7 +628,9 @@ def test_run_series_routes_pilot_performance_through_its_own_seam(tmp_path, buil
 
 
 def _write_h2h_snapshot(
-    root: Path, decks: list[tuple[str, str, str, str, int, float | None]]
+    root: Path,
+    decks: list[tuple[str, str, str, str, int, float | None]],
+    field_sizes: dict[str, int] | None = None,
 ) -> Path:
     """Write a snapshot of ``(deck_id, pilot, event, created_at, placement, norm)``.
 
@@ -631,19 +641,29 @@ def _write_h2h_snapshot(
     stay inside one calendar year so the build does not abort on a straddle. A
     distinct pilot per deck keeps the fuzzy pilot merge and the duplicate-list
     drop (ADR 0004, 0007) from folding fixtures meant to stay separate.
+
+    ``field_sizes`` gives an event its own ``eventSize``, which a fixture asserting
+    on ``field_size`` needs: the norms here are written against a real field, and
+    an event claiming :data:`_FIELD_SIZE` while its norms rank against 20 is a
+    contradiction no event presents. Events left out of it claim
+    :data:`_FIELD_SIZE`, which nothing in these fixtures contradicts.
     """
+    field_sizes = field_sizes or {}
     snap = root / "snap"
     snap.mkdir()
     deck_records = [
         {
             "deckId": deck_id,
-            "name": f"{placement}st {pilot} - Deck - {event}",
+            # A deck with no placement carries none in its title either, which
+            # is the shape the source ships them in ("Darcy - Mono R - Area52IQ").
+            "name": (f"{placement}st {pilot} - Deck - {event}"
+                     if placement is not None else f"{pilot} - Deck - {event}"),
             "deckName": "Deck",
             "pilot": pilot,
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
-            "eventSize": _FIELD_SIZE,
+            "eventSize": field_sizes.get(event, _FIELD_SIZE),
             "placement": placement,
             "placementNorm": norm,
             "createdAt": created_at,
@@ -669,14 +689,14 @@ def _h2h_graph(root, built_graph):
     """A built graph where ``ann`` and ``bob`` share three events, plus fillers.
 
     E1 (registered 2025-03) is a full 5-deck field, placements 1..5 with norms
-    ``(place-1)/4``, so its norm-implied field and its deck count both read 5.
-    ``ann`` finishes 1st (norm 0.0), ``bob`` 4th (norm 0.75). EM (registered
-    2025-05) is a 3-deck field the pair also both entered. E2 (registered 2025-07,
-    last) is a **top-cut** field: 20 real entrants but only four decks recorded,
-    norms ``(place-1)/19``, so the norm implies a field of 20 while the
-    decks-at-event count is 4. ``ann`` finishes 2nd, ``bob`` 5th. E2 is what holds
-    the tool to reading the field off the norm rather than counting decks. ``ann``
-    also played a lone EA that ``bob`` did not, so it is never a shared event.
+    ``(place-1)/4``, so its field and its deck count both read 5. ``ann`` finishes
+    1st (norm 0.0), ``bob`` 4th (norm 0.75). EM (registered 2025-05) is a 3-deck
+    field the pair also both entered. E2 (registered 2025-07, last) is a
+    **top-cut** field: 20 real entrants but only four decks recorded, norms
+    ``(place-1)/19``, so its field is 20 while the decks-at-event count is 4.
+    ``ann`` finishes 2nd, ``bob`` 5th. E2 is what holds the tool to reading the
+    event's own field rather than counting decks. ``ann`` also played a lone EA
+    that ``bob`` did not, so it is never a shared event.
     """
     decks = [
         ("e1-ann", "ann", "E1", "2025-03-01T00:00:00+00:00", 1, 0.0),
@@ -693,7 +713,8 @@ def _h2h_graph(root, built_graph):
         ("e2-f2", "e2f2", "E2", "2025-07-02T00:00:00+00:00", 10, 9 / 19),
         ("ea-ann", "ann", "EA", "2025-09-01T00:00:00+00:00", 1, 0.0),
     ]
-    return built_graph(root, _write_h2h_snapshot(root, decks))
+    return built_graph(root, _write_h2h_snapshot(
+        root, decks, field_sizes={"E1": 5, "EM": 3, "E2": 20}))
 
 
 def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
@@ -715,70 +736,74 @@ def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
     assert (e1.placement_a, e1.norm_a) == (1, pytest.approx(0.0))
     assert (e1.placement_b, e1.norm_b) == (4, pytest.approx(0.75))
 
-    # The top-cut event: 4 decks recorded but the norm was ranked against 20
-    # entrants, so field_size reads the norm's field (20), not the deck count (4).
+    # The top-cut event: 4 decks recorded against a 20-entrant field, so field_size
+    # reads the event's own field (20), not the deck count (4).
     e2 = by_event["E2"]
     assert e2.field_size == 20
     assert (e2.placement_a, e2.norm_a) == (2, pytest.approx(1 / 19))
     assert (e2.placement_b, e2.norm_b) == (5, pytest.approx(4 / 19))
 
 
-@pytest.fixture(scope="module")
-def live_graph():
-    """The built artifact at :func:`artifact_path`, for the two tests that need it.
+def test_head_to_head_field_size_is_the_events_own_field_not_its_deck_count(
+    tmp_path, built_graph
+):
+    # Area52IQ's shape, and the one case no norm can be inverted for: the only deck
+    # the event ranked is its winner, whose norm is 0.0, and 0 yields no field back.
+    # So the field is read off the Event node, which is where the build now stores
+    # it outright (issue #162). EZ holds 3 decks against a 24-entrant field, so the
+    # deck count the old recovery fell back to is a plausible wrong number rather
+    # than an obvious one, and would have labelled a win "1st of 3".
+    decks = [
+        ("ez-ann", "ann", "EZ", "2025-03-01T00:00:00+00:00", 1, None),
+        ("ez-bob", "bob", "EZ", "2025-03-01T00:00:00+00:00", None, None),
+        ("ez-f1", "ezf1", "EZ", "2025-03-02T00:00:00+00:00", None, None),
+        # A second shared event, so the pair clears MIN_SHARED_EVENTS and the
+        # timeline is returned rather than refused.
+        ("e1-ann", "ann", "E1", "2025-05-01T00:00:00+00:00", 1, 0.0),
+        ("e1-bob", "bob", "E1", "2025-05-01T00:00:00+00:00", 4, 0.75),
+        ("e1-f1", "e1f1", "E1", "2025-05-02T00:00:00+00:00", 5, 1.0),
+    ]
+    conn = built_graph(tmp_path, _write_h2h_snapshot(
+        tmp_path, decks, field_sizes={"EZ": 24, "E1": 5}))
 
-    Almost everything here builds its own graph from a hand-authored snapshot,
-    which is what keeps the suite hermetic. These two cannot: they pin
-    ``field_size`` at named real events, and the events that reach the fallback
-    arm and the events whose recovered field far exceeds their deck count both
-    exist only in the real data. The bundle is gitignored, so a checkout that has
-    not run a build skips rather than fails.
-    """
-    artifact = artifact_path()
-    if not database_path(artifact).exists():
-        pytest.skip(f"no graph artifact at {artifact}; build one with `uv run graph7ph build`")
-    return open_for_reading(artifact)
+    by_event = {c.event: c for c in head_to_head_timeline(conn, "ann", "bob").cells}
+
+    assert by_event["EZ"].field_size == 24
+    # The win draws at all because the build minted its norm: the source ranked it
+    # nowhere, and every reader here gates on the norm (issue #162).
+    assert (by_event["EZ"].placement_a, by_event["EZ"].norm_a) == (1, 0.0)
+    # Nothing recoverable for bob at EZ, so that half of the point stays a gap.
+    assert (by_event["EZ"].placement_b, by_event["EZ"].norm_b) == (None, None)
 
 
-def test_head_to_head_field_size_falls_back_to_the_deck_count(live_graph):
-    # The `else deck_count` arm, which is the only arm of `field_size` no fixture
-    # reaches. It fires at 3 of 108 events, the ones where no deck carries a norm
-    # above 0 and there is therefore nothing to invert, and it reaches 0 of
-    # 268,281 drawn chart markers today, so nothing on screen currently depends
-    # on the number it produces.
+def test_head_to_head_field_size_reads_the_corrected_field_not_the_deck_count(live_graph):
+    # The two events the deleted deck-count fallback used to answer for, and the
+    # reason deleting it was the follow-on to #140: the fallback read Pats Birthday
+    # Brawl as 8 and Area52IQ as 7 while the build had already corrected both to 24
+    # (a claimed field of 8 and of 1 against 8 and 7 decks held). That disagreement
+    # was harmless only while neither event drew a marker, because neither carried a
+    # norm; minting their norms is what makes them draw, so Area52IQ's win would
+    # have been labelled "1st of 7" (issue #162).
     #
-    # These are knowingly *not* the source's own `eventSize`, which is what the
-    # recovery arm returns and what these events have no norm to yield. The
-    # source ships Area52IQ as eventSize 1 (against the 7 decks it holds) and
-    # DeckaDiceIQ as 6 (against 5), so the fallback disagrees with the source at
-    # 2 of the 3; only Pats Birthday Brawl's 8 agrees. That is pinned as the
-    # measured behaviour, not endorsed: the deck count is the only field left
-    # once the norm cannot be inverted.
-    #
-    # DeckaDiceIQ is unreachable through this seam and so is not pinned here: 5
-    # pilots played it and no two of them share a second event, so no pair clears
-    # MIN_SHARED_EVENTS and the tool refuses before it can return the row.
-    for (a, b), (event, deck_count) in {
-        ("CleverAzureFalcon", "CleverCyanStag"): ("Pats Birthday Brawl", 8),
-        ("AmberAmberPanda", "BraveJadeEagle"): ("Area52IQ", 7),
+    # DeckaDiceIQ, the third such event, is unreachable through this seam and so is
+    # not pinned here: 5 pilots played it and no two of them share a second event,
+    # so no pair clears MIN_SHARED_EVENTS and the tool refuses before it can return
+    # the row.
+    for (a, b), event in {
+        ("CleverAzureFalcon", "CleverCyanStag"): "Pats Birthday Brawl",
+        ("AmberAmberPanda", "BraveJadeEagle"): "Area52IQ",
     }.items():
         by_event = {c.event: c.field_size for c in head_to_head_timeline(live_graph, a, b).cells}
-        assert by_event[event] == deck_count
+        assert by_event[event] == MIN_CUT_FIELD
 
 
-def test_head_to_head_field_size_recovers_a_top_cut_field_from_seven_held_decks(live_graph):
-    # The recovery arm at a real top cut, where the two arms are furthest apart:
-    # SSWam holds 7 decks and the norm they were ranked against implies a field of
-    # 88. Pinned because the alternative is not an exception but a plausible wrong
-    # number, and because the engine makes the recovery positional. Run the tool's
-    # own query with `count(DISTINCT f)` moved ahead of the `max(CASE ...)` and
-    # the max comes back NULL on every row, so `field_size` returning anything at
-    # all depends on the order the RETURN happens to list its aggregates in.
-    # Reordering it would move all 108 events onto the deck-count fallback with no
-    # error raised anywhere, and every one of them would still draw an integer in
-    # range. The fixture test above pins 20 against a 4-deck field and would catch
-    # the reorder too; this one catches it against the real graph and states the
-    # size of the gap being defended.
+def test_head_to_head_field_size_is_a_top_cuts_whole_field_not_its_seven_held_decks(
+    live_graph
+):
+    # A real top cut, where the field and the deck count are furthest apart: SSWam
+    # holds 7 decks against the 88-entrant field its norms are ranked in. Pinned
+    # because the alternative is not an exception but a plausible wrong number on
+    # every one of the event's labels.
     held = next(rows(live_graph.execute(
         "MATCH (d:Deck)-[:PLAYED_AT]->(:Event {event: 'SSWam'}) RETURN count(d)")))[0]
     assert held == 7
@@ -852,14 +877,19 @@ def _write_landscape_snapshot(
     deck_records = [
         {
             "deckId": deck_id,
-            "name": f"1st {deck_id} - {archetype} - {event}",
+            # A ``norm`` of ``None`` is a deck the source scored nothing for, so its
+            # title opens with no placement and neither does the deck: the build mints
+            # a norm from any placement it can see, so a placement beside a null norm
+            # is no longer an unranked deck anywhere in the record (issue #162).
+            "name": (f"1st {deck_id} - {archetype} - {event}" if norm is not None
+                     else f"{deck_id} - {archetype} - {event}"),
             "deckName": archetype.title(),
             "pilot": f"pilot-{deck_id}",
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
             "eventSize": _FIELD_SIZE,
-            "placement": 1,
+            "placement": 1 if norm is not None else None,
             "placementNorm": norm,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
             "colour": "colour:U",
@@ -1005,14 +1035,19 @@ def _write_timeline_snapshot(
     deck_records = [
         {
             "deckId": deck_id,
-            "name": f"1st {deck_id} - {archetype} - {event}",
+            # A ``norm`` of ``None`` is a deck the source scored nothing for, so its
+            # title opens with no placement and neither does the deck: the build mints
+            # a norm from any placement it can see, so a placement beside a null norm
+            # is no longer an unranked deck anywhere in the record (issue #162).
+            "name": (f"1st {deck_id} - {archetype} - {event}" if norm is not None
+                     else f"{deck_id} - {archetype} - {event}"),
             "deckName": archetype.title(),
             "pilot": f"pilot-{deck_id}",
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
             "eventSize": _FIELD_SIZE,
-            "placement": 1,
+            "placement": 1 if norm is not None else None,
             "placementNorm": norm,
             "createdAt": created_at,
             "colour": "colour:U",

@@ -32,9 +32,16 @@ _SCHEMA = [
     # 0006's "not stored on the Deck node"): we date the registration, a hard
     # per-deck fact, not the event, which stays year-only. Every other trend still
     # groups by the Year node; only this one reads the per-deck date.
+    # placementImputed and normImputed name the rule that produced the value
+    # beside them, null where the source's own number stands and "none" where no
+    # rule could produce one (issue #162). Same shape as `fieldImputed` below: a
+    # rule name rather than a flag, and one column per decided value rather than
+    # one per feature, so a reader can ask "which of this deck's numbers did we
+    # decide, and under what rule?" in a single query.
     """CREATE NODE TABLE Deck(
         deckId STRING, name STRING, deckName STRING, placement INT64,
-        placementNorm DOUBLE, colourIdentity STRING, createdAt TIMESTAMP,
+        placementNorm DOUBLE, placementImputed STRING, normImputed STRING,
+        colourIdentity STRING, createdAt TIMESTAMP,
         PRIMARY KEY(deckId))""",
     """CREATE NODE TABLE Card(
         canon STRING, name STRING, type STRING, manaValue DOUBLE,
@@ -172,7 +179,7 @@ def build_graph(
     # the claimed field, so counting the dropped registrations would correct a
     # field the source had right (issue #140).
     fields = _event_fields(snapshot.decks, pilots.deck_pilot)
-    snapshot = _rescale_norms(snapshot, fields)
+    snapshot = _mint_norms(_rescale_norms(snapshot, fields), fields)
 
     remove_artifact(artifact)
 
@@ -186,12 +193,21 @@ def build_graph(
         _load_nodes(conn, snapshot, pilots, years, fields)
         _load_edges(conn, snapshot, pilots, years)
 
-        # The pilot resolution's own report, plus every event whose field size
-        # this build corrected: both are assumptions made about data the source
-        # gave, listed each build so they stay legible (ADR 0004, issue #140).
+        # The pilot resolution's own report, every value this build decided, and
+        # the counted evidence behind the field-size rules: all assumptions made
+        # about data the source gave, listed each build so they stay legible (ADR
+        # 0004, issue #140, issue #162).
+        #
+        # `imputed_values` is the index of decided values, generated off the
+        # provenance columns and so complete by construction. `field_evidence` is
+        # not a second index of the same thing: it holds what a rule name cannot,
+        # the counted contradiction (claimed field against pilots attended and
+        # deepest finish) that refuted the source's own number, so the report can
+        # show a correction rather than assert it.
         reconciliation_path(artifact).write_text(json.dumps(
             asdict(pilots.report)
-            | {"imputed_fields": [asdict(f) for f in fields.values() if f.rule]},
+            | {"imputed_values": _imputed_values(conn),
+               "field_evidence": [asdict(f) for f in fields.values() if f.rule]},
             indent=2,
         ))
         # Stamped here rather than in `ingest`, so every path that seals a bundle
@@ -199,6 +215,41 @@ def build_graph(
         # artifact it is about to grade came from the code standing here (#55).
         stamp(artifact, reproducible=from_disk)
         return graph_counts(conn)
+
+
+# Every property whose value this project may decide rather than accept, as
+# ``(label.property, key, provenance column)``. The report is generated off this
+# list, so a new rule string on any of these columns reports itself the build it
+# first fires, and a new class of uncertainty is one line here plus its column
+# (issue #162).
+_PROVENANCE = (
+    ("Deck.placement", "deckId", "placementImputed"),
+    ("Deck.placementNorm", "deckId", "normImputed"),
+    ("Event.fieldSize", "event", "fieldImputed"),
+)
+
+
+def _imputed_values(conn: ladybug.Connection) -> list[dict]:
+    """Every value this build decided, grouped by the property and the rule.
+
+    Read back out of the graph's own provenance columns rather than assembled from
+    the passes that wrote them, which is what stops the report growing a bespoke
+    list per feature: the field-size rules had a hand-built one, and bolting a
+    ``minted_norms`` beside it would have invited a third (issue #162). The keys
+    ride along, not just the count, because the point of the report is that a human
+    can go and look at what was decided.
+
+    A rule of ``"none"`` is listed like any other. It records that no rule could
+    produce a value, which is a decision about the data as much as a recovered
+    number is, and the only reason the 24 unrankable decks are legible at all.
+    """
+    return [
+        {"property": prop, "rule": rule, "count": len(keys), "keys": sorted(keys)}
+        for prop, key, column in _PROVENANCE
+        for rule, keys in sorted(rows(conn.execute(
+            f"MATCH (n:{prop.split('.')[0]}) WHERE n.{column} IS NOT NULL "
+            f"RETURN n.{column}, collect(n.{key})")))
+    ]
 
 
 def graph_counts(conn: ladybug.Connection) -> BuildCounts:
@@ -442,24 +493,86 @@ def _rescale_norms(snapshot: Snapshot, fields: dict[str, EventField]) -> Snapsho
     ``placementNorm = (placement - 1) / (fieldSize - 1)``, the source's own
     formula, applied to the field the event was really played in. Only a
     corrected event is touched, and within it only a deck the source itself
-    scored: a placement the source left unranked stays unranked, so this
-    rescales 54 decks and mints no norm the source never had, which keeps
-    ``_ranked_deck_total`` and the gem denominators where they were (issue #140).
-    Every corrected field is at least :data:`MIN_CUT_FIELD`, so the division is
-    safe.
+    scored, which is what keeps this pass separable from :func:`_mint_norms`: the
+    formula is the same but the domain is not, so a deck arriving here already
+    carries a norm and leaves with a different one, while a deck arriving there
+    carries none and leaves with its first. 54 decks are rescaled. Every
+    corrected field is at least :data:`MIN_CUT_FIELD`, so the division is safe.
+
+    The rescaled norm is not the source's number, so the deck says so: those 54
+    carried a value the source never wrote and nothing recorded it until issue
+    #162 added ``normImputed``.
     """
     corrected = {e: f.field_size for e, f in fields.items() if f.rule}
     if not corrected:
         return snapshot
     decks = [
         d.model_copy(update={
-            "placement_norm": (d.placement - 1) / (corrected[d.event] - 1)
+            "placement_norm": (d.placement - 1) / (corrected[d.event] - 1),
+            "norm_imputed": "rescaled",
         })
         if d.event in corrected and d.placement_norm is not None
         and d.placement is not None
         else d
         for d in snapshot.decks
     ]
+    return Snapshot(
+        cards=snapshot.cards, decks=decks, containments=snapshot.containments
+    )
+
+
+def _mint_norms(snapshot: Snapshot, fields: dict[str, EventField]) -> Snapshot:
+    """Score every deck whose placement is known but whose norm the source never gave.
+
+    One pass over the whole population, so every reader is corrected by the same
+    change: the app plots and averages ``placementNorm`` everywhere and reads
+    ``placement`` nowhere, so a deck holding a placement without a norm falls out of
+    every ranked metric while the graph looks complete. The omission is not a
+    random sample of the record either. Of the 28 decks it hit, 27 were top-8
+    finishes and 6 were outright wins, mean norm 0.088 against a population 0.484,
+    so every mean the app drew was biased in one direction and hardest against the
+    pilots and archetypes that made the cut (issue #162).
+
+    A placement reaches here from three places, all settled before the build:
+    the source scored it, :func:`models.placement_from_title` read it off the
+    title, or :func:`models.resolve_cut_placements` derived it from the event's
+    cohort. This pass consults none of that. It asks only whether a placement is
+    known and a field is known, which is what makes it general: a future class of
+    recovered placement is minted the day it lands, with no change here.
+
+    The denominator is ``EventField.field_size``, the same corrected field
+    :func:`_rescale_norms` uses, so a minted norm and a rescaled one at the same
+    event are ranked against the same number. That is not always a number anybody
+    counted: at Pats Birthday Brawl and Area52IQ, 9 of the 28 decks this pass first
+    minted, the field is :data:`MIN_CUT_FIELD` decided by
+    :func:`corrected_field`'s floor, so a domain rule rather than a measurement now
+    reaches an average. The pair ``normImputed='minted'`` and ``Event.fieldImputed``
+    is what makes that readable off the graph (ADR 0016).
+
+    Where the field cannot serve as a denominator at all the deck stays unranked
+    and says why. A null field size, or the field of 1 the source claimed at
+    Area52IQ before Rule A refuted it, is exactly the division the source itself
+    failed on. So is a rank the field cannot hold: a 0 from the title grammar
+    scores below 0.0 and a rank past the field scores above 1.0, which no event
+    presents today (Rule A corrects any Tournament whose deepest finish exceeds
+    its claimed field, and a Teams event's placements range over the teams its
+    ``eventSize`` counts) but which the guard checks rather than assumes, because a
+    norm outside 0..1 is not a finish and would average as though it were.
+    """
+    decks = []
+    for deck in snapshot.decks:
+        if deck.placement_norm is not None:
+            decks.append(deck)
+            continue
+        field = fields[deck.event].field_size
+        if (deck.placement is None or field is None or field <= 1
+                or not 1 <= deck.placement <= field):
+            decks.append(deck.model_copy(update={"norm_imputed": "none"}))
+            continue
+        decks.append(deck.model_copy(update={
+            "placement_norm": (deck.placement - 1) / (field - 1),
+            "norm_imputed": "minted",
+        }))
     return Snapshot(
         cards=snapshot.cards, decks=decks, containments=snapshot.containments
     )
@@ -481,10 +594,13 @@ def _load_nodes(
     _load(conn,
           """UNWIND $rows AS r CREATE (:Deck {deckId: r.deckId, name: r.name,
              deckName: r.deckName, placement: r.placement,
-             placementNorm: r.placementNorm, colourIdentity: r.colourIdentity,
-             createdAt: r.createdAt})""",
+             placementNorm: r.placementNorm,
+             placementImputed: r.placementImputed, normImputed: r.normImputed,
+             colourIdentity: r.colourIdentity, createdAt: r.createdAt})""",
           [{"deckId": d.deck_id, "name": d.name, "deckName": d.deck_name,
             "placement": d.placement, "placementNorm": d.placement_norm,
+            "placementImputed": d.placement_imputed,
+            "normImputed": d.norm_imputed,
             "colourIdentity": d.colour_identity, "createdAt": d.created_at}
            for d in snapshot.decks])
     _create_nodes(conn, "Card", Card, _CARD_FIELDS, snapshot.cards)
