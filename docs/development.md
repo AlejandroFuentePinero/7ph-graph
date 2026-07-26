@@ -69,3 +69,12 @@ Rows are compared under each query's own rule: order-exact where the query sorts
 before emitting, order-insensitive for the two that do not, and floats within a
 tolerance, because aggregation order changes the last bits of a mean between
 engines.
+
+A `--force` recapture rewrites the file wholesale, in the engine's row order and
+with the last bits of every float redrawn, so its diff is mostly churn and cannot
+be read line by line. Review it by comparing the old and new JSON case by case
+with the node and edge lists sorted: that separates the lines the change actually
+moved from the reordering, and the count it leaves should match the grade printed
+just before the capture. Recapture in its own commit with nothing else in the
+diff, and say in the message which lines are real, or the reordering becomes a
+place a regression can hide (issues #67, #165).
