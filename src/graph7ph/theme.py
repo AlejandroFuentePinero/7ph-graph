@@ -371,6 +371,15 @@ def build_css() -> str:
    one of #132's observed default-furniture tells (#115). */
 footer {{ display: none !important; }}
 
+/* And the floating "Plot" chip Gradio draws over a `gr.Plot`, the same furniture one
+   level down: it names the component's type over a card the app has already titled in
+   its own type ("Performance over time"), so it says nothing the reader does not have.
+   Retired rather than recoloured, which is the other way it could go: the chip sits on
+   the well surface, where `--text-mute` is 4.23:1, the one text in the shipped theme
+   that missed WCAG AA in the #118 acceptance pass. Scoped to the cards, so a label on
+   any future component outside one is untouched. */
+.insight-card label.float {{ display: none; }}
+
 /* The app's own credit surface in place of that footer (#115): coverage, the build
    snapshot, and the source links, set apart from the tabs by a hairline and centred as
    a page footer. The coverage counts read a step up from the caption below them, the

@@ -44,6 +44,23 @@ Defined once as CSS custom properties; every surface reads them by role.
 All text roles clear WCAG AA on `--bg`. No hardcoded colour may assume a
 background the app does not control.
 
+**Measured by the #118 acceptance pass**, which walks every rendered text node
+rather than reading the table above. The ink roles against the three grounds:
+
+| Ink | on `--bg` | on `--surface` | on `--surface-2` |
+|---|---|---|---|
+| `--text` | 16.17 | 15.02 | 13.88 |
+| `--text-dim` | 8.40 | 7.80 | 7.21 |
+| `--text-mute` | 4.92 | 4.57 | **4.23** |
+| `--accent` | 5.68 | 5.27 | 4.87 |
+| `--accent-bright` | 7.27 | 6.76 | 6.24 |
+
+The muted role is the tight one, and on the raised well it misses AA: **no
+caption, label, or tick may be set in `--text-mute` on `--surface-2`**. That is
+the whole reason Gradio's floating "Plot" chip is retired in the chrome cleanup
+below rather than recoloured, and it is the constraint to check before putting
+new text on a well.
+
 ## 3. Type system
 
 **Revised by #132** (superseding the original zero-webfont decision). The type is
@@ -378,3 +395,9 @@ The default-Gradio footer ("Built with Gradio / Use via API / Settings") is reti
 as part of this pass's default-furniture cleanup, so the app does not read as a
 scaffold. (Owned by #115; noted here because it is one of #132's observed
 default-Gradio tells.)
+
+The floating "Plot" chip Gradio draws over a `gr.Plot` goes with it (#118): it names
+the component's type over a card the app has already titled in its own type, and it
+is the one text the acceptance pass found below WCAG AA, since it sits on the well
+where `--text-mute` is 4.23:1 (§2). Retired rather than recoloured, because the card
+title already says what the chip says.

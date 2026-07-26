@@ -12,6 +12,17 @@ def test_every_shell_text_role_clears_wcag_aa_on_the_ground():
         assert theme.contrast_ratio(theme.TOKENS[role], ground) >= 4.5, role
 
 
+def test_every_shell_text_role_clears_wcag_aa_on_the_card_surface():
+    # Most of the app's text is not on the ground: an insight card, a chart, and the
+    # graph all paint `--surface` underneath, so a role legible on the ground and not
+    # on the card would pass the test above and fail the reader. The #118 acceptance
+    # pass measures the rendered page and finds the muted role at its tightest here
+    # (4.57:1), so this is the pair with no headroom to spare.
+    surface = theme.TOKENS["surface"]
+    for role in ("text", "text-dim", "text-mute"):
+        assert theme.contrast_ratio(theme.TOKENS[role], surface) >= 4.5, role
+
+
 def test_the_accents_clear_the_ui_contrast_floor_on_the_ground():
     # The accent carries action and active state, the bright accent carries links and
     # on-surface emphasis; both must clear the 3:1 floor WCAG sets for UI and large
@@ -69,6 +80,17 @@ def test_the_default_gradio_footer_is_retired():
     css = theme.build_css()
     footer = re.search(r"footer\s*\{(.*?)\}", css, re.DOTALL)
     assert footer and "display: none" in footer.group(1)
+
+
+def test_the_floating_component_label_over_a_plot_is_retired():
+    # AC (#118): the same default furniture the footer rule retires, one level down.
+    # Gradio floats a chip reading "Plot" over every `gr.Plot`, naming the component's
+    # type over a card the app has already titled, and it was the one text in the
+    # shipped theme that missed WCAG AA (`--text-mute` on `--surface-2` is 4.23:1). The
+    # rule is scoped to the cards, so it cannot silently hide a label elsewhere.
+    css = theme.build_css()
+    rule = re.search(r"\.insight-card label\.float\s*\{(.*?)\}", css, re.DOTALL)
+    assert rule and "display: none" in rule.group(1)
 
 
 def test_the_head_carries_a_real_favicon_and_social_preview():
