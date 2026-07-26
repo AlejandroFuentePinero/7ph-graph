@@ -37,3 +37,11 @@ scratch/
 # Agent config (local, not shared)
 CLAUDE.md
 docs/agents/
+
+# Acceptance evidence (#118): the shots, their gallery, and the raw per-node
+# measurements are rebuilt on demand by `scripts/acceptance_shots.py` and stay
+# local, so the repo does not carry megabytes of screenshots. The written report
+# and the index beside them are tracked, since those are what the tickets cite.
+docs/design/acceptance/**/*.png
+docs/design/acceptance/**/*.json
+docs/design/acceptance/**/gallery.html
