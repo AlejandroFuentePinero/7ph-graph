@@ -1417,7 +1417,7 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     teams events every one is shared between the 1 to 11 pilots on a team. That
     denominator is the field the finish was ranked against, which is not an entrant
     count: it counts teams at 4 events and ranking slots at 5 more, and sits below
-    the number of pilots who entered at 10 of 108 events. The points are the data; the thin dashed line only joins them and
+    the number of pilots who entered at 10 of 107 events. The points are the data; the thin dashed line only joins them and
     asserts no direction. A translucent band fills between the two lines, tinted with
     the colour of whichever pilot is above, so the size and direction of the gap read
     at a glance; it breaks over any event one pilot did not score and splits at a
@@ -1537,7 +1537,7 @@ def _archetype_timeline_figure(
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
             # Smaller than the shared observation ring: two common archetypes share most
-            # of the corpus (Grixis and Lands, 59 of its 108 events), and at that spacing
+            # of the corpus (Grixis and Lands, 59 of its 107 events), and at that spacing
             # the default 12px rings overlap into a band that buries the lines they sit
             # on. The pilot head-to-head is the same form through the same styler and
             # keeps the shared ring: it is drawn over the events one *pair of pilots*

@@ -136,7 +136,7 @@ def _deck_hash(deck: Deck, conts: list[Containment]) -> str:
     every one of its decks in silence, and a move inside one year is invisible
     to every guard we have while still moving the timeline and the career order.
     Nothing has moved yet: createdAt differs for 0 of the 4553 decks the two
-    snapshots share, and 6 of 108 events sit within a week of a New Year (issue
+    snapshots share, and 6 of 107 events sit within a week of a New Year (issue
     #103). Whether a corrected registration date is a fact to accept or a change
     to review is an open question; this records which of the two the code
     answers today.

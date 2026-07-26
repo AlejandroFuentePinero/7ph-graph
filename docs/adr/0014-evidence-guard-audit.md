@@ -149,7 +149,7 @@ Three more things the audit surfaced that are real but are not this ticket, reco
 
 **Card ids are positional and not stable across fetches.** 4728 of 4967 shared positions resolve to a different canon between the two snapshots, because the catalogue is canon-sorted and 28 canons were inserted. Nothing downstream is affected, because ids are resolved to canons before anything is keyed on them, and the gate returns promote with 0 flags over both files. The module docstring calling a list position an id is the only thing that invites the assumption.
 
-**One event is a placeholder.** 1 of 108 `Event` nodes is keyed `nan` with a null id, present in both snapshots. It inflates one pilot's affinity view by one distinct showing-up, 6 of 11,870 drawn affinity values.
+**One event is a placeholder.** 1 of 108 `Event` nodes is keyed `nan` with a null id, present in both snapshots. It inflates one pilot's affinity view by one distinct showing-up, 6 of 11,870 drawn affinity values. *(Resolved by issue #167: the single deck holding it up was returned to CBR3 by a `[[deck_event]]` curation entry, so the placeholder is gone and the graph holds 107 events. The count above stands as the audit measured it.)*
 
 **The reconciliation report is a report of the undecided, and says so.** It names 0 of the 238 applied curation entries individually, which is its documented population (ADR 0005 line 3), not a gap. What it does not surface is the 23 entries that fire nothing: 9 reject pairs and 14 name pins that restate the vote the resolver would have reached anyway.
 

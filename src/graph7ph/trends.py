@@ -234,13 +234,13 @@ class HeadToHeadPoint:
     align. ``field_size`` is the size the norm beside it was ranked against, read off
     ``Event.fieldSize``: the build divides by that number and stores it, so the label
     and the norm cannot disagree (:func:`build.corrected_field`). That is the source's
-    own ``eventSize`` at 99 of 108 events and the corrected field at the 9 the build
+    own ``eventSize`` at 98 of 107 events and the corrected field at the 9 the build
     re-ranks (issue #140). Where it comes from the source it is the source's published
-    entrant count wherever the source publishes one (36 of 108 events carry a
+    entrant count wherever the source publishes one (36 of 107 events carry a
     ``players`` field, and ``eventSize`` equals it in 36 of 36) and the last recorded
-    placement on the other 71 of 71, and at the 4 ``eventType='Teams'`` events it
+    placement on the other 70 of 70, and at the 4 ``eventType='Teams'`` events it
     counts teams rather than people (TMCTeams25 is 39 against 117 decks). It is not
-    the decks-at-event count, which it exceeds at 58 of 108 events: a top-cut event
+    the decks-at-event count, which it exceeds at 56 of 107 events: a top-cut event
     records only its top finishers and a teams event folds many decks onto few
     places, so the decks-at-event count is neither, and a raw finish is only readable
     against the field the norm actually used.
@@ -252,7 +252,7 @@ class HeadToHeadPoint:
     DeckaDiceIQ, against 24 at all three. That was harmless only while those events
     had no norms to draw. Minting gave them some, and Area52IQ's is a win, norm 0.0
     and uninvertible, so the fallback would have labelled it "1st of 7" (ADR 0016).
-    The annotation is ``int`` rather than ``int | None`` because all 108 events carry
+    The annotation is ``int`` rather than ``int | None`` because all 107 events carry
     a field and Rule C fills a null ``eventSize`` for a Tournament; the source has
     never shipped a non-Tournament event without one, which is the only shape
     :func:`build.corrected_field` would pass a null through.
@@ -295,7 +295,7 @@ class ArchetypeTimelinePoint:
     ``date`` is the event's registration date, the earliest ``createdAt`` across its
     whole field, the same per-event proxy :class:`HeadToHeadPoint` carries. It is
     derived per event and not per deck (which is what the pilot timeline effectively
-    does, one deck being one point): an event is not a single date, 21 of 108 spread
+    does, one deck being one point): an event is not a single date, 21 of 107 spread
     over more than a day and one over 12, and both sides of a shared event have to
     sit at the same x or the band between them is drawn against a lie.
     """
@@ -836,7 +836,7 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
                 # replaces: the inversion could not read a field an event's only
                 # ranked deck won (0 is uninvertible) and fell back to the deck
                 # count, a different quantity that disagreed with the stored field at
-                # 3 of 108 events. That was harmless only while those events drew no
+                # 3 of 107 events. That was harmless only while those events drew no
                 # markers, and minting their norms is what would have made them draw
                 # a win labelled "1st of 7" against a field of 24 (issue #162). The
                 # `f` decks are still matched, for the event's registration date:

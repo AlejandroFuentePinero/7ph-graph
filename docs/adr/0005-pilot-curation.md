@@ -8,12 +8,17 @@ The `pilot` id is not an account number. 1221 of 1248 ids are drawn from a close
 
 ## The curation dictionary
 
-`curation/pilots.toml` holds four kinds of decision, each keyed only on a stable upstream identifier (a pilot id or a deck id), never on a derived value like a display name or a synthetic key (`nan:darcy`, `LunarRedFalcon#2`) that shifts when data changes. That is what makes a decision timeless: recorded once, it applies identically to every future ingestion.
+`curation/pilots.toml` holds seven kinds of decision, each keyed only on a stable upstream identifier (a pilot id, a deck id, or an event code), never on a derived value like a display name or a synthetic key (`nan:darcy`, `LunarRedFalcon#2`) that shifts when data changes. That is what makes a decision timeless: recorded once, it applies identically to every future ingestion.
+
+The first four are this ADR's; the last three were added by later work and are recorded here so the list stays the one place the whole vocabulary is written down.
 
 - **merge**: collapse several ids onto one canonical id, flattened transitively (union-find), so `Alexadner J -> Alexander J` and `Alex J -> Alexander J` land on one node.
 - **reject**: mark two ids as different people, suppressing the pair from the candidate report for good.
 - **name**: pin a display name over the majority vote (`alejandrofp -> Alejandro D`).
 - **deck_pilot**: reassign one deck to a real pilot id, resolving a null-pilot deck to its owner before the name vote.
+- **split**: mark same-named ids as different people, keeping the identical-name join (ADR 0007) from folding them into one node. The inverse of a merge; ADR 0009 records it.
+- **deck_archetype**: reclassify one deck whose source title mislabelled its archetype, collapsing it onto the single corrected engine (issue #9).
+- **deck_event**: return one deck to the event it was really played at, for a deck the source stranded at a malformed event. The deck adopts the target cohort's event id, type and claimed field, and its norm is re-scored against the field the build counts (issue #167).
 
 An absent file is not an error: the heuristics alone still build a graph. A malformed file, or one that contradicts itself (a merged group naming two canonical ids), aborts the build.
 
