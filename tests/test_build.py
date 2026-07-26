@@ -21,6 +21,71 @@ def _scalar(conn, query, params=None):
     return conn.execute(query, params or {}).get_next()[0]
 
 
+# Every deck in the real record that carries no placement at all, and the title
+# showing why nothing could recover one: the source's own explicit unknown
+# ("??st", "XXth"), or a title with no placement in it whatsoever. These are the
+# whole of what stays unranked after minting (issue #162), 24 decks across 4
+# events under 24 distinct pilots. Enumerated rather than counted, so the next
+# class of uncertainty fails a test the build it lands rather than surfacing as a
+# gap somebody notices in a chart months later.
+UNRANKABLE = {
+    "3Xmk6tmp4EmdsjhAR4hsxg": "Jed - Oath Reanimator - Area52IQ",
+    "H8Imnz5dakug-6FSqzKNZg": "Darcy - Mono R - Area52IQ",
+    "L-L3SafKt0OI6BpxB8XIZQ": "Jett - 8pt UR Prowess - Area52IQ",
+    "VQBHAQS_IkGWUYgfC5_2lQ": "Jake P - 4C Midrange - Area52IQ",
+    "fDtwpjhL8Eyc-PTcTvNCiA": "Connor P - 4C Kiki Pod - Area52IQ",
+    "yVyG8D8DQ0CCT1EvsfmF1g": "James L - Atraxa Walks - Area52IQ",
+    "5heC6vkMyUKOq7zYO8Df3w": "??st Matt B - Food - CFWAT25",
+    "UyIGbLg7Pk2itMPCiaVSRg": "??st Andrew V - Mox Jund - CFWAT25",
+    "5EzR6_GoHkOTm82Z03CbNg": "Bennett - Omnath Walks - DeckaDiceIQ",
+    "I4hp44SJ80i5DywYFPpi7g": "Clement - Orzhov Aristocrats - DeckaDiceIQ",
+    "hLkyJInRh0Cg4KBowWNBdA": "Jake - BR Artifcacts - DeckaDiceIQ",
+    "lrzNuDcV2kuAX277mTkeDg": "Reece - Jund - DeckaDiceIQ",
+    "6LithT-HokGwFqVgONI8Yw": "XXth Jenny O - Goblins - GGWAD",
+    "8BGY3Qy_LEewzJeeQGDKBg": "XXth Thomas S - 8pt Izzet Tempo - GGWAD",
+    "9Bg-4iGBbEaxm--QNjPmHg": "XXth Cody W - Hardened Scales - GGWAD",
+    "A-rTUVcaDUyPFNoo3ESIoA": "XXth Harry F - Goblins - GGWAD",
+    "Chr2KinMQEutlvNfwxL4dg": "XXth Chris KH - Shops - GGWAD",
+    "DAcvFcMfjEikQflSmLOePA": "XXth Jake S - Gorgeous Reanimator - GGWAD",
+    "K7rXbSY7sECJVwNXBrQrDw": "XXth Jordan L - Nadu Walks - GGWAD",
+    "OXXJoh8Pbk-YGiw_b46o1Q": "XXth Daniel T - 8pt Omnath/Nadu Midrange - GGWAD",
+    "bo7EBYfa20evPxlesiNMog": "XXth Sophie P - Bus Driver Grixis - GGWAD",
+    "eijogJHP0UOQna3oW25Glg": "XXth Jayden G - Breach Bond - GGWAD",
+    "qFCberD4WUWYWZVUbKQx2g": "XXth Chris D - Jund Reanimator - GGWAD",
+    "uWQwygs90UK_2Km7hEm0FA": "XXth Mark S - 8pt Boros Equipment - GGWAD",
+}
+
+
+def test_every_deck_in_the_record_is_ranked_or_says_it_cannot_be(live_graph):
+    # The invariant minting exists to establish, over the whole record rather than a
+    # fixture: a deck either carries a norm, and so reaches every metric that reads
+    # one, or it says outright that no rule could give it one. Nothing sits between
+    # the two, which is where the 28 decks of issue #162 sat, holding a placement the
+    # project had already decided while falling out of every mean and every chart.
+    #
+    # Both provenance columns are read, because between them they say *why* a deck is
+    # unranked, which one column cannot. A `normImputed` of "none" means no rule could
+    # give it a norm; the `placementImputed` beside it says whether that is because
+    # nothing could recover a placement (the whole of the record today) or because
+    # a placement was recovered and the event's field could not normalise it.
+    unranked = {
+        deck_id: (name, placement_rule, norm_rule)
+        for deck_id, name, placement_rule, norm_rule in rows(live_graph.execute(
+            """MATCH (d:Deck) WHERE d.placementNorm IS NULL
+               RETURN d.deckId, d.name, d.placementImputed, d.normImputed"""))
+    }
+    assert unranked == {
+        deck_id: (name, "none", "none") for deck_id, name in UNRANKABLE.items()
+    }
+
+    # No deck is ranked without a placement to rank it: the inverse gap, which the
+    # record has never held and which minting cannot introduce, since it mints from a
+    # placement.
+    assert _scalar(live_graph, """MATCH (d:Deck)
+        WHERE d.placementNorm IS NOT NULL AND d.placement IS NULL
+        RETURN count(d)""") == 0
+
+
 def _deck(deck_id, event, created_at, **overrides):
     """A minimal deck record, for snapshots crafted to exercise one behaviour.
 
@@ -640,20 +705,56 @@ def test_a_corrected_field_rescales_the_norms_ranked_against_the_wrong_one(tmp_p
                          "TEAMS0": 0.0, "TEAMS1": 0.0, "TEAMS2": 1.0}
 
 
-def test_the_report_lists_every_event_whose_field_was_corrected(tmp_path):
+def test_the_report_shows_the_counts_that_refuted_each_corrected_field(tmp_path):
     # An imputed field is an assumption the build made about the data, so it is
-    # listed for a human each build rather than dissolving into the graph. The
-    # events the source had right are not listed: only what was corrected is.
+    # listed for a human each build rather than dissolving into the graph, and with
+    # the counts it was corrected on: the rule name in `imputed_values` says a
+    # correction happened, this says what contradicted the source, which is the one
+    # thing a rule name cannot carry (issue #162). The events the source had right
+    # are not listed: only what was corrected is.
     _write_snapshot(tmp_path, _BROKEN + _TEAMS + _CLEAN)
     artifact = tmp_path / "graph"
 
     build_graph(load_snapshot(tmp_path), artifact)
 
     report = json.loads(reconciliation_path(artifact).read_text())
-    assert report["imputed_fields"] == [
+    assert report["field_evidence"] == [
         {"event": "BROKEN", "rule": "A", "event_size": 5, "field_size": 24,
          "pilots": 7, "max_placement": 5}
     ]
+
+
+def test_the_report_generates_its_imputed_values_from_the_provenance_columns(tmp_path):
+    # Every value this build decided, read back out of the columns that record it
+    # rather than assembled by hand per feature. That is what keeps the report from
+    # growing a bespoke list per uncertainty class: a new rule string appears here
+    # the build it first fires, with no change to the report code (issue #162).
+    _write_snapshot(tmp_path, _BROKEN + _CLEAN + _TITLES)
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    report = json.loads(reconciliation_path(artifact).read_text())
+    assert report["imputed_values"] == [
+        {"property": "Deck.placement", "rule": "none", "count": 1,
+         "keys": ["TITLES3"]},
+        {"property": "Deck.placement", "rule": "title-range", "count": 2,
+         "keys": ["TITLES1", "TITLES2"]},
+        {"property": "Deck.placement", "rule": "title-single", "count": 1,
+         "keys": ["TITLES0"]},
+        {"property": "Deck.placementNorm", "rule": "minted", "count": 3,
+         "keys": ["TITLES0", "TITLES1", "TITLES2"]},
+        {"property": "Deck.placementNorm", "rule": "none", "count": 1,
+         "keys": ["TITLES3"]},
+        {"property": "Deck.placementNorm", "rule": "rescaled", "count": 7,
+         "keys": ["BROKEN0", "BROKEN1", "BROKEN2", "BROKEN3", "BROKEN4",
+                  "BROKEN5", "BROKEN6"]},
+        {"property": "Event.fieldSize", "rule": "A", "count": 1,
+         "keys": ["BROKEN"]},
+    ]
+    # The events the source had right appear nowhere: only what was decided here is
+    # listed, on every property.
+    assert "CLEAN" not in json.dumps(report["imputed_values"])
 
 
 def test_a_duplicate_registration_is_not_a_second_attendee(tmp_path):
@@ -686,13 +787,72 @@ def test_a_duplicate_registration_is_not_a_second_attendee(tmp_path):
     ) == 1.0
 
 
-def test_a_corrected_event_mints_no_norm_the_source_never_gave(tmp_path):
-    # Rescaling re-ranks the norms the source shipped. It does not score a deck
-    # the source left unranked, even at a corrected event where the title
-    # recovered a finish: that deck stays invisible to every ranked metric, so
-    # this correction moves the decks it rescales and no denominator (issue
-    # #140). Pats Birthday Brawl is exactly this shape: 8 placements, all
-    # recovered from titles, and not one source norm.
+# An event the source numbers nothing at, where every rank comes off the title:
+# Pats Birthday Brawl's shape. The claimed field of 24 is self-consistent (nobody
+# finished beyond it and 4 people entered), so no rule corrects it and the minted
+# norms are ranked against the source's own number.
+_TITLES = [
+    _deck("TITLES0", "TITLES", "2025-06-01T00:00:00+00:00", eventSize=24,
+          placement=None, placementNorm=None, name="1st - Robert L - TITLES"),
+    _deck("TITLES1", "TITLES", "2025-06-01T00:00:00+00:00", eventSize=24,
+          placement=None, placementNorm=None, name="3rd/4th - Brennan C - TITLES"),
+    _deck("TITLES2", "TITLES", "2025-06-01T00:00:00+00:00", eventSize=24,
+          placement=None, placementNorm=None, name="5th-8th - Liam B - TITLES"),
+    # The source's own explicit "unknown": no placement in this title to read.
+    _deck("TITLES3", "TITLES", "2025-06-01T00:00:00+00:00", eventSize=24,
+          placement=None, placementNorm=None, name="??st Andrew V - TITLES"),
+]
+
+
+def test_every_deck_records_which_of_its_numbers_this_build_decided(tmp_path):
+    # The whole provenance vocabulary in one graph, which is the point of it: the
+    # same question ("which of this deck's numbers did we decide, and under what
+    # rule?") answers for every class of uncertainty at once, so the next class
+    # reports itself rather than needing a screenshot to find (issue #162). A null
+    # means the source's own number stands; "none" means no rule could produce one.
+    _write_snapshot(tmp_path, _BROKEN + _CLEAN + _TITLES)
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    conn = open_for_reading(artifact)
+    assert {
+        deck_id: (placement, placement_rule, norm_rule)
+        for deck_id, placement, placement_rule, norm_rule in rows(conn.execute(
+            """MATCH (d:Deck) WHERE d.deckId IN
+                   ['CLEAN0', 'BROKEN4', 'TITLES0', 'TITLES1', 'TITLES2', 'TITLES3']
+               RETURN d.deckId, d.placement, d.placementImputed, d.normImputed"""))
+    } == {
+        # The source scored both numbers and nothing contradicted its field.
+        "CLEAN0": (5, None, None),
+        # The source scored the rank; its norm was re-ranked against a corrected
+        # field, which nothing recorded before this change (issue #140).
+        "BROKEN4": (5, None, "rescaled"),
+        # A rank read off the title, then normalised here for the first time.
+        "TITLES0": (1, "title-single", "minted"),
+        "TITLES1": (3, "title-range", "minted"),
+        "TITLES2": (5, "title-range", "minted"),
+        # Nothing recoverable: the deck stays unranked and the graph says why,
+        # rather than leaving a null that reads the same as a source number.
+        "TITLES3": (None, "none", "none"),
+    }
+    # A minted norm is ranked against the event's field like any other, so it is
+    # directly comparable with the norms beside it.
+    assert dict(rows(conn.execute(
+        """MATCH (d:Deck) WHERE d.deckId IN ['TITLES0', 'TITLES1', 'TITLES2']
+           RETURN d.deckId, d.placementNorm"""))) == {
+        "TITLES0": 0.0, "TITLES1": pytest.approx(2 / 23),
+        "TITLES2": pytest.approx(4 / 23),
+    }
+
+
+def test_a_placement_with_no_norm_is_minted_one_against_the_events_field(tmp_path):
+    # A rank the source scored but never normalised. The source's own
+    # `(placement - 1) / (eventSize - 1)` divides by zero at a claimed field of 1,
+    # so it shipped nulls; every reader in the app gates on `placementNorm`, so
+    # those decks fell out of every ranked metric while the graph held their rank
+    # (issue #162). The norm is minted against the field the event was really
+    # played in, the same corrected `Event.fieldSize` a rescale uses.
     _write_snapshot(tmp_path, _scored("CUT", 8, [(1, None), (2, None), (3, None),
                                                  (4, None), (5, None), (5, None),
                                                  (5, None), (5, None)]))
@@ -702,5 +862,47 @@ def test_a_corrected_event_mints_no_norm_the_source_never_gave(tmp_path):
 
     conn = open_for_reading(artifact)
     assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldImputed") == "B"
-    assert {n for _, n in rows(conn.execute(
-        "MATCH (d:Deck) RETURN d.deckId, d.placementNorm"))} == {None}
+    assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldSize") == MIN_CUT_FIELD
+    minted = dict(rows(conn.execute(
+        "MATCH (d:Deck) RETURN d.placement, d.placementNorm")))
+    assert minted == {1: 0.0, 2: pytest.approx(1 / 23), 3: pytest.approx(2 / 23),
+                      4: pytest.approx(3 / 23), 5: pytest.approx(4 / 23)}
+    # The source gave these ranks, so only the norm beside them was decided here.
+    assert {i for _, i in rows(conn.execute(
+        "MATCH (d:Deck) RETURN d.deckId, d.placementImputed"))} == {None}
+    assert {i for _, i in rows(conn.execute(
+        "MATCH (d:Deck) RETURN d.deckId, d.normImputed"))} == {"minted"}
+
+
+def test_a_placement_the_events_field_cannot_hold_is_not_minted_a_norm(tmp_path):
+    # A norm outside 0..1 is not a finish, it is arithmetic on two numbers that do
+    # not belong to each other, and it would enter every mean silently while
+    # `normImputed` claimed a rule stood behind it. Both shapes are reachable from
+    # the title grammar: a rank of 0 is below any field, and a rank past the field
+    # survives wherever the field is not corrected (`corrected_field` whitelists
+    # Tournament, so a Teams event's claimed size stands as given). Neither occurs
+    # in today's record; the guard is what keeps that a fact rather than a hope,
+    # since minting is meant to reach a future class of recovered rank untouched
+    # (issue #162).
+    _write_snapshot(tmp_path, [
+        _deck("LOW", "TEAMS", "2025-06-01T00:00:00+00:00", eventType="Teams",
+              eventSize=10, placement=None, placementNorm=None,
+              name="0th - Robert L - TEAMS"),
+        _deck("HIGH", "TEAMS", "2025-06-01T00:00:00+00:00", eventType="Teams",
+              eventSize=10, placement=None, placementNorm=None,
+              name="121st - Brennan C - TEAMS"),
+    ])
+    artifact = tmp_path / "graph"
+
+    build_graph(load_snapshot(tmp_path), artifact)
+
+    conn = open_for_reading(artifact)
+    # The rank the title gave is kept, because the title really says it. What no
+    # rule can produce is a norm, and the graph says so rather than leaving a null
+    # that reads like a number the source chose not to give.
+    assert {
+        deck_id: (placement, norm, norm_rule)
+        for deck_id, placement, norm, norm_rule in rows(conn.execute(
+            """MATCH (d:Deck)
+               RETURN d.deckId, d.placement, d.placementNorm, d.normImputed"""))
+    } == {"LOW": (0, None, "none"), "HIGH": (121, None, "none")}

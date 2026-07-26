@@ -82,12 +82,16 @@ A deck that runs no Reserved List cards and may therefore spend 8 points instead
 _Avoid_: Accessibility deck
 
 **Placement**:
-A pilot's finishing rank at an event, and its normalised form for cross-event comparison.
+A pilot's finishing rank at an event, and its normalised form for cross-event comparison. Every metric reads the normalised form, so a rank the project knows is always normalised, against the event's Field Size, whether the source scored it or the project recovered it (ADR 0016).
 _Avoid_: Rank, position, result
 
 **Field Size**:
-The number of entrants a Placement is normalised against. The source ships one per Deck, and where a count contradicts it the build corrects it and re-ranks that event's norms, recording which rule decided (ADR 0015).
+The number of entrants a Placement is normalised against. The source ships one per Deck, and where a count contradicts it the build corrects it and re-ranks that event's norms, recording which rule decided (ADR 0015). Stored on the Event, and read from there rather than recovered by inverting a norm.
 _Avoid_: Event size, tournament size, entrant count (the corrected field is not always an entrant count)
+
+**Imputed**:
+A value the project decided rather than the source supplying it. Recorded beside the value as the name of the rule that produced it: null where the source's own number stands, a rule name where a pass here produced it, and `none` where a rule was looked for and none fit. Every uncertain value carries one (`Deck.placementImputed`, `Deck.normImputed`, `Event.fieldImputed`), so "which of this thing's numbers did we decide, and under what rule?" is one query for every class of uncertainty (ADR 0016).
+_Avoid_: Inferred, guessed, flag, derived (a derived value like Year is not an uncertain one)
 
 ---
 

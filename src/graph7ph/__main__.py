@@ -65,10 +65,19 @@ def _build(args: argparse.Namespace) -> None:
         len(recon.get("name_splits", [])),
         len(recon.get("unexplained_names", [])),
     )
-    imputed = len(recon.get("imputed_fields", []))
-    if imputed:
-        print(f"  {imputed} event(s) had their field size corrected before "
-              "normalising placements (listed in the report)")
+    # Grouped by property and printed off the report's generated section, so a rule
+    # this code has never heard of is still announced the build it first fires
+    # (issue #162). "none" among them is a value nothing could recover, which is
+    # what a reader most needs to see.
+    decided: dict[str, list[str]] = {}
+    for value in recon.get("imputed_values", []):
+        decided.setdefault(value["property"], []).append(
+            f"{value['rule']}={value['count']}")
+    if decided:
+        print("  values this build decided rather than accepted "
+              "(listed in the report):")
+        for prop, rules in decided.items():
+            print(f"    {prop}: {', '.join(rules)}")
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

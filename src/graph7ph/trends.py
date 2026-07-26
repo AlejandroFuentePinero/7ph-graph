@@ -231,30 +231,38 @@ class HeadToHeadPoint:
     event's registration date, the earliest ``createdAt`` across its whole field,
     the same proxy ADR 0006 dates the event by but at day rather than year
     granularity, so both pilots' points share one x per event and the two lines
-    align. ``field_size`` is the size the norm was ranked against, recovered here by
-    inverting it. That is the source's own ``eventSize`` at 99 of 108 events, which
-    the recovery equals on 105 of 105 events that can yield one, and the corrected
-    field at the 9 the build re-ranks (:func:`build.corrected_field`, issue #140):
-    the inversion tracks whichever number the norm beside it was scored against, so
-    it stays the denominator that finish is readable under. The graph now stores it
-    outright as ``Event.fieldSize``, which retires this recovery; reading the node
-    instead is the follow-on to #140. Where it comes from the source it is the
-    source's
-    published entrant count wherever the source publishes one (36 of 108 events carry
-    a ``players`` field, and ``eventSize`` equals it in 36 of 36) and the last
-    recorded placement on the other 71 of 71, and at the 4 ``eventType='Teams'``
-    events it counts teams rather than people (TMCTeams25 is 39 against 117 decks).
-    It is not the decks-at-event count, which it exceeds at 58 of 108 events: a
-    top-cut event records only its top finishers and a teams event folds many decks
-    onto few places, so the decks-at-event count is neither, and a raw finish is only
-    readable against the field the norm actually used. It is not always recovered
-    either: an event with no invertible norm falls back to that deck count, which is
-    30 of 134,806 currently drawn rows. ``placement_a``/``norm_a`` are pilot ``a``'s
-    raw finish and ``placementNorm``, ``_b`` pilot ``b``'s. A norm the source never
-    scored is ``None``, but a placement is not always:
-    :func:`models.placement_from_title` recovers one from the title for 27 decks the
-    source left unscored. The y-axis is ``norm`` (comparable across field sizes); the
-    raw placement and field size ride along for the point's label.
+    align. ``field_size`` is the size the norm beside it was ranked against, read off
+    ``Event.fieldSize``: the build divides by that number and stores it, so the label
+    and the norm cannot disagree (:func:`build.corrected_field`). That is the source's
+    own ``eventSize`` at 99 of 108 events and the corrected field at the 9 the build
+    re-ranks (issue #140). Where it comes from the source it is the source's published
+    entrant count wherever the source publishes one (36 of 108 events carry a
+    ``players`` field, and ``eventSize`` equals it in 36 of 36) and the last recorded
+    placement on the other 71 of 71, and at the 4 ``eventType='Teams'`` events it
+    counts teams rather than people (TMCTeams25 is 39 against 117 decks). It is not
+    the decks-at-event count, which it exceeds at 58 of 108 events: a top-cut event
+    records only its top finishers and a teams event folds many decks onto few
+    places, so the decks-at-event count is neither, and a raw finish is only readable
+    against the field the norm actually used.
+
+    Reading the node replaces recovering the field by inverting a norm, which is what
+    this did until issue #162. The inversion agreed with the node wherever a norm was
+    invertible, but an event holding no norm above 0 yielded nothing and fell back to
+    the decks-at-event count: 7 at Area52IQ, 8 at Pats Birthday Brawl, 5 at
+    DeckaDiceIQ, against 24 at all three. That was harmless only while those events
+    had no norms to draw. Minting gave them some, and Area52IQ's is a win, norm 0.0
+    and uninvertible, so the fallback would have labelled it "1st of 7" (ADR 0016).
+    The annotation is ``int`` rather than ``int | None`` because all 108 events carry
+    a field and Rule C fills a null ``eventSize`` for a Tournament; the source has
+    never shipped a non-Tournament event without one, which is the only shape
+    :func:`build.corrected_field` would pass a null through.
+
+    ``placement_a``/``norm_a`` are pilot ``a``'s raw finish and ``placementNorm``,
+    ``_b`` pilot ``b``'s. A norm no rule could recover is ``None``, and so is a
+    placement: 24 decks carry neither, all at 4 events, and their
+    ``placementImputed`` says ``none`` rather than leaving a null that reads like a
+    number the source chose not to give. The y-axis is ``norm`` (comparable across
+    field sizes); the raw placement and field size ride along for the point's label.
     """
 
     event: str
@@ -699,7 +707,7 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
 
     The pilot's decks are grouped by their event's year via the ``IN_YEAR`` edge and
     each year's mean finish taken over that year's **ranked** decks (a null
-    ``placementNorm`` is an unfinished record the source never scored, left out so it
+    ``placementNorm`` is a finish no rule could recover a rank for, left out so it
     neither shifts the mean nor pads the event count). ``placementNorm`` is an
     aggregate, so it carries a floor (ADR 0013): a year below
     :data:`MIN_PILOT_YEAR_EVENTS` distinct events has its mean refused, too thin to be
@@ -719,10 +727,17 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     Played, not scored: a year whose decks the source never placed at all comes back
     as a cell of ``events`` zero and no mean, not as no cell. Filtering the years by
     the same null test that filters the decks would truncate a career exactly as the
-    thin-year drop did, and it fires on the same end: six of the graph's drawable
-    pilots have a wholly unscored year, and in every one of the six it is their first.
-    ``events`` counts the scored events the mean rests on, so zero is its honest value
-    for such a year, and the year still holds its place on the axis.
+    thin-year drop did. **The population that motivated this is gone, and the rule
+    stays.** It was measured at six drawable pilots holding a wholly unscored year, in
+    all six their first; minting norms for every recoverable rank (issue #162) leaves
+    zero, because an unscored year was overwhelmingly one whose ranks sat in the
+    titles unnormalised. The shape is still the right one: it is the same
+    rectangular-over-the-years-played contract ``meta_share`` and ``card_adoption``
+    keep, it costs nothing while the population is empty, and the population returns
+    with the first snapshot whose titles carry no rank at all (24 such decks exist
+    today, they simply do not fill anybody's whole year). ``events`` counts the scored
+    events the mean rests on, so zero is its honest value for such a year, and the
+    year still holds its place on the axis.
 
     :data:`MIN_QUALIFYING_YEARS` still counts only the years whose mean survived, so
     a pilot short of two of them raises :class:`NotEnoughHistory` rather than drawing
@@ -730,7 +745,7 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     asserts no direction, only joins the points.
     """
     # The mean and its sample, over the ranked decks only: a null placementNorm is a
-    # finish the source never scored, so it neither shifts the mean nor pads the count.
+    # finish no rule could rank, so it neither shifts the mean nor pads the count.
     scored = {
         year: (mean, events)
         for year, mean, events in rows(conn.execute(
@@ -807,38 +822,32 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
             HeadToHeadPoint(
                 event=event,
                 date=date,
-                field_size=round(implied) if implied is not None else deck_count,
+                field_size=field_size,
                 placement_a=placement_a,
                 norm_a=norm_a,
                 placement_b=placement_b,
                 norm_b=norm_b,
             )
-            for event, date, implied, deck_count, placement_a, norm_a,
-            placement_b, norm_b
+            for event, date, field_size, placement_a, norm_a, placement_b, norm_b
             in rows(conn.execute(
-                # field_size recovers the field each norm was ranked against by
-                # inverting it (norm = (placement-1)/(field-1), so field =
-                # (placement-1)/norm + 1), which is the source's eventSize except at
-                # the 9 events the build corrects and re-ranks (issue #140);
-                # what that value is, and why it is not the deck count, is the contract
-                # on HeadToHeadPoint above. Two things are specific to this query. The
-                # value is constant across an event's placed decks, so max just reads it
-                # off one and a winner (norm 0) does not have to yield it. And an event
-                # where no deck carries a norm above 0 (including one whose only scored
-                # deck is the winner, norm 0 being uninvertible) falls back to the deck
-                # count, the only field left; that fallback is a different quantity from
-                # the recovery, firing at 3 of 108 events and reaching 0 drawn markers
-                # today.
+                # field_size is read off the Event node, which is where the build
+                # stores the field it normalises against (`build.corrected_field`,
+                # ADR 0015). It used to be recovered by inverting a norm, which this
+                # replaces: the inversion could not read a field an event's only
+                # ranked deck won (0 is uninvertible) and fell back to the deck
+                # count, a different quantity that disagreed with the stored field at
+                # 3 of 108 events. That was harmless only while those events drew no
+                # markers, and minting their norms is what would have made them draw
+                # a win labelled "1st of 7" against a field of 24 (issue #162). The
+                # `f` decks are still matched, for the event's registration date:
+                # the earliest createdAt across its whole field, so both pilots' points
+                # share one x (see HeadToHeadPoint above).
                 """MATCH (:Pilot {pilot: $a})<-[:PILOTED_BY]-(da:Deck)
                          -[:PLAYED_AT]->(e:Event),
                          (:Pilot {pilot: $b})<-[:PILOTED_BY]-(db:Deck)
                          -[:PLAYED_AT]->(e),
                          (f:Deck)-[:PLAYED_AT]->(e)
-                   RETURN e.event, min(f.createdAt),
-                          max(CASE WHEN f.placementNorm > 0
-                              THEN (f.placement - 1) / f.placementNorm + 1
-                              ELSE NULL END),
-                          count(DISTINCT f),
+                   RETURN e.event, min(f.createdAt), e.fieldSize,
                           da.placement, da.placementNorm,
                           db.placement, db.placementNorm""",
                 {"a": a, "b": b},

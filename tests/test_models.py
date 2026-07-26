@@ -85,40 +85,48 @@ def _deck(**overrides):
 
 
 @pytest.mark.parametrize(
-    "title, placement, expected",
+    "title, placement, expected, rule",
     [
         # A top cut is a placement the source left null: CanBrawl2 numbers 9th
         # and below, and records its top eight only as "Top 4" / "Top 8".
-        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", None, 8),
-        ("Top 4 Justin C - Jund - CanBrawl2", None, 4),
-        ("Top 8  Benjamin S - Jund - CanBrawl2", None, 8),
+        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", None, 8, "title-single"),
+        ("Top 4 Justin C - Jund - CanBrawl2", None, 4, "title-single"),
+        ("Top 8  Benjamin S - Jund - CanBrawl2", None, 8, "title-single"),
         # Pats Birthday Brawl numbers nothing, though every title says the rank.
-        ("1st - Robert L - Pats Birthday Brawl", None, 1),
-        ("2nd - Jared A - Pats Birthday Brawl", None, 2),
+        ("1st - Robert L - Pats Birthday Brawl", None, 1, "title-single"),
+        ("2nd - Jared A - Pats Birthday Brawl", None, 2, "title-single"),
         # An explicit range reads its best rank, as the source itself numbers them
         # (best end 573 of 573 times, issue #103). A "Top N" cut above gives a
         # single bound, not two ends, so it is still read as that bound.
-        ("3rd/4th - Brennan C - Pats Birthday Brawl", None, 3),
-        ("5th-8th - Liam B - Pats Birthday Brawl", None, 5),
-        # A real placement always wins; the title never overrides the source.
-        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", 3, 3),
-        # A placeholder rank carries no number, so it stays unknown.
-        ("??st Andrew V - Mox Jund - CFWAT25", None, None),
-        ("XXth Jayden G - Storm - PogNov25", None, None),
+        ("3rd/4th - Brennan C - Pats Birthday Brawl", None, 3, "title-range"),
+        ("5th-8th - Liam B - Pats Birthday Brawl", None, 5, "title-range"),
+        # A real placement always wins; the title never overrides the source, and
+        # a number the source gave carries no rule at all.
+        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", 3, 3, None),
+        # A placeholder rank carries no number, so it stays unknown. `none` is the
+        # rule that says so: it distinguishes "nothing was recoverable here" from
+        # the null that means "the source's own number stands" (issue #162).
+        ("??st Andrew V - Mox Jund - CFWAT25", None, None, "none"),
+        ("XXth Jayden G - Storm - PogNov25", None, None, "none"),
         # No placement token at all (the null-pilot titles at Area52IQ).
-        ("Darcy - Mono R - Area52IQ", None, None),
+        ("Darcy - Mono R - Area52IQ", None, None, "none"),
         # A leading digit run of four or more characters is not read as a rank:
         # the largest placement anywhere is 306, so a three-character bound
         # leaves 3.26x headroom. Untaken by the corpus (0 of 4592 titles open on
         # four digits), so nothing but this case holds the clause in place.
-        ("2024th Ben H - Jeskai Tempo - CanBrawl2", None, None),
+        ("2024th Ben H - Jeskai Tempo - CanBrawl2", None, None, "none"),
         # The bound is on token length and not on value, so a four-character
         # zero-pad is knowingly discarded even though 0077 is a valid 77th.
-        ("0077th - X", None, None),
+        ("0077th - X", None, None, "none"),
     ],
 )
-def test_placement_recovered_from_the_title_when_source_has_none(title, placement, expected):
-    assert _deck(name=title, placement=placement).placement == expected
+def test_placement_recovered_from_the_title_when_source_has_none(
+    title, placement, expected, rule
+):
+    deck = _deck(name=title, placement=placement)
+    # The recovered rank and the rule that recovered it, so every downstream
+    # reader can tell which of a deck's numbers this project decided (issue #162).
+    assert (deck.placement, deck.placement_imputed) == (expected, rule)
 
 
 def test_top_n_cuts_resolve_to_their_cohort_best_rank():
@@ -138,6 +146,11 @@ def test_top_n_cuts_resolve_to_their_cohort_best_rank():
     assert [d.placement for d in cuts[:4]] == [1, 1, 1, 1]
     assert [d.placement for d in cuts[4:]] == [5, 5, 5, 5]
     assert numbered.placement == 9  # a source-numbered finish is never touched
+
+    # The cohort is what decided these ranks, not the title, so they say so: the
+    # title-only pass read 4 and 8 and this pass overwrote both (issue #162).
+    assert {d.placement_imputed for d in cuts} == {"cohort-cut"}
+    assert numbered.placement_imputed is None
 
 
 def test_lone_top_cut_is_first():

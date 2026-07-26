@@ -44,8 +44,16 @@ PLACEMENT_TOKEN = re.compile(
 )
 
 
-def placement_from_title(title: str | None) -> int | None:
-    """The placement a title records, or ``None`` if it records none.
+def placement_from_title(title: str | None) -> tuple[int | None, str | None]:
+    """The placement a title records and the rule that read it, or no placement.
+
+    The rule rides back with the placement because a value this project decided has to
+    be distinguishable from one the source gave, everywhere and for every class of
+    uncertainty (issue #162). ``title-single`` is one bound ("1st", "121st", a
+    "Top N" cut before :func:`resolve_cut_placements` sees its cohort);
+    ``title-range`` is an explicit two-ended band read at its best end; ``none``
+    is a title with nothing recoverable in it, which is not the same as the
+    ``None`` a source-scored deck carries.
 
     An explicit range reads as its best rank, so "05th-8th" is 5th. This matches
     the source: across every deck the source itself scored whose title carries an
@@ -84,15 +92,15 @@ def placement_from_title(title: str | None) -> int | None:
     """
     token = PLACEMENT_TOKEN.match(title or "")
     if not token:
-        return None
+        return None, "none"
     low, high = token.group(1), token.group(2)
     # An explicit range reads its best rank (the source's own convention); a single
     # bound, including a "Top N" cut, is read as given (issue #103).
-    if high is not None and low.isdigit() and high.isdigit():
-        pick = str(min(int(low), int(high)))
-    else:
-        pick = high or low
-    return int(pick) if pick.isdigit() and len(pick) <= 3 else None
+    ranged = high is not None and low.isdigit() and high.isdigit()
+    pick = str(min(int(low), int(high))) if ranged else (high or low)
+    if not (pick.isdigit() and len(pick) <= 3):
+        return None, "none"
+    return int(pick), "title-range" if ranged else "title-single"
 
 
 # A title that opens "Top N" is a cut, not a rank: the bound says how deep the cut
@@ -159,6 +167,16 @@ class Deck(_Raw):
     event_type: str
     placement: int | None = None
     placement_norm: float | None = None
+    # Which of the two numbers above this project decided, and under what rule:
+    # null where the source's own number stands, a rule name where a pass here
+    # produced it, and "none" where no rule could (issue #162). Not source fields;
+    # the source ships neither and the passes that set them are the only writers.
+    # Rule names rather than booleans, and one column per value rather than one
+    # per feature, so "which of this deck's numbers did we decide, and how?"
+    # answers in one query for every class of uncertainty, including ones not
+    # invented yet. Same shape as `Event.fieldImputed`.
+    placement_imputed: str | None = None
+    norm_imputed: str | None = None
     # The field the source ranked `placement_norm` against, carried so the build
     # can check it against what it can count and correct it where the two
     # contradict each other (issue #140). Optional because the correction's own
@@ -185,14 +203,14 @@ class Deck(_Raw):
         every title opens "1st", "3rd/4th", "5th-8th". The title is the only
         witness, so it is read when the field is null and never otherwise.
 
-        ``placement_norm`` stays null. The source derives it against the field
-        size, and the build re-derives one only where a count contradicts the
-        source's own ``event_size`` (:func:`build.corrected_field`); a deck the
-        source never scored is not scored here, so a recovered placement reaches
-        the graph as a rank and not as a norm (issue #140).
+        ``placement_norm`` stays null here. Normalising needs the event's field
+        size, which is a fact about the cohort and not about this title, so it is
+        the build that mints one against ``Event.fieldSize`` (issue #162). What
+        this pass leaves behind is the placement and the rule that read it, in
+        ``placement_imputed``.
         """
         if self.placement is None:
-            self.placement = placement_from_title(self.name)
+            self.placement, self.placement_imputed = placement_from_title(self.name)
         return self
 
     @property
@@ -271,6 +289,10 @@ def resolve_cut_placements(decks: list[Deck]) -> None:
         best = {b: (bounds[i - 1] if i else 0) + 1 for i, b in enumerate(bounds)}
         for bound, deck in cohort:
             deck.placement = best[bound]
+            # Overwrites whatever the title-only pass recorded, which is the point:
+            # the cohort is what decided this placement, so that is what the deck says
+            # it was decided by (issue #162).
+            deck.placement_imputed = "cohort-cut"
 
 
 def load_snapshot(path: Path) -> Snapshot:

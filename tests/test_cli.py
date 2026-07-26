@@ -84,18 +84,22 @@ def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
     assert "restart" in capsys.readouterr().out
 
 
-def test_a_build_reports_the_field_sizes_it_corrected(tmp_path, capsys):
-    # A corrected field size is an assumption the build made about the data, so
-    # the build says how many it made and where the list of them is, rather than
-    # leaving it to be discovered in the report (issue #140). This fixture ships
-    # no eventSize at all, so the defensive rule corrects its one event.
+def test_a_build_reports_every_value_it_decided_rather_than_accepted(tmp_path, capsys):
+    # A value the build decided is an assumption it made about the data, so it says
+    # what it decided and under which rule rather than leaving it to be discovered
+    # in the report (issue #140). Read off the provenance columns, so a rule the
+    # build has not learnt yet still announces itself here (issue #162). This
+    # fixture ships no eventSize at all, so the defensive field rule corrects its
+    # one event and the deck's norm is re-ranked against the corrected field.
     _snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
         ("d1", "2026-01-01T00:00:00+00:00"),
     ])
 
     _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
 
-    assert "1 event(s) had their field size corrected" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Deck.placementNorm: rescaled=1" in out
+    assert "Event.fieldSize: C=1" in out
 
 
 def test_grading_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
