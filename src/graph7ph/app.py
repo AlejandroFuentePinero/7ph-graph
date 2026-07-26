@@ -292,22 +292,90 @@ def _subject_update(prefix: str, name: str | None):
     return gr.update(value=_subject_line(prefix, name), visible=True)
 
 
-# Every graph plot shares one frame height (§12). The pilot neighbourhood renders well
-# at this size, and a uniform frame reads as one coherent canvas across the tabs rather
-# than each plot jumping to its own node-count-scaled height. Tall enough that a dense
-# graph lays out legibly, not so tall that a small one floats in emptiness.
+# Every graph plot shares one frame (§12), so a dense graph and a sparse one land in
+# the same canvas across the tabs rather than each jumping to its own node-count-scaled
+# height. The frame is a share of the viewport between a floor and a ceiling, not a
+# fixed slab: at 760px flat it was most of a phone's screen and a letterbox on a tall
+# monitor, which is the fixed-height letterbox #85 set out to retire.
+#
+# The ceiling is the size the pilot neighbourhood was tuned to and reads well at, so a
+# desktop is unchanged in practice. The floor keeps a dense graph legible where the
+# proportion would otherwise squeeze it. In between, `72vh` leaves room above for the
+# card's heading and below for the next card's edge, so the graph never fills the
+# screen so completely that nothing signals there is a page around it.
 GRAPH_HEIGHT = 760
+GRAPH_MIN_HEIGHT = 420
+GRAPH_VIEWPORT_SHARE = "72vh"
 
 
 def _embed(doc: str) -> str:
-    """Wrap a standalone pyvis document in an iframe so its scripts run, at the shared
-    graph frame height (:data:`GRAPH_HEIGHT`).
+    """Wrap a standalone pyvis document in an iframe so its scripts run, in the shared
+    responsive graph frame (:data:`GRAPH_HEIGHT` and friends).
+
+    The pyvis document inside is already a full-height flex column (see
+    ``render._DOC_STYLE``), so it takes whatever height the iframe gives it and the
+    colour key and details panel stay pinned to its top and bottom at any size. This
+    frame is the only thing that was ever fixed.
 
     gr.HTML does not execute injected <script> tags, so the widget is isolated in
     an iframe via srcdoc (which the browser renders as its own document)."""
     srcdoc = html.escape(doc, quote=True)
-    style = f"width:100%;height:{GRAPH_HEIGHT}px;border:none"
+    height = f"clamp({GRAPH_MIN_HEIGHT}px, {GRAPH_VIEWPORT_SHARE}, {GRAPH_HEIGHT}px)"
+    style = f"width:100%;height:{height};border:none"
     return f'<iframe srcdoc="{srcdoc}" style="{style}"></iframe>'
+
+
+# The Draw button's two states, and the running state's words.
+#
+# §8 asks for progress on *every* query-running action and for running to share one look
+# with the other four states. Those four all speak as a line in the results region
+# (:func:`_state_message`), and running says the same word wherever it appears, so the
+# app reads as saying one thing while it works rather than two:
+#
+# - A view driven by a Draw button carries it on the button, which is the component
+#   certain to be on screen at the moment of the click (:func:`_draw_with_progress`).
+# - A view driven by a dropdown has no button to carry it, so it speaks in the results
+#   region through the note line the other four states already use (the Archetypes tab's
+#   landscape and timeline, wired below).
+DRAW_LABEL = "Draw"
+DRAWING_LABEL = "Drawing…"
+
+
+def _draw_busy():
+    """The Draw button while its query runs."""
+    return gr.update(value=DRAWING_LABEL, interactive=False)
+
+
+def _draw_idle():
+    """The Draw button at rest."""
+    return gr.update(value=DRAW_LABEL, interactive=True)
+
+
+def _draw_with_progress(button, fn, *, inputs, outputs) -> None:
+    """Wire a Draw button to its query so that the click is visibly acknowledged.
+
+    Gradio does give every event a progress indicator, but it paints it *over the
+    output components*, and since #132/#138 a view's results stack is hidden until its
+    callback fills it (and changing the subject hides it again). So on a Draw there is
+    nothing on screen for that indicator to sit on, and the panel simply holds still
+    for the whole round trip. Against a local artifact that is invisible; on a phone
+    over a slow link it is a click that appears to do nothing, which is the case user
+    story 17 exists for.
+
+    The button itself carries the state instead, because it is the one component
+    certain to be on screen at the moment of the click and the one the reader is
+    already looking at. It reads "Drawing…" and stops taking clicks while the query
+    runs (which also rules out a second Draw queued behind the first), then returns.
+
+    The return is chained with ``.then`` rather than ``.success`` deliberately:
+    ``.then`` runs whether the query returned or raised, so a query that fails cannot
+    strand the button disabled with no way back.
+    """
+    (
+        button.click(_draw_busy, outputs=button)
+        .then(fn, inputs=inputs, outputs=outputs)
+        .then(_draw_idle, outputs=button)
+    )
 
 
 def _refine_alert(plan: RenderPlan) -> str:
@@ -395,7 +463,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "faq-finish",
         "Metric",
         'What does a "finish" mean, and why is it shown as a percentage?',
-        "Every event ranks its decks, but 5th out of 200 is not 5th out of 12. Each "
+        "Every event places its decks, but 5th out of 200 is not 5th out of 12. Each "
         "finish is normalised to where it landed in its field, on a 0-to-1 scale (1 is "
         "a win, 0 is last). That single number is what lets finishes from "
         "different-sized events be compared and averaged. A finish only counts where the "
@@ -410,7 +478,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "kept, not hidden: a small share is a real signal of an archetype entering or "
         "leaving the format, and a year it is absent is a real zero, not a gap. The "
         '"Top 25 / 50 / 75%" control only changes how many lines are drawn, not the '
-        "data: archetypes are ranked by their share of the most recent year, and the "
+        "data: archetypes are ordered by their share of the most recent year, and the "
         "strongest are kept until they add up to that percentage.",
     ),
     (
@@ -418,8 +486,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Archetypes",
         'How is the "Metagame landscape" built?',
         "Each deck is counted once, under its primary archetype, exactly as meta share "
-        "is. For the year selected, an archetype's horizontal position is its share of "
-        "that year's decks and its vertical position is the average of its finishes; "
+        "is. For the year selected, an archetype sits horizontally at its share of "
+        "that year's decks and vertically at the average of its finishes; "
         "the dot's size is how many separate events those finishes came from. Only the "
         "25 most-played archetypes of that year are drawn, recomputed for each year, "
         "and the chart says how many archetypes the year held in all. More of them sit "
@@ -432,7 +500,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         'How is an archetype\'s "Finishes over time" built?',
         "Each point is one event, placed on the date the event's first deck was "
         "registered, and its height is the average of that archetype's finishes there. "
-        "That is an average, not a single result: an archetype usually brings a handful "
+        "That is an average, not a single placement: an archetype usually brings a handful "
         "of decks to an event, and typically one to three of them were given a "
         "placement, which is what the size of each point shows. Picking a second "
         "archetype narrows the chart to the events both attended, so every point has "
@@ -451,14 +519,14 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "years before the chart is drawn at all, since a line through one point is not a "
         "trajectory. The headline \"finishes ahead of X% "
         "of the field\" is the average across all scored years, weighted by how many "
-        "events each year held, so a busy season counts for more than a quiet one.",
+        "events each year held, so a busy year counts for more than a quiet one.",
     ),
     (
         "faq-head-to-head",
         "Pilots",
         'How is the "Head-to-head" timeline built?',
         "It plots the two pilots' finishes at every event they both entered, placed on "
-        "the event's date. Each point is one real result, not an average. A pair needs "
+        "the date the event's first deck was registered. Each point is one real placement, not an average. A pair needs "
         "at least two shared events, otherwise there is no trajectory to draw and the "
         "tool says so.",
     ),
@@ -477,7 +545,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "A gem is a card that is rare in the slice (in at least five decks but no more "
         "than 10% of them) yet finishes in the slice's top third on average. Only decks "
         "with a recorded finish count toward the rarity and the average. If a slice has "
-        'too few ranked decks to tell "rare" from "absent", the tool refuses rather than '
+        'too few placed decks to tell "rare" from "absent", the tool refuses rather than '
         "guessing.",
     ),
 ]
@@ -566,6 +634,12 @@ def _rgba(hex_colour: str, alpha: float) -> str:
 _GRID = theme.TOKENS["border"]
 _AXIS = theme.TOKENS["text-mute"]
 _SURFACE = theme.TOKENS["surface"]
+# The colour a control drawn inside a figure takes, so the range slider and its label
+# read as a control against the neutral chart rather than as more plot. §2 commits the
+# app to one accent, and this used to be a Tailwind amber left over from the
+# light-theme era, which made the one orange thing inside a chart a different orange
+# from every orange outside it.
+_CONTROL_ACCENT = theme.TOKENS["accent-bright"]
 
 # The opacity the emphasis model (§6) fades its context lines to: far enough back that
 # a raised line reads as raised even against the widest cut, while each faded line keeps
@@ -618,6 +692,71 @@ def _confidence_size(events: int) -> float:
     return min(28.0, max(11.0, 8.0 + 3.2 * events ** 0.5))
 
 
+# A figure carrying its legend below the plot is taller than Plotly's 450px default by
+# the room that legend needs. Sized against the worst case, the meta chart's fourteen
+# archetypes at phone width, where they stack one per row; the same legend packs into
+# two rows at desktop width, so the plot simply gets the difference back. One height has
+# to serve both, because a figure has one layout and the row count is a function of the
+# width it is drawn at.
+#
+# It is not optional. A figure merely *told* to put its legend below, without the height
+# for it, lays that legend out past its own bottom edge and Plotly clips the overflow --
+# measured as the last two of fourteen archetypes missing at phone width. On the meta
+# chart the legend is the control (click to raise), so a clipped entry is an archetype
+# the reader cannot reach at all.
+_LEGEND_BELOW_HEIGHT = 640
+
+# The legend's title sits a step above its entries, which take the figure's 12px: it
+# names what the whole box is (and on the meta chart says how to work it), so at the
+# entries' own size it read as one more entry rather than as their heading.
+_LEGEND_TITLE_SIZE = 14
+
+# Every finish axis says which end is winning. The score is flipped from the raw
+# placement (a 1st place is 1, not 1st), so without it the reader's guess about which way
+# the plot runs is a coin toss. Named once because three charts state it.
+_SCORE_DIRECTION = "1 = first, 0 = last"
+
+
+def _legend_below_plot(fig: pgo.Figure, title: str, **extra) -> None:
+    """Lay a figure's legend horizontally under the plot, with the height to fit it.
+
+    Plotly's default puts the legend to the right *inside the figure's width*, so it
+    takes its space from the plot: at a phone's 390px the meta chart's fourteen
+    archetype names claimed about half of it and crushed the lines into a strip. The
+    figure is one image with one layout, so there is no width-conditional fix here
+    (no media query reaches into an SVG Plotly lays out itself); the legend has to sit
+    somewhere that costs no width at any size, which means above or below.
+
+    Below, not above: on these two charts the legend is long enough to wrap, and a
+    wrapping legend above the plot pushes the plot itself down the page, away from
+    the heading that names it. The rivalry charts anchor theirs above instead
+    (:func:`_style_rivalry_chart`) because they carry two entries and one row, and
+    because their range slider already owns the space underneath.
+
+    The title sits on ``top`` rather than Plotly's ``left`` default for a horizontal
+    legend: the meta chart's title is two lines (its name, then how to work it), and
+    two stacked lines to the left of a wrapping row of entries reads as a stray label
+    beside the strip rather than as its heading. ``y`` clears the x-axis title, which
+    the legend otherwise overlaps at the default offset.
+    """
+    fig.update_layout(legend=dict(
+        title=dict(text=title, side="top", font=dict(size=_LEGEND_TITLE_SIZE)),
+        orientation="h", yanchor="top", y=-0.22, xanchor="left", x=0,
+        # No fill and no outline: a hairline box round the strip was tried and dropped
+        # at the maintainer's call (2026-07-26), so do not add one back. The legend
+        # sits directly on the chart ground, which is already the card's own surface.
+        bgcolor="rgba(0,0,0,0)",
+        **extra,
+    ))
+    # Only reserve the room when a legend will actually be drawn. Plotly draws one for
+    # two or more legend-carrying traces and suppresses it for one, so a single-card
+    # adoption chart would otherwise hold 190px open under the plot for a legend that
+    # never arrives. Counted over the traces that carry an entry, not every trace: the
+    # meta chart's faded context lines are all `showlegend=False`.
+    if sum(1 for t in fig.data if t.showlegend is not False) > 1:
+        fig.update_layout(height=_LEGEND_BELOW_HEIGHT)
+
+
 def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
     """The dark-theme styling both trend charts share (the meta and one card).
 
@@ -628,11 +767,19 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
     y-axis label differs between the two charts (a share of the meta, or a card's
     adoption), so it is passed in; the rest is held in one place so the two cannot
     drift apart. The caller adds its own legend, the one thing they do not share.
+
+    The chart chrome is set in the app's own body face, not Plotly's default
+    ``"Open Sans", verdana, arial``: a figure left unstated renders its axis titles,
+    ticks, legend and hovers in a stack nothing else on the page uses, and the whole
+    point of §1 is that every surface follows one direction. ``gr.Plot`` draws into
+    the page's own DOM rather than an iframe, so the ``@font-face`` the theme injects
+    already covers the SVG, and naming the stack here is all it takes.
     """
     fig.update_layout(
         hovermode="closest",
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=_AXIS), margin=dict(t=8, r=8, b=8, l=8),
+        font=dict(color=_AXIS, family=theme.FONT_STACK),
+        margin=dict(t=8, r=8, b=8, l=8),
     )
     # Caution: this is a category x-axis. An annotation anchored with xref="x" and a
     # numeric-looking value (a year) does NOT snap to the matching category slot; Plotly
@@ -764,10 +911,10 @@ def _trend_figure(
     # raise starts hidden, that is the first click, and it would draw all fifteen
     # accent lines at once, the rainbow emphasis exists to retire. Double click is
     # switched off for the same reason: it defaults to `toggleothers`.
-    fig.update_layout(legend=dict(
-        title=_legend_title("click to raise or fade"),
+    _legend_below_plot(
+        fig, _legend_title("click to raise or fade"),
         itemclick="toggle", itemdoubleclick=False,
-    ))
+    )
     return fig
 
 
@@ -812,7 +959,7 @@ def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
             ),
         ))
     _style_trend_chart(fig, "Adoption (share of decks)")
-    fig.update_layout(legend=dict(title="Card"))
+    _legend_below_plot(fig, "Card")
     return fig
 
 
@@ -917,7 +1064,7 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     # The y-axis names the quantity and its sense together, so a reader who never
     # hovers a point still knows which end is good (user feedback): the score inverts
     # the raw finish, so 1 is a win (first) and 0 is last.
-    _style_trend_chart(fig, "Mean finish (1 = first, 0 = last)")
+    _style_trend_chart(fig, f"Mean finish ({_SCORE_DIRECTION})")
     # A bounded 0-1 score, not a share, so a plain decimal axis over the full range,
     # overriding the shared styler's percent format and auto-zoom.
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
@@ -1047,7 +1194,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         ),
         showlegend=False,
     ))
-    _style_trend_chart(fig, "Mean finish (1 = first, 0 = last)")
+    _style_trend_chart(fig, f"Mean finish ({_SCORE_DIRECTION})")
     # A linear share axis overriding the shared styler's category-Year axis, from zero
     # (a share reads against its whole, so the origin is not optional) and in the one
     # share format the meta chart's axis carries.
@@ -1084,7 +1231,7 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
     The countable claim first, in the field-standing form the performance and landscape
     captions already use: the individual points are thin, so what a reader can quote is
     the count across the whole run. With two archetypes that is the win count over the
-    events both were ranked at ("finished better at 30 of 44"), the tally the
+    events both were placed at ("finished better at 30 of 44"), the tally the
     shape of the band only suggests; with one it is the same count against the middle of
     the field, the 0.5 line the rest of the app already reads finishes against.
 
@@ -1116,7 +1263,7 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
         headline = (f"{a} finished above the middle of the field at "
                     f"<span class='pct'>{led} of {len(comparable)}</span> events")
         restriction = "a second archetype narrows this to the events both attended"
-        decks = f"each point averages {a}'s ranked decks there, typically 1 to 3"
+        decks = f"each point averages {a}'s placed decks there, typically 1 to 3"
     else:
         wins_a = sum(1 for c in comparable if c.mean_norm_a < c.mean_norm_b)
         wins_b = sum(1 for c in comparable if c.mean_norm_b < c.mean_norm_a)
@@ -1130,8 +1277,8 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
                  f"<span class='pct'>{led} of {len(comparable)}</span> shared events"
         )
         restriction = ("drawn over the events both attended, counted over the ones "
-                       "both were ranked at")
-        decks = "each point averages that side's ranked decks there, typically 1 to 3"
+                       "both were placed at")
+        decks = "each point averages that side's placed decks there, typically 1 to 3"
     return (
         f"<div class='t-fieldstat'>{headline}"
         f"<span class='sample'> · {restriction} · {decks} · {span}</span></div>"
@@ -1218,22 +1365,27 @@ def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
     the names in it and eats into the plot area, which drifts the paper-centred slider
     label off true centre.
     """
-    _style_trend_chart(fig, "Finish")
+    # The axis states its own direction, as the performance and landscape charts do: a
+    # bare "Finish" leaves a reader to guess whether the top of the plot is winning, and
+    # this score is flipped from the raw placement so the guess is a coin toss.
+    _style_trend_chart(fig, f"Finish ({_SCORE_DIRECTION})")
     fig.update_xaxes(
         title="Registration date", type="date", categoryorder=None, autorange=True,
         rangeslider=dict(
             visible=True, thickness=0.12,
-            bgcolor="rgba(245,158,11,0.12)", bordercolor="rgba(245,158,11,0.55)",
+            bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
+            bordercolor=_rgba(_CONTROL_ACCENT, 0.55),
             borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
         ),
     )
     # Centred both ways over the slider in paper coords (the band sits below the axis,
     # roughly y -0.09 to -0.32, so its middle is near -0.20); the bottom margin below
-    # seats the slider. Amber, matching the slider tint against the neutral chart.
+    # seats the slider. The app's accent, matching the slider tint it labels, against
+    # the neutral chart.
     fig.add_annotation(
         x=0.5, y=-0.20, xref="paper", yref="paper", xanchor="center", yanchor="middle",
         showarrow=False, text="◀ Time range filter (drag to slice) ▶",
-        font=dict(color="rgba(245,158,11,0.95)", size=11),
+        font=dict(color=_rgba(_CONTROL_ACCENT, 0.95), size=11),
     )
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
     fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
@@ -1514,6 +1666,21 @@ def build_app(artifact: Path) -> gr.Blocks:
             None,
         )
 
+    def landscape_drawing():
+        """The landscape card as the running line while its query runs (§8).
+
+        The year dropdown has no Draw button to carry the running state, so it speaks
+        here, in the note line the tab's refusals already use. The old figure is taken
+        down rather than left sitting under a spinner: a stale plot beside a new year in
+        the control reads as the answer to the new year, which is the very thing #114's
+        running state exists to prevent.
+        """
+        return (
+            gr.update(visible=False),                               # heading
+            gr.update(visible=False),                               # plot
+            gr.update(value=DRAWING_LABEL, visible=True),           # note
+        )
+
     def draw_landscape(year):
         heading, fig, note = _landscape_view(int(year))
         return (
@@ -1540,6 +1707,30 @@ def build_app(artifact: Path) -> gr.Blocks:
         [(name, tag) for name, tag, _ in drawable_archetypes]
     ))
 
+    def timeline_drawing(a: str | None, _b: str | None):
+        """The timeline card as the running line while its query runs (§8).
+
+        Same reasoning as :func:`landscape_drawing`, and the reason AC 9 was not closed
+        by the Draw buttons alone: this card is built hidden, so on the first pick there
+        was nothing on screen for Gradio's own indicator to paint over and the click
+        looked like a no-op. With nothing picked the card stays down, since the real
+        handler is about to hide it anyway and a card that flashes "Drawing…" before
+        disappearing is worse than one that never moved.
+
+        Takes the same two selectors as the handler it precedes, though only the first
+        decides anything, so both steps of the chain read one input list rather than the
+        wiring carrying two.
+        """
+        if not a:
+            hide = gr.update(visible=False)
+            return hide, hide, hide, hide
+        return (
+            gr.update(visible=True),                                # card
+            gr.update(visible=False),                               # heading
+            gr.update(visible=False),                               # plot
+            gr.update(value=DRAWING_LABEL, visible=True),           # note
+        )
+
     def draw_archetype_timeline(a: str | None, b: str | None):
         # Returns the card, the heading, the plot, and a refusal note. The card holds
         # the whole thing, so with nothing picked it hides rather than sitting empty
@@ -1563,8 +1754,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                        else f"only {e.found} event" + ("s" if e.found > 1 else ""))
                 note = f"{timeline_labels[a]} has {had} with a finish to place on a timeline."
             else:
-                met = ("were never both ranked at the same event" if not e.found
-                       else f"were both ranked at only {e.found} event"
+                met = ("were never both placed at the same event" if not e.found
+                       else f"were both placed at only {e.found} event"
                             + ("s" if e.found > 1 else ""))
                 note = (f"{timeline_labels[a]} and {timeline_labels[second]} {met}, "
                         "so there is no run to compare.")
@@ -1872,9 +2063,15 @@ def build_app(artifact: Path) -> gr.Blocks:
                 timeline_note = gr.Markdown(visible=False)
                 timeline_plot = gr.Plot(visible=False)
 
+            # Each of these two runs a real query, so each shows the running state first
+            # and then fills (§8). Chained with `.then`, which unlike `.success` runs
+            # whether the query returned or raised, so a refusal cannot leave the card
+            # stuck reading "Drawing…".
+            landscape_outputs = [landscape_heading, landscape_plot, landscape_note]
             landscape_year.change(
-                draw_landscape, inputs=landscape_year,
-                outputs=[landscape_heading, landscape_plot, landscape_note],
+                landscape_drawing, outputs=landscape_outputs,
+            ).then(
+                draw_landscape, inputs=landscape_year, outputs=landscape_outputs,
             )
             # Either selector redraws, and the year is not among the inputs: the
             # timeline spans the whole corpus whatever the landscape is showing.
@@ -1883,6 +2080,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             ]
             for control in (timeline_a, timeline_b):
                 control.change(
+                    timeline_drawing, inputs=[timeline_a, timeline_b],
+                    outputs=timeline_outputs,
+                ).then(
                     draw_archetype_timeline, inputs=[timeline_a, timeline_b],
                     outputs=timeline_outputs,
                 )
@@ -1928,8 +2128,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 cooc_drop_lands = gr.Checkbox(
                     value=False, label="Filter out lands", visible=cooc_default,
                 )
-                cov_go = gr.Button("Draw", variant="primary", visible=cov_default)
-                cooc_go = gr.Button("Draw", variant="primary", visible=cooc_default)
+                cov_go = gr.Button(DRAW_LABEL, variant="primary", visible=cov_default)
+                cooc_go = gr.Button(DRAW_LABEL, variant="primary", visible=cooc_default)
 
             # Card overview: one card + board, two plots (usage graph and the adoption
             # trend, both scoped to the board). Results stack hidden until a Draw (§14).
@@ -2022,13 +2222,14 @@ def build_app(artifact: Path) -> gr.Blocks:
             card.change(reset_card, outputs=reset_card_outs)
             for _control in (cov_board, cooc_card2, cooc_top_n, cooc_drop_lands):
                 _control.change(reset_card, outputs=reset_card_outs)
-            cov_go.click(
-                draw_card_overview, inputs=[card, cov_board],
+            _draw_with_progress(
+                cov_go, draw_card_overview, inputs=[card, cov_board],
                 outputs=[cov_subject, cov_results, cov_usage_out,
                          cov_adopt_heading, cov_adopt_plot, cov_adopt_note],
             )
-            cooc_go.click(
-                draw_cooccurrence, inputs=[card, cooc_card2, cooc_top_n, cooc_drop_lands],
+            _draw_with_progress(
+                cooc_go, draw_cooccurrence,
+                inputs=[card, cooc_card2, cooc_top_n, cooc_drop_lands],
                 outputs=[cooc_subject, cooc_results, cooc_graph_out,
                          cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note],
             )
@@ -2048,7 +2249,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 gem_archetype, _ = _clearable(
                     choices=archetypes, label="Archetype", value=None, info=_PICK_ARCHETYPE,
                 )
-                gem_go = gr.Button("Draw", variant="primary")
+                gem_go = gr.Button(DRAW_LABEL, variant="primary")
             gem_subject = gr.HTML(visible=False)
             # One card, hidden until a Draw (§14); the dropdown help text guides on open.
             gem_out = gr.HTML(visible=False, elem_classes="insight-card")
@@ -2062,14 +2263,15 @@ def build_app(artifact: Path) -> gr.Blocks:
                     return subject, gr.update(visible=False)
                 return subject, gr.update(value=run_graph("meta_gems", {"gem_archetype": a}), visible=True)
 
-            gem_go.click(
-                draw_gems, inputs=gem_archetype, outputs=[gem_subject, gem_out],
+            _draw_with_progress(
+                gem_go, draw_gems, inputs=gem_archetype,
+                outputs=[gem_subject, gem_out],
             )
 
         with gr.Tab("Pilots"):
             gr.Markdown("## Pilots")
             gr.Markdown(
-                "Explore any pilot's decks, rivalries, and results over time.",
+                "Explore any pilot's decks, rivalries, and placements over time.",
                 elem_classes="t-lede",
             )
             pilots_default = next(iter(_PILOTS_TAB))
@@ -2093,8 +2295,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                     choices=pilots, value=None, label="Second pilot (required)",
                     info=_PICK_PILOT2, visible=h2h_default,
                 )
-                po_go = gr.Button("Draw", variant="primary", visible=po_default)
-                h2h_go = gr.Button("Draw", variant="primary", visible=h2h_default)
+                po_go = gr.Button(DRAW_LABEL, variant="primary", visible=po_default)
+                h2h_go = gr.Button(DRAW_LABEL, variant="primary", visible=h2h_default)
 
             # Pilot overview: one pilot, three plots, each in its own insight card. The
             # results stack is hidden until a Draw fills it (§14), so the view opens as
@@ -2195,13 +2397,13 @@ def build_app(artifact: Path) -> gr.Blocks:
             # answer never sits under changed controls: the shared pilot, the second pilot.
             pilot.change(reset_pilot, outputs=reset_pilot_outs)
             h2h_pilot_b.change(reset_pilot, outputs=reset_pilot_outs)
-            po_go.click(
-                draw_pilot_overview, inputs=pilot,
+            _draw_with_progress(
+                po_go, draw_pilot_overview, inputs=pilot,
                 outputs=[po_subject, po_results, po_nb_out, po_af_out,
                          po_perf_heading, po_perf_plot, po_perf_note],
             )
-            h2h_go.click(
-                draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
+            _draw_with_progress(
+                h2h_go, draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
                 outputs=[h2h_subject, h2h_results, h2h_nb_out,
                          h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
             )

@@ -6,9 +6,13 @@ import pytest
 from graph7ph import numfmt, palette, theme
 from graph7ph.app import (
     CLEAR_LABEL,
+    DRAWING_LABEL,
+    DRAW_LABEL,
     _CARDS_TAB,
     _FAQ_ENTRIES,
+    _LEGEND_BELOW_HEIGHT,
     _PLOT_LABELS,
+    _draw_with_progress,
     _adoption_figure,
     _adoption_caption,
     _adoption_cards,
@@ -551,7 +555,33 @@ def test_a_leading_refused_year_does_not_stretch_the_axis():
     assert thin.x == 2024
 
 
-def test_head_to_head_colours_each_pilot_by_entity_from_the_shared_palette():
+def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
+    # AC (#85, criterion 1): the design direction exists and "every surface follows it".
+    # §2 commits the app to one accent, and the range slider plus the label centred under
+    # it were still wearing a Tailwind amber (`rgba(245,158,11,…)`) left from the
+    # light-theme era, so the one orange thing drawn inside a chart was a different orange
+    # from every orange outside it. Read off both charts that carry the control.
+    series = Series(cells=[
+        HeadToHeadPoint(event="GP", date=datetime(2024, 3, 1), field_size=100,
+                        placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
+        HeadToHeadPoint(event="PT", date=datetime(2024, 6, 1), field_size=80,
+                        placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
+    ])
+    for fig in (
+        _head_to_head_figure("Ada L", "Bob C", series),
+        _archetype_timeline_figure(
+            "Storm", None, _timeline_points((1, 0.2, 3), (2, 0.6, 1)),
+        ),
+    ):
+        assert "245,158,11" not in fig.to_json()  # the retired amber, in any opacity
+        accent = theme.TOKENS["accent-bright"]
+        slider = fig.layout.xaxis.rangeslider
+        assert slider.bgcolor == _rgba(accent, 0.12)
+        assert slider.bordercolor == _rgba(accent, 0.55)
+        # The label under the slider is drawn in the same accent as the band it names,
+        # or it reads as a stray caption rather than that control's own label.
+        label = next(a for a in fig.layout.annotations if "Time range filter" in a.text)
+        assert label.font.color == _rgba(accent, 0.95)
     # AC (§5-6): head-to-head is two lines, ≤8, so each pilot takes a direct colour
     # from the shared eight-hue set (slot 1, slot 2), not a position in a long
     # recycled wheel. Colour follows the entity: the pilot named first is blue.
@@ -811,6 +841,61 @@ def test_chart_gridlines_and_axes_ride_the_design_tokens_not_a_stray_grey():
     assert "#9ca3af" not in fig.to_json()
 
 
+def test_chart_chrome_is_set_in_the_app_face_not_plotly_default():
+    # AC (#85, criterion 1): "a written design direction exists ... every surface
+    # follows it". A figure that never names a font renders its axis titles, ticks,
+    # legend and hovers in Plotly's own `"Open Sans", verdana, arial` -- a stack
+    # nothing else on the page uses, so the charts read as embedded images rather than
+    # as part of the page. Asserted on every figure the app draws, since the styling
+    # they share is the only place this can be set once.
+    figures = [
+        _performance_figure("Ada L", Series(cells=[
+            PerformanceCell(year=2024, mean_norm=0.4, events=3),
+        ])),
+        _trend_figure(_meta_series(("aggro", 2024, 0.3)), {"aggro"}),
+        _adoption_figure([("Sol Ring", Series(cells=[
+            AdoptionCell(year=2024, count=30, share=0.03, year_total=1000),
+        ]))]),
+    ]
+    for fig in figures:
+        assert fig.layout.font.family == theme.FONT_STACK
+        assert "verdana" not in fig.to_json().lower()
+
+
+def test_a_wrapping_legend_costs_the_plot_no_width():
+    # AC (#85, criterion 12): "graph and charts fill their space from phone width to a
+    # wide monitor". Plotly's default legend sits to the right *inside the figure's
+    # width*, so at a phone's 390px the meta chart's fourteen archetype names took
+    # roughly half of it and crushed the lines into a strip. A figure has one layout
+    # and no media queries reach inside it, so the legend has to sit where it costs no
+    # width at any size: laid out horizontally, anchored below the plot.
+    def _adoption(*names):
+        return _adoption_figure([
+            (name, Series(cells=[
+                AdoptionCell(year=2024, count=30, share=0.03, year_total=1000),
+            ]))
+            for name in names
+        ])
+
+    many = _trend_figure(
+        _meta_series(*[(t, 2024, 0.03) for t in ("aggro", "control", "combo")]),
+        {"aggro", "control", "combo"},
+    )
+    for fig in (many, _adoption("Sol Ring", "Mana Crypt")):
+        assert fig.layout.legend.orientation == "h"
+        assert fig.layout.legend.y < 0  # below the plot, not overlapping it
+        assert fig.layout.legend.yanchor == "top"
+        # And the figure is given the height that legend needs. Told to put the legend
+        # below without the room for it, Plotly lays it out past the figure's own
+        # bottom edge and clips the tail of the list -- which on the meta chart is an
+        # archetype the reader then cannot raise, since the legend is the control.
+        assert fig.layout.height == _LEGEND_BELOW_HEIGHT
+
+    # A chart Plotly draws no legend for (one series) keeps its natural height rather
+    # than holding that room open under the plot for a legend that never arrives.
+    assert _adoption("Sol Ring").layout.height is None
+
+
 def test_observation_markers_carry_a_surface_ring_over_a_thin_dashed_join():
     # AC (§6): the ADR-0013 read is kept: a thin dashed line that only joins the
     # points, hollow observation markers, and the markers gain a 2px surface ring
@@ -846,16 +931,84 @@ def test_the_app_builds_end_to_end_over_a_real_artifact(tmp_path, snapshot_dir):
     assert isinstance(demo, gr.Blocks)
 
 
-def test_every_graph_plot_shares_one_frame_height():
-    # §12 / AC (user feedback): the pilot neighbourhood frame is the size the user liked,
-    # and every graph plot should match it, so the frame height is a single shared
-    # constant rather than scaling per node count. A dense graph and a sparse one land in
-    # the same frame, reading as one coherent canvas across the tabs.
-    from graph7ph.app import GRAPH_HEIGHT
+class _RecordingButton:
+    """A stand-in for a ``gr.Button`` that records the event chain wired onto it.
+
+    ``click``/``then`` on a real button register with the Blocks being built and return
+    a chainable handle, so a stub that records the calls and hands itself back is
+    enough to read the wiring off without standing up Gradio.
+    """
+
+    def __init__(self):
+        self.chain: list[tuple[str, object, dict]] = []
+
+    def click(self, fn, **kwargs):
+        self.chain.append(("click", fn, kwargs))
+        return self
+
+    def then(self, fn, **kwargs):
+        self.chain.append(("then", fn, kwargs))
+        return self
+
+
+def test_a_draw_says_it_is_running_and_comes_back_even_when_the_query_fails():
+    # AC (#85, criterion 9): "every query-running action shows progress while it runs".
+    # Gradio's own indicator paints over the *output* components, and since #132/#138
+    # a view's results stack is hidden until its callback fills it, so on a Draw there
+    # is nothing on screen for it to sit on and the click reads as a no-op. The button
+    # carries the state instead: busy before the query, back to rest after.
+    button = _RecordingButton()
+
+    def query():
+        raise AssertionError("never called in this test")
+
+    results = ["the results stack"]
+    _draw_with_progress(button, query, inputs=["the subject"], outputs=results)
+
+    # The query runs, and it is the real one: not wrapped, and still reading and writing
+    # the view's own inputs and outputs.
+    ran = next(s for s in button.chain if s[1] is query)
+    assert ran[2]["inputs"] == ["the subject"] and ran[2]["outputs"] == results
+
+    # Before it, the button says it is running; after it, the button comes back. Both
+    # write to the button itself, which is the component the state has to land on.
+    before = [s for s in button.chain if s[1] is not query][0]
+    after = [s for s in button.chain if s[1] is not query][-1]
+    assert button.chain.index(before) < button.chain.index(ran) < button.chain.index(after)
+    assert before[2]["outputs"] is button and after[2]["outputs"] is button
+
+    busy, idle = before[1](), after[1]()
+    assert busy["value"] == DRAWING_LABEL and busy["interactive"] is False
+    assert idle["value"] == DRAW_LABEL and idle["interactive"] is True
+    # The two labels have to differ, or the "progress" is invisible.
+    assert DRAW_LABEL != DRAWING_LABEL
+    # The button comes back through `then`, not `success`: a query that raises must not
+    # strand it disabled with no way back. `then` runs either way; `success` would not.
+    assert after[0] == "then"
+
+
+def test_every_graph_plot_shares_one_responsive_frame():
+    # §12 / AC (#85, criterion 12): "graph and charts fill their space from phone width
+    # to a wide monitor, with no fixed 700/760px letterbox". Every graph plot shares one
+    # frame, so a dense graph and a sparse one read as one canvas across the tabs rather
+    # than each scaling to its own node count -- and that frame is a share of the
+    # viewport between a floor and a ceiling, not the flat 760px that was most of a
+    # phone's screen.
+    from graph7ph.app import GRAPH_HEIGHT, GRAPH_MIN_HEIGHT, GRAPH_VIEWPORT_SHARE
 
     frame = _embed("<html></html>")
-    assert f"{GRAPH_HEIGHT}px" in frame
-    assert GRAPH_HEIGHT >= 700  # tall enough that a dense graph lays out legibly
+    assert (
+        f"height:clamp({GRAPH_MIN_HEIGHT}px, {GRAPH_VIEWPORT_SHARE}, {GRAPH_HEIGHT}px)"
+        in frame
+    )
+    # The ceiling is the tuned size the pilot neighbourhood renders well at, which a
+    # desktop still gets; the floor sits under it so a dense graph stays legible where
+    # the proportion alone would squeeze it.
+    assert GRAPH_MIN_HEIGHT < GRAPH_HEIGHT
+    assert GRAPH_HEIGHT >= 700
+    # And no fixed height survives beside it: the letterbox the criterion names is a
+    # `height:760px`, which a clamp carrying the same ceiling must not reintroduce.
+    assert f"height:{GRAPH_HEIGHT}px" not in frame
 
 
 def test_provenance_surface_states_coverage_the_update_date_and_the_contact():
@@ -1262,6 +1415,17 @@ def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
                if year in fn.inputs and plot in fn.outputs]
     assert len(redraws) == 1
 
+    # AC (#85, criterion 9): "every query-running action shows progress while it runs".
+    # Changing the year runs a query and this view has no Draw button, so a step ahead
+    # of the redraw puts the card into the shared running state: the stale figure taken
+    # down (a plot from the old year beside the new year in the control reads as the
+    # answer to the new one) and the note reading the same word the Draw buttons show.
+    writers = [fn.fn for fn in demo.fns.values() if plot in fn.outputs]
+    busy = next(f for f in writers if f.__name__ == "landscape_drawing")
+    _heading, busy_plot, note = busy()
+    assert not busy_plot["visible"]
+    assert note["value"] == DRAWING_LABEL and note["visible"]
+
 
 def test_each_archetype_picker_has_a_clear_button_that_names_itself(tmp_path, snapshot_dir):
     # A picked archetype has to be un-pickable, or a comparison is a one-way door: each
@@ -1401,7 +1565,21 @@ def test_picking_one_archetype_draws_the_timeline_and_a_thin_pair_refuses(
     demo = _timeline_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Archetypes")
     _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
-    draw = next(fn for fn in demo.fns.values() if timeline_plot in fn.outputs).fn
+    # Each selector wires two steps onto the same outputs: the running state (AC 9),
+    # then the query. This test is about the query, so it is named rather than taken
+    # positionally out of the chain.
+    writers = [fn.fn for fn in demo.fns.values() if timeline_plot in fn.outputs]
+    draw = next(f for f in writers if f.__name__ == "draw_archetype_timeline")
+    busy = next(f for f in writers if f.__name__ == "timeline_drawing")
+
+    # AC (#85, criterion 9): "every query-running action shows progress while it runs".
+    # This view has no Draw button to carry it, so the running state speaks in the card
+    # itself: shown, with the plot down and the note reading the shared running word.
+    card, heading, plot, note = busy("grixis", None)
+    assert card["visible"] and not plot["visible"]
+    assert note["value"] == DRAWING_LABEL and note["visible"]
+    # Nothing picked stays down rather than flashing a card the query is about to hide.
+    assert not busy(None, None)[0]["visible"]
 
     card, heading, plot, note = draw("grixis", None)
     assert plot["visible"] and plot["value"] is not None

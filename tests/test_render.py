@@ -98,6 +98,54 @@ def test_a_grouped_view_keys_the_groups_by_friendly_name_not_raw_id():
     assert "pilot:ada</span>" not in html and "pilot:bob</span>" not in html
 
 
+def test_the_co_occurrence_view_is_keyed_even_though_no_node_names_its_groups():
+    # AC (#85, criterion 11): "the graph has a colour key and node kind is not encoded
+    # by colour alone". The co-occurrence views are grouped, so colour there carries
+    # the group rather than the kind (every node is a Card) -- and they were the one
+    # place that drew no key at all, because the key named a group only by its anchor
+    # node and these groups have none: a card's id is never `seed:...` or `cooccur`.
+    # A `seed:` bucket holds exactly the seed card, so the card names it; the partner
+    # bucket is a set, so it is named for what the set means.
+    sub = Subgraph(
+        nodes=[
+            Node("card:sol ring", "Sol Ring", "Card", group="seed:sol ring"),
+            Node("card:mana crypt", "Mana Crypt", "Card", group="cooccur"),
+            Node("card:mox diamond", "Mox Diamond", "Card", group="cooccur"),
+        ],
+        edges=[],
+    )
+    html = render_subgraph(sub)
+    assert "Sol Ring</span>" in html  # the seed names its own bucket
+    assert "Played alongside</span>" in html  # the partner set is named for what it is
+    # and no internal group value reaches the screen as a chip
+    assert "seed:sol ring</span>" not in html and "cooccur</span>" not in html
+
+
+def test_a_grouped_key_leaves_out_a_group_it_cannot_name():
+    # The naming rule refuses rather than guesses: a multi-member group with no anchor
+    # node and no written name has nothing honest to call itself, so it is dropped from
+    # the key instead of surfacing a raw id. The groups that *can* be named still are.
+    sub = Subgraph(
+        nodes=[
+            Node("pilot:ada", "Ada Lovelace", "Pilot", group="pilot:ada"),
+            Node("deck:x", "Grixis", "Deck", group="mystery"),
+            Node("deck:y", "Boros", "Deck", group="mystery"),
+        ],
+        edges=[],
+    )
+    html = render_subgraph(sub)
+    assert "Ada Lovelace</span>" in html
+    assert "mystery</span>" not in html
+
+
+def test_the_pyvis_document_takes_its_height_from_its_frame():
+    # AC (#85, criterion 12): no fixed 700/760px letterbox. The frame around this
+    # document is a responsive clamp (`app._embed`), which only works if the document
+    # stretches to it, so pyvis is told 100% and no 700px survives to fight it.
+    html = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
+    assert "700px" not in html
+
+
 def test_details_panel_has_field_labels_and_the_moxfield_affordance():
     # §7 / AC: the details readout is structured (field labels, hierarchy), not
     # debug output, and a deck carries its Moxfield page as a link affordance.

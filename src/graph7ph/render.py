@@ -86,9 +86,49 @@ def _hosted_library(doc: str) -> str:
     return doc
 
 
+# A group whose members are a set rather than one named thing, named for what the set
+# means. The co-occurrence view buckets every partner card under one group value, so
+# there is nothing in it to take a name from; the head-to-head and single-seed groups
+# both name themselves (below) and need no entry.
+_GROUP_NAMES = {"cooccur": "Played alongside"}
+
+
+def _group_name(group: str, nodes: list[Node]) -> str | None:
+    """What the colour key calls a group, or ``None`` if it cannot be named honestly.
+
+    A group's value is an internal id, never a thing to show a reader, so the key has
+    to recover a name for it. Three cases, in order:
+
+    - Its **anchor node**, the member whose id *is* the group value: the pilot in a
+      head-to-head, whose display name is the group's name.
+    - Its **sole member**, for a group with no anchor but only one thing in it: a
+      co-occurrence ``seed:`` bucket holds exactly the seed card, so the card names it.
+    - A **written name** for a bucket that is a set, from :data:`_GROUP_NAMES`.
+
+    The middle two are why this exists: the co-occurrence views' groups have no anchor
+    (their card ids never equal a ``seed:``/``cooccur`` value), and the key used to
+    drop every group it could not anchor, which on those views meant dropping all of
+    them and drawing no key at all, on the one view where colour is doing the most work.
+
+    Takes the nodes and does its own scan rather than being handed lookup tables built
+    for it: at most three groups over a subgraph the renderer refuses past 250 nodes,
+    so the walk is free, and one argument cannot fall out of step with another.
+    """
+    members = [n for n in nodes if n.group == group]
+    for node in members:
+        if node.id == group:
+            return node.label
+    if len(members) == 1:
+        return members[0].label
+    return _GROUP_NAMES.get(group)
+
+
 def render_subgraph(subgraph: Subgraph) -> str:
+    # Both dimensions are the frame's, not a number of our own: `_DOC_STYLE` lays the
+    # document out as a full-height flex column and the graph fills what is left, so
+    # the height the embedding iframe sets (`app._embed`, responsive) is the height.
     net = Network(
-        height="700px", width="100%", directed=True, cdn_resources="remote",
+        height="100%", width="100%", directed=True, cdn_resources="remote",
         bgcolor=TOKENS["surface"], font_color=TOKENS["text"],
     )
     # A stable colour per player group present, so the two chains stay distinct.
@@ -152,14 +192,11 @@ def render_subgraph(subgraph: Subgraph) -> str:
     # in a grouped view, otherwise the kinds present, each beside its swatch. Only
     # what is actually drawn is keyed, in the fixed slot order.
     if groups:
-        # A group's value is an internal id; it is named in the key by its anchor
-        # node (the member whose id is the group value, e.g. the pilot in a
-        # head-to-head), whose label is the friendly name. A group with no such
-        # anchor (the co-occurrence "seed:"/"cooccur" buckets, whose card ids never
-        # equal the group value) is left out rather than surfaced as a raw id; its
-        # seeds already carry their names on the nodes.
-        label_by_id = {n.id: n.label for n in subgraph.nodes}
-        legend = [(label_by_id[g], palette[g]) for g in groups if g in label_by_id]
+        legend = [
+            (name, palette[g])
+            for g in groups
+            if (name := _group_name(g, subgraph.nodes))
+        ]
     else:
         kinds_present = {n.kind for n in subgraph.nodes}
         legend = [(k, _KIND_COLOURS[k]) for k in _KIND_ORDER if k in kinds_present]
@@ -190,6 +227,9 @@ _DOC_STYLE = f"""<style>
     flex: 1 1 auto; height: auto !important; min-height: 0;
     float: none !important; border: none !important; background: {TOKENS['surface']} !important;
   }}
+  /* A neutral hairline under the key, ruling it off from the canvas below. An accent
+     box round it was tried and dropped at the maintainer's call (2026-07-26), the same
+     call that took the box off the chart legends, so do not add one back. */
   #graph-legend {{
     flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0.85rem;
     padding: 0.55rem 0.85rem; border-bottom: 1px solid {TOKENS['border']};
