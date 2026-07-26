@@ -3,7 +3,7 @@
     "pilots": 1083,
     "decks": 4591,
     "cards": 4995,
-    "events": 108,
+    "events": 107,
     "archetypes": 126,
     "macros": 7,
     "colours": 5,
@@ -17,7 +17,7 @@
     "deck_colour": 13476,
     "card_colour": 4815,
     "has_type": 4995,
-    "in_year": 108
+    "in_year": 107
   },
   "catalogues": {
     "pilots": [

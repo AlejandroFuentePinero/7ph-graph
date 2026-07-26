@@ -38,10 +38,11 @@ Before this change the same idea had three shapes. `Event.fieldImputed` held a r
 
 | `normImputed` | n | Where the norm came from |
 | --- | --- | --- |
-| null | 4485 | The source scored it |
+| null | 4484 | The source scored it |
 | `rescaled` | 54 | Re-ranked against a corrected field (ADR 0015) |
 | `minted` | 28 | Normalised here for the first time |
 | `none` | 24 | No placement to normalise |
+| `reassigned` | 1 | Scored by the source at an event that never happened, so re-scored at the event a `[[deck_event]]` decision returned it to (issue #167) |
 
 ### `none` is a rule, not a null
 

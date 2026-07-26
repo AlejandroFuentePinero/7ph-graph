@@ -12,7 +12,7 @@ from graph7ph.build import (
     graph_counts,
     reconciliation_path,
 )
-from graph7ph.curation import ArchetypeOverride, Curation
+from graph7ph.curation import ArchetypeOverride, Curation, CurationError
 from graph7ph.db import database_path, open_database, open_for_reading, rows
 from graph7ph.models import load_snapshot
 
@@ -566,6 +566,84 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
                RETURN a.name, r.weight, r.isPrimary"""))
     }
     assert edges == {"Izzet Prowess": (100, True)}
+
+
+def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):
+    # The source stranded one deck at a malformed event (a stringified NaN with
+    # no event id), which minted a phantom Event holding it alone and left the
+    # event it was really played at one deck short. A [[deck_event]] entry moves
+    # it back (issue #167). Shaped after the real case: a four-deck event with a
+    # hole at 3rd, and an orphan whose claimed field of 3 is its own placement
+    # copied into the size, so the source scored it dead last at 1.0.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E", "2024-03-24T00:00:00+00:00", placement=1,
+              placementNorm=0.0, eventSize=5),
+        _deck("d2", "E", "2024-03-24T00:00:00+00:00", placement=2,
+              placementNorm=0.25, eventSize=5),
+        _deck("orphan", "nan", "2024-03-24T00:00:00+00:00", placement=3,
+              placementNorm=1.0, eventSize=3, eventId=None),
+        _deck("d4", "E", "2024-03-24T00:00:00+00:00", placement=4,
+              placementNorm=0.75, eventSize=5),
+        # Scored by no one: this is the deck `_mint_norms` mints, and the
+        # contrast that makes the reassigned deck's own label falsifiable.
+        _deck("d5", "E", "2024-03-24T00:00:00+00:00", placement=5,
+              placementNorm=None, eventSize=5),
+    ])
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        deck_events={"orphan": "E"},
+    )
+
+    db_path = tmp_path / "graph"
+    build_graph(load_snapshot(tmp_path), db_path, curation)
+    conn = open_for_reading(db_path)
+
+    # The phantom event is gone: nothing is left holding it up.
+    assert [e for e, in rows(conn.execute("MATCH (e:Event) RETURN e.event"))] == ["E"]
+    assert _scalar(conn, "MATCH (:Event {event: 'E'})<-[:PLAYED_AT]-(d:Deck) "
+                         "RETURN count(d)") == 5
+    # The event keeps the id its own decks carry, not the orphan's null.
+    assert _scalar(conn, "MATCH (e:Event {event: 'E'}) RETURN e.eventId") == "evt_E"
+
+    # The orphan is re-scored against the field it really played in. Its claimed
+    # 3 was a fact about the event, not the deck, so it leaves with the cohort's
+    # 5 and the last-place norm the source computed from it is replaced.
+    #
+    # It says "reassigned" and not "minted", which is the distinction the report
+    # a human audits rests on: the source *did* score this deck, at an event
+    # that never happened, so the score was discarded rather than never given.
+    # d5 beside it is the genuine minting, and the two must not read alike.
+    assert list(rows(conn.execute(
+        "MATCH (d:Deck {deckId: 'orphan'}) RETURN d.placement, d.placementNorm, "
+        "d.normImputed"))) == [[3, 0.5, "reassigned"]]
+    assert list(rows(conn.execute(
+        "MATCH (d:Deck {deckId: 'd5'}) RETURN d.placementNorm, d.normImputed"
+    ))) == [[1.0, "minted"]]
+
+    # The cohort it joined is untouched: same norms, and no field correction,
+    # since the count it now makes still agrees with what those decks claimed.
+    assert _scalar(conn, "MATCH (e:Event {event: 'E'}) RETURN e.fieldSize") == 5
+    assert _scalar(conn, "MATCH (e:Event {event: 'E'}) RETURN e.fieldImputed") is None
+    assert sorted(rows(conn.execute(
+        "MATCH (d:Deck) WHERE d.deckId <> 'orphan' "
+        "RETURN d.deckId, d.placementNorm, d.normImputed"))) == [
+        ["d1", 0.0, None], ["d2", 0.25, None], ["d4", 0.75, None],
+        ["d5", 1.0, "minted"],
+    ]
+
+
+def test_deck_event_decision_naming_an_event_nobody_attended_raises(tmp_path):
+    # The target is an event code, so it has to be an event the snapshot holds:
+    # applying it blind would rename the stranded deck's phantom rather than
+    # returning it to a cohort, which is the failure the entry exists to fix.
+    _write_snapshot(tmp_path, [_deck("orphan", "nan", "2024-03-24T00:00:00+00:00")])
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        deck_events={"orphan": "CBR3"},
+    )
+
+    with pytest.raises(CurationError, match="CBR3"):
+        build_graph(load_snapshot(tmp_path), tmp_path / "graph", curation)
 
 
 def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):

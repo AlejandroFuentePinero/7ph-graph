@@ -16,7 +16,7 @@ from pathlib import Path
 import ladybug
 from pydantic import BaseModel
 
-from graph7ph.curation import Curation, load_curation
+from graph7ph.curation import Curation, CurationError, load_curation
 from graph7ph.db import open_for_writing, remove_artifact, rows
 from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
 from graph7ph.pilots import PilotResolution, resolve_pilots
@@ -158,7 +158,7 @@ def build_graph(
     # this build never read.
     from_disk = curation is None
     curation = curation if curation is not None else load_curation()
-    snapshot = _apply_deck_archetypes(snapshot, curation)
+    snapshot = _apply_deck_events(_apply_deck_archetypes(snapshot, curation), curation)
     pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
     # Deliberately above the duplicate drop, so the straddle guard reads the
     # population the source gave rather than the one de-duplication left. The
@@ -168,7 +168,7 @@ def build_graph(
     # across a New Year makes this call raise YearStraddle for NHC26
     # (2025/2026), while calling it after the drop returns a confident 2026 with
     # no signal of any kind (issue #103). Free on the data held: the two
-    # populations return identical dicts across all 108 events, and reading the
+    # populations return identical dicts across all 107 events, and reading the
     # larger one cannot lose an event key, since the survivor rule always keeps
     # one member of every group.
     years = _event_years(snapshot.decks)
@@ -328,6 +328,80 @@ def _apply_deck_archetypes(snapshot: Snapshot, curation: Curation) -> Snapshot:
     )
 
 
+def _apply_deck_events(snapshot: Snapshot, curation: Curation) -> Snapshot:
+    """Return decks the source stranded to the event they were played at (#167).
+
+    One deck in 4592 carries a stringified NaN for its event and a null event
+    id, which mints a phantom Event holding that deck alone and leaves the real
+    event one deck short in every per-event metric. A ``[[deck_event]]`` entry
+    names the event it belongs to, and the deck rejoins that cohort as an
+    ordinary member of it.
+
+    Every event-scoped value the source put on the deck goes with the move,
+    because each was a claim about the event it was stranded at rather than a
+    fact about the deck: the event id and type, the claimed ``eventSize``, and
+    the ``placementNorm`` the source computed by dividing through that size. The
+    cohort's own numbers replace them, and the norm is left for
+    :func:`_mint_norms` to score against the field the build counts, which is
+    what makes this one entry rather than four. ``placement`` is untouched: a
+    finishing rank is the deck's own, and is what the whole correction rests on.
+
+    Runs before :func:`pilots.resolve_pilots`, so the one-deck-per-event rule
+    (ADR 0004) and the field-size count both see the corrected cohort.
+    """
+    # Only entries whose deck this snapshot holds. An entry for a deck that is
+    # not here decides nothing and is already reported as dead
+    # (:func:`curation.dead_entries`), so it must not be able to stop a build --
+    # which is exactly what a fixture snapshot, holding neither the deck nor the
+    # event it names, would otherwise do.
+    targets = {
+        d.deck_id: curation.deck_events[d.deck_id]
+        for d in snapshot.decks if d.deck_id in curation.deck_events
+    }
+    if not targets:
+        return snapshot
+    # One deck per event to read those numbers off. Any of them will do, since
+    # every deck of an event repeats them identically (:func:`_event_fields`);
+    # the last one wins, which is the deck `_load_nodes` already takes the
+    # Event's own id and type from. A deck being reassigned never speaks for an
+    # event, its numbers being the ones under correction.
+    speaker = {d.event: d for d in snapshot.decks if d.deck_id not in targets}
+    # An event is known by its decks, so a live entry whose target none of them
+    # played at is a decision this build cannot honour: applying it would rename
+    # the deck's phantom rather than dissolve it. Refused rather than
+    # half-applied, the way a [[name]] pin on a merged id is (`load_curation`).
+    for deck, event in sorted(targets.items()):
+        if event not in speaker:
+            raise CurationError(
+                f"[[deck_event]] sends deck {deck!r} to event {event!r}, which no "
+                f"deck in the snapshot was played at"
+            )
+    decks = []
+    for d in snapshot.decks:
+        event = targets.get(d.deck_id)
+        if event is None:
+            decks.append(d)
+            continue
+        decks.append(d.model_copy(update={
+            "event": event,
+            "event_id": speaker[event].event_id,
+            "event_type": speaker[event].event_type,
+            "event_size": speaker[event].event_size,
+            # Dropped, not carried: the source computed it by dividing through
+            # the phantom event's claimed size. `_mint_norms` scores the deck
+            # against the field its real cohort is counted at, and stamps the
+            # rule named here rather than its own "minted" -- the source *did*
+            # score this deck, at an event that never happened, so the score was
+            # discarded rather than never given, and the report a human audits
+            # must not read it as one of the decks nobody ever scored.
+            "placement_norm": None,
+            "norm_imputed": "reassigned",
+        }))
+    return Snapshot(
+        cards=snapshot.cards, decks=decks, containments=snapshot.containments
+    )
+
+
 def _without_decks(snapshot: Snapshot, dropped: frozenset[str]) -> Snapshot:
     """A copy of the snapshot with the dropped decks and their cards removed."""
     return Snapshot(
@@ -386,7 +460,7 @@ def corrected_field(
 ) -> tuple[int | None, str | None]:
     """The field an event's placements should be normalised against, and the rule.
 
-    The source ships ``eventSize`` on every deck, and at 9 of 108 events that
+    The source ships ``eventSize`` on every deck, and at 9 of 107 events that
     number is wrong. Because ``placementNorm = (placement - 1) / (eventSize - 1)``,
     the error lands on every metric that reads a normalised finish: four pilots
     sat at a career mean of 1.000, dead last in field, and every one of them
@@ -461,7 +535,7 @@ def _event_fields(
     deepest placement of 0, which no field size can be below.
 
     ``eventSize`` is a property of the event that every one of its decks repeats,
-    identically at all 108 events held, so the first one that carries a number
+    identically at all 107 events held, so the first one that carries a number
     speaks for the cohort.
     """
     counted: dict[str, tuple[str, int | None, set[str], int]] = {}
@@ -473,7 +547,7 @@ def _event_fields(
         counted[deck.event] = (
             # The last deck's type, which is the one `_load_nodes` writes to the
             # Event node, so the type that decided the whitelist is the type the
-            # graph shows. They agree at all 108 events held; reading them off
+            # graph shows. They agree at all 107 events held; reading them off
             # different decks is what would make a disagreement unexplainable.
             deck.event_type,
             size if size is not None else deck.event_size,
@@ -571,7 +645,13 @@ def _mint_norms(snapshot: Snapshot, fields: dict[str, EventField]) -> Snapshot:
             continue
         decks.append(deck.model_copy(update={
             "placement_norm": (deck.placement - 1) / (field - 1),
-            "norm_imputed": "minted",
+            # A pass that cleared a norm and named its own reason keeps it: this
+            # one computes the number, but it is not always the one that decided
+            # the number was missing (`_apply_deck_events`). "minted" is the
+            # rule for a norm nobody ever gave, so it is the default, not the
+            # answer. A deck that cannot be scored at all still reads "none"
+            # above: whether it can be ranked outranks how it got here.
+            "norm_imputed": deck.norm_imputed or "minted",
         }))
     return Snapshot(
         cards=snapshot.cards, decks=decks, containments=snapshot.containments
@@ -607,8 +687,11 @@ def _load_nodes(
 
     # Dimension nodes, deduped from the decks and cards that reference them.
     # Event is keyed on the event code, not eventId: the code is always present
-    # (one deck has a null eventId) and is 1:1 with eventId in the source, so it
-    # is the safe stable key. eventId is retained as a property for later joins.
+    # and is 1:1 with eventId in the source, so it is the safe stable key. The
+    # deck that made that concrete -- the source's one null eventId -- is the one
+    # `_apply_deck_events` now returns to its cohort, so nothing reaching here
+    # carries a null; the key still holds, on the source's shape rather than on
+    # that deck. eventId is retained as a property for later joins.
     events = {d.event: (d.event_id, d.event_type) for d in snapshot.decks}
     _load(conn,
           "UNWIND $rows AS r CREATE (:Event {event: r.event, eventId: r.eventId, "

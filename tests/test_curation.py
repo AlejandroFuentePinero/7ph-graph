@@ -128,6 +128,30 @@ def test_every_stored_pair_holds_exactly_two_ids(tmp_path):
         assert len(pair) == 2
 
 
+def test_deck_event_entry_records_the_event_a_deck_was_really_played_at(tmp_path):
+    # A malformed source event (a stringified NaN) strands a deck at an event
+    # that never happened. The decision names the event it really belongs to,
+    # keyed on the deck id (issue #167).
+    path = _write(tmp_path, """
+        [[deck_event]]
+        deck = "orphan"
+        event = "CBR3"
+    """)
+    assert load_curation(path).deck_events == {"orphan": "CBR3"}
+
+
+@pytest.mark.parametrize("entry", ['deck = "orphan"', 'event = "CBR3"'])
+def test_deck_event_entry_missing_either_half_raises(tmp_path, entry):
+    # Half an entry decides nothing: without a deck there is nothing to move,
+    # and without an event there is nowhere to move it.
+    path = _write(tmp_path, f"""
+        [[deck_event]]
+        {entry}
+    """)
+    with pytest.raises(CurationError):
+        load_curation(path)
+
+
 def _mixed_curation() -> Curation:
     """A dictionary with one live and one dead entry of every type."""
     return Curation(
@@ -139,6 +163,7 @@ def _mixed_curation() -> Curation:
         names={"deadName": "X", "liveName": "Y"},
         deck_pilots={"deadDeck": "p1", "liveDeck": "p2"},
         deck_archetypes={"deadDeck2": ArchetypeOverride("N", "engine:e", "L")},
+        deck_events={"deadDeck3": "E", "liveDeck": "E"},
         splits=frozenset({
             frozenset({"deadS", "liveB"}),   # deadS absent -> pair can't fire
             frozenset({"liveB", "liveC"}),   # both present -> live
@@ -158,6 +183,7 @@ def test_dead_entries_flags_every_absent_keyed_entry():
     assert ("name", "deadName") in flagged
     assert ("deck_pilot", "deadDeck") in flagged
     assert ("deck_archetype", "deadDeck2") in flagged
+    assert ("deck_event", "deadDeck3") in flagged
     # Live entries never appear.
     assert not any(key in {"liveMember", "canon", "liveB", "liveC", "liveName"}
                    for _, key in flagged)
@@ -167,7 +193,7 @@ def test_dead_entries_empty_when_all_ids_present():
     cur = _mixed_curation()
     pilot_ids = {"canon", "deadMember", "liveMember", "deadA", "deadS", "liveB",
                  "liveC", "deadName", "liveName"}
-    deck_ids = {"deadDeck", "liveDeck", "deadDeck2"}
+    deck_ids = {"deadDeck", "liveDeck", "deadDeck2", "deadDeck3"}
     assert dead_entries(cur, pilot_ids, deck_ids) == []
 
 
