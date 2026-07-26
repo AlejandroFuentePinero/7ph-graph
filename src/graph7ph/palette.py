@@ -8,6 +8,13 @@ issues (#111, #112, #117), not this one. This is presentation hue, distinct from
 domain ``Colour`` (the Magic W/U/B/R/G of a card): entities here are chart series or
 graph node kinds.
 
+Eight is where *direct* colour stops. :data:`EXTENDED` carries the scale further for the
+one chart that draws its lines faded and raises one on a click (§6 emphasis), where hue
+traces a line rather than naming it; nothing else may draw from it. A raised line does
+draw its extended hue at full strength, which is what makes the raise read, but it is
+never asked to carry identity on its own: the legend and the hover name it, and a reader
+raises a line or two, not fifteen.
+
 The single source of truth is ``docs/design/v1-visual-direction.md`` §5. The hues
 are validated colour-blind-safe on the dark surface (``#1c1917``): worst adjacent
 CVD ΔE 8.4, all eight clear 3:1 contrast. Re-validate after any hue change with the
@@ -56,5 +63,52 @@ def assign(entities: Iterable[str]) -> dict[str, str | None]:
     """
     return {
         e: CATEGORICAL[i] if i < MAX_SLOTS else None
+        for i, e in enumerate(dict.fromkeys(entities))
+    }
+
+
+# §5 extended (issue #117): twenty-four hues that carry the meta chart past the eighth
+# line. Chosen by farthest-point selection, each one the candidate furthest from every
+# hue already in the scale *as drawn* — that is, composited onto the surface at the
+# emphasis opacity, not compared as hex. The distinction is the whole point. A faded
+# colour keeps only a fifth of its distance from its neighbours, so two hues that look
+# unrelated at full strength can be one colour on the canvas; an earlier cut of this
+# scale, derived by rotating the signed eight, put two lines 4.6 units apart on screen
+# while every hex differed. Candidates were drawn from a grid held to the signed set's
+# own band (saturation .45-.70, lightness .45-.68, contrast >= 3:1 on the surface), so
+# the extension reads as more of the same family rather than as the neon a pure
+# separation search reaches for. Regenerate the same way if the signed eight change;
+# ``test_palette`` holds the property the search was maximising.
+_EXTENSION: tuple[str, ...] = (
+    "#99e56c", "#6ce5ce", "#55c322", "#a525d0", "#dada2b", "#e56cd6",
+    "#45de88", "#d8b479", "#a0a63f", "#6955be", "#25d0d0", "#c3224b",
+    "#3fa0a6", "#2bda4b", "#dc9438", "#68c85b", "#cf81a3", "#da2bae",
+    "#aa60c3", "#8dda2b", "#a66c3f", "#5fb1e3", "#81cf9a", "#346bb2",
+)
+
+# Colour still tops out at eight *distinguishable* hues and this scale does not pretend
+# otherwise. Past the eighth, hue is a tracing cue: enough for the eye to follow one
+# line across the years on a chart where every line is faded, never enough to name it.
+# Naming stays with the legend and the hover, which is why the extension is only drawn
+# where those are present and a raise is what the reader reaches for.
+EXTENDED: tuple[str, ...] = CATEGORICAL + _EXTENSION
+
+
+def extended(entities: Iterable[str]) -> dict[str, str]:
+    """Map entities to the extended scale in fixed order, keyed by entity.
+
+    :func:`assign`'s rules, over a longer scale: fixed order, keyed by entity, a
+    repeat shares its first hue. The difference is the overflow. ``assign`` stops at
+    the eighth because a ninth *direct* colour would claim a distinguishability the
+    set does not have; this scale keeps going because its caller draws every line
+    faded, where the job of hue is to keep a line traceable rather than to name it.
+
+    Past the thirty-second entity the scale cycles, so two entities can share a hue.
+    Nothing the app draws reaches that: the widest cut is 31 lines. Only a hand-picked
+    set can, and a reader who has named thirty-three archetypes at once is past what
+    hue can carry either way.
+    """
+    return {
+        e: EXTENDED[i % len(EXTENDED)]
         for i, e in enumerate(dict.fromkeys(entities))
     }

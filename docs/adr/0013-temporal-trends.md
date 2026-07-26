@@ -104,6 +104,11 @@ Issue #101 audited every guard in the package against this rule and found it had
 
 ## Amendment: emphasis, not colour-by-position, above eight lines (issue #116)
 
+> Revised by issue #117 once the model was built and read: the context layer keeps its
+> colour faded rather than receding to grey, hue runs past eight as a tracing cue, and
+> emphasis applies at every width. See the
+> [#117 amendment](#amendment-emphasis-is-faded-colour-at-every-width-not-grey-above-eight-issue-117).
+
 The trend tab draws the `>8`-series charts with **emphasis**: every line recedes to grey as context, and one is raised in the accent colour on **legend click-to-isolate**. This reverses the render's colour-by-position behaviour for those charts. This amendment named two such charts, the meta and the card-adoption default cuts (~15 lines each); the [issue #126 amendment below](#amendment-two-views-per-subject-tab-emphasis-is-meta-share-only-issue-126) caps adoption at two series, so meta share is now the only chart emphasis governs.
 
 ADR-0013's prose never fixed a colour rule for the group-by line charts; the colour-by-position behaviour was the render's default, and this amendment records the decision to replace it. That default, as `app.py` described it, gave a trace "its alphabetical position within the current selection, not a property of the archetype: all 14 archetypes drawn at the Top 50% cut take a different colour at Top 75%", drawing hues from a 32-entry palette and recycling past 32. It failed the reader three ways. At ~15 lines no palette keeps the hues distinguishable, so the chart is the rainbow issue #85 was opened to fix. Because colour tracked selection position rather than the entity, widening the cut repainted every survivor, so a line's colour was unstable across two views of the same data and carried no identity worth reading. And hue-only identity is invisible to a colour-blind reader. Emphasis is honest about all three: it never claims fifteen distinguishable hues, it shows the whole meta as one grey shape, and it isolates the one line the reader asks for.
@@ -111,6 +116,85 @@ ADR-0013's prose never fixed a colour rule for the group-by line charts; the col
 The reversal is scoped to the `>8` branch. At `≤8` series the render keeps a direct colour per entity, assigned in fixed order **by entity, never by rank, never cycled** (the palette seam from issue #109), which is itself the fix to the repaint-on-recut defect for the small case; emphasis is the same rule's answer to the case where eight distinguishable hues run out. Head-to-head (two lines coloured per player) and pilot performance (single series) are `≤8` and unaffected. The isolate is Plotly-native legend interaction, not point-level hover, which `gr.Plot` cannot provide (issue #78). The mark semantics this ADR fixed are untouched: the thin dashed join still asserts no trend between years, the hollow markers still read as observations, and no slope is inferred.
 
 This ratifies what issue #85 and `docs/design/v1-visual-direction.md` (§5-6, §9) proposed and held as "proposed, not final" pending this sign-off, and it unblocks the emphasis build. The tool surface is unchanged: every `Series` tool still returns the full matrix with each cell's `n` and `year_total`, and emphasis is a property of the trend tab's render, not of the data the agent reads.
+
+## Amendment: emphasis is faded colour at every width, not grey above eight (issue #117)
+
+Building the emphasis model put it in front of a reader, and three of the decisions the
+[#116 amendment](#amendment-emphasis-not-colour-by-position-above-eight-lines-issue-116)
+made are reversed by what that showed. The model itself stands: two layers, one line
+raised off a legend click, no point-level hover, mark semantics untouched.
+
+**The context layer keeps its colour, faded; it does not recede to one grey.** A field
+of fourteen identical grey lines is untraceable: the reader cannot follow one archetype
+across the years, which is most of what the meta chart is for, and the isolate is no
+substitute because it answers only about the line already named. So each archetype
+draws in its own hue at `_CONTEXT_ALPHA` (0.20), and the raise is that same hue at full
+strength rather than one accent for every line. The legend swatch then matches the line
+it raises, and two lines raised together stay distinct.
+
+The faded layer drops its observation markers and draws as line only. The marker's fill
+is the opaque surface, chosen so two overlapping rings do not cross into mud, which was
+right for a handful of full-strength lines; at 20% opacity the ring is invisible and all
+that is left is the occlusion, thirty-one archetypes' worth of discs chopping the very
+lines the fade exists to keep traceable. The raised line keeps its markers, so the
+observation read the ADR fixed is intact wherever a reader is actually reading closely.
+
+**Hue therefore runs past eight, on an extended scale, and §5's "never past eight" is
+narrowed rather than broken.** The scale (`palette.EXTENDED`) opens on the signed eight
+in slot order, then adds twenty-four hues chosen by farthest-point selection **as
+drawn** — each candidate scored on its distance from every hue already in the scale
+after compositing onto the surface at the emphasis opacity, not on its hex. That
+distinction is load-bearing. Fading costs a colour four fifths of its separation, so
+hues that look unrelated at full strength can be one colour on the canvas: the first cut
+of this scale, built by rotating the signed eight into lightness rings, put two of the
+Top 75% lines **4.6 RGB units apart on screen** while every hex differed, and its tests
+passed. Candidates are held to the signed set's own band (saturation .45-.70, lightness
+.45-.68, contrast >= 3:1) so the extension reads as the same family rather than the neon
+an unconstrained separation search reaches for.
+
+The ceiling is worth recording, because it bounds what any palette here can do. At the
+emphasis opacity the **signed eight themselves** sit 7.6 units apart at their closest,
+against 38.1 at full strength. The fade, not the extension, is what spends the colour
+budget. The extension is therefore built to reach that same 7.6 and no worse, and that
+is exactly what `test_palette` asserts: the floor is the signed eight's own closest
+pair, faded the same way, so the guard needs no invented constant and states the honest
+claim — extending the scale may not crowd the chart worse than the signed set already
+does. Raising the opacity is the only lever that buys real separation (0.35 would give
+13.3), which is a legibility-versus-recession trade to make by eye, not by argument.
+
+What §5 protects survives intact: **hue past the eighth never carries identity.** It is
+a tracing cue on a faded line, and `assign` still refuses a ninth *direct* colour. A
+raised line does draw its extended hue at full strength — that is what makes the raise
+read — but identity there comes from the legend and the hover, with a line or two raised
+at a time, never fifteen. Because the scale opens on the signed eight and the cut hands
+its tags over strongest-first, an archetype holds one colour across every cut, which is
+the repaint-on-recut defect the #116 amendment was mostly about.
+
+**Emphasis is how the chart reads at every width, not a mode above eight lines.** A
+threshold made the same archetype read two ways either side of it, and moving the cut
+became a change of chart rather than a change of how many lines were drawn.
+
+Two defaults follow, both about what a reader meets before they click. A cut opens with
+its **leading three** raised (`_OPEN_RAISED`), taken off the rank order the cut already
+carries, so a cold start is a chart with a reading in it rather than a field of context
+that says nothing until clicked. The manual panel opens with **every** line raised,
+because each was named by the reader and a leading-few rule there would ask them to
+choose the same archetypes twice. The click goes both ways in both panels, and the faded
+layer is always on the canvas, so no click can lose a line rather than recede it.
+
+One implementation constraint is worth recording because it looks like a bug in the
+build. The isolate the #116 amendment specified, Plotly's `legend.itemclick`
+`"toggleothers"`, is unusable here: its handler branches on the *clicked* trace's own
+visibility, and a `legendonly` one takes the branch that turns **every** trace in the
+legend on. Since a raise starts hidden, that is the reader's first click, and it would
+draw the whole cut at full strength, the rainbow this model exists to retire.
+`"toggle"` is used instead, and `itemdoubleclick` is switched off because it defaults to
+`toggleothers`. The cost is that a second click raises a second line rather than
+swapping; with per-entity hue restored, two raised lines are still distinguishable, so
+the cost is small and the "isolate" of the #116 wording becomes *raise*.
+
+`docs/design/v1-visual-direction.md` §5-6 is superseded on these points and carries a
+pointer to here.
 
 ## Amendment: two views per subject tab, emphasis is meta-share-only (issue #126)
 
