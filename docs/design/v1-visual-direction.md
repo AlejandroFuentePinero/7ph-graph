@@ -108,7 +108,13 @@ above the cards, in the display face at 18 (between the insight title and the le
 so it reads as the heading of the answer, not another control label.
 
 - **Reading measure** bounded to ~62ch; no paragraph runs the full width of a
-  wide monitor.
+  wide monitor. _Exception, decided 2026-07-26: the **FAQ** answers. Its boxes are
+  full-width, one question per row, and the answer fills its box, so on a wide monitor
+  those lines do run past the measure. Two attempts to bring them onto it were reverted
+  at the maintainer's call: capping the card left one narrow column with the rest of the
+  screen empty, and flowing the cards into as many measure-wide columns as fit broke the
+  one-question-per-row reading order. The layout is the decision and #85's criterion 4 is
+  answered against it, so treat the FAQ measure as settled rather than outstanding._
 - **Figures**: `font-variant-numeric: tabular-nums` (Hanken Grotesk carries tabular
   figures) only where digits align in a column (axis ticks, table rows). Standalone
   large numbers (coverage stats, hero) use proportional figures, since tabular makes
@@ -183,6 +189,18 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
     their own hue faded, the raise is that hue at full strength, emphasis applies at
     every width, and the click raises rather than isolates (Plotly's `toggleothers`
     turns the whole legend on from a hidden start)._
+- **Legend placement**: never in a column beside the plot. Plotly's default puts it
+  to the right *inside the figure's width*, so it takes its space from the plot: at a
+  phone's 390px the meta chart's fourteen names claimed about half of it. A figure has
+  one layout and no media query reaches inside it, so the legend goes where it costs no
+  width at any size: horizontal, **below** the plot for the wrapping many-series charts
+  (meta share, card adoption), **above** for the two-entry rivalry charts, whose range
+  slider already owns the space underneath. A chart legend carries **no fill and no
+  outline**: a hairline accent box round the strip was tried and dropped at the
+  maintainer's call (2026-07-26), so do not add one back.
+- **Chart chrome is set in the app's body face**, never left to Plotly's default
+  `"Open Sans", verdana, arial`. `gr.Plot` draws into the page's own DOM, so the
+  injected `@font-face` covers the SVG and naming the stack on the figure is enough.
 - **Range slider** (head-to-head): moves out of the figure into a control row
   above the chart; the in-figure "◀ drag ▶" annotation is dropped.
 - Single-series charts (pilot performance) carry no legend box — the title names
@@ -215,8 +233,12 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   a child-level decision), never an empty canvas.
 - **Provenance / credit** on screen: a coverage row (108 events, 1,083 pilots,
   4,591 decks, 4,995 cards, 2023–2026) and which snapshot the artifact was built
-  from; links to the repo, to 7phstats upstream, and to the licence; a real
-  favicon and social preview.
+  from; a real favicon and social preview. _Amended 2026-07-26: the links to the
+  repo, to 7phstats upstream, and to the licence were dropped from the footer at the
+  maintainer's request during the v1 walkthrough, in favour of a contact line (who to
+  tell when a hand-curated archetype is wrong). That credit survives in `README.md`,
+  which a Space visitor never sees; #85's criterion 13 is closed on this decision
+  rather than on the links being present._
 
 ## 9. ADR impact
 
@@ -311,14 +333,24 @@ which set a plot off with a top rule alone.
   above the cards.
 - **Plot region, sized to content.** Retire the fixed `min(78vh,860px)` slab. Size
   each plot to how much it has to show, within a bounded band:
-  - graph (pyvis iframe): every graph plot shares **one frame height** (`GRAPH_HEIGHT`,
-    760px), the size the pilot neighbourhood renders well at. A single uniform frame
-    reads as one coherent canvas across the tabs rather than each plot jumping to its
-    own node-count-scaled height; it is tall enough that a dense graph lays out legibly
-    (the reason the earlier fixed slab was too small for complex graphs) and not so tall
-    that a small one floats in emptiness;
+  - graph (pyvis iframe): every graph plot shares **one frame**, so a single uniform
+    canvas reads across the tabs rather than each plot jumping to its own
+    node-count-scaled height. The frame is `clamp(420px, 72vh, 760px)`: the ceiling is
+    the size the pilot neighbourhood renders well at, so a desktop is unchanged in
+    practice; the floor keeps a dense graph legible (the reason the earlier fixed slab
+    was too small for complex graphs); and the viewport share in between is what §7
+    always asked for and this section originally contradicted by pinning 760px flat,
+    which on a phone was most of the screen. The pyvis document inside is a full-height
+    flex column, so it takes whatever the frame gives it;
   - trend (Plotly): renders at its own natural figure height inside the card, which
     is already content-sized (a chart was never the screen-tall slab the graph was).
+    _Amended 2026-07-26: a chart that carries its legend below the plot (§6) is the one
+    exception, and takes a stated height instead. Plotly lays a legend out inside the
+    figure's own box, so a figure left at its natural height puts that legend past its
+    bottom edge and clips it: measured as the last two of fourteen archetypes missing at
+    phone width, and on that chart the legend is the control, so a clipped entry is an
+    archetype the reader cannot raise. The height is reserved only when a legend will
+    actually be drawn, so a single-series chart keeps its natural height as before._
   The details panel stays visible inside the graph card without scrolling (§7).
 - **Empty until drawn.** A view's cards live in a results stack that is **hidden
   until a Draw fills it** (§14), so the view opens as its controls over empty ground,

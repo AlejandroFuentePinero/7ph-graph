@@ -73,6 +73,27 @@ def test_insight_card_and_control_panel_read_the_surface_tokens():
     assert "var(--surface-2)" in panel
 
 
+def test_every_prose_role_takes_the_reading_measure_and_the_faq_is_the_exception():
+    # AC (#85, criterion 4): "no line exceeds a comfortable measure at any viewport
+    # width". Every prose role takes the measure directly, so the criterion holds
+    # everywhere the app sets prose.
+    css = theme.build_css()
+
+    prose = re.search(r"\.prose p, \.prose li, \.t-lede, \.t-body\s*\{(.*?)\}", css, re.DOTALL)
+    assert prose and f"max-width: {theme.MEASURE_CH}ch" in prose.group(1)
+
+    # The FAQ is the one deliberate exception, held here so it reads as a decision rather
+    # than an oversight: the maintainer wants full-width boxes one question per row, and
+    # a measure-bound paragraph inside a wide box was rejected twice (2026-07-26). The
+    # answers therefore run the width of their box, which on a wide monitor is longer
+    # than the measure. Criterion 4 is answered against that layout, not the reverse.
+    assert re.search(r"\.faq-card p, \.faq-card li\s*\{[^}]*max-width: none", css)
+    # And no bound has crept back onto the card or a grid onto its container, either of
+    # which would quietly undo the layout that was asked for.
+    assert not re.search(r"\.faq-card\s*\{", css)
+    assert ".faq-grid" not in css
+
+
 def test_the_default_gradio_footer_is_retired():
     # AC (#132 / #115): the "Built with Gradio / Use via API / Settings" footer is one
     # of the default-furniture tells; the stylesheet hides it so the app does not read

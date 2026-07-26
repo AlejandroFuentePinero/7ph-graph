@@ -217,7 +217,13 @@ def build_css() -> str:
    one per row, and the answer runs the width of its box. A measure-bound paragraph in a
    wide box reads as a narrow ragged column against empty space, which is worse here than
    a long line, because an answer is a handful of sentences read once rather than a page
-   of prose. The box is the bound; the paragraph fills it. */
+   of prose. The box is the bound; the paragraph fills it.
+
+   Twice tried and twice reverted at the maintainer's call (2026-07-26), so do not "fix"
+   this again without asking: capping the card put one narrow column down the left of a
+   wide screen with the rest empty, and flowing the cards into as many measure-wide
+   columns as fit broke the one-question-per-row reading order. The layout is the
+   decision; #85's criterion 4 is answered against it, not the other way round. */
 .faq-card p, .faq-card li {{ max-width: none; }}
 /* The question is the box's own heading and the reader's entry point into it, so it
    takes the accent: eight boxes at a glance are scanned by their questions. */
@@ -381,9 +387,12 @@ footer {{ display: none !important; }}
 .insight-card label.float {{ display: none; }}
 
 /* The app's own credit surface in place of that footer (#115): coverage, the build
-   snapshot, and the source links, set apart from the tabs by a hairline and centred as
-   a page footer. The coverage counts read a step up from the caption below them, the
-   figures themselves in the primary ink so the numbers land first. */
+   snapshot, and who to reach, set apart from the tabs by a hairline and centred as a
+   page footer. The coverage counts read a step up from the caption below them, the
+   figures themselves in the primary ink so the numbers land first. The repo /
+   7phstats / licence links this also carried were dropped at the maintainer's request
+   during an app walkthrough, re-confirmed against #85's criterion 13 on 2026-07-26:
+   no link, no credit, no licence in the app. That credit lives in `README.md` alone. */
 .provenance {{
   border-top: 1px solid var(--border); margin-top: 2.5rem; padding-top: 1.25rem;
   text-align: center;
