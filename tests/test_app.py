@@ -1,5 +1,6 @@
 from datetime import datetime
 
+import plotly.colors as pc
 import pytest
 
 from graph7ph import numfmt, palette, theme
@@ -602,19 +603,145 @@ def test_a_narrower_cut_does_not_repaint_the_archetypes_it_shares_with_a_wider_o
     assert narrower["Control"] == wider["Control"] == palette.CATEGORICAL[1]
 
 
-def test_more_than_eight_series_do_not_borrow_a_ninth_hue_or_crash():
-    # AC / §5-6: colour tops out at eight distinguishable series. Past eight the
-    # shared palette assigns nothing (the signal to switch to emphasis, a separate
-    # slice), so this branch must still draw every line in a real colour rather than
-    # a None the figure chokes on. The >8 fallback is out of scope for the direct-
-    # colour AC, but it must not regress into a crash.
-    triples = [(f"arch{i}", 2024, 0.05) for i in range(9)]
-    tags = [t for t, _, _ in triples]
-    fig = _trend_figure(_meta_series(*triples), tags)
+def _emphasis_layers(fig):
+    """A figure's (context, raised) traces, split on which carries a legend entry."""
+    return (
+        [t for t in fig.data if t.showlegend is False],
+        [t for t in fig.data if t.showlegend is not False],
+    )
 
-    assert len(fig.data) == 9
-    assert all(isinstance(t.marker.line.color, str) and t.marker.line.color
-               for t in fig.data)
+
+def _wide_meta(n):
+    """A meta-share chart of ``n`` equal archetypes, and the tags it was drawn from."""
+    triples = [(f"arch{i}", 2024, 0.05) for i in range(n)]
+    tags = [t for t, _, _ in triples]
+    return _trend_figure(_meta_series(*triples), tags), tags
+
+
+def test_every_line_is_drawn_faded_and_paired_with_a_full_strength_twin():
+    # AC (#117, ADR-0013's #116 amendment as revised by user review): past eight series
+    # the chart switches to emphasis. Every archetype is drawn twice: a faded context
+    # line on screen from the first paint, and a full-strength twin in the same hue
+    # that carries the legend entry and starts hidden. Faded *in its own colour*, not
+    # in one grey: at fourteen lines a single grey shape is untraceable, so hue stays
+    # as the cue that lets the eye follow one line across the years, while the raise
+    # is what names it.
+    fig, tags = _wide_meta(9)
+    context, raised = _emphasis_layers(fig)
+
+    assert len(context) == len(raised) == 9
+    # Each pair is one hue at two strengths: the context line is the raised line's own
+    # colour, faded, so raising a line cannot change which line it is. The exact opacity
+    # is a design dial settled by eye, so what is pinned here is that the hue survives
+    # the fade and that the fade is deep enough to read as context.
+    for faded, full in zip(context, raised):
+        r, g, b = pc.hex_to_rgb(full.line.color)
+        assert faded.line.color.startswith(f"rgba({r}, {g}, {b},")
+        assert float(faded.line.color.rsplit(",", 1)[1].rstrip(" )")) <= 0.5
+        assert faded.marker.line.color == faded.line.color
+    # Every archetype has its own hue, and the first eight are the signed set, so a
+    # re-cut to eight or fewer lines does not repaint the survivors.
+    assert len({t.line.color for t in raised}) == 9
+    assert [t.line.color for t in raised][:8] == list(palette.CATEGORICAL)
+    # The faded layer is on screen from the first paint whatever the raise does, so no
+    # click can leave the reader with a line missing rather than a line receded.
+    assert all(t.visible is None or t.visible is True for t in context)
+    # It draws as line only. The observation marker's fill is the *opaque* surface, so
+    # at this width thirty-one archetypes' worth of them would tile over each other and
+    # chop every faded line into segments, which is the tracing the fade exists to keep.
+    # The raised line, which is the one being read closely, keeps its observations.
+    assert all(t.mode == "lines" for t in context)
+    assert all(t.mode == "lines+markers" for t in raised)
+    assert [t.name for t in raised] == [t.title() for t in tags]
+
+
+def test_a_small_cut_fades_and_raises_on_the_signed_hues_too():
+    # AC (#117, user review): emphasis is how this chart reads at every width, not a
+    # mode that switches on past eight lines. The narrow cut (five archetypes) fades
+    # and raises exactly as the wide one does, so moving the cut changes how many lines
+    # are drawn and nothing else. Its hues are the signed eight in slot order, which is
+    # also the extended scale's opening, so a line keeps its colour across every cut.
+    fig, _ = _wide_meta(5)
+    context, raised = _emphasis_layers(fig)
+
+    assert len(context) == len(raised) == 5
+    assert [t.line.color for t in raised] == list(palette.CATEGORICAL[:5])
+    assert [t.visible is True for t in raised] == [True, True, True, False, False]
+    assert fig.layout.legend.itemclick == "toggle"
+
+
+def test_the_cut_opens_on_its_leading_archetypes_not_on_a_blank_field():
+    # AC (#117, user review): a cold start must show the reader something. The cut
+    # passes its tags strongest-first, so the leading few open raised and the rest of
+    # the field sits faded behind them. Without this the first thing a reader ever sees
+    # is a chart of nothing but context, which reads as broken rather than as an
+    # invitation to click.
+    fig, tags = _wide_meta(9)
+    _, raised = _emphasis_layers(fig)
+    open_on = [t.name for t in raised if t.visible is True]
+
+    assert open_on == [t.title() for t in tags[:3]]  # the strongest three, in rank order
+    assert all(t.visible == "legendonly" for t in raised[3:])  # the field stays behind
+
+
+def test_hand_picked_archetypes_all_open_raised():
+    # AC (#117, user review): the manual panel is not a cut. Every line in it was named
+    # by the reader, so all of them open raised and the click fades: opening a
+    # hand-picked set behind a leading-three rule would ask the reader to choose the
+    # same archetypes twice.
+    series = _meta_series(("aggro", 2024, 0.4), ("control", 2024, 0.3),
+                          ("combo", 2024, 0.2), ("burn", 2024, 0.1))
+    tags = ["aggro", "control", "combo", "burn"]
+    context, raised = _emphasis_layers(
+        _trend_figure(series, tags, start_raised=len(tags))
+    )
+
+    assert len(context) == len(raised) == 4
+    assert all(t.visible is True for t in raised)
+
+
+def test_the_raise_is_a_legend_click_not_a_point_hover():
+    # AC (#117): the raise is Plotly-native legend interaction, because gr.Plot gives
+    # no point-level hover callback (#78). The legend says it is clickable, since a
+    # column of identical accent swatches over a hidden layer is otherwise not
+    # obviously a control.
+    #
+    # Both handlers are pinned away from `toggleothers`, which reads like the isolate
+    # this chart wants but does the opposite from a hidden start: its handler branches
+    # on the *clicked* trace's own visibility, and a `legendonly` one takes
+    # `case"legendonly": q(He,!0)` (plotly.min.js), turning every trace in the legend
+    # on. Every raise starts hidden, so that is the reader's first click, and it would
+    # draw all fifteen accent lines at once. `itemdoubleclick` defaults to
+    # `toggleothers`, so it has to be switched off for the same reason.
+    fig, _ = _wide_meta(9)
+    title = fig.layout.legend.title.text
+
+    assert fig.layout.legend.itemclick == "toggle"
+    assert fig.layout.legend.itemdoubleclick is False
+    # The hint sits on its own line under the legend's name and in the palette's blue,
+    # so it reads as an invitation to act rather than as part of the label.
+    name, _, hint = title.partition("<br>")
+    assert name == "Archetype"
+    assert "click" in hint.lower()
+    assert palette.CATEGORICAL[0] in hint
+
+
+def test_the_widest_cut_draws_no_look_alike_pair_and_no_borrowed_wheel():
+    # AC (#117): what the cut used to do was recycle a 32-entry qualitative wheel
+    # borrowed from Plotly, at full strength, so two archetypes could land on the same
+    # hue and none of the fifteen was traceable. The widest cut the app offers is 31
+    # lines, and across it every archetype must hold a hue of its own, all of them from
+    # this repo's own scale. Read off the serialised figure, so a borrowed hue that
+    # sneaks into a marker or a legend swatch trips this too.
+    fig, _ = _wide_meta(31)
+    _, raised = _emphasis_layers(fig)
+
+    assert len({t.line.color for t in raised}) == 31  # no two archetypes share a hue
+    assert set(t.line.color for t in raised) <= set(palette.EXTENDED)
+    drawn = fig.to_json().lower()
+    assert not [c for c in pc.qualitative.Dark24 + pc.qualitative.Light24
+                if c.lower() in drawn and c.lower() not in
+                {h.lower() for h in palette.EXTENDED}]
 
 
 def test_share_chart_ticks_and_hovers_speak_the_one_numeric_convention():

@@ -552,31 +552,10 @@ def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
     return [cell for cell in ranked if cell.mean_norm is not None]
 
 
-def _luminance(hex_colour: str) -> float:
-    """A hex colour's sRGB relative luminance, 0 (black) to 1 (white)."""
-    def _linear(channel: float) -> float:
-        return channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
-    r, g, b = (_linear(int(hex_colour[i:i + 2], 16) / 255) for i in (1, 3, 5))
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
 def _rgba(hex_colour: str, alpha: float) -> str:
     """A hex palette colour as an ``rgba()`` string at the given opacity."""
     r, g, b = pc.hex_to_rgb(hex_colour)
     return f"rgba({r}, {g}, {b}, {alpha})"
-
-
-# A long qualitative palette so the ~15 lines of the default cut stay distinct
-# rather than recycling a 10-colour wheel into look-alike pairs. Filtered to a
-# mid-luminance band because the chart background is transparent and inherits the
-# browser's light or dark theme: a near-black colour (Dark24's #222A2A) is invisible
-# on a dark theme, a pale one (parts of Light24) on a light theme, so a trace could
-# sit in the legend yet never show on the canvas (the "Initiative line is missing"
-# case). The band drops both extremes, keeping ~32 colours legible on either theme.
-_PALETTE = [
-    c for c in pc.qualitative.Dark24 + pc.qualitative.Light24
-    if 0.12 <= _luminance(c) <= 0.70
-]
 
 
 # The chart chrome, drawn once from the design tokens (§2/§6) so a hardcoded grey
@@ -587,6 +566,30 @@ _PALETTE = [
 _GRID = theme.TOKENS["border"]
 _AXIS = theme.TOKENS["text-mute"]
 _SURFACE = theme.TOKENS["surface"]
+
+# The opacity the emphasis model (§6) fades its context lines to: far enough back that
+# a raised line reads as raised even against the widest cut, while each faded line keeps
+# enough of its hue to be traced across the years. Settled by eye on the real cuts.
+_CONTEXT_ALPHA = 0.20
+
+# How many lines a cut opens already raised. The cut hands its tags over strongest
+# first, so these are the year's leading archetypes: enough that a cold start is a
+# chart with a reading in it rather than a field of context the reader has to click
+# before it says anything, and few enough that the raise still reads as a raise.
+_OPEN_RAISED = 3
+
+
+def _legend_title(hint: str) -> str:
+    """The emphasis legend's title: its name, then how to work it.
+
+    The hint sits on its own line and in the palette's blue, so it reads as an
+    invitation rather than as part of the label. Plotly draws the legend as SVG, so the
+    colour is one of its own inline spans (a class the stylesheet reaches would not
+    survive) and the break is Plotly's ``<br>``, not markup the app's CSS lays out.
+    """
+    return (
+        f'Archetype<br><span style="color:{palette.CATEGORICAL[0]}">{hint}</span>'
+    )
 
 
 def _observation_marker(colour: str) -> dict:
@@ -651,7 +654,9 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
     )
 
 
-def _trend_figure(series: Series, tags: list[str]) -> pgo.Figure:
+def _trend_figure(
+    series: Series, tags: list[str], *, start_raised: int = _OPEN_RAISED,
+) -> pgo.Figure:
     """A line chart of the chosen archetypes' meta share over time.
 
     One trace per archetype, with the data foregrounded: the points are the
@@ -663,14 +668,37 @@ def _trend_figure(series: Series, tags: list[str]) -> pgo.Figure:
     its own. Each point's hover carries its year, share, and deck count N, the
     sample size the reader reasons with.
 
+    The chart draws on **emphasis** (§6, ADR-0013's #116 amendment as revised in issue
+    #117), at every width. Every archetype is drawn twice, in one hue at two strengths:
+    a faded line, and a full-strength twin that carries the legend entry and starts at
+    ``legendonly``. So the chart opens as the whole field at low contrast, and the
+    reader raises one line out of it from the legend. Emphasis is not a mode that
+    switches on past some line count: moving the cut changes how many lines are drawn
+    and nothing else, where a threshold would have made the same archetype read two
+    different ways either side of it.
+
+    The hue is per archetype, from the extended scale, because a field faded to a
+    single grey is untraceable: at fourteen lines the eye cannot follow one line across
+    the years, which is most of what a reader wants the meta chart for. Hue traces
+    here, it does not name: the legend and the hover carry identity, and the extended
+    scale claims none of the distinguishability the signed eight do. That
+    scale opens on the signed eight in slot order, so an archetype holds its colour
+    across every cut: a narrower cut is a prefix of a wider one, so it never repaints
+    the survivors it shares (the reversal of ADR-0013's colour-by-position).
+
     ``tags`` is drawn in the order given, which is the caller's meaningful order: the
-    cut passes them strongest-first, the manual panel in pick order. At eight or fewer
-    lines each archetype takes a direct hue from the shared eight-hue set by entity
-    (§5), assigned in that order, so a narrower cut (a prefix of a wider one) never
-    repaints the survivors it shares (the reversal of ADR-0013's colour-by-position).
-    Past eight the shared set is exhausted (the emphasis threshold, §6, a separate
-    slice), so the ninth-plus fall back to the long palette by position rather than a
-    None; that branch keeps the old rainbow until emphasis lands.
+    cut passes them strongest-first, the manual panel in pick order.
+
+    ``start_raised`` is how many of the leading lines open raised. A cut opens on its
+    strongest few (:data:`_OPEN_RAISED`), so a cold start is a chart with a reading in
+    it and the rest of the field behind them. A hand-picked set opens with every line
+    raised, since each was named by the reader and a leading-few rule would make them
+    choose the same archetypes twice. Either way the click goes both directions, on the
+    same two layers, and a faded line stays on the canvas rather than leaving it.
+
+    A second click raises a second line rather than swapping, since Plotly's own
+    isolate handler cannot be used here (see the legend comment below). Two raised
+    lines still hold their own hues, so the reader who wants a pair gets one.
 
     Traces are keyed by tag, not by display name, because two tags can share a name
     (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
@@ -684,43 +712,72 @@ def _trend_figure(series: Series, tags: list[str]) -> pgo.Figure:
             by_tag.setdefault(cell.tag, []).append(cell)
 
     fig = pgo.Figure()
-    # Drawn in the caller's order, keeping only tags that have cells. The shared
-    # palette assigns the first eight by entity; past eight `assign` returns None (the
-    # emphasis threshold), so the ninth-plus fall back to the long palette by position,
-    # the same fallback the adoption chart uses.
+    # Drawn in the caller's order, keeping only tags that have cells.
     drawn = [t for t in tags if t in by_tag]
-    slots = palette.assign(drawn)
-    for i, tag in enumerate(drawn):
+
+    def trace(tag: str, colour: str, *, markers: bool = True, **overrides) -> pgo.Scatter:
         cells = by_tag[tag]
         archetype = cells[0].archetype
-        colour = slots.get(tag) or _PALETTE[i % len(_PALETTE)]
-        fig.add_trace(pgo.Scatter(
+        return pgo.Scatter(
             x=[str(c.year) for c in cells],
             y=[c.share for c in cells],
             customdata=[[numfmt.share(c.share), numfmt.count_of(c.n, c.year_total, "decks")]
                         for c in cells],
             name=archetype,
-            mode="lines+markers",
+            mode="lines+markers" if markers else "lines",
             line=dict(width=1, dash="dash", color=colour),
             marker=_observation_marker(colour),
             hovertemplate=(
                 f"%{{x}} · {archetype} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
-        ))
+            **overrides,
+        )
+
+    # Emphasis (§6): every archetype is drawn twice in one hue at two strengths. The
+    # faded line is on screen from the first paint and carries no legend entry of its
+    # own; its full-strength twin holds the legend entry and starts hidden, so a click
+    # raises exactly one line out of the field. The two layers are added in passes, not
+    # per archetype, so every raised line draws above every faded one rather than only
+    # above the ones that happen to follow it.
+    hues = palette.extended(drawn)
+    for tag in drawn:
+        # Line only. The observation marker's fill is the *opaque* surface, so a wide
+        # cut would tile thirty-one archetypes' worth of discs over each other and chop
+        # every faded line into segments, destroying the tracing the fade is for. The
+        # marker's own rationale (an opaque fill so two rings do not cross into mud)
+        # was written for a handful of full-strength lines, where the ring is visible;
+        # at this opacity the ring is not, so all it leaves is the occlusion.
+        fig.add_trace(
+            trace(tag, _rgba(hues[tag], _CONTEXT_ALPHA), markers=False, showlegend=False)
+        )
+    for i, tag in enumerate(drawn):
+        fig.add_trace(trace(tag, hues[tag],
+                            visible=True if i < start_raised else "legendonly"))
     _style_trend_chart(fig, "Share of meta")
-    fig.update_layout(legend=dict(title="Archetype"))
+    # Under emphasis the legend is the control, so it says so, and both its click
+    # handlers are pinned. `toggle` raises the clicked archetype alone; Plotly's
+    # `toggleothers`, the one that sounds like the isolate this model asks for, is
+    # unusable from a hidden start: its handler switches on the *clicked* trace's
+    # visibility, and a `legendonly` one takes the branch that turns every trace in
+    # the legend on (`case"legendonly": q(He,!0)` in plotly.min.js). Since every
+    # raise starts hidden, that is the first click, and it would draw all fifteen
+    # accent lines at once, the rainbow emphasis exists to retire. Double click is
+    # switched off for the same reason: it defaults to `toggleothers`.
+    fig.update_layout(legend=dict(
+        title=_legend_title("click to raise or fade"),
+        itemclick="toggle", itemdoubleclick=False,
+    ))
     return fig
 
 
 def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
     """One or more cards' adoption (share of that year's decks) over the years.
 
-    A trace per card, so several cards can be compared on one axis. At eight or fewer
-    cards each takes a direct hue from the shared eight-hue set by entity (§5), the
+    A trace per card, so the subject and its co-occurrence pair can be compared on one
+    axis. Each takes a direct hue from the shared eight-hue set by entity (§5), the
     subject first, so a card keeps its colour as the compare set changes rather than
-    repainting on its position; past eight the set is exhausted and the ninth-plus
-    fall back to the long palette. Adoption carries no floor: every year
+    repainting on its position. Adoption carries no floor: every year
     is plotted, including the zeros of years a card sat out, so a line shows the
     card entering rather than skipping a gap (ADR 0013). Share, not raw count, is
     the y-value, because the year bases differ (a thin early year against a fat
@@ -733,12 +790,12 @@ def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
     """
     fig = pgo.Figure()
     # Each card takes a direct hue from the shared eight-hue set by entity (§5), the
-    # subject first, so a card keeps its colour as the compare set changes. Past eight
-    # cards `assign` returns None (the emphasis threshold, a separate slice), so the
-    # ninth-plus fall back to the long palette rather than a None the figure chokes on.
+    # subject first, so a card keeps its colour as the compare set changes. The list is
+    # the subject plus at most one co-occurrence card (#126), so the set never runs out
+    # and no card reaches `assign`'s past-eight None.
     colours = palette.assign([name for name, _ in cards])
-    for i, (card_name, series) in enumerate(cards):
-        colour = colours.get(card_name) or _PALETTE[i % len(_PALETTE)]
+    for card_name, series in cards:
+        colour = colours[card_name]
         cells = sorted(series.cells, key=lambda c: c.year)
         fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
@@ -1541,7 +1598,11 @@ def build_app(artifact: Path) -> gr.Blocks:
         return (
             gr.update(visible=True),
             gr.update(value=_chart_heading("Selected archetypes"), visible=True),
-            gr.update(value=_trend_figure(trend_series, tags), visible=True),
+            # Hand-picked, so every pick opens raised rather than the cut's leading
+            # few: the reader has already said which lines they want, and opening any
+            # of them faded would ask them to choose the same archetypes twice.
+            gr.update(value=_trend_figure(trend_series, tags, start_raised=len(tags)),
+                      visible=True),
         )
 
     # Adoption is per-card, so it is run on demand (a fresh Connection like

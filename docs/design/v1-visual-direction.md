@@ -16,9 +16,9 @@ One `theme=` at the `gr.Blocks` level; the app no longer inherits the browser's
 light/dark preference. Committing to a known background retires the compromises
 that existed only because the background was unknown:
 
-- The Plotly `#9ca3af` text and the `_PALETTE` mid-luminance band are re-derived
-  against the dark surface (the band is loosened or removed, and re-justified if
-  kept).
+- The Plotly `#9ca3af` text is re-derived against the dark surface. The `_PALETTE`
+  mid-luminance band is removed outright (issue #117): it existed to keep ~15 cycled
+  hues legible on an unknown background, and emphasis (§6) retires the cycle itself.
 - The pyvis details panel's `color:#333` on white and the inline-styled `<div>`
   state messages move onto theme tokens.
 
@@ -142,7 +142,10 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   series count must **not repaint the survivors** — colour follows the entity,
   never its rank. (This reverses today's ADR-0013 colour-by-position; see §9.)
 - Colour tops out at eight distinguishable series. Past eight, do **not** generate
-  more hues — switch to emphasis (§6).
+  more hues — switch to emphasis (§6). _Narrowed by ADR-0013's #117 amendment: past
+  eight, hue may continue on `palette.EXTENDED` as a **tracing** cue on faded lines,
+  never as direct colour and never as identity. `assign` still refuses a ninth direct
+  hue._
 
 ## 6. Charts
 
@@ -159,7 +162,10 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   - **> 8 series (the meta/adoption default cut): emphasis.** All lines recede to
     grey; one is raised in `--accent-bright` on **legend click-to-isolate**. This
     is Plotly-native and does **not** depend on point-level hover, which `gr.Plot`
-    cannot provide (#78).
+    cannot provide (#78). _Superseded by ADR-0013's #117 amendment: lines recede in
+    their own hue faded, the raise is that hue at full strength, emphasis applies at
+    every width, and the click raises rather than isolates (Plotly's `toggleothers`
+    turns the whole legend on from a hidden start)._
 - **Range slider** (head-to-head): moves out of the figure into a control row
   above the chart; the in-figure "◀ drag ▶" annotation is dropped.
 - Single-series charts (pilot performance) carry no legend box — the title names
