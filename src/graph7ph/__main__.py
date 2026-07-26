@@ -10,6 +10,7 @@ from pathlib import Path
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import YearStraddle, reconciliation_path
+from graph7ph.curation import CurationError
 from graph7ph.db import (
     NotABundle,
     UnopenableGraph,
@@ -40,7 +41,7 @@ def _build(args: argparse.Namespace) -> None:
     # resolves it, so the flag is a required action rather than a notice.
     try:
         report, counts = ingest(args.snapshots, args.db)
-    except (SchemaError, YearStraddle, NotABundle) as exc:
+    except (SchemaError, YearStraddle, NotABundle, CurationError) as exc:
         raise SystemExit(f"Build aborted, live graph untouched: {exc}")
 
     print(f"Built {args.db} ({report.status}):")

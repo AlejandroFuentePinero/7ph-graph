@@ -19,9 +19,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-# The six kinds of recorded decision, one per TOML entry type (repo idiom:
+# The seven kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
-DeadKind = Literal["merge", "reject", "split", "name", "deck_pilot", "deck_archetype"]
+DeadKind = Literal[
+    "merge", "reject", "split", "name", "deck_pilot", "deck_archetype", "deck_event"
+]
 
 # The dictionary is checked in, and lives apart from `snapshots/` (immutable
 # source) and `data/` (derived artifacts): it is neither, it is human judgement.
@@ -73,9 +75,12 @@ class Curation:
     ``names`` pins a display name against the majority vote. ``deck_pilots``
     reassigns one deck to an upstream pilot id, which is how a null-pilot deck
     reaches its real owner. ``deck_archetypes`` reclassifies one deck whose
-    source title mislabelled its archetype. ``splits`` holds id pairs that share
-    a display name but are different people, which keeps the identical-name join
-    (ADR 0007) from folding them into one node -- the inverse of a ``merge``.
+    source title mislabelled its archetype. ``deck_events`` reassigns one deck to
+    the event code it was really played at, which is how a deck the source
+    stranded at a malformed event rejoins its cohort. ``splits`` holds id pairs
+    that share a display name but are different people, which keeps the
+    identical-name join (ADR 0007) from folding them into one node -- the
+    inverse of a ``merge``.
     """
 
     merges: dict[str, str]
@@ -84,10 +89,11 @@ class Curation:
     deck_pilots: dict[str, str]
     deck_archetypes: dict[str, ArchetypeOverride] = field(default_factory=dict)
     splits: frozenset[frozenset[str]] = field(default_factory=frozenset)
+    deck_events: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "Curation":
-        return cls({}, frozenset(), {}, {}, {}, frozenset())
+        return cls({}, frozenset(), {}, {}, {}, frozenset(), {})
 
     def canonical(self, pilot_id: str) -> str:
         """The id ``pilot_id`` was merged into, or itself."""
@@ -131,9 +137,10 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
         merges=merges,
         rejected=_pairs(raw.get("reject", []), path, "reject"),
         names=names,
-        deck_pilots=_deck_pilots(raw.get("deck_pilot", []), path),
+        deck_pilots=_deck_map(raw.get("deck_pilot", []), path, "deck_pilot", "pilot"),
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
         splits=_pairs(raw.get("split", []), path, "split"),
+        deck_events=_deck_map(raw.get("deck_event", []), path, "deck_event", "event"),
     )
 
 
@@ -181,6 +188,9 @@ def dead_entries(
             dead.append(
                 DeadEntry("deck_archetype", deck, f"reclassifies as {override.deck_name}")
             )
+    for deck, event in curation.deck_events.items():
+        if deck not in deck_ids:
+            dead.append(DeadEntry("deck_event", deck, f"reassigns to {event}"))
     return sorted(dead, key=lambda d: (d.kind, d.key))
 
 
@@ -290,13 +300,20 @@ def _names(entries: list[dict], path: Path) -> dict[str, str]:
     return names
 
 
-def _deck_pilots(entries: list[dict], path: Path) -> dict[str, str]:
+def _deck_map(entries: list[dict], path: Path, kind: str, target: str) -> dict[str, str]:
+    """A deck-keyed decision's ``deck -> target`` map.
+
+    Both ``deck_pilot`` and ``deck_event`` say "this deck belongs to that", and
+    differ only in what ``that`` is: the upstream pilot id who registered it, or
+    the event code it was played at. Half an entry decides nothing, so either
+    half missing is refused where the author can still see it.
+    """
     decks: dict[str, str] = {}
     for entry in entries:
-        deck, pilot = entry.get("deck"), entry.get("pilot")
-        if not deck or not pilot:
-            raise CurationError(f"{path}: a [[deck_pilot]] entry needs `deck` and `pilot`")
-        decks[deck] = pilot
+        deck, value = entry.get("deck"), entry.get(target)
+        if not deck or not value:
+            raise CurationError(f"{path}: a [[{kind}]] entry needs `deck` and `{target}`")
+        decks[deck] = value
     return decks
 
 

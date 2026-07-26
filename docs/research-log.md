@@ -137,3 +137,23 @@ The entry above left `main` grading 170 differences; #164 took it to 174. #165 c
 - **A wholesale recapture is reviewable, just not line by line.** The 2026-07-21 entry above says never to recapture wholesale, and that still holds *for adding a case*, where splicing works. When the blast radius genuinely forces `--force`, review the result by comparing the two JSON files case by case with the node and edge lists sorted, which separates the real lines from the row-order churn. #165's `+4228 / -3275` decomposed into: `counts` and `catalogues` byte-identical, 13 of 17 cases byte-identical, the two order-insensitive pilot cases reordered, `gems_one_archetype` moving two floats by ~5e-17, and only `gems_whole_meta` carrying the 174 real lines. Stating that decomposition is what stops a reviewer waving 7500 lines through.
 
 Why it matters: the 2026-07-21 entry warns that a real regression committed inside recapture churn would be invisible and the gate would then be green against a baseline encoding the bug. That risk is the reason a recapture wants its own ticket with nothing else in the diff, and the per-case comparison is the check that discharges it.
+
+## 2026-07-27 - #167 leaves nine stale "of 108 events" claims outside `build.py`
+
+[handoff] Returning the orphan deck to CBR3 (#167) dissolves the phantom `nan` Event, so **the graph holds 107 events, not 108**. This repo writes counted claims into docstrings and comments as load-bearing evidence, and nine of them still say 108. `build.py`'s own four were re-measured and fixed in #167; these were deliberately left out rather than widen a curation diff into three unrelated modules.
+
+The exact sites:
+
+- `ingest.py:139` - 6 of 108 events sit within a week of a New Year
+- `trends.py:237` - own `eventSize` at 99 of 108 events, corrected field at the 9
+- `trends.py:239` - 36 of 108 events carry a published entrant count
+- `trends.py:243` - exceeds the decks-at-event count at 58 of 108
+- `trends.py:255` - all 108 events carry a field size
+- `trends.py:298` - 21 of 108 spread over more than one date
+- `trends.py:839` - disagreed with the stored field at 3 of 108 events
+- `app.py:1420` - pilots who entered at 10 of 108 events
+- `app.py:1540` - Grixis and Lands at 59 of its 108 events
+
+**Do not just decrement the denominators.** Some of these are fractions whose *numerator* may or may not have counted the phantom event, and the two cases need different edits. `build.py`'s four all turned out to be denominator-only (the year dicts still agree, the field rules still fire at 9, no event's decks disagree on size or type), but that was established by measurement, not assumed, and it does not transfer: the phantom carried one deck, one date, a null `eventId` and a bogus `eventSize` of 38, so it plausibly sat inside some of these numerator sets and outside others. `trends.py:237` is the clearest example, since its 99 and 9 sum to 108 and only one of the two can absorb the loss.
+
+Why it matters: a wrong count in this repo reads as a measurement that no longer reproduces, which is exactly the signal the counted-claim convention exists to give. Re-deriving the list costs a grep; re-deriving which are fractions and which are denominators costs a build plus a query per site.

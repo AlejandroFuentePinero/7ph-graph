@@ -10,7 +10,7 @@
 # proposal in the reconciliation report until a human confirms them (the second
 # sweep). See docs/adr/0004-pilot-identity.md.
 #
-# Six kinds of decision:
+# Seven kinds of decision:
 #
 #   [[merge]]        collapse several ids onto one person (transitive)
 #     ids = ["A", "B", "C"]   # every upstream id that is this person
@@ -39,6 +39,13 @@
 #     deck_name = "UR Prowess"          # the corrected display name
 #     engine = "engine:izzet_prowess"   # the single engine it belongs to
 #     engine_label = "Izzet Prowess"    # that engine's label
+#
+#   [[deck_event]]   return one deck to the event it was really played at (e.g.
+#                    a deck the source stranded at a malformed event). The event
+#                    must be one the snapshot holds; the deck adopts that
+#                    cohort's field and is re-scored against it.
+#     deck = "<deckId>"
+#     event = "CBR3"
 
 # --- Names pinned against the vote (no derivable relation, human-confirmed) ---
 
@@ -1481,3 +1488,25 @@ deck = "NEAr5sy1kEy5cwFUGhEa_A"
 deck_name = "UR Prowess"
 engine = "engine:izzet_prowess"
 engine_label = "Izzet Prowess"
+
+# --- Decks stranded at a malformed event, returned to their cohort (issue #167) ---
+
+[[deck_event]]
+# Mitch H's (FrostyCyanGecko) "38th - 8pt Reckless Red (Mono R Aggro) - ": the
+# only deck of 4592 whose event is a stringified NaN, with a null eventId and a
+# title whose separator dangles where the event name should be. It belongs to
+# CBR3:
+#   1. CBR3 claims a field of 63 and the source records 62 decks for it. Its
+#      placements run 1..63 with one genuine hole in the body, 38th, which is
+#      this deck's placement. (The 4-8 gaps are the usual tie-band titles.)
+#   2. Dated 2024-03-24, inside CBR3's window; all 62 CBR3 decks fall in it. The
+#      only other field-38 candidate, Masters2024, is June 2024 and has no hole
+#      at 38.
+#   3. The pilot's event history is the CanBrawl series (CBR Aug 23, CBR Oct 23,
+#      CanBrawl 23, CanBrawl2); he has no deck at CBR3 yet.
+# The claimed eventSize of 38 is this deck's own placement copied into the size
+# field, which is what scored him 38-of-38 (norm 1.0, dead last) at an event
+# that never happened. Moving him drops that claim with the rest of the phantom
+# event's numbers and re-scores him 38-of-63 against CBR3's counted field.
+deck = "FZP9B6alz0OoUVVe74nHeA"
+event = "CBR3"

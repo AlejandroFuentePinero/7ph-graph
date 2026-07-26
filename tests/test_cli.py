@@ -7,6 +7,7 @@ import pytest
 from graph7ph import baseline as bl
 from graph7ph.__main__ import _baseline, _build
 from graph7ph.build import build_graph
+from graph7ph.curation import load_curation
 from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 from graph7ph.query import HiddenGems
@@ -69,6 +70,30 @@ def test_a_file_blocking_the_bundle_path_aborts_cleanly(tmp_path):
     # Neither the live path nor the file in the way is touched by the refusal.
     assert not db.exists()
     assert blocked.read_text() == "stray"
+
+
+def test_a_curation_decision_the_build_cannot_honour_aborts_cleanly(tmp_path, monkeypatch):
+    # The third way a build cannot honestly proceed, and the one a maintainer
+    # reaches by hand: a dictionary entry the data refuses. `build_graph` lists
+    # "a bad curation dictionary" beside a year straddle as an abort, so it owes
+    # the same sentence rather than a traceback. Shaped as the mistake a
+    # [[deck_event]] entry invites, a typo'd event code (issue #167).
+    _snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
+        ("d1", "2026-01-01T00:00:00+00:00"),
+    ])
+    (tmp_path / "pilots.toml").write_text(
+        '[[deck_event]]\ndeck = "d1"\nevent = "NYE_TYPO"\n'
+    )
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, tmp_path / "pilots.toml"))
+    db = tmp_path / "graph"
+
+    with pytest.raises(SystemExit) as exc:
+        _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=db))
+
+    assert "Build aborted, live graph untouched" in str(exc.value)
+    assert "NYE_TYPO" in str(exc.value)
+    assert not db.exists()
 
 
 def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
