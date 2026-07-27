@@ -1850,6 +1850,12 @@ def test_the_race_caption_states_the_cut_the_pool_the_ground_and_what_a_point_is
     assert "every other contender is traced faintly behind them" in caption
     assert "every major a pilot had played by then" in caption
     assert "rather than as they improve" in caption
+    # The majors cut is unique to this chart and has to say so (maintainer's call). Every
+    # other plot counts every placed event, so a reader who takes this ranking as "the
+    # app's view of a pilot" will find it disagreeing with the pilot tab: same estimator
+    # over the two populations moves the median contender 10 places of 139, and the
+    # eighth-placed contender here would sit 22nd on an all-events ranking.
+    assert "only chart here that leaves the smaller events out" in caption
 
 
 def test_the_leaderboard_lists_the_standings_and_marks_the_plotted_eight():
@@ -1873,6 +1879,22 @@ def test_the_leaderboard_lists_the_standings_and_marks_the_plotted_eight():
     for slot, pilot in enumerate(("Pilot 0", "Pilot 1", "Pilot 2")):
         assert palette.CATEGORICAL[slot] in table.split(pilot)[0]
     assert table.split("Pilot 3")[0].count("swatch-hue") == 3
+
+
+def test_the_race_faq_says_the_majors_cut_is_unique_to_this_plot():
+    # The race is the only surface in the app that leaves events out; every other one
+    # counts every event with a recorded finish (maintainer's call, #135). That has to be
+    # said where the scoring is explained, because the two populations genuinely
+    # disagree: the same estimator over all events moves the median contender 10 places
+    # of 139, and 26 of them by more than 20. A reader who takes this ranking as "the
+    # app's view of a pilot" will otherwise find the pilot tab contradicting it and have
+    # nothing to tell them why. Asserted on the claim, not the phrasing of the rest of
+    # the answer, which the FAQ tab's own test deliberately leaves free to be re-edited.
+    (answer,) = [a for eid, _, _, a in _FAQ_ENTRIES if eid == "faq-race"]
+
+    assert "only plot in the app that leaves events out" in answer
+    assert "hidden gems" in answer and "performance chart" in answer
+    assert "different questions" in answer
 
 
 def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
