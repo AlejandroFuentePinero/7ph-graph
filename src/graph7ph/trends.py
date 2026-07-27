@@ -11,6 +11,8 @@ pilot performance) reuse this plumbing; head-to-head, the non-year one, is built
 last (ADR 0013).
 """
 
+import calendar
+import random
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -97,6 +99,77 @@ MIN_ARCHETYPE_EVENTS = 2
 # is the smallest ring on the chart), the hover states it, and the caption states the
 # whole year's events and decks, so 2023 announces its 8 events on the surface.
 MIN_LANDSCAPE_ARCHETYPES = 3
+
+
+# The field size above which an event is a **major**, the only events the best-player
+# race scores on (issue #135). Over 64 is 21 of the 107 events on the current artifact,
+# 19.6%, near enough the top fifth by size; the field-size deciles run 3, 15, 22, 24,
+# 30, 35, 39, 45, 70, 102, 306, so the cut sits inside the top decile's shoulder rather
+# than on a cliff. Scoring majors only costs reliability and was chosen anyway: the
+# split-half reliability of a career score is rho 0.38 over majors against 0.62 over all
+# events. An all-events score is not comparable across pilots, which is worse than
+# noisy: contenders' records run from 18% majors to 100%, median 62%, so ranking a
+# mostly-locals record against a majors-only one treats two different measurements as
+# one. Locals are not the softer field, either, so this is not a strength adjustment
+# wearing a size threshold: within-pilot, a contender's mean at locals sits 0.041 *below*
+# their mean at majors at 3.1 standard errors, because the normalised scale is simply
+# finer above a strong player in a large field.
+MAJOR_FIELD_SIZE = 64
+
+# The two gates on who is ranked at all, both career-relative and both re-derived on
+# every rebuild. A contender needs this many majors in their whole career, so a score
+# rests on a record rather than a weekend...
+MIN_CAREER_MAJORS = 5
+
+# ...and this many inside the recency window, so the race holds current contenders and
+# not a hall of fame. Together they leave 139 of the 1075 pilots with any scored finish.
+# The recency half is also what guarantees every plotted line reaches the right edge of
+# the chart: a contender is by definition still playing.
+MIN_RECENT_MAJORS = 2
+
+# How far back "still playing" reaches, in months from the newest event in the graph.
+RACE_RECENCY_MONTHS = 12
+
+# The race's x axis: this many sample dates, stepped this many months apart, the newest
+# at the newest event in the graph so the chart stays current across a rebuild.
+#
+# A sample date is an "as of", not a bucket: a pilot's score there counts every major
+# they had played up to that date, so the series is their record accumulating rather
+# than their form moving. That is the whole point, and it replaces an 18-month rolling
+# window (ADR 0017). The window version was measured and its movement was noise:
+# reshuffling each contender's own finishes across their own event dates, which destroys
+# every trace of when they played well, left the mean within-pilot swing across the
+# windows at 0.0885 (90% range 0.0823 to 0.0947) against an observed 0.0915. Three
+# percent of the visible movement was real. A rolling window over a record this thin
+# (median 4 majors a point, minimum 2) cannot see form, so the chart stopped claiming to.
+RACE_STEP_MONTHS = 6
+RACE_POINTS = 5
+
+# The fewest majors a pilot needs behind a sample date before its score is drawn
+# (ADR 0013's floor on an aggregate). Two, as everywhere else in this module: one finish
+# is not a mean. It bites only at the left of the chart now, since a running score can
+# lose a point to a thin start but never to a quiet spell.
+MIN_SCORED_MAJORS = 2
+
+# The resampling that puts an interval on a career rank, and the seed that makes it the
+# same interval on every build (the app and the oracle both have to be able to rebuild a
+# figure and get it back). One thousand resamples runs in under half a second on the
+# current field and is far more than the interval's own precision needs: at 200 the top
+# eight's bounds already sit within a rank or two of where 1000 puts them.
+#
+# The interval is the reason the tool reports rank uncertainty at all. Scores at the top
+# of this board are separated by thousandths against a record of median 8 majors, and a
+# bare rank column presents an ordering the evidence does not support: on the current
+# field only 4.9 of the top 8 survive a resample of their own results, and 15 contenders
+# hold a one-in-ten claim on a top-eight place. The interval is what makes a row say so.
+RACE_RESAMPLES = 1000
+RACE_RESAMPLE_SEED = 20260727
+RACE_INTERVAL = 0.90
+
+# The fewest contenders a race needs. Two, because a race is relative: one line alone
+# says nothing about who was best, only what one pilot scored, which is what the
+# single-pilot performance chart is already for.
+MIN_RACE_CONTENDERS = 2
 
 
 class NotEnoughHistory(ValueError):
@@ -308,6 +381,68 @@ class ArchetypeTimelinePoint:
     decks_b: int
 
 
+@dataclass(frozen=True)
+class RaceCell:
+    """One contender at one sample date of the best-player race: what was known by then.
+
+    The race's row is a ``(pilot, date)`` pair, so a contender holds one cell per sample
+    point and the whole field's trajectory is one table. ``pilot`` is the pilot key; the
+    display name is not carried, because the app already holds the disambiguated label
+    for every pilot (as the other two pilot trends do).
+
+    ``rank``, ``score`` and ``majors`` are the pilot's **career** standing: their place
+    in the field, the shrunk mean over every major they were placed at, and the number
+    of those majors. All three repeat on each of the pilot's rows, so the leaderboard
+    and the lines come off one table rather than two queries. The rank is carried
+    rather than left to the reader to count off, so a tie shares its place instead of
+    being split by the order a table happened to iterate in. ``majors`` is the score's
+    own sample, so it can never exceed the events the score rests on. ``major_events``
+    is how many majors the graph holds in all, the pool every score is drawn from,
+    carried on every cell the way :class:`LandscapeCell` carries its year's totals so a
+    caption can state it without a second query.
+
+    ``rank_low`` and ``rank_high`` bound the career rank: the
+    :data:`RACE_INTERVAL` interval over :data:`RACE_RESAMPLES` resamples of every
+    contender's own finishes, rebuilt end to end each time so the shrinkage moves with
+    the resampled field rather than being held at the point estimate's value. They are
+    the honest width of ``rank``, and on the current field they are wide: rank 7 spans
+    1 to 40 and the median contender's spans 64 of the 139 places. Carried on the cell
+    rather than derived by a caller, because the interval
+    depends on the whole field's records and no consumer holds those.
+
+    ``as_of`` is the date this row's score was taken at, and ``as_of_score`` is the same
+    shrunk statistic over every major the pilot had played **up to and including** it,
+    not over a window ending there (ADR 0017). ``as_of_majors`` is how many majors that
+    was, so it rises across a pilot's row and its last value is ``majors``. The score is
+    ``None`` where fewer than :data:`MIN_SCORED_MAJORS` majors stand behind it: the floor
+    is on the value, not on the row, so a thin start still states the sample size that
+    refused it (ADR 0013's amendment, the same shape :class:`PerformanceCell` keeps).
+
+    ``as_of_rank`` is the pilot's standing among the contenders scored by that date,
+    ``None`` where they were not, and ``as_of_contenders`` is how many that was, carried
+    beside the rank the way ``majors`` is carried beside the score: the field a date
+    ranks over is whoever had a record by then, which at the left of the chart is most
+    of the way to the whole field but not all of it, so a rank read against the final
+    field would overstate it. It ranks against that field rather than positioning the
+    line, because rank is not comparable across the span while the score is: the scored
+    pool grows over the chart, so a held rank would draw as a flat line across a pilot
+    whose evidence went from nothing to conclusive.
+    """
+
+    pilot: str
+    rank: int
+    score: float
+    majors: int
+    major_events: int
+    rank_low: int
+    rank_high: int
+    as_of: datetime
+    as_of_score: float | None
+    as_of_majors: int
+    as_of_rank: int | None
+    as_of_contenders: int
+
+
 @dataclass
 class Series:
     """A tabular trend result: the full matrix of cells, no truncation.
@@ -322,6 +457,7 @@ class Series:
     cells: (
         list[SeriesCell] | list[AdoptionCell] | list[PerformanceCell]
         | list[HeadToHeadPoint] | list[LandscapeCell] | list[ArchetypeTimelinePoint]
+        | list[RaceCell]
     )
 
 
@@ -359,6 +495,11 @@ class HeadToHeadTimeline:
 
 
 @dataclass(frozen=True)
+class BestPlayerRace:
+    """Spec for :func:`best_player_race`; takes no argument (the whole field)."""
+
+
+@dataclass(frozen=True)
 class ArchetypeLandscape:
     """Spec for :func:`archetype_landscape`; takes the calendar ``year`` to draw."""
 
@@ -380,7 +521,7 @@ class ArchetypeTimeline:
 
 SeriesSpec = (
     MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
-    | HeadToHeadTimeline | ArchetypeLandscape | ArchetypeTimeline
+    | HeadToHeadTimeline | ArchetypeLandscape | ArchetypeTimeline | BestPlayerRace
 )
 
 
@@ -864,6 +1005,311 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
     return Series(cells=points)
 
 
+def _months_before(when: datetime, months: int) -> datetime:
+    """``when`` moved back whole calendar months, clamped to the month's last day.
+
+    Month arithmetic rather than a fixed number of days, so every window spans the same
+    number of whole months whichever months those are, and a boundary keeps the anchor's
+    day of the month wherever that day exists (the 31st of a 30-day month clamps back).
+    Windows therefore differ by a few days in length, 546 to 550 on the current anchor,
+    which is what "the same length" means on a calendar and is well inside a window whose
+    job is to hold a handful of events.
+    """
+    year, month = divmod(when.year * 12 + when.month - 1 - months, 12)
+    day = min(when.day, calendar.monthrange(year, month + 1)[1])
+    return when.replace(year=year, month=month + 1, day=day)
+
+
+def _race_sample_dates(anchor: datetime) -> list[datetime]:
+    """The race's sample dates, oldest first, the newest at ``anchor``.
+
+    :data:`RACE_POINTS` dates stepped :data:`RACE_STEP_MONTHS` apart. They carry no
+    length, because a point counts everything up to its date rather than a span ending
+    at it: what a date picks out is a moment to read the standings at, and the only
+    thing the step decides is how often the chart reads them.
+    """
+    return [
+        _months_before(anchor, RACE_STEP_MONTHS * back)
+        for back in reversed(range(RACE_POINTS))
+    ]
+
+
+def _major_finishes(
+    conn: ladybug.Connection,
+) -> tuple[dict[str, list[tuple[datetime, float]]], int, datetime | None]:
+    """Every pilot's major finishes, the graph's major count, and the anchor date.
+
+    A finish is one **event**, not one deck: the pilot's norms at an event are averaged
+    into a single value first, so a pilot who somehow registered twice at one event is
+    one independent trial and their majors count can never exceed the events their
+    score rests on (the event is the honest unit here for the same reason
+    :data:`MIN_PILOT_YEAR_EVENTS` counts events). It is flipped to higher-is-better on
+    the way out, unlike every other tool in this module, because the race's whole
+    output is a *ranking*: a raw ``placementNorm`` would leave the tool's own
+    leaderboard and rank column reading upside down for the agent that consumes them,
+    which is a worse trade than the flip-at-the-chart convention buys.
+
+    The anchor is the newest event in the graph rather than the newest major, since it
+    is answering "how current is this graph", and it is dated the way every other
+    per-event date in this module is (the earliest ``createdAt`` across the event's whole
+    field), so an event sits wholly inside a window or wholly outside it. ``None`` for a
+    graph holding no event at all, which still has to build.
+    """
+    events = {
+        event: (date, field)
+        for event, date, field in rows(conn.execute(
+            "MATCH (f:Deck)-[:PLAYED_AT]->(e:Event) RETURN e.event, min(f.createdAt), e.fieldSize"
+        ))
+    }
+    # A null field is no major, which is what the query below already does with it (a
+    # NULL fails `fieldSize > $major`), so the two halves have to agree: comparing a
+    # null here raises, and nothing above catches it, so it would take the whole app
+    # down rather than this one tab. The build fills a missing size only for a
+    # ``Tournament`` (``corrected_field``'s Rule C), so a non-Tournament event the
+    # source ships without one reaches the graph with a null.
+    majors = {
+        e for e, (_, field) in events.items()
+        if field is not None and field > MAJOR_FIELD_SIZE
+    }
+    finishes: dict[str, list[tuple[datetime, float]]] = {}
+    for pilot, event, norm in rows(conn.execute(
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE d.placementNorm IS NOT NULL AND e.fieldSize > $major
+           RETURN p.pilot, e.event, avg(d.placementNorm)""",
+        {"major": MAJOR_FIELD_SIZE},
+    )):
+        finishes.setdefault(pilot, []).append((events[event][0], 1 - norm))
+    anchor = max((date for date, _ in events.values()), default=None)
+    # Each record in date order, which the query's own row order does not give. Two calls
+    # on one graph can hand these rows back in different orders, and every consumer here
+    # sums a record (the shrinkage, the score, each running point), so an unsorted record
+    # makes the same graph score fractionally differently run to run. Sorting once here
+    # is what lets `best_player_race` promise the same numbers twice.
+    return (
+        {pilot: sorted(record) for pilot, record in sorted(finishes.items())},
+        len(majors),
+        anchor,
+    )
+
+
+def _shrinkage(records: list[list[float]]) -> tuple[float, float | None]:
+    """The field average and the shrinkage weight, estimated from the field itself.
+
+    ``mu`` is the field average, the value a record with nothing behind it is assumed
+    to be until its own evidence says otherwise. ``k`` is how many majors of evidence
+    that assumption is worth: the ratio of the variance *within* a pilot's record (how
+    far one finish bounces from their own level) to the variance *between* pilots (how
+    far pilots' levels really differ). Both are estimated at build time and neither is
+    ever a constant, because both are properties of this record: a source that placed
+    finishes more finely, or a field that spread out, changes what a thin record is
+    worth and the number has to follow it.
+
+    The estimator is the textbook one-way random-effects decomposition: pool the
+    within-record variance, take the spread of record means against it, and read the
+    difference as the real spread of pilots. It runs over the contenders alone, the
+    population being ranked, each of whom carries at least
+    :data:`MIN_CAREER_MAJORS` finishes, so the within-record term is estimated on
+    records long enough to have one.
+
+    ``k`` comes back ``None`` where the between-pilot term lands at or below zero,
+    which says the field's spread is no larger than the bounce inside one record: on
+    that evidence no pilot is distinguishable from the field, so every score is the
+    field average and the caller draws a race with nothing between its runners. The
+    real record is nowhere near it (within 0.066 against between 0.013, so k is about
+    5, meaning a pilot needs 4 or 5 majors before their own record outweighs simply
+    knowing they qualified), but a young graph can be.
+    """
+    pilots = len(records)
+    observations = [finish for record in records for finish in record]
+    mu = sum(observations) / len(observations)
+    means = [sum(record) / len(record) for record in records]
+    within = sum(
+        (finish - mean) ** 2
+        for record, mean in zip(records, means)
+        for finish in record
+    ) / (len(observations) - pilots)
+    across = sum(
+        len(record) * (mean - mu) ** 2 for record, mean in zip(records, means)
+    ) / (pilots - 1)
+    # The mean record length the two mean squares are comparable at; it is not simply
+    # the average length, because a long record contributes more to the spread of
+    # means than a short one does.
+    typical = (
+        len(observations) - sum(len(r) ** 2 for r in records) / len(observations)
+    ) / (pilots - 1)
+    between = (across - within) / typical
+    return mu, within / between if between > 0 else None
+
+
+def _shrunk(finishes: list[float], mu: float, k: float | None) -> float:
+    """A mean pulled toward the field average by how little evidence stands behind it.
+
+    ``(n * mean + k * mu) / (n + k)``: the record's own mean weighted by its length
+    against the field average weighted by :func:`_shrinkage`'s ``k``. A record the
+    length of ``k`` is scored half on itself; a record twice that, two thirds. With no
+    separable field (``k`` is ``None``) every record scores the field average.
+    """
+    if k is None:
+        return mu
+    return (sum(finishes) + k * mu) / (len(finishes) + k)
+
+
+def _standings(scores: dict[str, float]) -> dict[str, int]:
+    """Standings over a set of scores, best first: rank 1 is the highest.
+
+    Used for a sample date, for the career, and for a resampled field alike. Only the
+    pilots given a score are ranked, so a date's rank is always out of the contenders
+    who had a record by then. Equal scores share the better rank, since the order
+    between them is the sort's, not the record's.
+    """
+    standings: dict[str, int] = {}
+    rank, previous = 0, None
+    for position, (pilot, score) in enumerate(
+        sorted(scores.items(), key=lambda entry: -entry[1]), start=1
+    ):
+        if score != previous:
+            rank, previous = position, score
+        standings[pilot] = rank
+    return standings
+
+
+def _rank_intervals(records: dict[str, list[float]]) -> dict[str, tuple[int, int]]:
+    """Each contender's career rank resampled: the :data:`RACE_INTERVAL` bounds on it.
+
+    The nonparametric bootstrap. Every contender's finishes are redrawn with replacement
+    to their own length, the whole field is rescored, and the standings are taken again;
+    the bounds are the percentiles of where a pilot landed across
+    :data:`RACE_RESAMPLES` of those. Redrawing the whole field at once rather than one
+    pilot at a time is what makes a rank interval a rank interval: a rank is a
+    statement about a pilot *against the others*, so the others have to move too. The
+    shrinkage is re-estimated inside the loop for the same reason, since ``mu`` and
+    ``k`` are properties of the field and a resampled field is a different one.
+
+    It answers the question a score cannot: how much of this ordering is the record and
+    how much is which events happened to fall in it. Seeded from
+    :data:`RACE_RESAMPLE_SEED`, so a rebuild of the same graph draws the same interval
+    and a moved bound means moved evidence.
+
+    What it assumes, and it is worth naming because it widens the bounds: a pilot's
+    finishes are draws from one fixed level, so a pilot who genuinely improved has that
+    improvement counted as noise. The interval is therefore conservative. It is not
+    conservative enough to matter at the top of this board, where the alternative
+    reading would have to turn a coin flip into a certainty.
+    """
+    # Walked in pilot order, not the order `records` happens to hold. The seed alone does
+    # not make this reproducible: the dict comes off a query whose row order Ladybug does
+    # not guarantee between calls, so an unsorted walk hands the same seeded stream to a
+    # different pilot each run and two calls on one graph disagree. The tool already
+    # settles cell order for this reason; this is the same hazard one level down, and it
+    # is the sort that fixes it rather than the seed.
+    field = sorted(records.items())
+    rng = random.Random(RACE_RESAMPLE_SEED)
+    placings: dict[str, list[int]] = {pilot: [] for pilot in records}
+    for _ in range(RACE_RESAMPLES):
+        drawn = {
+            pilot: [finishes[rng.randrange(len(finishes))] for _ in finishes]
+            for pilot, finishes in field
+        }
+        mu, k = _shrinkage(list(drawn.values()))
+        for pilot, rank in _standings(
+            {pilot: _shrunk(finishes, mu, k) for pilot, finishes in drawn.items()}
+        ).items():
+            placings[pilot].append(rank)
+    # Symmetric tails, so the two bounds are cut the same distance in: an interval that
+    # took `int(0.95 * n)` for the high bound and `int(0.05 * n)` for the low one would
+    # sit a resample wider at the top than at the bottom for no reason a reader could see.
+    low = int((1 - RACE_INTERVAL) / 2 * RACE_RESAMPLES)
+    return {
+        pilot: (sorted(ranks)[low], sorted(ranks)[RACE_RESAMPLES - 1 - low])
+        for pilot, ranks in placings.items()
+    }
+
+
+def best_player_race(conn: ladybug.Connection) -> Series:
+    """The field's best pilots, traced by what their record said as it came in.
+
+    One cell per contender per sample date (:class:`RaceCell`), the whole field and the
+    whole span: which of them the chart draws as lines and how many the leaderboard
+    lists are display cuts the app applies, so the agent always receives the full table
+    (ADR 0013's rule for ``meta_share``).
+
+    A contender is a pilot with :data:`MIN_CAREER_MAJORS` majors behind them and
+    :data:`MIN_RECENT_MAJORS` of them inside the last :data:`RACE_RECENCY_MONTHS`, both
+    measured against the newest event in the graph rather than a calendar date, so the
+    gates move forward with the record instead of quietly retiring the field as an
+    artifact ages.
+
+    The trajectory is a **running** score, not a rolling one (ADR 0017): a point counts
+    every major up to its date, so the series traces the accumulation of evidence about
+    a pilot rather than a claim about their form. Two consequences worth expecting. The
+    last point of every line is that pilot's career score by construction, so the
+    standings at the right edge are exactly the leaderboard's, and a line that starts
+    low is a thin record being held near the field average rather than a pilot who was
+    once bad. The rolling version this replaces claimed the second reading and could not
+    support it: its movement measured as three percent signal (see
+    :data:`RACE_STEP_MONTHS`).
+    """
+    finishes, major_events, anchor = _major_finishes(conn)
+    recency_line = _months_before(anchor, RACE_RECENCY_MONTHS) if anchor else None
+    contenders = {
+        pilot: majors
+        for pilot, majors in finishes.items()
+        if len(majors) >= MIN_CAREER_MAJORS
+        and sum(1 for date, _ in majors if date > recency_line) >= MIN_RECENT_MAJORS
+    }
+    if len(contenders) < MIN_RACE_CONTENDERS:
+        raise NotEnoughHistory(
+            f"{len(contenders)} pilot(s) clear {MIN_CAREER_MAJORS} career majors with "
+            f"{MIN_RECENT_MAJORS} of them recent; a race needs {MIN_RACE_CONTENDERS}",
+            found=len(contenders),
+        )
+    records = {pilot: [s for _, s in majors] for pilot, majors in contenders.items()}
+    mu, k = _shrinkage(list(records.values()))
+    scores = {pilot: _shrunk(finishes, mu, k) for pilot, finishes in records.items()}
+    intervals = _rank_intervals(records)
+    dates = _race_sample_dates(anchor)
+    so_far = [
+        {
+            pilot: [s for date, s in majors if date <= at]
+            for pilot, majors in contenders.items()
+        }
+        for at in dates
+    ]
+    scored = [
+        {
+            pilot: _shrunk(finishes, mu, k)
+            for pilot, finishes in step.items()
+            if len(finishes) >= MIN_SCORED_MAJORS
+        }
+        for step in so_far
+    ]
+    standings = [_standings(step) for step in scored]
+    career = _standings(scores)
+    # Standing order, best first, each contender's dates oldest first. The query's own
+    # row order is not stable between calls, and the legend, the leaderboard and the
+    # colour assignment all read this order, so it is settled here rather than left to
+    # each caller to re-sort. Ties break on the pilot key, the same tie-break the meta
+    # cut uses, so one graph always draws one race.
+    return Series(cells=[
+        RaceCell(
+            pilot=pilot,
+            rank=career[pilot],
+            score=scores[pilot],
+            majors=len(contenders[pilot]),
+            major_events=major_events,
+            rank_low=intervals[pilot][0],
+            rank_high=intervals[pilot][1],
+            as_of=at,
+            as_of_score=scored[step].get(pilot),
+            as_of_majors=len(so_far[step][pilot]),
+            as_of_rank=standings[step].get(pilot),
+            as_of_contenders=len(standings[step]),
+        )
+        for pilot in sorted(contenders, key=lambda p: (-scores[p], p))
+        for step, at in enumerate(dates)
+    ])
+
+
 def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:
     """``(displayName, pilot)`` for every pilot the performance trend can draw.
 
@@ -947,6 +1393,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return archetype_landscape(conn, year)
         case ArchetypeTimeline(a, b):
             return archetype_timeline(conn, a, b)
+        case BestPlayerRace():
+            return best_player_race(conn)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 

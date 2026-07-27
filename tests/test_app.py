@@ -1,3 +1,5 @@
+import json
+import re
 from datetime import datetime
 
 import plotly.colors as pc
@@ -10,7 +12,9 @@ from graph7ph.app import (
     DRAW_LABEL,
     _CARDS_TAB,
     _FAQ_ENTRIES,
+    _LEADERBOARD_ROWS,
     _LEGEND_BELOW_HEIGHT,
+    _RACE_LINES,
     _PLOT_LABELS,
     _draw_with_progress,
     _adoption_figure,
@@ -32,19 +36,33 @@ from graph7ph.app import (
     _performance_figure,
     _provenance_html,
     _result_header,
+    _leaderboard_html,
+    _race_caption,
+    _race_hues,
+    _standings_caption,
+    _race_figure,
+    _race_trajectories,
     _rgba,
     _subject_line,
     _trend_figure,
 )
 from graph7ph.query import Coverage
 from graph7ph.trends import (
+    MAJOR_FIELD_SIZE,
+    MIN_CAREER_MAJORS,
+    MIN_RECENT_MAJORS,
+    RACE_INTERVAL,
+    RACE_POINTS,
+    RACE_RECENCY_MONTHS,
     AdoptionCell,
     ArchetypeTimelinePoint,
     HeadToHeadPoint,
     LandscapeCell,
     PerformanceCell,
+    RaceCell,
     Series,
     SeriesCell,
+    _months_before,
 )
 
 
@@ -89,7 +107,8 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     # Cold start lands on the drawn Meta view (#114): Meta leads and Pilots trails, with
     # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
     # real result rather than an empty canvas, and no single pilot is anointed a default.
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+                    "Best player race", "FAQ"]
     # Gems still has its own tab; Meta holds meta share alone. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
@@ -124,7 +143,8 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+                    "Best player race", "FAQ"]
 
     box_ids = {b.elem_id for b in demo.blocks.values()
                if isinstance(b, gr.Group) and (b.elem_id or "").startswith("faq-")}
@@ -144,7 +164,8 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
     body = " ".join(b.value for b in demo.blocks.values()
                     if isinstance(b, gr.Markdown) and "faq" in (b.elem_classes or []))
     for metric in ("Meta share over time", "Metagame landscape", "Performance over time",
-                   "Head-to-head", "Adoption over time", "Hidden gem"):
+                   "Head-to-head", "Adoption over time", "Hidden gem",
+                   "Best player race"):
         assert metric in body, metric
 
 
@@ -173,8 +194,9 @@ def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
     # to copy edits while a dropped tab heading trips here rather than only in the browser.
     headings = [m for m in _markdown_values(_built_demo(tmp_path, snapshot_dir))
                 if m.lstrip().startswith("## ")]
-    # Five subject tabs plus the FAQ tab (#133), each led by its own h2 section heading.
-    assert len(headings) == 6
+    # Six subject tabs (the best-player race joins them, #135) plus the FAQ tab (#133),
+    # each led by its own h2 section heading.
+    assert len(headings) == 7
 
 
 def _all_surface_text(demo):
@@ -211,7 +233,8 @@ def test_tab_intros_are_a_single_sentence(tmp_path, snapshot_dir):
               if isinstance(b, gr.Markdown) and b.value
               and "t-lede" in (b.elem_classes or [])]
 
-    assert len(intros) == 6  # one per tab (Meta, Archetypes, Cards, Hidden gems, Pilots, FAQ)
+    # One per tab: Meta, Archetypes, Cards, Hidden gems, Pilots, Best player race, FAQ.
+    assert len(intros) == 7
     for intro in intros:
         assert intro.rstrip().endswith("."), intro
         assert ". " not in intro, intro  # no second sentence
@@ -808,6 +831,7 @@ def test_a_chart_title_is_a_page_heading_not_plotly_font_inside_the_image():
         _adoption_figure([("Sol Ring", Series(cells=[
             AdoptionCell(year=2024, count=30, share=0.03, year_total=1000),
         ]))]),
+        _race_figure(*_race_figure_args()),
     ]
     for fig in figures:
         assert not fig.layout.title.text  # no Plotly-font title baked into the image
@@ -1354,7 +1378,8 @@ def test_the_archetypes_tab_follows_meta_as_one_view_drawn_on_open(tmp_path, sna
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "FAQ"]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+                    "Best player race", "FAQ"]
 
     inside = _tab_blocks(demo, "Archetypes")
     # Only the clear buttons on the archetype pickers, never a Draw.
@@ -1641,3 +1666,396 @@ def test_a_graph_with_no_archetype_still_builds_the_archetypes_tab(tmp_path, sna
     assert not [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
     assert [b for b in inside if isinstance(b, gr.Markdown) and b.visible and b.value
             and "landscape" in b.value]
+
+
+# The five sample dates of a race, the x axis the chart draws (#135, ADR 0017).
+_RACE_ENDS = [datetime(2024, 7, 1), datetime(2025, 1, 1), datetime(2025, 7, 1),
+              datetime(2026, 1, 1), datetime(2026, 7, 1)]
+
+
+def _race_cells(*records, major_events=21, spread=2):
+    """Race cells from ``(pilot, score, majors, [(as_of_score, as_of_majors)...])``.
+
+    An as-of score of ``None`` is a date under the floor. Ranks are dealt inside each
+    date by score, best first, the way the tool deals them, so a hover test reads a rank
+    that means what it says. Records are given best first, the standing order the tool
+    returns. ``spread`` is how far the rank interval reaches either side of the rank, so
+    a display test has bounds to render without a bootstrap behind it.
+    """
+    scored = [
+        {r[0]: r[3][at][0] for r in records if r[3][at][0] is not None}
+        for at in range(len(_RACE_ENDS))
+    ]
+    ranks = [
+        {pilot: place for place, (pilot, _) in enumerate(
+            sorted(step.items(), key=lambda kv: -kv[1]), start=1)}
+        for step in scored
+    ]
+    places = {
+        pilot: place
+        for place, (pilot, *_) in enumerate(records, start=1)
+    }
+    return [
+        RaceCell(
+            pilot=pilot, rank=places[pilot], score=score, majors=majors,
+            major_events=major_events,
+            rank_low=max(1, places[pilot] - spread),
+            rank_high=min(len(records), places[pilot] + spread),
+            as_of=at_date,
+            as_of_score=point[0], as_of_majors=point[1],
+            as_of_rank=ranks[at].get(pilot) if point[0] is not None else None,
+            as_of_contenders=len(ranks[at]),
+        )
+        for pilot, score, majors, trajectory in records
+        for at, (at_date, point) in enumerate(zip(_RACE_ENDS, trajectory))
+    ]
+
+
+def _race_series(*records, major_events=21, spread=2):
+    return Series(cells=_race_cells(*records, major_events=major_events, spread=spread))
+
+
+def _flat(score, majors=6):
+    """One contender's five sample dates, all scored, all the same."""
+    return [(score, majors)] * len(_RACE_ENDS)
+
+
+def test_the_race_draws_the_leading_few_and_the_leaderboard_lists_the_rest():
+    # Two display cuts over one table (#135): the chart draws _RACE_LINES lines because
+    # that is where the palette's named hues stop, and the leaderboard carries the
+    # standings past them, so the eighth-to-ninth gap is visible on the surface rather
+    # than hidden by the cut. Neither cut reaches the tool, which returns the whole field.
+    series = _race_series(*[
+        (f"p{i}", 0.9 - i / 100, 10, _flat(0.7)) for i in range(12)
+    ])
+
+    trajectories = _race_trajectories(series)
+    assert [line[0].pilot for line in trajectories[:3]] == ["p0", "p1", "p2"]
+    # Every contender is grouped, best first; the cut is the caller's slice.
+    assert len(trajectories) == 12
+    # Each line is one contender's whole trajectory, oldest sample first.
+    assert [c.as_of for c in trajectories[0]] == _RACE_ENDS
+
+
+def _race_names(*pilots):
+    return {p: p.title() for p in pilots}
+
+
+def test_the_race_draws_a_line_per_pilot_in_its_own_hue_broken_where_a_window_is_thin():
+    # The chart is the trend-chart grammar the rest of the app uses: a thin dashed join
+    # that only connects observations, hollow markers whose size is the majors behind
+    # each point, and a direct hue per pilot from the shared eight (§5). A window under
+    # the floor is a gap, not a bridged point: the tool withheld the value, so the line
+    # breaks over it exactly as a refused year breaks the performance chart.
+    series = _race_series(
+        ("ace", 0.78, 12, [(None, 1), (0.70, 4), (0.72, 6), (0.75, 8), (0.76, 9)]),
+        ("rival", 0.74, 9, [(0.66, 2), (0.68, 3), (0.71, 5), (0.70, 6), (0.72, 7)]),
+    )
+    lines = _race_trajectories(series)
+    fig = _race_figure(lines, [], _race_names("ace", "rival"))
+    drawn = {t.name: t for t in fig.data if t.name in ("Ace", "Rival")}
+
+    assert len(drawn) == 2
+    assert drawn["Ace"].line.color == palette.CATEGORICAL[0]
+    assert drawn["Rival"].line.color == palette.CATEGORICAL[1]
+    # A gap, not a bridge: the thin first window carries no y at all.
+    assert list(drawn["Ace"].y) == [None, 0.70, 0.72, 0.75, 0.76]
+    assert drawn["Ace"].line.dash == "dash"
+    assert drawn["Ace"].marker.color == theme.TOKENS["surface"]  # hollow ring
+    # The ring's area carries the majors the point rests on, the same scale every other
+    # chart's sample-size ring uses.
+    assert list(drawn["Rival"].marker.size) == [_confidence_size(n) for n in (2, 3, 5, 6, 7)]
+    # Five sample points, labelled by the month each window ends in.
+    assert list(drawn["Ace"].x) == ["Jul 2024", "Jan 2025", "Jul 2025", "Jan 2026", "Jul 2026"]
+
+
+def test_the_race_locks_its_legend_and_puts_the_windows_in_time_order():
+    # The race is a read, not an exploration surface (#135): there are no controls, and
+    # the legend is a key rather than a control, so both its click handlers are pinned
+    # off. A reader must not be able to tick a pilot out of a race. The x axis is five
+    # discrete windows in time order, which the shared styler's alphabetical category
+    # order would scramble ("Jan 2025" before "Jul 2024"), and the y axis is a score,
+    # not the shared styler's share percentage, fitted to the field rather than zeroed.
+    series = _race_series(
+        ("ace", 0.78, 12, _flat(0.76, 8)), ("rival", 0.74, 9, _flat(0.71, 6)),
+        ("other", 0.60, 7, _flat(0.58, 4)),
+    )
+    trajectories = _race_trajectories(series)
+    fig = _race_figure(trajectories[:2], trajectories[2:],
+                       _race_names("ace", "rival", "other"))
+
+    assert fig.layout.legend.itemclick is False
+    assert fig.layout.legend.itemdoubleclick is False
+    assert fig.layout.legend.orientation == "h"
+    assert fig.layout.legend.y < 0
+    assert fig.layout.height == _LEGEND_BELOW_HEIGHT
+    assert list(fig.layout.xaxis.categoryarray) == [
+        "Jul 2024", "Jan 2025", "Jul 2025", "Jan 2026", "Jul 2026",
+    ]
+    assert fig.layout.yaxis.tickformat == numfmt.SCORE_TICKFORMAT
+    assert fig.layout.yaxis.rangemode != "tozero"
+    # The context layer is named in the legend and sorted below the pilots, so the
+    # ground the lines are read against is labelled without displacing the standings.
+    ranks = {t.name: t.legendrank for t in fig.data if t.showlegend is not False}
+    assert ranks["Ace"] < ranks["Rival"] < ranks["All other contenders"]
+
+
+def test_a_race_point_hovers_the_record_so_far_its_standing_and_its_sample():
+    # Every point on this chart is a shrunk mean over the pilot's record up to that date,
+    # so the hover has to carry what it rests on: which date, and that it is everything
+    # *by* then rather than a span ending there; the score in the one numeric convention;
+    # where that stood among the contenders; and how many majors were behind it. The rank
+    # is the tool's own, taken over the whole field rather than the drawn eight.
+    series = _race_series(
+        ("ace", 0.78, 12, [(0.70, 4), (0.72, 6), (0.75, 8), (0.76, 9), (0.74, 7)]),
+        ("rival", 0.74, 9, [(0.80, 3), (0.68, 3), (0.71, 5), (0.70, 6), (0.72, 7)]),
+        ("other", 0.60, 7, _flat(0.58, 4)),
+    )
+    trajectories = _race_trajectories(series)
+    fig = _race_figure(trajectories[:2], trajectories[2:],
+                       _race_names("ace", "rival", "other"))
+    ace = next(t for t in fig.data if t.name == "Ace")
+
+    # The oldest date: the rival's 0.80 leads it, so the ace is second there. "by", not a
+    # span, because the point counts the whole record up to it (ADR 0017).
+    assert list(ace.customdata[0]) == ["by Jul 2024", numfmt.score(0.70), "2 of 3", 4]
+    # And the newest, where the ace leads. The rank carries the contenders it was taken
+    # over, since an early date has far fewer of them with a record than the caption's
+    # whole-field count.
+    assert list(ace.customdata[-1])[1:] == [numfmt.score(0.74), "1 of 3", 7]
+    assert "Ace" in ace.hovertemplate
+    assert "major events so far" in ace.hovertemplate
+    # The context layer is chart ground, so it answers no hover of its own and never
+    # steals one from a drawn pilot.
+    context = next(t for t in fig.data if t.name == "All other contenders")
+    assert context.hoverinfo == "skip"
+
+
+def test_the_race_caption_states_the_cut_the_pool_the_ground_and_what_a_point_is():
+    # The chart cannot say four things for itself: that it draws a few lines out of a
+    # much larger field (so the eight are a cut, not the whole story), what a score is
+    # measured on, what the faint layer behind the lines holds, and what a point counts.
+    # The last is the one most easily read backwards under a running score: a rising line
+    # is a record filling in, not a pilot improving (ADR 0017). Stated in the same
+    # field-standing form the landscape and performance captions use, the reading in
+    # the accent and the sample quiet behind it.
+    series = _race_series(*[
+        (f"p{i}", 0.9 - i / 100, 10, _flat(0.7)) for i in range(139)
+    ], major_events=21)
+    caption = _race_caption(series, drawn=8)
+
+    assert "8 of 139" in caption
+    assert "21 major events" in caption
+    assert str(MAJOR_FIELD_SIZE) in caption          # what makes an event a major one
+    assert "every other contender is traced faintly behind them" in caption
+    assert "every major a pilot had played by then" in caption
+    assert "rather than as they improve" in caption
+
+
+def test_the_leaderboard_lists_the_standings_and_marks_the_plotted_eight():
+    # The table beside the chart carries the standings past the eight lines, so a reader
+    # can see how close rank 9 was to rank 8 rather than taking the cut on trust. Each
+    # drawn pilot is marked in the hue their line is drawn in, which is what ties the
+    # two surfaces together; the rest carry no hue, since the palette names eight.
+    series = _race_series(*[
+        (f"p{i}", 0.9 - i / 100, 20 - i, _flat(0.7)) for i in range(12)
+    ])
+    lines = _race_trajectories(series)[:3]
+    table = _leaderboard_html(series, {f"p{i}": f"Pilot {i}" for i in range(12)},
+                              _race_hues(lines), rows=5)
+
+    assert table.count("<tr") == 6  # a header row and five standings
+    assert "Pilot 0" in table and "Pilot 4" in table
+    assert "Pilot 5" not in table  # capped, not the whole field
+    # Rank, score and the major events the score rests on, all on the leading row.
+    assert "0.900" in table and ">20<" in table
+    # The three drawn pilots carry their line's hue; the fourth is listed unmarked.
+    for slot, pilot in enumerate(("Pilot 0", "Pilot 1", "Pilot 2")):
+        assert palette.CATEGORICAL[slot] in table.split(pilot)[0]
+    assert table.split("Pilot 3")[0].count("swatch-hue") == 3
+
+
+def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
+    # The column that stops the table overclaiming (ADR 0017). A score printed to three
+    # decimals over a median eight majors reads as a settled order and is not one, so
+    # every row carries the range its rank actually landed in across resamples, beside
+    # the rank rather than in a footnote: rank 4 that could be 17 is a different claim
+    # from rank 4, and the reader has to see the two together to make it.
+    series = _race_series(*[
+        (f"p{i}", 0.9 - i / 100, 10, _flat(0.7)) for i in range(12)
+    ], spread=3)
+    table = _leaderboard_html(series, {f"p{i}": f"Pilot {i}" for i in range(12)},
+                              {}, rows=12)
+
+    assert "Rank could be" in table
+    # Rank 1's interval is clamped at the top of the field, rank 5's reaches both ways.
+    assert "1&ndash;4" in table
+    assert "2&ndash;8" in table
+    # One interval per standing row, never fewer: a row without one is a rank presented
+    # as a fact.
+    assert table.count("class='score spread'") == 1 + 12
+
+
+def test_a_leaderboard_name_carrying_markup_is_escaped():
+    # Pilot display names come from the source, so they are free text on a surface the
+    # app builds as raw HTML.
+    series = _race_series(("p", 0.8, 9, _flat(0.7)))
+    table = _leaderboard_html(series, {"p": "<b>Ada</b>"}, {}, _LEADERBOARD_ROWS)
+
+    assert "<b>Ada</b>" not in table
+    assert "&lt;b&gt;Ada&lt;/b&gt;" in table
+
+
+def test_every_class_the_leaderboard_emits_is_one_the_stylesheet_draws():
+    # The table is raw markup the app builds, so nothing in the theme forces it to be
+    # styled: a class named here and nowhere in the stylesheet renders as an unstyled
+    # browser default table on a dark card.
+    series = _race_series(("p", 0.8, 9, _flat(0.7)), ("q", 0.7, 9, _flat(0.6)))
+    table = _leaderboard_html(series, {"p": "P", "q": "Q"},
+                              _race_hues(_race_trajectories(series)[:1]), _LEADERBOARD_ROWS)
+    css = theme.build_css()
+
+    classes = set(re.findall(r"class='([^']+)'", table))
+    for name in {c for group in classes for c in group.split()}:
+        assert f".{name}" in css, name
+
+
+def test_the_race_is_its_own_tab_after_pilots_drawn_on_open(tmp_path, snapshot_dir):
+    # AC (#135): a new top-level tab after Pilots. It asks a question about the whole
+    # field rather than about a subject, so it takes the Archetypes tab's shape and not
+    # the Pilots one: no subject picker and no Draw button, drawn at build time.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
+    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+                    "Best player race", "FAQ"]
+
+    # The fixture graph holds three decks at one small event, so nobody is a contender
+    # and the tab draws the refusal rather than an empty chart or a crash. Refused with
+    # the count it found, in the app's own voice.
+    notes = [b.value for b in demo.blocks.values()
+             if isinstance(b, gr.Markdown) and b.value and "major events" in b.value]
+    assert notes == ["No pilot has enough major events to race here yet."]
+
+
+def _race_figure_args():
+    """A two-contender race, as the arguments :func:`_race_figure` takes."""
+    series = _race_series(
+        ("ace", 0.78, 12, _flat(0.76, 8)), ("rival", 0.74, 9, _flat(0.71, 6)),
+    )
+    return _race_trajectories(series), [], _race_names("ace", "rival")
+
+
+def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_path):
+    # The tab's own wiring, which no hand-built Series reaches: over a graph that really
+    # holds a race, the card fills with a chart and the standings beside it and the
+    # refusal note stays down. Graded on the real record because that is the only graph
+    # in the repo with contenders in it; skipped, not failed, when it is absent or built
+    # from other sources, exactly as `live_graph` is.
+    import gradio as gr
+    from graph7ph.app import build_app
+    from graph7ph.db import artifact_path, database_path
+    from graph7ph.provenance import staleness
+
+    artifact = artifact_path()
+    if not database_path(artifact).exists():
+        pytest.skip(f"no graph artifact at {artifact}; build one with `graph7ph build`")
+    if staleness(artifact):
+        pytest.skip(f"cannot grade the real record: {staleness(artifact)}")
+    demo = build_app(artifact)
+
+    tables = [b.value for b in demo.blocks.values()
+              if isinstance(b, gr.HTML) and "leaderboard" in (b.value or "")]
+    (table,) = tables
+    # Capped at the display cut, and every drawn line is marked in the table.
+    assert table.count("<tr") == _LEADERBOARD_ROWS + 1
+    assert table.count("swatch-hue") == _RACE_LINES
+
+    # A built app holds its figures serialised, so the race chart is found by the axis
+    # title only it carries.
+    plots = [json.loads(b.value["plot"]) for b in demo.blocks.values()
+             if isinstance(b, gr.Plot) and b.value]
+    (fig,) = [f for f in plots
+              if "played up to" in str(f["layout"]["xaxis"].get("title"))]
+    # The eight lines, plus the one trace holding every other contender behind them.
+    assert len(fig["data"]) == _RACE_LINES + 1
+    assert all(len(trace["x"]) == RACE_POINTS for trace in fig["data"][1:])
+    # The right edge is the leaderboard (ADR 0017): the running score means the drawn
+    # eight hold the eight highest points at the newest sample, so nothing in the faded
+    # layer behind them crosses above the lowest of them there. This is the property the
+    # rolling version could not offer, and the reason the chart was rebuilt.
+    context, *drawn = fig["data"]
+    lowest = min(trace["y"][-1] for trace in drawn)
+    # Each contender's run is five points then a null separator, so the newest sample of
+    # every one of them is the fifth of each six.
+    behind = [y for y in context["y"][RACE_POINTS - 1::RACE_POINTS + 1] if y is not None]
+    assert behind and max(behind) <= lowest
+    # Nothing on the tab says the race was refused.
+    notes = [b.value for b in demo.blocks.values()
+             if isinstance(b, gr.Markdown) and "major events to race" in (b.value or "")]
+    assert notes == []
+
+
+def test_the_standings_caption_states_what_the_table_actually_holds():
+    # The table is capped, so its caption cannot claim to hold every contender; and on a
+    # field smaller than the cap nothing is cut, so it must not claim a top-50 ranking it
+    # never applied. The same two readings `_landscape_caption` keeps apart. Then it says
+    # what the interval column's numbers are, since a range with no confidence attached
+    # is not one.
+    big = _race_series(*[(f"p{i}", 0.9 - i / 100, 9, _flat(0.7)) for i in range(12)])
+    small = _race_series(*[(f"p{i}", 0.9 - i / 100, 9, _flat(0.7)) for i in range(3)])
+
+    assert _standings_caption(big, rows=5).startswith("top 5 of 12 contenders, best first")
+    assert _standings_caption(small, rows=5).startswith("all 3 contenders, best first")
+    assert f"{RACE_INTERVAL:.0%} of the time" in _standings_caption(big, rows=5)
+    assert "resampled" in _standings_caption(big, rows=5)
+
+
+def test_every_other_contender_is_drawn_behind_the_race_as_one_faded_layer():
+    # The field is drawn rather than summarised (user call, replacing a p25-p75 band):
+    # every contender the cut left out is traced behind the eight in one neutral tint, so
+    # the reader sees the real spread, and where a drawn line sits inside it, instead of a
+    # box that stands for it. It is the emphasis model §6 already uses on the meta chart,
+    # with one difference: there hue traces each faded line, here the context is one
+    # colour, because 131 lines cannot each be named and the legend says so with a single
+    # entry.
+    series = _race_series(*[
+        (f"p{i}", 0.9 - i / 100, 9, _flat(0.8 - i / 100)) for i in range(12)
+    ])
+    trajectories = _race_trajectories(series)
+    fig = _race_figure(trajectories[:3], trajectories[3:],
+                       {f"p{i}": f"Pilot {i}" for i in range(12)})
+
+    # Read in the order the legend lays them out, which is legendrank, not trace order:
+    # the context is added first so every drawn line paints over it, and sorted last so
+    # the legend still reads as the standings.
+    named = sorted((t for t in fig.data if t.showlegend is not False),
+                   key=lambda t: t.legendrank)
+    # Three drawn pilots and one entry for all the rest: four legend entries, not twelve.
+    assert [t.name for t in named] == ["Pilot 0", "Pilot 1", "Pilot 2",
+                                       "All other contenders"]
+    context = named[-1]
+    # One trace holds all nine, so the legend cannot fill with them. Each pilot's run is
+    # closed with a null, or the last window of one would join the first of the next.
+    assert context.y.count(None) == 9
+    assert len([v for v in context.y if v is not None]) == 9 * len(_RACE_ENDS)
+    # Lines only: an observation marker's fill is the opaque surface, so nine of them
+    # per window would tile over each other and over the drawn lines beneath.
+    assert context.mode == "lines"
+    # It is chart ground, so it answers no hover and never steals one from a drawn pilot.
+    assert context.hoverinfo == "skip"
+    # Neutral, not a ninth hue: the palette's eight name the race, this names nobody.
+    assert not any(hue in str(context.line.color) for hue in palette.CATEGORICAL)
+    # And sorted below the standings, as the band it replaces was.
+    assert context.legendrank > max(t.legendrank for t in named[:3])
+
+
+def test_a_field_small_enough_to_draw_whole_advertises_no_context_layer():
+    # Every contender fits inside the cut, so there is no "other" contender to trace
+    # behind them. The layer is dropped rather than added empty, which would put a
+    # legend entry on the chart for a set with nothing in it.
+    series = _race_series(("ace", 0.78, 12, _flat(0.76, 8)))
+    fig = _race_figure(_race_trajectories(series), [], _race_names("ace"))
+
+    assert [t.name for t in fig.data] == ["Ace"]
