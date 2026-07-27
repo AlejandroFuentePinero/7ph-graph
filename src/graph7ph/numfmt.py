@@ -31,14 +31,20 @@ def count_of(count: int, total: int, unit: str = "") -> str:
     return f"{ratio} {unit}" if unit else ratio
 
 
-def score(value: float) -> str:
-    """An inverted-finish score to two decimals, with the sense once:
-    ``0.62`` -> ``"0.62 (1 = 1st)"``.
+def score(value: float, places: int = 2) -> str:
+    """An inverted-finish score, with the sense once: ``0.62`` -> ``"0.62 (1 = 1st)"``.
 
     The finish flipped so higher is better (1 a win); the parenthetical states
     which end is good once, rather than spelling out both ends on every readout.
+
+    Two decimals suit a readout of one pilot's own finish, which is all most of
+    these are. ``places`` exists for the one surface that reads as a comparison:
+    the race hover, where the running score puts the leaderboard's own numbers on
+    the chart's right edge (ADR 0017) and the board is separated by thousandths.
+    At two decimals half the drawn eight print as ties they are not, so a reader
+    hovering two lines to tell them apart is shown one number.
     """
-    return f"{value:.2f} (1 = 1st)"
+    return f"{value:.{places}f} (1 = 1st)"
 
 
 # The chart axes generate their own ticks client-side, so they carry the same

@@ -679,6 +679,13 @@ def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
 # leaderboard is what makes that visible, which is most of why it is there.
 _RACE_LINES = palette.MAX_SLOTS
 _LEADERBOARD_ROWS = 50
+# The decimals the standings are written to, in the table and in the chart's hover
+# alike. Three, not the charts' usual two, because the board is separated by
+# thousandths: at two, ranks 4, 5 and 6 all print 0.74 on the current record and 7 and
+# 8 both print 0.73. Named once and shared, because the running score makes the chart's
+# right edge the leaderboard exactly (ADR 0017), so the two read one quantity and a
+# drift between them would print it two ways.
+LEADERBOARD_SCORE_PLACES = 3
 
 
 def _race_trajectories(series: Series) -> list[list[RaceCell]]:
@@ -1244,7 +1251,7 @@ def _leaderboard_html(
             "<tr>"
             f"<td class='rank'>{cell.rank}</td>"
             f"<td>{swatch}{html.escape(names[cell.pilot])}</td>"
-            f"<td class='score'>{cell.score:.3f}</td>"
+            f"<td class='score'>{cell.score:.{LEADERBOARD_SCORE_PLACES}f}</td>"
             f"<td class='score'>{cell.majors}</td>"
             f"<td class='score spread'>{cell.rank_low}&ndash;{cell.rank_high}</td>"
             "</tr>"
@@ -1401,7 +1408,11 @@ def _race_figure(
             y=[c.as_of_score for c in cells],
             customdata=[
                 [_as_of_label(c),
-                 numfmt.score(c.as_of_score) if c.as_of_score is not None else "",
+                 # Three decimals, the leaderboard's precision rather than the charts':
+                 # the right edge of this chart is the leaderboard by construction, so
+                 # the two state one quantity and cannot state it two ways.
+                 numfmt.score(c.as_of_score, LEADERBOARD_SCORE_PLACES)
+                 if c.as_of_score is not None else "",
                  f"{c.as_of_rank} of {c.as_of_contenders}", c.as_of_majors]
                 for c in cells
             ],

@@ -12,6 +12,7 @@ from graph7ph.app import (
     DRAW_LABEL,
     _CARDS_TAB,
     _FAQ_ENTRIES,
+    LEADERBOARD_SCORE_PLACES,
     _LEADERBOARD_ROWS,
     _LEGEND_BELOW_HEIGHT,
     _RACE_LINES,
@@ -1818,17 +1819,45 @@ def test_a_race_point_hovers_the_record_so_far_its_standing_and_its_sample():
 
     # The oldest date: the rival's 0.80 leads it, so the ace is second there. "by", not a
     # span, because the point counts the whole record up to it (ADR 0017).
-    assert list(ace.customdata[0]) == ["by Jul 2024", numfmt.score(0.70), "2 of 3", 4]
+    # The score is written to the standings' precision, not the charts', since the right
+    # edge of this chart is the leaderboard itself.
+    assert list(ace.customdata[0]) == [
+        "by Jul 2024", numfmt.score(0.70, LEADERBOARD_SCORE_PLACES), "2 of 3", 4]
     # And the newest, where the ace leads. The rank carries the contenders it was taken
     # over, since an early date has far fewer of them with a record than the caption's
     # whole-field count.
-    assert list(ace.customdata[-1])[1:] == [numfmt.score(0.74), "1 of 3", 7]
+    assert list(ace.customdata[-1])[1:] == [
+        numfmt.score(0.74, LEADERBOARD_SCORE_PLACES), "1 of 3", 7]
     assert "Ace" in ace.hovertemplate
     assert "major events so far" in ace.hovertemplate
     # The context layer is chart ground, so it answers no hover of its own and never
     # steals one from a drawn pilot.
     context = next(t for t in fig.data if t.name == "All other contenders")
     assert context.hoverinfo == "skip"
+
+
+def test_the_race_hover_reads_a_score_to_the_precision_that_separates_contenders():
+    # The running score makes the right edge of the chart the leaderboard exactly
+    # (ADR 0017), so the hover and the table state the same quantity there and must not
+    # state it two ways. The table already writes three decimals because the top of the
+    # board is separated by thousandths; at two the drawn eight collide in pairs and
+    # triples on the real record, so hovering two lines to compare them shows one number.
+    series = _race_series(
+        ("ace", 0.762, 12, _flat(0.762, 9)),
+        ("rival", 0.761, 9, _flat(0.761, 8)),
+    )
+    trajectories = _race_trajectories(series)
+    fig = _race_figure(trajectories, [], _race_names("ace", "rival"))
+    hovered = {t.name: t.customdata[-1][1] for t in fig.data}
+
+    # A thousandth apart is a real gap in this field, and the hover has to show it.
+    assert hovered["Ace"] != hovered["Rival"]
+    # And each reads the digits its own leaderboard row prints, so a reader moving
+    # between the chart and the table is comparing one number, not two roundings.
+    table = _leaderboard_html(series, _race_names("ace", "rival"), {}, rows=50)
+    for cell_score, name in ((0.762, "Ace"), (0.761, "Rival")):
+        assert f"{cell_score:.3f}" in table
+        assert f"{cell_score:.3f}" in hovered[name]
 
 
 def test_the_race_caption_states_the_cut_the_pool_the_ground_and_what_a_point_is():
