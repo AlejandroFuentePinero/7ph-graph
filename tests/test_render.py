@@ -154,3 +154,21 @@ def test_details_panel_has_field_labels_and_the_moxfield_affordance():
     assert "Kind" in html and "Name" in html  # the field labels
     assert "moxfield.com/decks/abc123" in html  # the deck's page
     assert "Open on Moxfield" in html  # as a link affordance, not a raw url
+
+
+def test_the_settle_ships_in_the_document_with_its_substitutions_resolved():
+    # The fit-and-label settle (#178) runs only on a real browser, which CI does not
+    # carry (tests/test_graph_desktop.py skips without playwright), so this holds the
+    # string half: the script is injected and both its placeholders are resolved. A
+    # physics view waits for stabilisation; a fully pinned view, which never
+    # stabilises, settles immediately.
+    physics = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
+    pinned = render_subgraph(Subgraph(
+        nodes=[Node("deck:d1", "Grixis", "Deck", pin=(0.0, 0.0))], edges=[],
+    ))
+
+    for html in (physics, pinned):
+        assert "const LABEL_PX = 12;" in html
+        assert "__LABEL_PX__" not in html and "__PINNED__" not in html
+    assert "const PINNED = false;" in physics
+    assert "const PINNED = true;" in pinned
