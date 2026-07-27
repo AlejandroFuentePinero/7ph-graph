@@ -43,9 +43,17 @@ _SCHEMA = [
         placementNorm DOUBLE, placementImputed STRING, normImputed STRING,
         colourIdentity STRING, createdAt TIMESTAMP,
         PRIMARY KEY(deckId))""",
+    # points is what the card costs in a deck and pointsCompanion what it costs
+    # as a companion, which are not the same number for the two cards that can be
+    # one. Both are stored, because the cost a deck actually paid depends on the
+    # board the card sits in, and no reader can recover that from one of them
+    # (issue #143). What a deck's total comes to is `query.deck_points`, derived
+    # rather than stored: a total is a fact about a points list at a moment, not
+    # about the deck (ADR 0002).
     """CREATE NODE TABLE Card(
         canon STRING, name STRING, type STRING, manaValue DOUBLE,
-        reserved BOOLEAN, priceUsd DOUBLE, points INT64, PRIMARY KEY(canon))""",
+        reserved BOOLEAN, priceUsd DOUBLE, points INT64,
+        pointsCompanion INT64, PRIMARY KEY(canon))""",
     # fieldSize is the field the event's placements are normalised against, and
     # fieldImputed the rule that corrected the source's own `eventSize`, or null
     # where it stood (see `corrected_field`). Both are on the Event rather than
@@ -100,7 +108,8 @@ MIN_CUT_FIELD = 24
 # Cypher and the row projection, so the two never drift (the DDL above still
 # declares the column types separately). Deck can't use this reflective path
 # because its colourIdentity is a derived property, not a stored model field.
-_CARD_FIELDS = ("canon", "name", "type", "mana_value", "reserved", "price_usd", "points")
+_CARD_FIELDS = ("canon", "name", "type", "mana_value", "reserved", "price_usd",
+                "points", "points_companion")
 
 
 @dataclass

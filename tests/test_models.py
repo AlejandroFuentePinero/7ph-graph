@@ -55,12 +55,40 @@ def test_parses_decks_and_cards_with_domain_fields(snapshot_dir):
     assert card.reserved is False
 
 
+def test_card_carries_both_of_the_sources_point_contexts():
+    # The 7PH cost is context-dependent, so the source ships two per card: what the
+    # card costs in the deck and what it costs as a companion. Both are carried,
+    # because `points` alone prices a companion deck 3 light (issue #143).
+    #
+    # Both records are the source's own (snapshot 20260718T085655Z), and the pair is
+    # the point: `pointsCompanion` is a surcharge that only the two companions carry,
+    # not a second price list. Reading a sideboard card at its `pointsCompanion`
+    # would price Ancestral Recall at 0.
+    lurrus, recall = (
+        Card.model_validate(
+            {"canon": "lurrus of the dream-den", "name": "Lurrus of the Dream-Den",
+             "type": "Creatures", "manaCost": "{1}{W/B}{W/B}", "manaValue": 3.0,
+             "reserved": False, "priceUsd": 1.46, "points": 0, "pointsCompanion": 3}
+        ),
+        Card.model_validate(
+            {"canon": "ancestral recall", "name": "Ancestral Recall",
+             "type": "Instants", "manaCost": "{U}", "manaValue": 1.0,
+             "reserved": True, "priceUsd": 4497.284, "points": 5,
+             "pointsCompanion": 0}
+        ),
+    )
+
+    assert (lurrus.points, lurrus.points_companion) == (0, 3)
+    assert (recall.points, recall.points_companion) == (5, 0)
+
+
 def test_optional_source_fields_tolerate_nulls():
     # The real data carries nulls the small fixture doesn't: cards with no price,
     # decks with no placement (e.g. unranked entries).
     card = Card.model_validate(
         {"canon": "x", "name": "X", "type": "Lands", "manaCost": None,
-         "manaValue": 0.0, "reserved": False, "priceUsd": None, "points": 0}
+         "manaValue": 0.0, "reserved": False, "priceUsd": None, "points": 0,
+         "pointsCompanion": 0}
     )
     assert card.price_usd is None and card.mana_cost is None
 
@@ -172,7 +200,8 @@ def test_out_of_range_card_id_raises_a_clear_error(tmp_path):
     (tmp_path / "cards_index.json").write_text(json.dumps({
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
-                   "manaValue": 0.0, "reserved": False, "points": 0}],
+                   "manaValue": 0.0, "reserved": False, "points": 0,
+                   "pointsCompanion": 0}],
         "decks": {"d1": {"m": [5], "s": []}},  # index 5 into a 1-card list
     }))
 

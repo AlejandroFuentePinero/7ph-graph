@@ -141,6 +141,12 @@ class Card(_Raw):
     reserved: bool
     price_usd: float | None = None
     points: int
+    # What the card costs as a companion, which is not what it costs in the deck:
+    # the two companions are free in the main board and 3 points from the
+    # sideboard. Required rather than defaulted, like `points`, so a source that
+    # stops shipping it aborts the build (`ingest.load_checked`) instead of
+    # silently pricing 622 companion decks 3 points light again (issue #143).
+    points_companion: int
 
     @property
     def colours(self) -> list[str]:

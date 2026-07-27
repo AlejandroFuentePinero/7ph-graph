@@ -63,8 +63,12 @@ _Avoid_: Colours (the individual atoms)
 ### Format rules
 
 **Points**:
-The 7PH cost assigned to a powerful card. A legal deck spends at most 7 points, or 8 with the accessibility bonus. Most cards are 0 points.
+The 7PH cost assigned to a powerful card. A legal deck spends at most 7 points, or 8 with the accessibility bonus. Most cards are 0 points. A card has two costs, not one, because the cost depends on the context it is played in: see Companion. A deck's total is derived (`query.deck_points`) and never stored, since it is a fact about a points list at a moment rather than about the deck.
 _Avoid_: Cost (that is mana), price
+
+**Companion**:
+A card a deck names from its sideboard instead of playing in the deck, at a point cost the same card in the main board does not pay. Two cards in the format can be one, Lurrus of the Dream-Den and Lutri, the Spellchaser: free in the deck, 3 points as a companion. A deck names at most one, so a total charges the surcharge once (issue #143).
+_Avoid_: Sideboard creature, partner
 
 **Points Version**:
 A dated revision of the points list. Card point values change over time as versions are released.

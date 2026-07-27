@@ -150,7 +150,8 @@ def _deck_hash(deck: Deck, conts: list[Containment]) -> str:
 
 
 def _card_hash(card: Card) -> str:
-    """Hash a card's immutable projection. Points and price are volatile."""
+    """Hash a card's immutable projection. Points (both contexts) and price are
+    volatile: a points revision restates them by design."""
     return _hash({"name": card.name, "type": card.type})
 
 
