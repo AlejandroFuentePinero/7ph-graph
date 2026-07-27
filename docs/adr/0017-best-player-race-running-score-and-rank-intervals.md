@@ -39,7 +39,7 @@ The rank column was the second overclaim. Scores at the top of this board are se
 - **15 contenders** hold a one-in-ten claim to a top-eight place, including Richard O at 25% from a shown rank of 18.
 - Rank 2 is the only firm place, at 89%. The other seven run 50% to 69%, and rank 7's honest interval is 1 to 40.
 
-So `RaceCell` carries `rank_low` and `rank_high`, the 90% interval over those resamples, and the leaderboard renders it as a "Rank could be" column beside the rank. A rank of 4 that could be 17 is a different claim from a rank of 4, and a reader has to see the two together to make it.
+So `RaceCell` carries `rank_low` and `rank_high`, the 90% interval over those resamples, and the leaderboard renders it as a "Rank CI" column beside the rank. A rank of 4 that could be 17 is a different claim from a rank of 4, and a reader has to see the two together to make it.
 
 The resampling redraws the **whole field** each time and re-estimates the shrinkage inside the loop, because a rank is a statement about a pilot against the others: holding the others still would measure something else. It is seeded (`RACE_RESAMPLE_SEED`), so a rebuild of the same artifact draws the same bounds and a moved bound means moved evidence. It assumes a pilot's finishes are draws from one fixed level, so genuine improvement is booked as noise and the interval is conservative; not conservative enough to turn a coin flip into a certainty.
 
