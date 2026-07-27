@@ -1,4 +1,4 @@
-2,547 text nodes measured over 46 state/width visits, 44 below their WCAG AA floor.
+2,546 text nodes measured over 46 state/width visits, 44 below their WCAG AA floor.
 
 | ink | ground | ratio | floor | nodes | example |
 |---|---|---|---|---|---|
@@ -14,7 +14,7 @@
 | `#f4823f` | `#1c1917` | 6.76 | 4.5 | 74 | 13px div "20 nodes" (forced-too-large) |
 | `#131110` | `#f4823f` | 7.27 | 4.5 | 24 | 16px button "Draw" (forced-too-large) |
 | `#f4823f` | `#131110` | 7.27 | 4.5 | 46 | 13px a "alejandrofuentepinero@gmail." (forced-too-large) |
-| `#b4aca2` | `#1c1917` | 7.80 | 4.5 | 69 | 12px span "Pilot" (forced-too-large) |
+| `#b4aca2` | `#1c1917` | 7.80 | 4.5 | 68 | 12px span "Pilot" (forced-too-large) |
 | `#b4aca2` | `#131110` | 8.40 | 4.5 | 98 | 17px p "Explore any pilot's decks, r" (forced-too-large) |
 | `#f2ede6` | `#37312b` | 11.02 | 4.5 | 20 | 18px span "Ariel M" (forced-too-large) |
 | `#f2ede6` | `#3b2c13` | 11.54 | 4.5 | 6 | 11px span "Archetypes" (faq) |

@@ -219,16 +219,8 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   1–3, the trio that stays distinct under adjacency.
 - **Edges**: hairline on `--border`; tinted to the group in grouped views,
   neutral otherwise. Labelled quantities stay on the edge.
-- **Label size**: a name is drawn at a fixed 12 CSS px on screen, sized from the
-  fitted zoom rather than left as a canvas size the zoom then shrinks. vis.js drops
-  a label below ~4px, which at phone width silenced every one of them (#161).
-- **Too narrow to name**: where a view's typical name is wider than half the frame
-  (hidden gems, whose nodes are whole deck titles), the names are dropped and the
-  fallback is stated on screen, rather than 46 titles drawn over each other.
 - **Height**: responsive, replacing the fixed 760/700px; details panel visible
-  without scrolling. The fitted graph is stretched onto the frame's shape so it
-  uses both axes, capped at how far out of square the frame is, so a graph that is
-  genuinely a line stays one (#161).
+  without scrolling.
 - **Details panel**: field labels and hierarchy, the Moxfield link as an
   affordance, on the dark palette.
 

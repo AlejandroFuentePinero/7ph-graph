@@ -11,13 +11,6 @@ not asserted, per the PRD testing plan. What this module *injects onto* that doc
 is: the tests hold the shared-palette node colours, the on-screen colour key, the dark
 ground, and the structured details panel, since those are this module's contribution
 and the visual-direction contract (§7) they answer to.
-
-One part of that contribution cannot be held in the emitted string at all. Whether a
-label reaches the reader is decided at paint time, out of the zoom a fit lands on and
-the frame it lands in (see :data:`_SETTLE`), and #161 is what happens when nobody is
-watching those numbers: 67 nodes drawn as bare dots at phone width, with the HTML
-saying nothing about it. ``tests/test_graph_phone.py`` draws these documents on a real
-browser at 390 CSS pixels and measures them there.
 """
 
 import html
@@ -184,8 +177,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
     # A fully pinned graph (the two-seed co-occurrence layout) has nothing for
     # physics to solve, so turn it off: the fixed positions render as-is with no
     # stabilisation jitter.
-    all_pinned = bool(subgraph.nodes) and all(n.pin is not None for n in subgraph.nodes)
-    if all_pinned:
+    if subgraph.nodes and all(n.pin is not None for n in subgraph.nodes):
         net.toggle_physics(False)
 
     meta = {
@@ -209,246 +201,10 @@ def render_subgraph(subgraph: Subgraph) -> str:
         kinds_present = {n.kind for n in subgraph.nodes}
         legend = [(k, _KIND_COLOURS[k]) for k in _KIND_ORDER if k in kinds_present]
     doc = _hosted_library(net.generate_html(notebook=False))
-    return _compose(doc, meta, _legend(legend), all_pinned)
+    return _compose(doc, meta, _legend(legend))
 
 
 _PROMPT = "Click a node to see its details."
-
-# Shipped hidden on every graph and revealed by the settle only where the view's names
-# are too wide to draw at the frame's width (see `_SETTLE`), so the fallback is a
-# sentence on screen rather than a graph of unexplained bare dots (#161).
-_TOO_NARROW = (
-    '<p id="too-narrow" hidden>Names here are too long to draw at this width, '
-    "so click a node for its details.</p>"
-)
-
-# The on-screen size every node label is drawn at, in CSS pixels. It matches the colour
-# key's chips (`.legend-chip`, 12px) in the same document, so a node's name is never
-# smaller than the key it is read beside, and it clears the theme's smallest type role
-# (the 11px eyebrow). Nothing about it is a vis.js font size: see `_SETTLE`.
-LABEL_PX = 12
-
-# vis.js draws a label in canvas units and multiplies by the zoom, then drops the label
-# entirely once that product falls under a floor of its own (`scaling.label.drawThreshold`
-# minus one, so 4px). A graph that fits itself into a phone-width frame zooms to about
-# 0.23, which took the default 14px label to 3.3px and suppressed every one of them:
-# issue #161, where a 67-node neighbourhood drew as 67 bare coloured dots.
-#
-# So the font is sized from the zoom rather than left to inherit it. The two are coupled
-# in both directions, since a bigger label grows its node's bounding box and so zooms the
-# fit back out, and they are settled together here: fit, size the font from the zoom that
-# came out, repeat until the zoom stops moving. The loop ends on a fit, so what the reader
-# first sees is a fitted graph whose labels are `LABEL_PX` tall.
-#
-# The fit is ours rather than pyvis's for the same reason: pyvis leaves vis.js's
-# `stabilization.fit` on, and that path estimates the zoom from the *node count* instead
-# of the drawn extent, which parks the graph inside its frame with ground to spare.
-_SETTLE = """
-<script>
-  const LABEL_PX = __LABEL_PX__;
-  const PINNED = __PINNED__;
-  let stretchedBy = 1;  // how far `fillFrame` has pulled the layout from its own shape
-  let origin = null;    // the layout as it was solved, before any of that pulling
-  let hasSettled = false;
-  let settling = false;
-
-  function framed() {
-    // Whether there is a frame to settle against at all. Every tab's graph stays in the
-    // document, so opening another tab hides this one rather than closing it, and a
-    // hidden frame reports 0 by 0.
-    const canvas = network.canvas.frame.canvas;
-    return canvas.clientWidth > 0 && canvas.clientHeight > 0;
-  }
-
-  function setLabelSizes(nodeSize, edgeSize) {
-    // A node's size goes through its own data rather than the graph's options, because
-    // vis.js restores an unweighted node's font to the size it was created at whenever
-    // *any* node in the graph carries a weight. Set on the graph, the size would reach
-    // every weighted node and silently miss the rest: on the archetype affinity view
-    // that is the pilot the whole graph hangs off, left at 7px among 12px archetypes.
-    // Written into the node, it is the size restored.
-    const nodes = network.body.data.nodes;
-    nodes.update(nodes.getIds().map((id) => ({id, font: {size: nodeSize}})));
-    network.setOptions({edges: {font: {size: edgeSize}}});
-  }
-
-  function drawnBox() {
-    // What the reader sees the graph occupy, in canvas units: the nodes *and* their
-    // labels, which is the extent vis.js itself fits against. Read after a fit, which
-    // is what recomputes a node's box against the current label size.
-    const box = {left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity};
-    for (const id of network.body.nodeIndices) {
-      const bounds = network.body.nodes[id].shape.boundingBox;
-      box.left = Math.min(box.left, bounds.left);
-      box.right = Math.max(box.right, bounds.right);
-      box.top = Math.min(box.top, bounds.top);
-      box.bottom = Math.max(box.bottom, bounds.bottom);
-    }
-    return box;
-  }
-
-  function fillFrame() {
-    // A fit keeps the layout's own proportions, so a round graph in a portrait frame can
-    // only ever fill the narrower axis: #161's neighbourhood used 67 percent of its
-    // frame's height, with empty ground above and below. The layout is stretched onto the
-    // frame's shape so both axes are used.
-    //
-    // There is no meaning in that geometry to distort. Every edge asks physics for the
-    // same spring length, so what a layout says is which nodes are joined, not how far
-    // apart they landed, and a composed layout (co-occurrence) is stretched along one
-    // axis only, which leaves its columns and their order exactly as composed. A graph
-    // that is genuinely a line *is* a shape of its own, so the stretch is capped at how
-    // far out of square the frame is: a four-node chain stays a chain rather than being
-    // fanned out to fill the ground.
-    const canvas = network.canvas.frame.canvas;
-    const box = drawnBox();
-    const wide = box.right - box.left, tall = box.bottom - box.top;
-    if (!(wide > 0) || !(tall > 0)) return;
-    const frame = canvas.clientHeight / canvas.clientWidth;
-    const want = frame / (tall / wide);
-    const axis = want > 1 ? "y" : "x";  // the one with ground to spare
-    // The cap is a budget over the whole settle, not a limit per pass: the passes
-    // compound, so a per-pass limit would pull a line into a frame-shaped cloud a
-    // stretch at a time.
-    const budget = Math.max(frame, 1 / frame) / stretchedBy;
-    if (budget <= 1) return;
-    const grow = Math.min(Math.max(want, 1 / want), budget);
-    stretchedBy *= grow;
-    const middle = axis === "y" ? (box.top + box.bottom) / 2 : (box.left + box.right) / 2;
-    // Physics off first, or it would pull every moved node straight back. The layout has
-    // stabilised by now, so nothing is left for it to solve; what this gives up is a
-    // dragged node's neighbours following it, which on a settled graph is jitter.
-    network.setOptions({physics: {enabled: false}});
-    const at = network.getPositions();
-    for (const id of Object.keys(at)) {
-      const moved = middle + (at[id][axis] - middle) * grow;
-      network.moveNode(id, axis === "x" ? moved : at[id].x, axis === "y" ? moved : at[id].y);
-    }
-  }
-
-  function tooNarrowToName() {
-    // "The name beside the node" needs somewhere beside the node to put it. Some views
-    // name a node with a whole deck title ("051st Ben F - Academy Shops - WAC"), which
-    // at a phone's width is most of the frame for one name: measured across the views,
-    // the typical label is a tenth to a fifth of the frame, and the hidden gems view's
-    // is three fifths. Names that wide cannot go side by side, so 46 of them are drawn
-    // over each other and leave the graph less readable than the bare dots #161 started
-    // from. Half the frame is the line, since past it no two names can sit abreast.
-    //
-    // The typical label decides it, not the widest: one long name among short ones is a
-    // label that overlaps, which every crowded graph has, not a view that cannot be
-    // labelled at all.
-    //
-    // Two more direct-looking measures were tried and dropped, so do not reach for them
-    // again. Counting the labels that overlap another says exactly the right thing and
-    // cannot be relied on: the physics layout is not deterministic, and the same view
-    // measured 43, 45, 54 and 57 percent over four runs, against the 100 percent gems
-    // draws, so any threshold between them decides a view's fallback by luck. Comparing
-    // the ink the labels want against the canvas would be a proof rather than a
-    // threshold, but it never fires: gems asks for 0.64 of the canvas, so the labels
-    // *could* be packed in and only a force layout stops them. Label width against frame
-    // width is the one that holds still, because it depends on the text and the frame
-    // and not on where physics dropped anything.
-    //
-    // Truncating instead was considered and does not answer it: what distinguishes one
-    // of these titles from the next is at its end (the event), so a title cut to fit
-    // half the frame leaves every node reading "051st Ben F - Acad".
-    const canvas = network.canvas.frame.canvas;
-    const zoom = network.getScale();
-    const widths = network.body.nodeIndices
-      .map((id) => network.body.nodes[id].labelModule.size.width * zoom / canvas.clientWidth)
-      .sort((a, b) => a - b);
-    return widths.length > 0 && widths[Math.floor(widths.length / 2)] > 0.5;
-  }
-
-  function sayTooNarrow() {
-    // The fallback is stated rather than left to be inferred from a graph of bare dots,
-    // and it points at the answer that does fit: the details panel, which names one node
-    // at a time. The names go off rather than shrink, since a name too small to read is
-    // the state #161 was filed about. The quantities on the edges stay, sized from the
-    // zoom the graph refits to without the names: they are short enough to fit anywhere
-    // (a rate is "62%"), and it is only the names that were too wide.
-    document.getElementById("too-narrow").hidden = false;
-    setLabelSizes(0, 0);
-    network.redraw();
-    network.fit();
-    setLabelSizes(0, LABEL_PX / network.getScale());
-    network.redraw();
-  }
-
-  function settle() {
-    // Whatever comes of this, the resize handler takes over afterwards, including when
-    // there is no frame yet: a graph left to settle while its tab is hidden is exactly
-    // what that handler is there to finish.
-    hasSettled = true;
-    if (!framed()) return;
-    // vis.js resizes its canvas at the end of every `setOptions` and announces it there
-    // and then, and this settle changes the frame itself: the fallback notice is a row in
-    // the same flex column as the canvas, so showing it takes ~34px off the graph and
-    // hiding it gives them back. Those are this settle's own doing and it has already
-    // fitted around them. Left to start another settle, the two take turns, each undoing
-    // the last one's notice, eight fits at a time.
-    if (settling) return;
-    settling = true;
-    try {
-      // Every settle stretches the layout that was solved, never one the last settle has
-      // already stretched. Otherwise the cap is spent again on each resize, and the
-      // promise that a graph which is a line stays one holds only until the first
-      // rotation: a chain would be fanned out a little further every time.
-      if (origin === null) {
-        origin = network.getPositions();
-      } else {
-        network.setOptions({physics: {enabled: false}});
-        for (const id of Object.keys(origin)) {
-          network.moveNode(id, origin[id].x, origin[id].y);
-        }
-      }
-      stretchedBy = 1;
-      document.getElementById("too-narrow").hidden = true;
-      // Three things that each depend on the other two: the zoom a fit lands on, the
-      // label size that zoom implies, and the extent the labels give the graph to be
-      // fitted. So they are settled together, a pass at a time, until the zoom stops
-      // moving. Eight passes is far more than it takes: the widest graph the app will
-      // draw, 250 nodes (`explore.assess`), converges to within a twentieth of a pixel
-      // of LABEL_PX.
-      let zoom = 0;
-      for (let pass = 0; pass < 8; pass++) {
-        network.fit();
-        const fitted = network.getScale();
-        const converged = Math.abs(fitted - zoom) < 0.005 * fitted;
-        zoom = fitted;
-        if (converged) break;
-        fillFrame();
-        // Sized for both, since the signed rule puts the name beside the node and the
-        // quantity on the edge, and vis.js was dropping each for the same reason.
-        setLabelSizes(LABEL_PX / zoom, LABEL_PX / zoom);
-        // A node's box is measured as it is drawn, and vis.js draws on the next frame,
-        // where this loop runs to convergence within one. Without the redraw every pass
-        // after the first fits against the box the *previous* label size gave, and the
-        // graph settles a little larger than its frame, clipped at the edges.
-        network.redraw();
-      }
-      // A last fit, so the reader always sees a fitted graph: on the pass that converges
-      // it is the one already done again, and on a graph that runs the passes out it is
-      // the one the loop would otherwise have left undone.
-      network.fit();
-      if (tooNarrowToName()) sayTooNarrow();
-    } finally {
-      settling = false;
-    }
-  }
-
-  // A physics graph is only worth fitting once its layout has stopped moving; a graph
-  // whose every node is pinned never stabilises, because there is nothing to solve.
-  if (PINNED) { settle(); } else { network.once("stabilizationIterationsDone", settle); }
-  // A frame that changes size is a different frame to fill and a different width to fit a
-  // name into, so a rotated phone, a dragged window, or a tab coming back into view
-  // settles again. Held back until the first settle has run, since vis.js reports a size
-  // on the way up too and settling then would turn physics off (see `fillFrame`) partway
-  // through stabilising.
-  network.on("resize", () => { if (hasSettled) settle(); });
-</script>
-"""
 
 # The iframe is an isolated document, so the parent's `:root` tokens do not reach
 # it: the theme is carried in as literal token values here. It lays the doc out as
@@ -483,14 +239,6 @@ _DOC_STYLE = f"""<style>
     font-size: 12px; color: {TOKENS['text-dim']};
   }}
   .legend-dot {{ width: 10px; height: 10px; border-radius: 50%; display: inline-block; }}
-  /* The stated fallback when a view's names are too wide for the frame (#161). Sits
-     under the key, in the key's own caption size and ink, and says nothing at all on
-     the views that do fit their names. */
-  #too-narrow {{
-    flex: 0 0 auto; margin: 0; padding: 0.55rem 0.85rem;
-    border-bottom: 1px solid {TOKENS['border']};
-    font-size: 12px; color: {TOKENS['text-dim']};
-  }}
   .vis-tooltip {{
     background: {TOKENS['surface-2']} !important; color: {TOKENS['text']} !important;
     border: 1px solid {TOKENS['border']} !important; border-radius: 4px !important;
@@ -571,10 +319,9 @@ def _legend(pairs: list[tuple[str, str]]) -> str:
     return f'<div id="graph-legend">{chips}</div>'
 
 
-def _compose(doc: str, meta: dict, legend: str, all_pinned: bool) -> str:
+def _compose(doc: str, meta: dict, legend: str) -> str:
     """Bring the standalone pyvis document onto the theme: inject the dark doc-level
-    style, the colour key at the top of the body, and the details panel and the
-    fit-and-label settle at the end.
+    style, the colour key at the top of the body, and the details panel at the end.
 
     The node metadata is embedded in an inline ``<script>``, so ``<``/``>``/``&``
     are unicode-escaped to stop a label ever closing the tag (``</script>``).
@@ -586,13 +333,9 @@ def _compose(doc: str, meta: dict, legend: str, all_pinned: bool) -> str:
         .replace("&", "\\u0026")
     )
     panel = _PANEL.replace("__META__", payload).replace("__PROMPT__", _PROMPT)
-    settle = (
-        _SETTLE.replace("__LABEL_PX__", str(LABEL_PX))
-        .replace("__PINNED__", "true" if all_pinned else "false")
-    )
     doc = _inject(doc, "</head>", _DOC_STYLE + "</head>")
-    doc = _inject(doc, "<body>", "<body>" + legend + _TOO_NARROW)
-    return _inject(doc, "</body>", panel + settle + "</body>")
+    doc = _inject(doc, "<body>", "<body>" + legend)
+    return _inject(doc, "</body>", panel + "</body>")
 
 
 def _inject(doc: str, anchor: str, replacement: str) -> str:
