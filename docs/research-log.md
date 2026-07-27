@@ -177,3 +177,13 @@ The transferable rule: **a gate that removes an overclaim can install a differen
 **#176 (the hidden gem band) is the open sibling of exactly this class** and will face the same choice, on the same kind of surface. Its threshold crossing is a coin flip for most of its members, so the obvious remedy is to gate the band's membership claim. Weigh reporting both there too.
 
 Two smaller things the ADR does not carry. The permutation practice ADR 0017 sets is worth running against the *built* surface and not only the plotted quantity: it is what surfaced that 98.7% of the pilot chart's adjacent-year pairs overlap, which is the finding drawn rather than a number in a ticket. And a normal-approximation sign test needs its continuity correction at these sample sizes: without it the gate certified 52 distinct counts at n <= 60 whose exact binomial p is 0.10 or worse, "3 of 3" among them, every disagreement falling the unsafe way.
+
+## 2026-07-27 - The landscape's y-axis squash was a height problem, not a range problem
+
+#175 closed with an open note: ranging the landscape's y-axis over the whiskers rather than the dots drops the dots' own span from 62-79% of the frame to 28-56%, "worth revisiting if the crowding proves worse in use than the honesty is worth". It did prove worse in use. The lever was not the range.
+
+The frame itself was the problem. At Plotly's 450px default the chart's own furniture (the share range filter's band, the tick labels, the axis title) claimed 166px and left the dots 276, so 28-56% was 28-56% of a frame that had already been eaten. Raising the figure to 640 and letting Plotly's autoexpand size the bottom margin leaves 492px, and the whisker-inclusive range now reads without giving anything back.
+
+Why it matters: the recorded remedy on #175 points at the y-range, and acting on it would trade away the honest range (a clipped interval misstates the evidence) to buy height that was already there for the taking. **The range decision stands. Do not reopen it for crowding.**
+
+[handoff] Uncommitted at the time of writing, on top of `34819bf`: `_LANDSCAPE_HEIGHT`, plus a fixed-pixel range-filter band in `app.py`. Prune this line once it lands.
