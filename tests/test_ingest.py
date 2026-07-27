@@ -37,10 +37,10 @@ def deck(deck_id, *, pilot="pilot", event="E", placement=1, **over) -> Deck:
     return Deck(**fields)
 
 
-def card(canon, *, name=None, type="Lands", points=0, **over) -> Card:
+def card(canon, *, name=None, type="Lands", points=0, points_companion=0, **over) -> Card:
     fields = dict(
         canon=canon, name=name or canon.title(), type=type, mana_value=0.0,
-        reserved=False, points=points,
+        reserved=False, points=points, points_companion=points_companion,
     )
     fields.update(over)
     return Card(**fields)
@@ -226,7 +226,8 @@ _VALID_DECKS = json.dumps([{
 _VALID_INDEX = json.dumps({
     "v": 2,
     "cards": [{"canon": "island", "name": "Island", "type": "Lands",
-               "manaValue": 0.0, "reserved": False, "points": 0}],
+               "manaValue": 0.0, "reserved": False, "points": 0,
+               "pointsCompanion": 0}],
     "decks": {"d1": {"m": [0], "s": []}},
 })
 
@@ -267,7 +268,7 @@ def _snapshot_files(deck_ids, pilot=None):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaValue": 0.0, "reserved": False,
-                   "points": 0}],
+                   "points": 0, "pointsCompanion": 0}],
         "decks": {did: {"m": [0], "s": []} for did in deck_ids},
     })
     return decks, index

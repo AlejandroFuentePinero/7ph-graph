@@ -17,6 +17,7 @@ from graph7ph.query import (
     card_cooccurrence_subgraph,
     card_usage_subgraph,
     coverage,
+    deck_points,
     gem_archetypes,
     hidden_gems_subgraph,
     pilot_affinity_subgraph,
@@ -89,7 +90,7 @@ def _archetype_fields(tag):
     }
 
 
-def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
+def _write_snapshot(tmp_path, decks, canons, lands=frozenset(), points=None):
     """Write a minimal hand-authored snapshot for a focused test.
 
     ``decks`` is a list of dicts: ``id``, ``tag`` (archetype, ``None`` for a deck
@@ -97,8 +98,11 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
     (placementNorm), and ``m`` / ``s`` (main / side canon lists). Optional
     ``macro`` and ``event`` keys override the defaults (``control`` / ``E``).
     ``canons`` is the card catalogue by name; ``lands`` names those typed as
-    ``Lands`` (the rest default to ``Instants``).
+    ``Lands`` (the rest default to ``Instants``). ``points`` prices the cards that
+    cost anything, as ``{canon: (deck cost, companion cost)}``; everything else is
+    free in both contexts, as most of the format is.
     """
+    points = points or {}
     idx = {c: i for i, c in enumerate(canons)}
     (tmp_path / "decks.json").write_text(json.dumps([
         {
@@ -126,7 +130,9 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset()):
         "cards": [
             {"canon": c, "name": c.title(),
              "type": "Lands" if c in lands else "Instants", "manaCost": "{U}",
-             "manaValue": 1.0, "reserved": False, "points": 0}
+             "manaValue": 1.0, "reserved": False,
+             "points": points.get(c, (0, 0))[0],
+             "pointsCompanion": points.get(c, (0, 0))[1]}
             for c in canons
         ],
         "decks": {
@@ -1173,9 +1179,11 @@ def _tied_macro_snapshot(path):
         "v": 2,
         "cards": [
             {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
-             "manaValue": 1.0, "reserved": False, "points": 0},
+             "manaValue": 1.0, "reserved": False, "points": 0,
+             "pointsCompanion": 0},
             {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
-             "manaValue": 0.0, "reserved": False, "points": 0},
+             "manaValue": 0.0, "reserved": False, "points": 0,
+             "pointsCompanion": 0},
         ],
         # Only the first deck of each macro runs the seed, so every macro adopts
         # it at 1 of 2 decks and all five percentages are identical.
@@ -1214,9 +1222,11 @@ def _tied_archetype_snapshot(path):
         "v": 2,
         "cards": [
             {"canon": "seed", "name": "Seed", "type": "Instants", "manaCost": None,
-             "manaValue": 1.0, "reserved": False, "points": 0},
+             "manaValue": 1.0, "reserved": False, "points": 0,
+             "pointsCompanion": 0},
             {"canon": "filler", "name": "Filler", "type": "Lands", "manaCost": None,
-             "manaValue": 0.0, "reserved": False, "points": 0},
+             "manaValue": 0.0, "reserved": False, "points": 0,
+             "pointsCompanion": 0},
         ],
         "decks": {
             f"{tag}{i}": {"m": [0, 1] if i == 0 else [1], "s": []}
@@ -1270,3 +1280,126 @@ def test_coverage_counts_the_graph_the_snapshot_built(tmp_path, snapshot_dir, bu
     assert cov.cards == len(index["cards"])                 # 121
     assert cov.pilots == 2
     assert (cov.first_year, cov.last_year) == (min(years), max(years))  # 2025, 2025
+
+
+# The two companions and the source's own prices for them, plus an ordinary
+# pointed card to show the surcharge is not a second price list (issue #143).
+_COMPANION_POINTS = {
+    "lurrus of the dream-den": (0, 3),
+    "lutri, the spellchaser": (0, 3),
+    "force of will": (1, 0),
+    "sol ring": (3, 0),
+}
+
+
+def test_deck_points_charge_a_companion_by_the_board_it_sits_in(tmp_path, built_graph):
+    # The 7PH cost of a card depends on where it is played: a companion in the main
+    # board is an ordinary creature at its default 0, and the same card in the
+    # sideboard is a companion at 3 (issue #143). Everything else costs what it
+    # costs on either board, since sideboard cards count toward the total.
+    _write_snapshot(
+        tmp_path,
+        [
+            # Lurrus main-board: an ordinary creature, so only the Force of Will
+            # is paid for.
+            {"id": "maindeck", "tag": "a", "norm": 0.1,
+             "m": ["lurrus of the dream-den", "force of will"], "s": []},
+            # The same 75 with Lurrus moved to the sideboard: 1 + the 3 point
+            # companion charge.
+            {"id": "companion", "tag": "a", "norm": 0.1,
+             "m": ["force of will"], "s": ["lurrus of the dream-den"]},
+            # A pointed card in the sideboard is charged its deck cost, not the
+            # companion cost every card carries a zero of.
+            {"id": "sideboarded", "tag": "a", "norm": 0.1,
+             "m": ["force of will"], "s": ["sol ring"]},
+            # Nothing pointed at all: the format's ordinary deck.
+            {"id": "free", "tag": "a", "norm": 0.1, "m": ["island"], "s": []},
+        ],
+        ["lurrus of the dream-den", "lutri, the spellchaser", "force of will",
+         "sol ring", "island"],
+        points=_COMPANION_POINTS,
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert deck_points(conn) == {
+        "maindeck": 1, "companion": 4, "sideboarded": 4, "free": 0,
+    }
+
+
+def test_a_deck_holding_both_companions_is_charged_one_surcharge(tmp_path, built_graph):
+    # A deck names one companion, so the charge is per deck and not per card. Two
+    # decks in the record sideboard both cards, and the source charges 3 for one of
+    # them and 0 for the other, never 6 (issue #143).
+    _write_snapshot(
+        tmp_path,
+        [{"id": "both", "tag": "a", "norm": 0.1, "m": ["force of will"],
+          "s": ["lurrus of the dream-den", "lutri, the spellchaser"]}],
+        ["lurrus of the dream-den", "lutri, the spellchaser", "force of will"],
+        points=_COMPANION_POINTS,
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert deck_points(conn) == {"both": 4}
+
+
+def test_a_deck_with_no_cards_costs_nothing_rather_than_vanishing(tmp_path, built_graph):
+    # The source's two files can disagree: a deck in `decks.json` that
+    # `cards_index.json` lists no boards for reaches the graph with no CONTAINS
+    # edges at all. It costs 0 and is still counted, because a reader taking the
+    # share of decks over the points limit divides by this population, and a deck
+    # missing from the mapping would quietly shrink the denominator.
+    _write_snapshot(
+        tmp_path,
+        [{"id": "empty", "tag": "a", "norm": 0.1, "m": [], "s": []},
+         {"id": "priced", "tag": "a", "norm": 0.1, "m": ["force of will"], "s": []}],
+        ["force of will"],
+        points=_COMPANION_POINTS,
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert deck_points(conn) == {"empty": 0, "priced": 1}
+    # Ints, not the Decimals the engine sums to: these totals are reported and
+    # serialised, and a Decimal compares equal to an int right up until it is
+    # written to JSON.
+    assert {type(v) for v in deck_points(conn).values()} == {int}
+
+
+def test_a_sideboarded_companion_pays_the_companion_cost_not_both(tmp_path, built_graph):
+    # `pointsCompanion` is what the card costs *as* a companion, so it replaces the
+    # deck cost rather than stacking on it. No card is priced in both contexts today
+    # (both companions are free in the deck, which is why the two readings agree on
+    # every deck in the record and the 98.54% measurement cannot tell them apart),
+    # so this fixes the reading a points revision would otherwise decide silently:
+    # a companion priced at 1 in the deck pays 3 as a companion, not 4 (issue #143).
+    _write_snapshot(
+        tmp_path,
+        [{"id": "companion", "tag": "a", "norm": 0.1, "m": ["force of will"],
+          "s": ["lurrus of the dream-den"]},
+         # The same card in the main board is an ordinary creature and pays the
+         # deck cost the revision gave it.
+         {"id": "maindeck", "tag": "a", "norm": 0.1,
+          "m": ["force of will", "lurrus of the dream-den"], "s": []}],
+        ["lurrus of the dream-den", "force of will"],
+        points={"lurrus of the dream-den": (1, 3), "force of will": (1, 0)},
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert deck_points(conn) == {"companion": 4, "maindeck": 2}
+
+
+def test_a_card_listed_on_both_boards_is_charged_once(tmp_path, built_graph):
+    # The format is singleton, so a card the source lists in both the main board and
+    # the sideboard is one card listed twice, not two copies. 8 such listings sit
+    # across 7 decks in the record (`forest`, `island`, `get out`, `dismember`,
+    # `brazen borrower // petty theft`), all of them free, so a per-edge sum reads
+    # right today and would read a pointed one 1 to 5 points high (issue #143).
+    _write_snapshot(
+        tmp_path,
+        [{"id": "listed twice", "tag": "a", "norm": 0.1, "m": ["sol ring"],
+          "s": ["sol ring"]}],
+        ["sol ring"],
+        points=_COMPANION_POINTS,
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert deck_points(conn) == {"listed twice": 3}

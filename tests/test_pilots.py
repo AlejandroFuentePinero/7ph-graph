@@ -888,7 +888,7 @@ def _build_snapshot(tmp_path, decks):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "points": 0}],
+                   "points": 0, "pointsCompanion": 0}],
         "decks": {d["deckId"]: {"m": [0], "s": []} for d in decks},
     }))
 

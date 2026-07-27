@@ -113,7 +113,7 @@ def _write_snapshot(path, decks):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "points": 0}],
+                   "points": 0, "pointsCompanion": 0}],
         "decks": {d["deckId"]: {"m": [0], "s": []} for d in decks},
     }))
 
@@ -486,6 +486,35 @@ def test_card_links_to_type_and_to_each_pip_colour(tmp_path, snapshot_dir, built
     ) == "Lands"
 
 
+def test_card_carries_the_companion_cost_beside_the_default_one(tmp_path):
+    # A card's 7PH cost depends on the context it is played in, so both of the
+    # source's values land on the node: nothing downstream can charge a companion
+    # its real 3 points off `points` alone (issue #143). Lurrus's own source
+    # values, and an island beside it, since a reader that returned the companion
+    # cost for every card would price the whole format at 0.
+    (tmp_path / "decks.json").write_text(json.dumps(
+        [_deck("d1", "E", "2025-06-01T00:00:00+00:00")]
+    ))
+    (tmp_path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaCost": None, "manaValue": 0.0, "reserved": False,
+                   "points": 0, "pointsCompanion": 0},
+                  {"canon": "lurrus of the dream-den",
+                   "name": "Lurrus of the Dream-Den", "type": "Creatures",
+                   "manaCost": "{1}{W/B}{W/B}", "manaValue": 3.0,
+                   "reserved": False, "points": 0, "pointsCompanion": 3}],
+        "decks": {"d1": {"m": [0], "s": [1]}},
+    }))
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+    conn = open_for_reading(tmp_path / "graph")
+
+    assert dict(rows(conn.execute(
+        "MATCH (c:Card) RETURN c.canon, [c.points, c.pointsCompanion]"
+    ))) == {"lurrus of the dream-den": [0, 3], "island": [0, 0]}
+
+
 def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
     # A deck may carry several archetypes, each weighted, with one primary
     # (CONTEXT.md / issue-3 AC #2). The shared fixture only has single-archetype
@@ -504,7 +533,7 @@ def test_multi_archetype_deck_weights_and_flags_each_edge(tmp_path):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "points": 0}],
+                   "points": 0, "pointsCompanion": 0}],
         "decks": {"d1": {"m": [0], "s": []}},
     }))
 
@@ -542,7 +571,7 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
                    "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "points": 0}],
+                   "points": 0, "pointsCompanion": 0}],
         "decks": {"d1": {"m": [0], "s": []}},
     }))
     curation = Curation(

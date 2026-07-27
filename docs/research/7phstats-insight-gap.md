@@ -36,15 +36,45 @@ finding rather than a discrepancy to reconcile away.
 are identical with no deck on either side alone. The accessibility bonus needs no extra ingestion,
 which is what makes candidate 8 cheap.
 
-**Deck point totals disagree on 9 percent of decks, and we are the ones who are wrong.** Their
-`cards_index.json` carries two point values per card, `points` and `pointsCompanion`. They differ for
-exactly two cards: Lurrus of the Dream-Den and Lutri, the Spellchaser, each 0 points in the deck and
-**3 points as a companion**. We ingest `points` only, so `Card.points` is the default context and
-every companion deck's total is 3 light. That single field accounts for almost all of the gap:
-all-board agreement with their `pointsToday` rises from 91.00 to 98.54 percent once the surcharge is
-applied. In our graph Lutri sits in 306 sideboards and Lurrus in 166 (plus 152 main-boards, where 0
-is correct), and 622 decks run one of them. Any candidate about how a pilot spends seven points is
-wrong for roughly a seventh of the corpus until `pointsCompanion` is ingested.
+**Deck point totals disagreed on 9 percent of decks, and we were the ones who were wrong.** Their
+`cards_index.json` carries two point values per card, `points` and `pointsCompanion`. The second is 0
+for every card but two: Lurrus of the Dream-Den and Lutri, the Spellchaser, each 0 points in the deck
+and **3 points as a companion**. So it is a surcharge on the two cards that can be a companion, not a
+second price list (86 of 4995 cards hold a different number in the two fields, and for 84 of them it
+is `pointsCompanion` that is the 0). We ingested `points` only, so `Card.points` was the default
+context and every companion deck's total was 3 light. That single field accounted for almost all of
+the gap: all-board agreement with their `pointsToday` rises from 91.00 to 98.54 percent once the
+surcharge is applied. In our graph Lutri sits in 306 sideboards and Lurrus in 166 (plus 152
+main-boards, where 0 is correct), and 622 decks run one of them.
+
+Fixed by #143. `Card.pointsCompanion` is ingested and `query.deck_points` charges it, so any candidate
+about how a pilot spends seven points now reads 4524 of 4591 decks exactly as the source does.
+`scripts/points_agreement.py` re-measures it against the source and characterises the 67 residuals,
+which split into two classes and are the source's own numbers disagreeing with the source's own
+decklists:
+
+- **62 decks sideboard a companion the source charges nothing for.** Every one is ours 3 high, against
+  408 decks of the same shape that the source does charge, a decline rate of 13.2 percent. They spread
+  across both cards (33 Lutri, 28 Lurrus, 1 both) and, with one exception, across the years: 19 in
+  2024, 26 in 2025, 17 in 2026, and **none of the 30 in 2023, every one of which the source charges**.
+  At the overall decline rate 0 of 30 is p = 0.014, so 2023 is not comfortably chance and is the only
+  thing in the snapshot that separates the two groups at all; within the other three years nothing
+  does. The likeliest reading of the class is that their total reads an upstream companion
+  designation, which the two boards we are given flatten away: a card can sit in a Moxfield sideboard
+  without being named as the companion. That reading also survives the one check available to it, in
+  that a deck's charged-or-declined status is identical across both held snapshots for all 469 they
+  share, so it is a stable property of the source's record rather than noise. The two boards are all our own record
+  says, so this rule charges by board and takes the 62.
+- **5 decks the source charges 3 more than their own decklist accounts for**, with no companion card
+  on either board. All 5 are U/R capable against a corpus base rate of 42 percent, which is what an
+  undeclared Lutri would look like, but nothing in the snapshot can confirm it: their `reservedCount`
+  agrees with our count of reserved cards at all 4592 decks, so no card is visibly missing from the
+  listing either. Unreachable from the data we ingest, in either reading.
+
+A deck runs at most one companion, so the surcharge is charged once per deck rather than once per
+card. That is measured, not assumed: two decks sideboard both cards, and the source charges 3 for one
+of them and nothing for the other, never 6. Summing instead of capping costs 0.02 points of agreement
+and would be wrong about the format.
 
 **Archetype counts disagree for 118 of 124 archetypes, by definition, not by error.** Their
 `archetypes.json` `count` and `metaPctRecent` are computed over a rolling recent window, not the full
@@ -169,8 +199,9 @@ ceilings. The step where the number falls off a cliff is the last points change,
 being told.
 
 **Reads.** `Deck`, `Card`, `Event`, `Year`. Edges `CONTAINS` (**both boards** for the cost sum and
-for the reserved test), `PLAYED_AT`, `IN_YEAR`. Properties `Card.points`, `Card.reserved`,
-`Deck.createdAt`.
+for the reserved test), `PLAYED_AT`, `IN_YEAR`. Properties `Card.points`,
+`Card.pointsCompanion`, `Card.reserved`, `Deck.createdAt`. The cost sum is `query.deck_points`, which
+charges the companion surcharge (#143); do not re-derive it from `Card.points` alone.
 
 The board scope was settled by measurement against their `pointsToday`, because it was initially
 written here as main-board-only and that is wrong. Agreement rates across 4591 decks: all-board
@@ -695,8 +726,10 @@ Tested against the graph and did not survive. Compact, one line each.
 Two data defects surfaced by the spot-checks. Neither is a candidate and both are cheap, but the
 first silently corrupts any points-spend answer, so it should land before candidate 3 or 8.
 
-- [ ] #143 Ingest `pointsCompanion`: `Card.points` holds the default context only, so 622 companion
-      decks price 3 points light and our totals disagree with the source on 9 percent of decks
+- [x] #143 Ingest `pointsCompanion`: `Card.points` held the default context only, so 622 companion
+      decks priced 3 points light and our totals disagreed with the source on 9 percent of decks.
+      Landed: `query.deck_points` charges one companion surcharge per deck, agreement 91.00 to 98.54
+      percent, and the 67 residuals are characterised in the spot-checks above
 - [ ] #144 Drop or quarantine the `nan` event: one source deck carries `"event": "nan"` with a null
       `eventId`, giving us a 108th `Event` node that is not an event
 

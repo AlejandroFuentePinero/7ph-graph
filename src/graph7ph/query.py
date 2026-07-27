@@ -854,6 +854,72 @@ def coverage(conn: ladybug.Connection) -> Coverage:
     )
 
 
+def deck_points(conn: ladybug.Connection) -> dict[str, int]:
+    """What each deck spends under the points list the graph was built from.
+
+    The 7PH cost of a card depends on the context it is played in, and the source
+    ships both: ``Card.points`` is what it costs in a deck and
+    ``Card.pointsCompanion`` what it costs as a companion. They differ for the two
+    cards that can be one, Lurrus of the Dream-Den and Lutri, the Spellchaser,
+    free in the deck and 3 points as a companion. So a total is what every card in
+    the deck costs across **both boards** (a sideboard card counts toward the
+    limit), with one sideboarded companion charged its companion cost in place of
+    its deck cost (issue #143).
+
+    **Charged by the board, because the board is what the record says.** A
+    companion in the main board is an ordinary creature and costs its 0; the same
+    card in the sideboard is there to be companioned and costs 3. The source's
+    two boards are all a decklist here says about the matter, so this reads them
+    rather than a companion designation nothing in the snapshot carries.
+
+    **One surcharge per deck, not one per card.** A deck names a single
+    companion. Two decks in the record sideboard both cards, and the source
+    charges 3 for one of them and nothing for the other, never 6.
+
+    Derived here rather than stored on the Deck, because a total is a fact about a
+    points list at a moment rather than about the deck: card values change with
+    every points revision (the source ships ``pointsAtCreation`` beside
+    ``pointsToday`` for exactly that reason), so a column would freeze whichever
+    list the build happened to read (ADR 0002).
+
+    Measured against the source's own ``pointsToday`` across the 4591 decks the
+    graph holds, this agrees on 4524 of them (98.54%), against 91.00% for the
+    plain all-board sum it replaces (``scripts/points_agreement.py`` re-measures
+    both). The 67 that remain are characterised in
+    ``docs/research/7phstats-insight-gap.md``; in every one it is the source's
+    number that its own decklist cannot account for.
+    """
+    # OPTIONAL, and the null it sums to read as 0: the two source files can
+    # disagree, so a deck the card index lists no boards for reaches the graph
+    # with no CONTAINS edges. It costs nothing and is still one of the decks,
+    # which a reader taking the share of the record over the limit divides by.
+    # `sum` comes back as a Decimal, so both terms are cast to the ints these
+    # values are.
+    # DISTINCT because the sum is over cards and the match is over board
+    # memberships: the format is singleton, so a card the source lists in both
+    # boards of one deck (8 listings across 7 decks, all of them free) is one card
+    # listed twice and pays once.
+    points = {
+        deck: int(total or 0)
+        for deck, total in rows(conn.execute(
+            """MATCH (d:Deck) OPTIONAL MATCH (d)-[:CONTAINS]->(c:Card)
+               WITH DISTINCT d, c RETURN d.deckId, sum(c.points)"""))
+    }
+    # The companion cost replaces that card's deck cost rather than stacking on it,
+    # which is what the difference charges: the sum above already counted the
+    # sideboarded companion at its deck cost. Both companions are free in the deck
+    # today, so replacing and stacking agree on every deck in the record and the
+    # measurement below cannot tell them apart; replacing is what the source's field
+    # says, and is what stops a revision that prices a companion in the deck from
+    # silently charging it twice.
+    for deck, surcharge in rows(conn.execute(
+        """MATCH (d:Deck)-[cont:CONTAINS]->(c:Card)
+           WHERE cont.board = 'Side' AND c.pointsCompanion > 0
+           RETURN d.deckId, max(c.pointsCompanion - c.points)""")):
+        points[deck] += int(surcharge)
+    return points
+
+
 def _ranked_deck_slice(conn: ladybug.Connection, archetype: str | None) -> list[str] | None:
     """The ranked deck ids the gem hunt runs within, by archetype tag.
 

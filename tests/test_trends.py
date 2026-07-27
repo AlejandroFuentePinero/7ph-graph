@@ -362,6 +362,7 @@ def _write_adoption_snapshot(
         "cards": [{
             "canon": "card:bolt", "name": "Lightning Bolt", "type": "Instant",
             "manaValue": 1.0, "reserved": False, "points": 0,
+            "pointsCompanion": 0,
         }],
         "decks": {
             deck_id: {
