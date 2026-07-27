@@ -13,8 +13,11 @@ from graph7ph.app import (
     _CARDS_TAB,
     _FAQ_ENTRIES,
     LEADERBOARD_SCORE_PLACES,
+    _LANDSCAPE_HEIGHT,
     _LEADERBOARD_ROWS,
     _LEGEND_BELOW_HEIGHT,
+    _SLIDER_BAND,
+    _TICK_LABEL_ROOM,
     _RACE_LINES,
     _PLOT_LABELS,
     _draw_with_progress,
@@ -649,10 +652,12 @@ def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
         # or it reads as a stray caption rather than that control's own label.
         label = next(a for a in fig.layout.annotations if "Time range filter" in a.text)
         assert label.font.color == _rgba(accent, 0.95)
-        # The control reserves the room under the axis and the legend takes the room
-        # above, from two separate calls: a layout update that replaced rather than
-        # merged would cramp the slider without changing a colour this test reads.
-        assert (fig.layout.margin.b, fig.layout.margin.t) == (90, 48)
+        # The legend takes the room above the plot and the shared styler's tight bottom
+        # survives underneath, from two separate calls: a layout update that replaced
+        # rather than merged would cramp the chart without changing a colour this test
+        # reads. Nothing reserves room for the band by hand; Plotly's autoexpand sizes
+        # the bottom to the band, the ticks and the axis title exactly.
+        assert (fig.layout.margin.b, fig.layout.margin.t) == (8, 48)
     # AC (§5-6): head-to-head is two lines, ≤8, so each pilot takes a direct colour
     # from the shared eight-hue set (slot 1, slot 2), not a position in a long
     # recycled wheel. Colour follows the entity: the pilot named first is blue.
@@ -1296,9 +1301,60 @@ def test_the_landscape_carries_a_share_range_filter_to_pull_the_crowded_end_apar
     label = next(a for a in fig.layout.annotations if "range filter" in a.text)
     assert "Share" in label.text  # its own axis named, not the rivalry charts' time
     assert label.font.color == _rgba(accent, 0.95)
-    # The band and its label need room under the axis, and the chart that carries no
-    # control sets a tight margin, so the control reserves its own.
-    assert fig.layout.margin.b == 90
+    # The band, its label and the axis title are sized by Plotly's own autoexpand, not
+    # reserved by hand: a hand-set floor is added to rather than absorbed, and the one
+    # this carried left 55px of empty card under the axis title.
+    assert fig.layout.margin.b == 8
+
+
+def test_the_landscape_draws_tall_enough_that_its_furniture_does_not_own_the_frame():
+    # The one chart whose chrome crowded out its own plot: at Plotly's 450px default the
+    # share range filter's band, the tick labels and the axis title claimed 166px and
+    # left 25 named dots and their intervals 276px, 61 percent of the frame. Stated on
+    # the figure, because a Gradio plot renders at the height its figure carries.
+    fig = _landscape_figure(_landscape_cells(
+        ("grixis", 30, 0.45), ("storm", 20, 0.4), ("lands", 10, 0.55),
+    ))
+    assert fig.layout.height == _LANDSCAPE_HEIGHT
+    # Taller than the default it is overriding, or the override says nothing.
+    assert _LANDSCAPE_HEIGHT > 450
+
+
+def test_the_range_filter_is_the_same_band_on_every_chart_whatever_its_height():
+    # The control is furniture, so it does not grow with the chart it sits under: Plotly
+    # takes its thickness as a fraction of the plot, and the flat 0.12 this passed drew
+    # 44px under a 450px figure but 75 under the landscape's 640, a strip half again as
+    # deep as the one the rivalry charts carry. Its label rode a paper fraction tuned at
+    # the same 450, which at 640 dropped it onto the bottom edge of the band it names.
+    # Read off both charts, which draw at different heights, so a band or a label that
+    # ignores height cannot pass twice.
+    figures = (
+        _landscape_figure(_landscape_cells(("grixis", 30, 0.45), ("storm", 20, 0.4))),
+        _head_to_head_figure("Ada L", "Bob C", Series(cells=[
+            HeadToHeadPoint(event="GP", date=datetime(2024, 3, 1), field_size=100,
+                            placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
+            HeadToHeadPoint(event="PT", date=datetime(2024, 6, 1), field_size=80,
+                            placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
+        ])),
+    )
+    heights = set()
+    for fig in figures:
+        margin = fig.layout.margin
+        heights.add(fig.layout.height)
+        # Plotly's own rule for the band: `thickness` of the plot the margins leave.
+        band = fig.layout.xaxis.rangeslider.thickness * (
+            (fig.layout.height or 450) - margin.t - margin.b
+        )
+        assert band == pytest.approx(_SLIDER_BAND)
+        label = next(a for a in fig.layout.annotations if "range filter" in a.text)
+        # Anchored to the bottom of the plot and offset in pixels, since that is the
+        # coordinate the band's own geometry is in, and centred in it: a label against
+        # either edge reads as a stray caption beside the control rather than its label.
+        assert (label.yref, label.y) == ("paper", 0)
+        assert label.yshift == pytest.approx(-(_TICK_LABEL_ROOM + _SLIDER_BAND / 2))
+    # And the two charts really do draw at different heights, or one band proves nothing
+    # about the other.
+    assert len(heights) == 2
 
 
 def test_landscape_labels_alternate_sides_so_neighbouring_dots_do_not_overprint():

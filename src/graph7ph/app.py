@@ -665,6 +665,15 @@ def _adoption_cards(subject: str, second: str | None) -> list[str]:
 # chart: labelling a subset of a larger set would read as arbitrary (issue #145).
 _LANDSCAPE_TOP_N = 25
 
+# The landscape draws taller than Plotly's 450px default, because it is the one chart
+# whose furniture crowds out its own plot: 25 named dots and their intervals, over an
+# axis carrying the share range filter. At 450 the filter's band, the tick labels and
+# the axis title took 166 of it and left the dots 276px, 61 percent of the frame, which
+# squeezed a year's finishes (0.43 to 0.62 in 2026) into a strip with 25 names over it.
+# 640 leaves them 492. The same height the legend-below charts take, so the cards keep
+# one rhythm down the page rather than each picking its own number.
+_LANDSCAPE_HEIGHT = 640
+
 
 def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
     """The ``top_n`` archetypes of a landscape by share, strongest first.
@@ -869,6 +878,22 @@ def _midpoint_line(fig: pgo.Figure) -> None:
     )
 
 
+# The slider band's height on the page. Plotly takes its `thickness` as a fraction of
+# the plot, which fattens the control as a chart grows: at the landscape's 640px the
+# 0.12 this used to pass drew a 75px band, half again the 44 the same fraction gave at
+# Plotly's 450 default. A control is furniture, and furniture does not scale with the
+# data it sits under, so the fraction is derived from this per chart instead.
+_SLIDER_BAND = 44
+
+# The gap Plotly leaves between the x axis and the slider band, for the tick labels.
+# It is a function of the tick font, not of the figure, so it holds at every height the
+# app draws (measured 34px at 450, 620, 640 and 760).
+_TICK_LABEL_ROOM = 34
+
+# Plotly's own figure height, for the charts that state none.
+_PLOTLY_DEFAULT_HEIGHT = 450
+
+
 def _range_filter(fig: pgo.Figure, label: str) -> None:
     """A drag-to-slice range control under the x axis, tinted as a control and labelled.
 
@@ -885,24 +910,37 @@ def _range_filter(fig: pgo.Figure, label: str) -> None:
     as a bug. The tint marks it as a control against the neutral chart, and the label
     centred under it says so, since an unlabelled strip reads as a stray band. ``label``
     names the axis being filtered, because the two differ in what a drag means.
+
+    The bottom margin is left to Plotly's own autoexpand, which sizes it to the band,
+    the tick labels and the axis title exactly. Do not reserve room by hand: a request
+    of 90px (which this held until the landscape was resized) is a floor autoexpand then
+    adds its own content to, and the 55px of empty card it left under the axis title read
+    as a broken card rather than as breathing room.
     """
+    # `thickness` is a fraction of the plot the margins leave, so :data:`_SLIDER_BAND`
+    # pixels is that many over this chart's own plot height. Read off the figure, which
+    # is why the callers state their height and top margin before calling.
+    margin = fig.layout.margin
+    plot = (fig.layout.height or _PLOTLY_DEFAULT_HEIGHT) - margin.t - margin.b
     fig.update_xaxes(rangeslider=dict(
-        visible=True, thickness=0.12,
+        visible=True, thickness=_SLIDER_BAND / plot,
         bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
         bordercolor=_rgba(_CONTROL_ACCENT, 0.55),
         borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
     ))
-    # Centred both ways over the slider in paper coords (the band sits below the axis,
-    # roughly y -0.09 to -0.32, so its middle is near -0.20). The app's accent, matching
-    # the slider tint it labels.
+    # Centred in the band, as a pixel offset from the bottom of the plot rather than a
+    # fraction of it: the band is a fixed gap below the axis plus a fixed height, so its
+    # centre is a constant number of pixels down whatever the figure's height, while the
+    # equivalent fraction is not (it was -0.20 at 450px and would be -0.09 at 640). A
+    # fraction has to be retuned every time a chart is resized, and a stale one drifts
+    # the label to the edge of the band it names. The app's accent, matching the slider
+    # tint it labels.
     fig.add_annotation(
-        x=0.5, y=-0.20, xref="paper", yref="paper", xanchor="center", yanchor="middle",
+        x=0.5, y=0, xref="paper", yref="paper", xanchor="center", yanchor="middle",
+        yshift=-(_TICK_LABEL_ROOM + _SLIDER_BAND / 2),
         showarrow=False, text=label,
         font=dict(color=_rgba(_CONTROL_ACCENT, 0.95), size=11),
     )
-    # Room below the axis for the slider band and its label; the shared styler sets a
-    # tight b=8 for the charts that carry no control.
-    fig.update_layout(margin=dict(b=90))
 
 
 def _confidence_size(events: int) -> float:
@@ -1769,6 +1807,9 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         title="Share of the year's decks", type="linear", categoryorder=None,
         tickformat=numfmt.SHARE_TICKFORMAT, rangemode="tozero",
     )
+    # The one chart that states its own height (:data:`_LANDSCAPE_HEIGHT`), and it does
+    # so before the filter, whose label is placed off the plot's height.
+    fig.update_layout(height=_LANDSCAPE_HEIGHT)
     # The names crowd the low-share end past what any placement rule can separate, so
     # the reader gets the axis: drag to open that end up. Named for its own axis, since
     # a drag here slices share where the rivalry charts' slices time.
@@ -1976,17 +2017,17 @@ def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
     fig.update_xaxes(
         title="Registration date", type="date", categoryorder=None, autorange=True,
     )
+    # Room above the plot for the centred legend; the range filter seats itself below.
+    # Set before the filter, not after: the filter's label is placed off the plot's own
+    # height, which this margin takes from.
+    fig.update_layout(margin=dict(t=48))
     _range_filter(fig, "◀ Time range filter (drag to slice) ▶")
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
     _midpoint_line(fig)
-    # Room above the plot for the centred legend; the range filter seats itself below.
-    fig.update_layout(
-        legend=dict(
-            title=legend_title, orientation="h",
-            xanchor="center", x=0.5, yanchor="bottom", y=1.02,
-        ),
-        margin=dict(t=48),
-    )
+    fig.update_layout(legend=dict(
+        title=legend_title, orientation="h",
+        xanchor="center", x=0.5, yanchor="bottom", y=1.02,
+    ))
 
 
 def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure:
