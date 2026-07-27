@@ -1938,7 +1938,7 @@ def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
     table = _leaderboard_html(series, {f"p{i}": f"Pilot {i}" for i in range(12)},
                               {}, rows=12)
 
-    assert "Rank could be" in table
+    assert "Rank CI" in table
     # Rank 1's interval is clamped at the top of the field, rank 5's reaches both ways.
     assert "1&ndash;4" in table
     assert "2&ndash;8" in table

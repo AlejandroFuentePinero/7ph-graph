@@ -570,9 +570,10 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "eight, which is not enough to separate pilots whose scores differ in the "
         "thousandths. The standings put a number on that: each pilot's results are "
         "redrawn at random from their own record a thousand times, the whole field is "
-        "rescored, and the last column reports the range their rank landed in 90% of "
-        "the time. Those ranges are wide, and they overlap heavily near the top. Read "
-        "the leading group as a group, not as a 1-2-3.",
+        "rescored, and the \"Rank CI\" column (a 90% confidence interval) reports the "
+        "range their rank landed in 90% of the time. Those ranges are wide, and they "
+        "overlap heavily near the top. Read the leading group as a group, not as a "
+        "1-2-3.",
     ),
     (
         "faq-adoption",
@@ -1262,7 +1263,7 @@ def _leaderboard_html(
         "<table class='leaderboard'><thead><tr>"
         "<th class='rank'>#</th><th>Pilot</th><th class='score'>Score</th>"
         "<th class='score'>Major events</th>"
-        "<th class='score spread'>Rank could be</th>"
+        "<th class='score spread'>Rank CI</th>"
         f"</tr></thead><tbody>{body}</tbody></table>"
     )
 
@@ -1309,13 +1310,13 @@ def _standings_caption(series: Series, rows: int) -> str:
     is a top-N of it, and a field smaller than the cap was never cut at all and must not
     claim a ranking it did not apply.
 
-    Then what the last column's numbers are, since "Rank could be" says the direction of
-    the reading but not its strength, and a range with no confidence attached is not one.
+    Then what the last column's numbers are, since "Rank CI" names an interval but not
+    its confidence level, and a range with no confidence attached is not one.
     """
     contenders = len({cell.pilot for cell in series.cells})
     held = (f"top {rows:,} of {contenders:,} contenders" if contenders > rows
             else f"all {contenders:,} contenders")
-    return (f"{held}, best first · the last column is where a pilot's rank landed "
+    return (f"{held}, best first · the rank CI is where a pilot's rank landed "
             f"{RACE_INTERVAL:.0%} of the time when the record was resampled")
 
 
