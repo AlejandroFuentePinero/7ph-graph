@@ -302,14 +302,13 @@ def _subject_update(prefix: str, name: str | None):
 # fixed slab: at 760px flat it was most of a phone's screen and a letterbox on a tall
 # monitor, which is the fixed-height letterbox #85 set out to retire.
 #
-# The ceiling is the size the pilot neighbourhood was tuned to and reads well at, so a
-# desktop is unchanged in practice. The floor keeps a dense graph legible where the
-# proportion would otherwise squeeze it. In between, `72vh` leaves room above for the
-# card's heading and below for the next card's edge, so the graph never fills the
-# screen so completely that nothing signals there is a page around it.
-GRAPH_HEIGHT = 760
-GRAPH_MIN_HEIGHT = 420
-GRAPH_VIEWPORT_SHARE = "72vh"
+# The ceiling began as the size the pilot neighbourhood was tuned to (760px), and all
+# three values were then raised 25 percent together: same width, a taller plot, traded
+# knowingly against the room `72vh` used to leave around the card. The floor keeps a
+# dense graph legible where the proportion would otherwise squeeze it.
+GRAPH_HEIGHT = 950
+GRAPH_MIN_HEIGHT = 525
+GRAPH_VIEWPORT_SHARE = "90vh"
 
 
 def _embed(doc: str) -> str:

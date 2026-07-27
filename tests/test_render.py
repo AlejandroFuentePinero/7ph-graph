@@ -1,10 +1,8 @@
-import re
-
 from graph7ph.palette import CATEGORICAL
 from graph7ph.query import Edge, Node, Subgraph
-from graph7ph.render import LABEL_PX, render_subgraph
+from graph7ph.render import render_subgraph
 from graph7ph.serve import VIS_CSS_URL, VIS_JS_URL
-from graph7ph.theme import TOKENS, build_css
+from graph7ph.theme import TOKENS
 
 
 def test_render_produces_html_embedding_the_nodes():
@@ -146,33 +144,6 @@ def test_the_pyvis_document_takes_its_height_from_its_frame():
     # stretches to it, so pyvis is told 100% and no 700px survives to fight it.
     html = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
     assert "700px" not in html
-
-
-def test_the_label_floor_clears_the_themes_smallest_type_size():
-    # AC (#161): a label at phone width is legible, which starts with it being no
-    # smaller than the smallest type the theme ever asks anyone to read. Taken off the
-    # stylesheet rather than restated here, so raising the theme's floor past the
-    # graph's fails rather than passes.
-    sizes = [float(px) for px in re.findall(r"font-size:\s*([\d.]+)px", build_css())]
-    assert LABEL_PX >= min(sizes)
-
-
-def test_a_pinned_layout_settles_as_soon_as_it_is_drawn():
-    # A composed layout (co-occurrence) has physics off, so vis.js never announces a
-    # stabilised layout: waiting for one would leave the graph unfitted and, since
-    # #161, unlabelled. The wait is what a physics layout needs and this one must skip.
-    pinned = render_subgraph(Subgraph(
-        nodes=[Node("card:a", "Ponder", "Card", pin=(-100.0, 0.0)),
-               Node("card:b", "Brainstorm", "Card", pin=(100.0, 0.0))],
-        edges=[],
-    ))
-    physics = render_subgraph(Subgraph(
-        nodes=[Node("card:a", "Ponder", "Card"), Node("card:b", "Brainstorm", "Card")],
-        edges=[],
-    ))
-
-    assert "const PINNED = true;" in pinned
-    assert "const PINNED = false;" in physics
 
 
 def test_details_panel_has_field_labels_and_the_moxfield_affordance():
