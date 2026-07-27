@@ -61,11 +61,13 @@ from graph7ph.trends import (
     MetaShareOverTime,
     NotEnoughHistory,
     MAJOR_FIELD_SIZE,
+    PerformanceCell,
     PilotPerformanceOverTime,
     RACE_INTERVAL,
     RaceCell,
     Series,
     archetypes_with_history,
+    beats_a_coin,
     comparable_points,
     latest_deck_year,
     latest_year_share_cut,
@@ -495,7 +497,14 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "25 most-played archetypes of that year are drawn, recomputed for each year, "
         "and the chart says how many archetypes the year held in all. More of them sit "
         "above the halfway line than below it, because the source records top finishers "
-        "more completely than the rest of the field.",
+        "more completely than the rest of the field. Each dot carries a bar: the range "
+        "its average could reasonably be in, 90% of the time, given how much one deck's "
+        "finish bounces around its archetype's and how many separate events the dot "
+        "rests on. A dot whose bar crosses the 0.5 line has not settled which side of "
+        "the middle of the field it belongs on, which is most of them, so the caption "
+        "gives two numbers: how many dots sit above the line, and how many of those the "
+        "bars actually settle. The gap between the two is the point. It is usually "
+        "large, and it is why a dot sitting just above the line is not yet a finding.",
     ),
     (
         "faq-archetype-timeline",
@@ -508,7 +517,12 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "placement, which is what the size of each point shows. Picking a second "
         "archetype narrows the chart to the events both attended, so every point has "
         "something to compare against, and the headline counts how many of those events "
-        "each of them finished ahead at. Two archetypes given a placement at fewer than "
+        "each of them finished ahead at. That count is only called a lead when it beats "
+        "what a coin would do: an archetype that is exactly average finishes ahead at "
+        "about half its events by luck alone, and most of these counts (100 of the 121 "
+        "archetypes offered) are splits a coin produces easily. The count is still "
+        "shown, since it is what happened; where it does not clear chance the headline "
+        "says so. Two archetypes given a placement at fewer than "
         "two events in common are refused rather than drawn.",
     ),
     (
@@ -522,7 +536,16 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "years before the chart is drawn at all, since a line through one point is not a "
         "trajectory. The headline \"finishes ahead of X% "
         "of the field\" is the average across all scored years, weighted by how many "
-        "events each year held, so a busy year counts for more than a quiet one.",
+        "events each year held, so a busy year counts for more than a quiet one. "
+        "Each year carries a bar: the range that year's average could reasonably be "
+        "in, 90% of the time, given how much one finish bounces around a pilot's own "
+        "level and how few events the year held. The bars are wide and they overlap, "
+        "and that is the finding, not a flaw in the drawing: a typical year here rests "
+        "on three events. The line between the points is there to join them and "
+        "nothing more. Shuffling a pilot's own finishes into a different order moves it "
+        "as much as their real career does, so a dip is not a slump and a rise is not "
+        "form; what the chart supports is each year's value, with its bar, and the "
+        "career headline above it.",
     ),
     (
         "faq-head-to-head",
@@ -717,6 +740,11 @@ def _rgba(hex_colour: str, alpha: float) -> str:
 _GRID = theme.TOKENS["border"]
 _AXIS = theme.TOKENS["text-mute"]
 _SURFACE = theme.TOKENS["surface"]
+# The reference a reader checks a mark against (:func:`_midpoint_line`), one step up the
+# neutral ramp from the axis so it reads over the gridlines without taking a hue. It is
+# neutral on purpose and not by omission: §5-6 spends colour on entities, and the
+# palette refuses a ninth hue, so chrome that names no entity stays off the wheel.
+_REFERENCE = theme.TOKENS["text-dim"]
 # The colour a control drawn inside a figure takes, so the range slider and its label
 # read as a control against the neutral chart rather than as more plot. §2 commits the
 # app to one accent, and this used to be a Tailwind amber left over from the
@@ -780,6 +808,101 @@ def _observation_marker(colour: str) -> dict:
     caller's line, which only joins the points and asserts no trend between them.
     """
     return dict(size=12, symbol="circle", color=_SURFACE, line=dict(width=2, color=colour))
+
+
+def _interval_bars(
+    cells: list[PerformanceCell | LandscapeCell | None], colour: str, cap: int
+) -> dict:
+    """The cells' 90% intervals as error bars, flipped onto the score axis (#175).
+
+    Both charts that draw a mean ``placementNorm`` draw it flipped (higher is better)
+    while the cell keeps the raw finish, so the raw **low** bound, the better finish,
+    becomes the upper whisker: the arms are swapped here rather than at each call site,
+    since getting that backwards would draw a plausible picture nobody could catch by
+    eye. The arms are unequal wherever a bound clamped at a win or at last place, which
+    is why they are sent as two arrays rather than one half-width.
+
+    A cell of ``None``, or one whose mean was refused, contributes a ``None`` arm and
+    draws no bar, keeping the arrays aligned with the trace's points. Drawn in the
+    series colour at 45%, thin, so the interval reads as the point's own uncertainty
+    rather than as a second series: it is wide by construction, and a heavy whisker
+    would out-shout the value it qualifies. ``cap`` is the crossbar's width in pixels,
+    for a chart with room for it; zero leaves a bare line.
+    """
+    return dict(
+        type="data",
+        symmetric=False,
+        array=[None if c is None or c.mean_low is None else c.mean_norm - c.mean_low
+               for c in cells],
+        arrayminus=[None if c is None or c.mean_high is None else c.mean_high - c.mean_norm
+                    for c in cells],
+        color=_rgba(colour, 0.45),
+        thickness=1,
+        width=cap,
+    )
+
+
+def _midpoint_line(fig: pgo.Figure) -> None:
+    """The 0.5 line every finish chart is read against, drawn once in the app's accent.
+
+    Three charts (the pilot career, the landscape, and the rivalry pair) ask a reader to
+    read a mark against the middle of the field, and each drew this line itself in the
+    muted axis grey at 55%. That made the quietest mark on the chart the one three
+    captions lean on: "above the 0.5 line" is the landscape's whole headline, and the
+    line naming it was fainter than the gridlines around it.
+
+    **Brighter, and deliberately not a colour.** The obvious fix, the app accent, was
+    built and rejected on the drawn charts: the rivalry pair gives its second archetype
+    the palette's slot-2 orange, so an accent line reads as a third series there, and
+    no hue escapes that, because the meta chart draws all eight slots at once. §5-6
+    settles it rather than taste: colour names entities, a line at 0.5 is no entity, and
+    the palette refuses a ninth hue outright, so the neutral is the correct instrument
+    and the lever for "more visible" is brightness. It moves up the neutral ramp from
+    the dimmest ink in the set to :data:`_REFERENCE` at 85%, which is legible against
+    the surface without competing with a series for attention.
+
+    Still dotted and still a hairline, since it is chrome: a reference a reader checks
+    a mark against, never a value in its own right.
+    """
+    fig.add_hline(
+        y=0.5, line=dict(color=_rgba(_REFERENCE, 0.85), width=1, dash="dot")
+    )
+
+
+def _range_filter(fig: pgo.Figure, label: str) -> None:
+    """A drag-to-slice range control under the x axis, tinted as a control and labelled.
+
+    Shared by the charts whose x axis crowds: the two rivalry charts, where events pile
+    up in the seasons the format was busiest, and the landscape, where a year's drawn
+    archetypes bunch into the low-share end (in 2026, twenty of the twenty-five sit
+    between 1% and 3%). Holding it here is what keeps one affordance from becoming two
+    inventions, since a reader who learns the control on one chart should not have to
+    learn it again on the next.
+
+    The slider's mini-axis is fixed to an off-data band (every chart carrying this plots
+    a 0-1 score, so 10-11 is empty), which parks the trace preview out of view: the
+    slider stays a plain tinted control instead of a second copy of the data that reads
+    as a bug. The tint marks it as a control against the neutral chart, and the label
+    centred under it says so, since an unlabelled strip reads as a stray band. ``label``
+    names the axis being filtered, because the two differ in what a drag means.
+    """
+    fig.update_xaxes(rangeslider=dict(
+        visible=True, thickness=0.12,
+        bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
+        bordercolor=_rgba(_CONTROL_ACCENT, 0.55),
+        borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
+    ))
+    # Centred both ways over the slider in paper coords (the band sits below the axis,
+    # roughly y -0.09 to -0.32, so its middle is near -0.20). The app's accent, matching
+    # the slider tint it labels.
+    fig.add_annotation(
+        x=0.5, y=-0.20, xref="paper", yref="paper", xanchor="center", yanchor="middle",
+        showarrow=False, text=label,
+        font=dict(color=_rgba(_CONTROL_ACCENT, 0.95), size=11),
+    )
+    # Room below the axis for the slider band and its label; the shared styler sets a
+    # tight b=8 for the charts that carry no control.
+    fig.update_layout(margin=dict(b=90))
 
 
 def _confidence_size(events: int) -> float:
@@ -1079,6 +1202,20 @@ def _performance_caption(series: Series) -> str:
     quiet as the sample it rests on. Returned as trusted markup (all app-built numerics,
     no user text) for :func:`_chart_heading`'s ``caption_html``; empty when no year
     cleared the floor, which the caller's refusal note has already covered.
+
+    Two clauses follow the sample, and they are the ones this caption exists for as much
+    as the standing (issue #175). The **movement** between the years is not real: permuted
+    against the artifact, a pilot's drawn swing is 0.2376 against a shuffled 0.2404, so a
+    dip is not a slump and the whiskers overlap for that reason rather than by
+    misfortune. And the **population** is every event with a recorded finish, where the
+    race scores the biggest events only: the two disagree by a median of 10 places of 139
+    over the race's contenders, so a reader who reads this number against that board is
+    reading two different measurements as one.
+
+    The standing itself stays, and stays first. It is a mean over a pilot's whole record
+    rather than one year of it, which is exactly the quantity this chart's sample sizes
+    can support; the finding is about the movement between the points, not about the
+    level they sit at.
     """
     scored = [c for c in series.cells if c.mean_norm is not None]
     if not scored:
@@ -1089,8 +1226,11 @@ def _performance_caption(series: Series) -> str:
     return (
         "<div class='t-fieldstat'>Finishes ahead of "
         f"<span class='pct'>{round(mean_score * 100)}%</span> of the field on average"
-        f"<span class='sample'> · {total} events over {len(scored)} scored {years}</span>"
-        "</div>"
+        f"<span class='sample'> · {total} events over {len(scored)} scored {years} · "
+        "every event with a recorded finish counts here, not the biggest events only "
+        "as the race does · each bar is that year's 90% interval, and they overlap "
+        "because a handful of events cannot separate one year from the next, so a dip "
+        "is not a slump</span></div>"
     )
 
 
@@ -1151,7 +1291,10 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
         name=pilot_name,
         mode="lines+markers+text",
         text=[f"{c.events} ev" if c else "" for c in drawn],
-        textposition="top center",
+        # Beside the marker, not above it: the interval's upper whisker now occupies
+        # the space over every point, and a label printed into it reads as a value on
+        # the scale rather than as the sample behind the point (#175).
+        textposition="middle right",
         textfont=dict(color=_AXIS, size=11),
         line=dict(width=1, dash="dash", color=colour),
         # The hollow ring's size carries each year's event count, so the sample size
@@ -1159,6 +1302,10 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
         # size but draws no marker.
         marker={**_observation_marker(colour),
                 "size": [_confidence_size(c.events) if c else 12 for c in drawn]},
+        # Each point's own 90% interval, the whole point of the chart since the movement
+        # between the points was measured as noise (#175). Capped, since a career holds
+        # a handful of points and there is room to read the ends.
+        error_y=_interval_bars(drawn, colour, cap=4),
         # Let a marker and its label at the very top (a perfect 1.0 season) draw over
         # the axis edge rather than being clipped out of the plot.
         cliponaxis=False,
@@ -1198,10 +1345,9 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
                 showarrow=False, font=dict(color=_AXIS, size=10),
             )
     # A reference line at 0.5, a random finisher's expected normalised rank (the flip
-    # leaves it at 0.5): above it beat the field, below it trailed. The field-standing
-    # caption above the plot already names where the pilot sits, so the line stays a
-    # quiet unlabelled reference rather than repeating it.
-    fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
+    # leaves it at 0.5): above it beat the field, below it trailed. Unlabelled, since
+    # the field-standing caption above the plot already names where the pilot sits.
+    _midpoint_line(fig)
     return fig
 
 
@@ -1462,8 +1608,18 @@ def _landscape_caption(
     reading if the reader is told what it means (above it, an archetype beat the middle
     of the field) and because more dots sit above it than below, which is a property of
     the source rather than of the archetypes, so the count is stated rather than left to
-    be noticed. Counted on the drawn dots, not asserted: it runs 15 to 19 of 25 across
-    the four corpus years, which "slightly more than half" would misdescribe. Then the
+    be noticed. Counted on the drawn dots, not asserted.
+
+    **Two counts, because either alone misleads (issue #175).** The dots are means of a
+    handful of decks, so counting the ones that merely sit above the line sells a
+    reading the evidence does not carry: 17 to 20 of 25 land above it in each corpus
+    year, but only 1 to 3 have an interval that clears it. Reporting only the settled
+    count was tried first and was worse, for a reason that shows up only on the drawn
+    chart: a reader looking at twenty dots above the line was told "1 of 25", and the
+    caption lost an argument with the picture it was captioning. So the plain count
+    leads, agreeing with what the eye does, and the settled count follows as the
+    qualifier it always was. The bars beside the dots are what makes the second number
+    checkable. Then the
     cut, because a bounded chart that does not say what it is bounded to reads as the
     whole field. The cut is stated as the rule it is (``top_n`` of the field), not as
     the number of dots that survived it, so it stays true of a year where an unscored
@@ -1475,8 +1631,14 @@ def _landscape_caption(
     as trusted markup for :func:`_chart_heading`'s ``caption_html``.
     """
     year = series.cells[0]
-    # The flip is the chart's, so above the line reads as a raw norm below 0.5.
+    # The flip is the chart's, so above the line reads as a raw norm below 0.5. Settled
+    # is the stronger claim: an interval whose worse end is still better than the middle
+    # of the field. A dot with no interval (a slice too thin to fit a spread over)
+    # settles nothing, so it is counted as above but never as settled (#175).
     above = sum(1 for cell in drawn if cell.mean_norm < 0.5)
+    settled = sum(
+        1 for cell in drawn if cell.mean_high is not None and cell.mean_high < 0.5
+    )
     field = len(series.cells)
     cut = (f"top {top_n} of {field} archetypes by share" if field > top_n
            else f"all {field} archetypes the year held")
@@ -1487,9 +1649,50 @@ def _landscape_caption(
     )
     return (
         f"<div class='t-fieldstat'><span class='pct'>{above} of {len(drawn)}</span> "
-        "above the 0.5 line, the middle of the field"
-        f"<span class='sample'> · {cut} · {season}</span></div>"
+        "above the 0.5 line, the middle of the field, "
+        f"<span class='pct'>{settled}</span> of them settled once the bars are counted"
+        f"<span class='sample'> · {cut} · {season} · each bar is that dot's 90% "
+        "interval, and a dot whose bar crosses the line has not settled which side it "
+        "belongs on</span></div>"
     )
+
+
+def _label_sides(cells: list[LandscapeCell]) -> list[str]:
+    """Which side of its dot each archetype's name sits on, alternating along the axis.
+
+    Plotly has no collision avoidance, and the landscape's names overprint: a year's 25
+    drawn archetypes crowd into the low-share end (in 2026, twenty of them sit between
+    1% and 3%), so a single ``textposition`` stacks four or five names into the same
+    patch of frame. The bars added in #175 took the space above each dot, which is where
+    the names used to go, so they move beside the rings and alternate: sorted along the
+    share axis they collide on, each dot takes the opposite side from its neighbour.
+
+    A heuristic, and it is worth being plain about its limit rather than implying the
+    problem is solved: two dots that are two apart in share and close in finish still
+    take the same side, so a band holding four or more names can still overprint. It
+    clears the common case (adjacent pairs) at the cost of no layout engine, which is
+    the trade this chart's docstring already contemplated when it named a
+    label-fewer fallback. That fallback stays available and unchosen: every archetype
+    keeps its name here, which is what the top-25 cut exists to make possible.
+
+    The alternation starts from the lowest share, which points the leftmost dot's name
+    inward, away from the frame edge it sits against. That is the end worth protecting:
+    it is where the dots crowd, and where a name hung outward would run at the axis.
+
+    The highest-share end takes what the alternation gives it, which is inward only when
+    the count is even. Forcing it inward regardless was tried and was worse: with an odd
+    count, and ``_LANDSCAPE_TOP_N`` is 25, it overwrote a "middle right" and left the top
+    **two** dots sharing a side, converting a clipping risk into the exact overprint this
+    function exists to prevent. The trade is safe because the top dot is the most
+    isolated on the axis by construction: share is long-tailed, so the gap below the
+    biggest archetype runs 1.4 to 4.7 points across the corpus years against a median
+    gap of 0.15, and a name with that much clear air beside it collides with nothing.
+    """
+    order = sorted(range(len(cells)), key=lambda i: cells[i].share)
+    positions = [""] * len(cells)
+    for rank, index in enumerate(order):
+        positions[index] = "middle right" if rank % 2 == 0 else "middle left"
+    return positions
 
 
 def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
@@ -1508,8 +1711,19 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     Every dot carries its archetype name: the set is bounded to
     :data:`_LANDSCAPE_TOP_N`, so labelling a subset of it would read as arbitrary, and
     an all-hover chart says nothing in a screenshot (§14, #132/#133). Plotly has no
-    collision avoidance, so if the labels overprint in the browser the fallback is the
-    top 8 by share plus the top 5 and worst 3 by finish, about 14 labels. The ring's
+    collision avoidance, and the labels did overprint once the bars took the space above
+    each dot, so they sit beside the rings on alternating sides (:func:`_label_sides`)
+    rather than falling back to the top 8 by share plus the top 5 and worst 3 by finish,
+    the roughly 14 labels this docstring used to name: every archetype keeps its name,
+    which is what the top-25 cut exists to make possible.
+
+    Alternating sides clears colliding pairs and stops there, and a real year is worse
+    than pairs: 2026 puts twenty of its twenty-five drawn archetypes between 1% and 3%
+    of share, four and five names deep. The axis itself is the fix, so this chart takes
+    :func:`_range_filter` over share, the control the rivalry charts already carry over
+    time. A reader pulls the crowded end open instead of being handed a subset of the
+    names, which is the same bargain the top-25 cut makes: bound what is drawn, and say
+    what was bounded. The ring's
     size carries the archetype's distinct events, not its decks: within a year share is
     monotone in decks, so sizing by decks would say the same thing the x axis already
     does, while the events are the independent trials the finish rests on. One colour
@@ -1524,10 +1738,14 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         y=scores,
         mode="markers+text",
         text=[cell.archetype for cell in cells],
-        textposition="top center",
+        textposition=_label_sides(cells),
         textfont=dict(color=_AXIS, size=11),
         marker={**_observation_marker(colour),
                 "size": [_confidence_size(cell.events) for cell in cells]},
+        # Each dot's own 90% interval (#175). Uncapped, unlike the pilot chart's: 25
+        # dots and their names already fill this frame, and a crossbar on each would
+        # read as a grid.
+        error_y=_interval_bars(cells, colour, cap=0),
         customdata=[
             [cell.archetype, numfmt.share(cell.share),
              numfmt.count_of(cell.n, cell.year_total, "decks"), numfmt.score(score),
@@ -1551,6 +1769,10 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         title="Share of the year's decks", type="linear", categoryorder=None,
         tickformat=numfmt.SHARE_TICKFORMAT, rangemode="tozero",
     )
+    # The names crowd the low-share end past what any placement rule can separate, so
+    # the reader gets the axis: drag to open that end up. Named for its own axis, since
+    # a drag here slices share where the rivalry charts' slices time.
+    _range_filter(fig, "◀ Share range filter (drag to zoom) ▶")
     # The 0-1 score, but ranged to the dots rather than pinned to the full scale the
     # single-pilot charts use: a year's finishes span as little as 0.43 to 0.62, which
     # a 0-to-1 axis would squash into a fifth of the height with 25 labels on top of
@@ -1561,16 +1783,33 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     # finishes at 0.93, and unclamped headroom carried the axis to 1.09, which is axis
     # no dot could ever occupy. A label at the very top draws over the edge instead
     # (`cliponaxis` above), rather than the axis growing to hold it.
-    low, high = min([*scores, 0.5]), max([*scores, 0.5])
+    # Ranged over the whiskers and not only the dots (#175): an interval drawn past the
+    # top of the frame would show a narrower claim than the dot actually carries, which
+    # is the overclaim this ticket removes, inverted. Both bounds are already clamped to
+    # the ends of the score, so this can only widen the frame as far as the scale goes.
+    #
+    # It is paid for in exactly the currency the paragraph above spends: the dots'
+    # own span drops from 62-79% of the frame to 28-56% across the corpus years, 2026
+    # being the worst, because the frame is set by the widest whisker on the chart and
+    # that whisker belongs to the least-evidenced dot (a one-event archetype carries a
+    # half-width near 0.48). So the squashing this range was written to avoid is partly
+    # reintroduced here, knowingly, and the labels sit closer together for it. The
+    # trade is taken because a clipped interval misstates the evidence while a crowded
+    # one only reads worse, and because the share filter above gives the reader a way
+    # out of the crowding that no axis rule can give them out of a wrong bar.
+    bounds = [b for cell in cells for b in (cell.mean_low, cell.mean_high)
+              if b is not None]
+    edges = [*scores, *(1 - b for b in bounds), 0.5]
+    low, high = min(edges), max(edges)
     pad = 0.02 + (high - low) * 0.1
     fig.update_yaxes(
         tickformat=numfmt.SCORE_TICKFORMAT, autorange=False,
         range=[max(0.0, low - pad), min(1.0, high + pad * 2)],
     )
     # The reference line at 0.5: above it an archetype beat the middle of the field.
-    # Quiet and unlabelled, as on the pilot charts; the caption above the plot says
-    # what crossing it means.
-    fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
+    # Unlabelled, as on the pilot charts; the caption above the plot says what crossing
+    # it means, and this chart's headline is a count of dots against it.
+    _midpoint_line(fig)
     return fig
 
 
@@ -1583,6 +1822,15 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
     events both were placed at ("finished better at 30 of 44"), the tally the
     shape of the band only suggests; with one it is the same count against the middle of
     the field, the 0.5 line the rest of the app already reads finishes against.
+
+    That count is gated on :func:`beats_a_coin` before it is allowed to read as a lead
+    (issue #175). Each point is the mean of a median of one ranked deck, so under the
+    null every event is a coin flip, and 100 of the 121 headlines this surface can print
+    are splits a fair coin produces at least a tenth of the time. The count itself is
+    printed either way, because it is a fact about the record; what the gate governs is
+    whether the sentence gets to sound like a finding, and an ungated one carries "a
+    split a coin could produce" in the same breath as the number. A tie needs no gate,
+    since it already asserts no leader.
 
     Then the two caveats, quiet behind it. First, that a point is a **mean** of that
     archetype's ranked decks at that event and typically rests on one to three of
@@ -1605,12 +1853,17 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
     # from that side; here the span is stated in three words rather than restating the
     # contrast, so the caption keeps to a headline and a short tail.
     span = "every year in the data"
+    # A count that a fair coin produces is not a lead, and most of them are: the count
+    # is printed either way (it is a fact) and only the reading is discounted (#175).
+    hedge = ", a split a coin could produce"
     if b is None:
         # A lower norm is a better finish, so beating the middle of the field is a
         # mean under 0.5, the same reading the 0.5 line carries on every other chart.
         led = sum(1 for c in comparable if c.mean_norm_a < 0.5)
         headline = (f"{a} finished above the middle of the field at "
                     f"<span class='pct'>{led} of {len(comparable)}</span> events")
+        if not beats_a_coin(led, len(comparable)):
+            headline += hedge
         restriction = "a second archetype narrows this to the events both attended"
         decks = f"each point averages {a}'s placed decks there, typically 1 to 3"
     else:
@@ -1618,13 +1871,19 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
         wins_b = sum(1 for c in comparable if c.mean_norm_b < c.mean_norm_a)
         leader, led = (a, wins_a) if wins_a >= wins_b else (b, wins_b)
         # A tie is a real answer, and naming one side the leader of a draw would not
-        # be, so the two counts are stated instead.
-        headline = (
-            f"{a} and {b} finished better at <span class='pct'>{wins_a} each</span> "
-            f"of {len(comparable)} shared events" if wins_a == wins_b
-            else f"{leader} finished better at "
-                 f"<span class='pct'>{led} of {len(comparable)}</span> shared events"
-        )
+        # be, so the two counts are stated instead. It asserts no leader, so there is
+        # no lead for the coin to take away and it carries no hedge.
+        if wins_a == wins_b:
+            headline = (
+                f"{a} and {b} finished better at <span class='pct'>{wins_a} each</span> "
+                f"of {len(comparable)} shared events"
+            )
+        else:
+            headline = (f"{leader} finished better at "
+                        f"<span class='pct'>{led} of {len(comparable)}</span> "
+                        "shared events")
+            if not beats_a_coin(led, len(comparable)):
+                headline += hedge
         restriction = ("drawn over the events both attended, counted over the ones "
                        "both were placed at")
         decks = "each point averages that side's placed decks there, typically 1 to 3"
@@ -1702,12 +1961,8 @@ def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
     edited. Only the legend's title differs, so it is passed in.
 
     A registration-date x-axis (ADR 0013), not the category-Year axis the shared
-    styler sets, with a range slider as the time-range filter. Its mini-axis is fixed
-    to an off-data band (the score is 0-1, this is 10-11), which parks the trace
-    preview out of view: the slider stays a plain tinted control instead of a second
-    copy of the lines that reads as a bug. A tint distinct from the plot marks it as a
-    control, and a label centred under it says so, since an unlabelled strip reads as
-    a stray band rather than as a filter. Then the 0-1 score (1 a win at the top),
+    styler sets, with :func:`_range_filter` over it as the time-range filter, the same
+    control the landscape carries over share. Then the 0-1 score (1 a win at the top),
     fixed to the full range so a small gap is not stretched, with the dotted 0.5 the
     performance chart also carries. The legend is a horizontal strip above the plot,
     not the shared styler's right-side default: an external right legend widens with
@@ -1720,32 +1975,17 @@ def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
     _style_trend_chart(fig, f"Finish ({_SCORE_DIRECTION})")
     fig.update_xaxes(
         title="Registration date", type="date", categoryorder=None, autorange=True,
-        rangeslider=dict(
-            visible=True, thickness=0.12,
-            bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
-            bordercolor=_rgba(_CONTROL_ACCENT, 0.55),
-            borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
-        ),
     )
-    # Centred both ways over the slider in paper coords (the band sits below the axis,
-    # roughly y -0.09 to -0.32, so its middle is near -0.20); the bottom margin below
-    # seats the slider. The app's accent, matching the slider tint it labels, against
-    # the neutral chart.
-    fig.add_annotation(
-        x=0.5, y=-0.20, xref="paper", yref="paper", xanchor="center", yanchor="middle",
-        showarrow=False, text="◀ Time range filter (drag to slice) ▶",
-        font=dict(color=_rgba(_CONTROL_ACCENT, 0.95), size=11),
-    )
+    _range_filter(fig, "◀ Time range filter (drag to slice) ▶")
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
-    fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
-    # Room below the axis for the slider band and its label (the shared styler sets a
-    # tight b=8 for the label-free charts), and above for the centred legend.
+    _midpoint_line(fig)
+    # Room above the plot for the centred legend; the range filter seats itself below.
     fig.update_layout(
         legend=dict(
             title=legend_title, orientation="h",
             xanchor="center", x=0.5, yanchor="bottom", y=1.02,
         ),
-        margin=dict(t=48, b=90),
+        margin=dict(t=48),
     )
 
 

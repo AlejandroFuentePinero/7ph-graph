@@ -477,6 +477,20 @@ def test_two_lines_equal_across_a_segment_draw_no_band():
     assert list(_between_line_polys([(0, 0.5, 0.5), (1, 0.5, 0.5)])) == []
 
 
+def _performance_cell(year, mean_norm, events, half=0.1):
+    """One performance cell, its interval ``half`` either side of its mean (#175).
+
+    Stated flat rather than re-derived from the field's spread, for the reason
+    :func:`_landscape_cells` states it flat: the width is what the tool hands the
+    surface, and these tests are about what the surface does with it.
+    """
+    return PerformanceCell(
+        year=year, mean_norm=mean_norm, events=events,
+        mean_low=None if mean_norm is None else max(0.0, mean_norm - half),
+        mean_high=None if mean_norm is None else min(1.0, mean_norm + half),
+    )
+
+
 def test_a_refused_year_at_the_end_of_a_career_is_an_empty_tick_not_a_missing_year():
     # A pilot who played four years but could only be averaged in two. The thin years
     # here are the first and the last, which is where they usually fall: a one-event
@@ -485,10 +499,10 @@ def test_a_refused_year_at_the_end_of_a_career_is_an_empty_tick_not_a_missing_ye
     # (issue #101). Every year the pilot played is now a tick; the refused ones carry
     # no point and no label, so the line breaks across them instead of bridging.
     series = Series(cells=[
-        PerformanceCell(year=2023, mean_norm=None, events=1),
-        PerformanceCell(year=2024, mean_norm=0.4, events=3),
-        PerformanceCell(year=2025, mean_norm=0.2, events=5),
-        PerformanceCell(year=2026, mean_norm=None, events=1),
+        _performance_cell(2023, None, 1),
+        _performance_cell(2024, 0.4, 3),
+        _performance_cell(2025, 0.2, 5),
+        _performance_cell(2026, None, 1),
     ])
     trace = _performance_figure("Ada L", series).data[0]
 
@@ -503,8 +517,8 @@ def test_a_year_the_pilot_sat_out_still_holds_the_axis_open():
     # cell at all. It still gets a tick, or 2024 and 2026 would sit adjacent and read
     # as consecutive seasons.
     series = Series(cells=[
-        PerformanceCell(year=2024, mean_norm=0.4, events=3),
-        PerformanceCell(year=2026, mean_norm=0.2, events=2),
+        _performance_cell(2024, 0.4, 3),
+        _performance_cell(2026, 0.2, 2),
     ])
     trace = _performance_figure("Ada L", series).data[0]
 
@@ -518,9 +532,9 @@ def test_a_refused_year_is_captioned_and_a_sat_out_year_is_not():
     # read exactly like 2025 (the pilot did not play). The caption sits under the
     # axis, so it can never be read as a position on the score.
     series = Series(cells=[
-        PerformanceCell(year=2023, mean_norm=None, events=1),
-        PerformanceCell(year=2024, mean_norm=0.4, events=3),
-        PerformanceCell(year=2026, mean_norm=None, events=0),
+        _performance_cell(2023, None, 1),
+        _performance_cell(2024, 0.4, 3),
+        _performance_cell(2026, None, 0),
     ])
     # The refused-year captions sit under the axis (yref="paper"); the midpoint
     # reference-line label rides the y-axis, so filter to the captions this test is about.
@@ -533,12 +547,31 @@ def test_a_refused_year_is_captioned_and_a_sat_out_year_is_not():
     assert captions == {(2023, "1 ev, too thin"), (2026, "played, unscored")}
 
 
+def test_every_drawn_year_carries_its_interval_beside_the_point():
+    # The finding #175 exists for: the movement between these points is noise, so the
+    # honest content of the chart is each year's value and how settled it is. The
+    # interval is drawn on the surface, not left to the FAQ, and it is flipped with the
+    # score, so the raw low bound (the better finish) becomes the upper whisker. 2024's
+    # interval is clamped at a win (raw 0.0 to 0.4), which is what makes the two arms
+    # different lengths and shows the flip is not a symmetric half-width in disguise.
+    series = Series(cells=[
+        _performance_cell(2024, 0.1, 2, half=0.3),
+        _performance_cell(2025, 0.5, 8, half=0.15),
+        _performance_cell(2026, None, 1),
+    ])
+    bars = _performance_figure("Ada L", series).data[0].error_y
+
+    assert bars.type == "data" and bars.symmetric is False
+    assert bars.array == pytest.approx([0.1, 0.15, None])       # up to the better bound
+    assert bars.arrayminus == pytest.approx([0.3, 0.15, None])  # down to the worse one
+
+
 def test_performance_markers_grow_with_the_events_behind_each_year():
     # A two-event mean and a twenty-event one sit on the same line; the ring's size
     # carries the sample size so the eye discounts the thin year without hovering.
     series = Series(cells=[
-        PerformanceCell(year=2024, mean_norm=0.4, events=2),
-        PerformanceCell(year=2025, mean_norm=0.4, events=25),
+        _performance_cell(2024, 0.4, 2),
+        _performance_cell(2025, 0.4, 25),
     ])
     sizes = _performance_figure("Ada L", series).data[0].marker.size
 
@@ -549,15 +582,25 @@ def test_performance_caption_states_the_field_share_and_the_sample():
     # The flat axis is silent on the standing, so the caption states it: the mean
     # score weighted by events, as the share of the field beaten, with the sample.
     caption = _performance_caption(Series(cells=[
-        PerformanceCell(year=2024, mean_norm=0.4, events=2),   # score 0.6
-        PerformanceCell(year=2025, mean_norm=0.2, events=8),   # score 0.8
-        PerformanceCell(year=2026, mean_norm=None, events=1),  # refused, not in the mean
+        _performance_cell(2024, 0.4, 2),   # score 0.6
+        _performance_cell(2025, 0.2, 8),   # score 0.8
+        _performance_cell(2026, None, 1),  # refused, not in the mean
     ]))
 
     # Weighted mean score = (0.6*2 + 0.8*8) / 10 = 0.76, rounded to a whole percent, and
     # set in the accent span so the eye lands on it; the sample trails in its own span.
     assert "<span class='pct'>76%</span>" in caption
     assert "10 events over 2 scored years" in caption
+    # The two things the picture asserts and cannot support (#175). First, that the
+    # movement between the years means something: it does not, so the caption says the
+    # bars are wide because a few events cannot separate one year from the next, and a
+    # dip is not a slump.
+    assert "90%" in caption
+    assert "not a slump" in caption
+    # Second, that this number is the race's. It is not: this chart counts every event
+    # with a recorded finish and the race counts the biggest events only, and the two
+    # move a contender a median of 10 places of 139 apart.
+    assert "every event with a recorded finish" in caption
 
 
 def test_a_leading_refused_year_does_not_stretch_the_axis():
@@ -567,9 +610,9 @@ def test_a_leading_refused_year_does_not_stretch_the_axis():
     # so the real markers crush to one edge and the caption strands at the other. A linear
     # year axis with a pinned range puts caption and markers on one bounded scale.
     fig = _performance_figure("Ada L", Series(cells=[
-        PerformanceCell(year=2024, mean_norm=None, events=1),
-        PerformanceCell(year=2025, mean_norm=0.4, events=3),
-        PerformanceCell(year=2026, mean_norm=0.2, events=5),
+        _performance_cell(2024, None, 1),
+        _performance_cell(2025, 0.4, 3),
+        _performance_cell(2026, 0.2, 5),
     ]))
 
     assert fig.layout.xaxis.type == "linear"
@@ -606,6 +649,10 @@ def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
         # or it reads as a stray caption rather than that control's own label.
         label = next(a for a in fig.layout.annotations if "Time range filter" in a.text)
         assert label.font.color == _rgba(accent, 0.95)
+        # The control reserves the room under the axis and the legend takes the room
+        # above, from two separate calls: a layout update that replaced rather than
+        # merged would cramp the slider without changing a colour this test reads.
+        assert (fig.layout.margin.b, fig.layout.margin.t) == (90, 48)
     # AC (§5-6): head-to-head is two lines, ≤8, so each pilot takes a direct colour
     # from the shared eight-hue set (slot 1, slot 2), not a position in a long
     # recycled wheel. Colour follows the entity: the pilot named first is blue.
@@ -826,7 +873,7 @@ def test_a_chart_title_is_a_page_heading_not_plotly_font_inside_the_image():
 
     figures = [
         _performance_figure("Ada L", Series(cells=[
-            PerformanceCell(year=2024, mean_norm=0.4, events=3),
+            _performance_cell(2024, 0.4, 3),
         ])),
         _trend_figure(_meta_series(("aggro", 2024, 0.3)), {"aggro"}),
         _adoption_figure([("Sol Ring", Series(cells=[
@@ -854,8 +901,8 @@ def test_chart_gridlines_and_axes_ride_the_design_tokens_not_a_stray_grey():
     # off the figure the chart actually draws, so a regression to a hardcoded grey
     # trips this.
     fig = _performance_figure("Ada L", Series(cells=[
-        PerformanceCell(year=2024, mean_norm=0.4, events=3),
-        PerformanceCell(year=2025, mean_norm=0.2, events=5),
+        _performance_cell(2024, 0.4, 3),
+        _performance_cell(2025, 0.2, 5),
     ]))
 
     assert fig.layout.xaxis.gridcolor == theme.TOKENS["border"]
@@ -875,7 +922,7 @@ def test_chart_chrome_is_set_in_the_app_face_not_plotly_default():
     # they share is the only place this can be set once.
     figures = [
         _performance_figure("Ada L", Series(cells=[
-            PerformanceCell(year=2024, mean_norm=0.4, events=3),
+            _performance_cell(2024, 0.4, 3),
         ])),
         _trend_figure(_meta_series(("aggro", 2024, 0.3)), {"aggro"}),
         _adoption_figure([("Sol Ring", Series(cells=[
@@ -927,7 +974,7 @@ def test_observation_markers_carry_a_surface_ring_over_a_thin_dashed_join():
     # so two that overlap do not muddy into each other. The ring is the surface
     # colour filling the marker; the series colour is its 2px outline.
     trace = _performance_figure("Ada L", Series(cells=[
-        PerformanceCell(year=2024, mean_norm=0.4, events=3),
+        _performance_cell(2024, 0.4, 3),
     ])).data[0]
 
     assert trace.line.dash == "dash"  # joins points, asserts no trend (ADR 0013)
@@ -1078,12 +1125,20 @@ def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snap
     assert "alejandrofuentepinero@gmail.com" in surface
 
 
-def _landscape_cells(*rows, year=2026, total=100, year_events=10):
-    """Landscape cells from ``(tag, decks, mean_norm[, events])``, sharing one year."""
+def _landscape_cells(*rows, year=2026, total=100, year_events=10, half=0.1):
+    """Landscape cells from ``(tag, decks, mean_norm[, events])``, sharing one year.
+
+    Every scored cell carries an interval ``half`` either side of its mean (#175),
+    stated flat rather than re-derived from the field's spread: what the surface owes a
+    reader is the width the tool handed it, and a test that recomputed the width would
+    be asserting the tool's arithmetic twice.
+    """
     return [
         LandscapeCell(tag=row[0], archetype=row[0].title(), year=year, n=row[1],
                       share=row[1] / total, year_total=total, year_events=year_events,
-                      mean_norm=row[2], events=row[3] if len(row) > 3 else row[1])
+                      mean_norm=row[2], events=row[3] if len(row) > 3 else row[1],
+                      mean_low=None if row[2] is None else max(0.0, row[2] - half),
+                      mean_high=None if row[2] is None else min(1.0, row[2] + half))
         for row in rows
     ]
 
@@ -1154,6 +1209,23 @@ def test_landscape_marker_size_carries_the_events_not_the_deck_count():
     assert sizes == (_confidence_size(4), _confidence_size(30))
 
 
+def test_every_landscape_dot_carries_its_interval_and_the_frame_holds_it():
+    # The same claim defect as the pilot chart (#175): the dots are means of a handful
+    # of decks and the caption reads which side of 0.5 each sits. Every dot carries its
+    # own 90% interval, flipped with the score as the pilot chart flips it, so a reader
+    # can see that most of them do not settle which side they belong on.
+    cells = _landscape_cells(("grixis", 30, 0.45), ("storm", 6, 0.25), half=0.2)
+    fig = _landscape_figure(cells)
+    bars = fig.data[0].error_y
+
+    assert bars.array == pytest.approx([0.2, 0.2])
+    assert bars.arrayminus == pytest.approx([0.2, 0.2])
+    # The frame holds the whiskers: a bar drawn past the top of the axis would show a
+    # narrower interval than the dot actually carries, which is the overclaim inverted.
+    low, high = fig.layout.yaxis.range
+    assert low <= 0.35 and high >= 0.95
+
+
 def test_the_landscape_keeps_the_half_way_reference_line_in_frame():
     # The caption explains what being above 0.5 means, so the line has to be on the
     # chart to explain. A year whose dots all beat the middle of the field would
@@ -1169,6 +1241,89 @@ def test_the_landscape_keeps_the_half_way_reference_line_in_frame():
     assert high >= 0.8  # the best finish (1 - 0.2) still sits inside the frame
 
 
+def test_every_chart_that_reads_finishes_against_the_middle_draws_one_neutral_line():
+    # The 0.5 line is the one thing three captions ask a reader to read a dot against,
+    # and drawn in the dimmest ink in the set it was the quietest mark on the chart. It
+    # moves up the neutral ramp, off the token rather than a stray hex.
+    #
+    # Neutral rather than the accent, and that is the load-bearing half: the rivalry
+    # pair draws its second archetype in the palette's slot-2 orange, so an accent line
+    # reads as a third series there, and no hue is safe because the meta chart draws all
+    # eight slots at once. §5-6 spends colour on entities and refuses a ninth hue, so a
+    # line that names no entity stays neutral and gets visible by brightness instead.
+    figures = [
+        _performance_figure("Ada L", Series(cells=[
+            _performance_cell(2024, 0.4, 3), _performance_cell(2025, 0.2, 5),
+        ])),
+        _landscape_figure(_landscape_cells(
+            ("storm", 30, 0.2), ("oracle", 20, 0.25), ("grixis", 10, 0.3),
+        )),
+        _archetype_timeline_figure("Storm", None, _timeline_points((1, 0.4, 1))),
+    ]
+
+    for fig in figures:
+        midpoints = [s for s in fig.layout.shapes if (s.y0, s.y1) == (0.5, 0.5)]
+        assert len(midpoints) == 1, "each chart draws the middle of the field once"
+        colour = midpoints[0].line.color
+        assert colour == _rgba(theme.TOKENS["text-dim"], 0.85)
+        # Brighter than the axis ink it used to share, or the change bought nothing.
+        assert colour != _rgba(theme.TOKENS["text-mute"], 0.55)
+        # And on no series' hue, on any chart, at any opacity.
+        for hue in palette.CATEGORICAL + (theme.TOKENS["accent-bright"],):
+            assert not colour.startswith(_rgba(hue, 1).rsplit(",", 1)[0])
+
+
+def test_the_landscape_carries_a_share_range_filter_to_pull_the_crowded_end_apart():
+    # Alternating sides cleared the adjacent pairs and no more: a real year puts twenty
+    # of its twenty-five archetypes between 1% and 3% of share, which is four or five
+    # names deep in one band, and no label placement rule survives that. The reader gets
+    # the axis instead, as a range filter on share, the same control the rivalry charts
+    # give the date axis. Landscape only: it is the one chart whose x crowds.
+    fig = _landscape_figure(_landscape_cells(
+        ("grixis", 30, 0.45), ("storm", 20, 0.4), ("lands", 10, 0.55),
+    ))
+    slider = fig.layout.xaxis.rangeslider
+    accent = theme.TOKENS["accent-bright"]
+
+    assert slider.visible
+    # Tinted as a control, matching the filter the rivalry charts already carry, so the
+    # two read as the same affordance rather than as two inventions.
+    assert slider.bgcolor == _rgba(accent, 0.12)
+    assert slider.bordercolor == _rgba(accent, 0.55)
+    # The preview is parked off the 0-1 score band, or the slider draws a second copy
+    # of the dots and reads as a broken plot rather than as a control.
+    assert tuple(slider.yaxis.range) == (10, 11)
+    label = next(a for a in fig.layout.annotations if "range filter" in a.text)
+    assert "Share" in label.text  # its own axis named, not the rivalry charts' time
+    assert label.font.color == _rgba(accent, 0.95)
+    # The band and its label need room under the axis, and the chart that carries no
+    # control sets a tight margin, so the control reserves its own.
+    assert fig.layout.margin.b == 90
+
+
+def test_landscape_labels_alternate_sides_so_neighbouring_dots_do_not_overprint():
+    # 25 archetype names crowd into the low-share end of the axis and overprint each
+    # other, and the bars now own the space above every dot, so the names sit beside
+    # the rings and adjacent dots take opposite sides. Ordered by share, since that is
+    # the axis they collide along.
+    # Both parities, because the real chart draws an odd count: _LANDSCAPE_TOP_N is 25,
+    # and an earlier version forced the highest-share dot inward unconditionally, which
+    # on an odd count overwrote its alternated side and left the top two dots sharing
+    # one. An even-count test never sees it.
+    for count in (4, 5, 25):
+        cells = _landscape_cells(*(
+            (f"deck{i:02d}", 30 - i, 0.4 + i / 100) for i in range(count)
+        ))
+        sides = dict(zip([c.tag for c in cells],
+                         _landscape_figure(cells).data[0].textposition))
+
+        by_share = [c.tag for c in sorted(cells, key=lambda c: c.share)]
+        for left, right in zip(by_share, by_share[1:]):
+            assert sides[left] != sides[right], f"{left} and {right} overprint at n={count}"
+        # The low-share end points inward: that is where the dots crowd the frame edge.
+        assert sides[by_share[0]] == "middle right"
+
+
 def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line():
     # The surface has to carry three things the dots cannot: which archetypes were
     # drawn out of how many the year held, how much of a season those dots rest on,
@@ -1176,7 +1331,7 @@ def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line(
     series = Series(cells=_landscape_cells(
         ("grixis", 30, 0.45), ("zoo", 20, 0.5), ("lands", 20, 0.4),
         ("storm", 10, 0.3), ("oracle", 5, 0.6),
-        year=2025, total=2095, year_events=51,
+        year=2025, total=2095, year_events=51, half=0.03,
     ))
     caption = _landscape_caption(series, _landscape_top(series, 3), 3, in_progress=False)
 
@@ -1185,10 +1340,35 @@ def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line(
     assert "2,095 decks" in caption  # the one numeric convention, thousands-comma'd
     assert "0.5" in caption and "middle of the field" in caption
     # Counted on the drawn dots, not asserted: Grixis (.45) and Lands (.40) beat the
-    # middle of the field, Zoo (.50) sits exactly on it, so two of the three are above.
-    assert "2 of 3" in caption
+    # middle of the field and Zoo (.50) sits exactly on it, so two of the three are
+    # above. Both of those two also settle it, their intervals (.42-.48 and .37-.43)
+    # clearing the line (#175).
+    assert "2 of 3 above the 0.5 line" in re.sub(r"<[^>]+>", "", caption)
+    assert "2 of them settled" in re.sub(r"<[^>]+>", "", caption)
     # A finished year makes no in-progress claim.
     assert "in progress" not in caption
+
+
+def test_the_caption_counts_the_dots_above_the_line_and_says_how_many_settle_it():
+    # Two numbers, because either alone misleads. The gated count on its own read as a
+    # contradiction of the picture: a reader seeing twenty dots over the line was told
+    # "1 of 25", and the caption lost to the chart. The plain count on its own is the
+    # overclaim #175 exists to remove. So the plain count leads, matching what the eye
+    # does, and the settled count qualifies it.
+    #
+    # Grixis (.30, interval .20 to .40) settles it. Storm's mean beats the middle of the
+    # field but its interval (.38 to .58 raw) crosses the line, so it is above and not
+    # settled. An archetype the year never scored has no interval and settles nothing.
+    series = Series(cells=_landscape_cells(
+        ("grixis", 30, 0.30), ("storm", 20, 0.48), ("ghost", 10, None), half=0.1,
+    ))
+    caption = _landscape_caption(series, _landscape_top(series, 25), 25, in_progress=False)
+    # Read as the sentence a reader sees, since the two numbers are set in their own
+    # accent spans and the markup falls between them.
+    sentence = re.sub(r"<[^>]+>", "", caption)
+
+    assert "2 of 2 above the 0.5 line" in sentence   # both means beat the field
+    assert "1 of them settled" in sentence           # one of the two is settled
 
 
 def test_the_landscape_caption_says_when_the_year_is_still_running():
@@ -1240,6 +1420,43 @@ def test_the_timeline_headline_counts_the_events_each_archetype_led():
     # pilot chart's "one real result" wording must never appear.
     assert "1 to 3" in caption
     assert "real result" not in caption
+
+
+def test_a_headline_count_a_coin_could_produce_is_printed_with_its_discount():
+    # Each point is the mean of a median of one ranked deck, so under the null each
+    # event is a coin flip and the headline count is a sign test nobody ran: over the
+    # 121 archetypes the dropdown offers, 100 of the counts are indistinguishable from a
+    # fair coin at 90% (#175). "8 of 14" is one of them (a coin produces a split at
+    # least that lopsided about 40% of the time), so the count is printed, because it
+    # is a fact, and the reading is what gets discounted.
+    coin = _archetype_timeline_caption("Abzan", None, _timeline_points(
+        *[(day, 0.4 if day <= 8 else 0.6, 1) for day in range(1, 15)]
+    ))
+    assert "8 of 14" in coin
+    assert "a split a coin could produce" in coin
+
+    # 13 of 14 is a lead a coin does not produce, so it is stated without the hedge.
+    lead = _archetype_timeline_caption("Abzan", None, _timeline_points(
+        *[(day, 0.4 if day <= 13 else 0.6, 1) for day in range(1, 15)]
+    ))
+    assert "13 of 14" in lead
+    assert "coin" not in lead
+
+
+def test_a_pair_headline_is_gated_against_the_same_coin():
+    # The pair's win count is the same sign test on the same thin points, so it carries
+    # the same gate. A tie already asserts no leader, so it needs none.
+    coin = _archetype_timeline_caption("Storm", "Lands", _timeline_points(
+        *[(day, 0.4 if day <= 8 else 0.6, 1, 0.5, 1) for day in range(1, 15)]
+    ))
+    assert "8 of 14" in coin
+    assert "a split a coin could produce" in coin
+
+    tie = _archetype_timeline_caption("Storm", "Lands", _timeline_points(
+        (1, 0.4, 1, 0.6, 1), (2, 0.6, 1, 0.4, 1),
+    ))
+    assert "1 each" in tie
+    assert "coin" not in tie
 
 
 def test_a_solo_timeline_says_a_second_archetype_restricts_it_to_shared_events():
@@ -1924,6 +2141,28 @@ def test_the_race_faq_says_the_majors_cut_is_unique_to_this_plot():
     assert "only plot in the app that leaves events out" in answer
     assert "hidden gems" in answer and "performance chart" in answer
     assert "different questions" in answer
+
+
+def test_the_faq_says_what_each_surfaces_interval_covers_and_what_it_leaves_unsettled():
+    # The three surfaces that draw a mean placementNorm all present it more honestly
+    # than their captions have room to explain (#175), so the FAQ carries the method:
+    # what the bar is, why the year-to-year movement on a career is not a story, what an
+    # unsettled dot on the landscape means, and that a timeline headline is only a lead
+    # when it clears chance. Asserted on the claims, not on the phrasing around them.
+    answers = {eid: a for eid, _, _, a in _FAQ_ENTRIES}
+
+    performance = answers["faq-performance"]
+    assert "90%" in performance
+    # The permutation test is why the movement is not a reading the chart offers.
+    assert "shuffling" in performance.lower()
+    assert "slump" in performance
+
+    landscape = answers["faq-landscape"]
+    assert "90%" in landscape
+    assert "crosses" in landscape and "0.5" in landscape
+
+    timeline = answers["faq-archetype-timeline"]
+    assert "coin" in timeline
 
 
 def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():

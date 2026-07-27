@@ -12,6 +12,7 @@ last (ADR 0013).
 """
 
 import calendar
+import math
 import random
 from dataclasses import dataclass
 from datetime import datetime
@@ -172,6 +173,84 @@ RACE_INTERVAL = 0.90
 MIN_RACE_CONTENDERS = 2
 
 
+# The multiplier on a mean's standard error that makes a 90% interval: the two-sided
+# normal cut, the same 90% the race's rank interval reports (:data:`RACE_INTERVAL`), so
+# every claim in the app is settled at one confidence and a reader learns the level once.
+#
+# It is a normal cut and not a t one, which is the deliberate simplification: the
+# standard error divides a **field-pooled** spread rather than the point's own two or
+# three finishes, so the degrees of freedom behind it are the field's (thousands) and
+# not the point's, where a t cut is 1.645 to three decimals. Pooling is the whole point.
+# The obvious alternative, bootstrapping each point's own finishes, was simulated
+# against this artifact's noise and rejected: a nominal 90% interval covers 50.6% at two
+# finishes and 62.1% at three, because two finishes admit only three distinct resampled
+# means and no bootstrap variant escapes that (issue #175). The pooled form covers 90.0
+# to 90.9% at every one of those sample sizes on the same simulation, and any method
+# proposed to replace it has to clear that bar first.
+INTERVAL_Z = 1.645
+
+# The fewest finishes a pilot's career needs before it is one of the records the
+# within-pilot spread is pooled over. Five, so the term is estimated on records long
+# enough to carry a spread of their own, the same size of record :func:`_shrinkage`
+# fits on (:data:`MIN_CAREER_MAJORS`) and the population issue #175 measured: 272
+# pilots and 3,209 finishes. It is a fitting floor, not a drawing one:
+# every drawn point gets an interval from it, including the two-event years no record
+# here is thin enough to reach.
+MIN_SPREAD_FINISHES = 5
+
+
+def _pooled_sd(records: list[list[float]]) -> float | None:
+    """How far one observation bounces from its own record's level, pooled over a field.
+
+    The one input every claim interval in this module takes: the within-record spread,
+    estimated once over the whole field rather than off the handful of observations
+    behind a single drawn point. It is :func:`_shrinkage`'s ``within`` term standing on
+    its own, as a standard deviation, because two surfaces need that quantity without
+    needing a shrunk score (issue #175).
+
+    A record of one observation contributes to neither the sum of squares nor the
+    degrees of freedom: it has no spread of its own to pool. A field where nothing was
+    observed twice therefore comes back ``None``, which says the field cannot state how
+    much one observation bounces, and the caller draws no interval rather than a zero
+    one.
+
+    Each record is summed in sorted order, because float addition is not associative and
+    Ladybug hands the same rows back in different orders between calls: an unsorted
+    record makes the same artifact report bounds that differ in the last decimals, which
+    is exactly the "a moved number means moved evidence" promise the interval exists to
+    keep. Callers pass the records themselves in a settled order for the same reason.
+    """
+    squares, dof = 0.0, 0
+    for record in records:
+        if len(record) < 2:
+            continue
+        record = sorted(record)
+        mean = sum(record) / len(record)
+        squares += sum((x - mean) ** 2 for x in record)
+        dof += len(record) - 1
+    return math.sqrt(squares / dof) if dof else None
+
+
+def _interval(mean: float, n: int, sd: float | None) -> tuple[float, float] | None:
+    """The 90% interval on a mean of ``n`` observations, given the field's spread.
+
+    ``mean`` plus and minus :data:`INTERVAL_Z` standard errors, the standard error being
+    the pooled ``sd`` over the root of the point's own sample. The bounds are clamped to
+    the 0-to-1 scale a ``placementNorm`` lives on, since no mean finish can be better
+    than a win or worse than last; clamping only ever moves a bound toward the truth, so
+    the coverage the pooled form was chosen for is not spent on it.
+
+    ``None`` where there is no spread to divide (a field nothing was observed twice in)
+    or no sample to divide it over (a year the source scored nothing of). Both are "this
+    cannot be said", which the surfaces draw as no interval rather than as a zero-width
+    one that would read as a settled point.
+    """
+    if sd is None or n < 1:
+        return None
+    half = INTERVAL_Z * sd / math.sqrt(n)
+    return max(0.0, mean - half), min(1.0, mean + half)
+
+
 class NotEnoughHistory(ValueError):
     """Raised when a trend is refused for want of evidence, and says how much it found.
 
@@ -253,11 +332,23 @@ class PerformanceCell:
     but the year the pilot played is a fact, and dropping the row hid it. The cell
     is the refusal, stated with the sample size that caused it, so "too thin to say"
     and "did not play" stay different answers (ADR 0013's amendment, issue #101).
+
+    ``mean_low`` and ``mean_high`` bound ``mean_norm``: the 90% interval on it, the
+    field's within-pilot spread over the root of ``events`` (:func:`_interval`). They
+    are on the same raw scale as the mean, so ``mean_low`` is the *better* end and only
+    the chart's flip turns that around. They are what makes the cell readable: the
+    movement between one year's mean and the next is statistically indistinguishable
+    from shuffling a pilot's own finishes across their own years, so the value and its
+    width are the whole honest content of the point and a dip is not a slump (issue
+    #175). Both are ``None`` wherever ``mean_norm`` is, and also where the field was too
+    thin to fit a spread at all.
     """
 
     year: int
     mean_norm: float | None
     events: int
+    mean_low: float | None
+    mean_high: float | None
 
 
 @dataclass(frozen=True)
@@ -276,6 +367,16 @@ class LandscapeCell:
     span. An archetype whose year holds no scored deck at all has ``mean_norm``
     ``None`` and ``events`` zero: it was played, and nothing about its finish is known.
 
+    ``mean_low`` and ``mean_high`` bound ``mean_norm``, the 90% interval on it over the
+    year's own within-archetype spread (:func:`_interval`), raw as the mean is, so
+    ``mean_low`` is the better end. They are what the caption's "above the 0.5 line"
+    reading has to clear before it is a reading at all: at these sample sizes most dots
+    do not settle which side of the middle they belong on (issue #175). The interval
+    divides by ``events``, not by the decks, for the reason ``events`` is carried at all:
+    several decks of one archetype at one event met one field, so they are one trial.
+    Both are ``None`` where ``mean_norm`` is, and where the year held nothing to fit a
+    spread over.
+
     ``year_total`` and ``year_events`` are the year's own decks and events, the
     season the whole landscape rests on, carried on every cell the way
     :class:`SeriesCell` carries its year total, so a caption can state the sample
@@ -292,6 +393,8 @@ class LandscapeCell:
     year_events: int
     mean_norm: float | None
     events: int
+    mean_low: float | None
+    mean_high: float | None
 
 
 @dataclass(frozen=True)
@@ -561,6 +664,35 @@ def _year_shape(conn: ladybug.Connection, year: int) -> tuple[int, int]:
     return decks, events
 
 
+def _within_archetype_sd(conn: ladybug.Connection, year: int) -> float | None:
+    """One year's within-archetype spread: how far one deck finishes from its engine's.
+
+    The landscape's fit for :func:`_interval`, the archetype-scale sibling of
+    :func:`_within_pilot_sd`. It is fitted per year because the query is already
+    year-scoped and nothing is bought by widening it: measured across the corpus the
+    figure is 0.305 / 0.293 / 0.295 / 0.296 for 2023 to 2026, which the deck-norm scale
+    pins near the 0.289 a uniform 0-to-1 spread would give, so a whole-corpus fit would
+    move no bound a reader could see.
+
+    It pools **deck** norms while :func:`_interval` divides by the archetype's distinct
+    events, which is deliberately the conservative pairing: the decks are what there is
+    a spread of, the events are the independent trials, and where they differ the wider
+    interval is the honest one. A year holding no archetype with two scored decks comes
+    back ``None`` and its dots carry no interval, which is the right answer for a year
+    that cannot say how much one deck bounces.
+    """
+    by_tag: dict[str, list[float]] = {}
+    for tag, norm in rows(conn.execute(
+        """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
+                 (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(:Year {year: $year})
+           WHERE d.placementNorm IS NOT NULL
+           RETURN a.tag, d.placementNorm""",
+        {"year": year},
+    )):
+        by_tag.setdefault(tag, []).append(norm)
+    return _pooled_sd([norms for _, norms in sorted(by_tag.items())])
+
+
 def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
     """One year's metagame as share against finish, one cell per archetype played.
 
@@ -606,9 +738,12 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
             {"year": year},
         ))
     }
+    sd = _within_archetype_sd(conn, year)
     cells = []
     for tag, n in sorted(counts.items()):
         mean, events = finishes.get(tag, (None, 0))
+        bounds = _interval(mean, events, sd) if mean is not None else None
+        low, high = bounds or (None, None)
         cells.append(LandscapeCell(
             tag=tag,
             archetype=names[tag],
@@ -619,6 +754,8 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
             year_events=year_events,
             mean_norm=mean,
             events=events,
+            mean_low=low,
+            mean_high=high,
         ))
     plottable = [cell for cell in cells if cell.mean_norm is not None]
     if len(plottable) < MIN_LANDSCAPE_ARCHETYPES:
@@ -701,6 +838,42 @@ def comparable_points(
         c for c in cells
         if c.mean_norm_a is not None and (not paired or c.mean_norm_b is not None)
     ]
+
+
+def beats_a_coin(led: int, of: int) -> bool:
+    """Whether leading ``led`` of ``of`` events is a lead chance would not have handed out.
+
+    The sign test the archetype timeline's headline needs before it can be read as a
+    lead (issue #175). Each of its points is the mean of a median of **one** ranked
+    deck, so under the null "this archetype is the middle of the field" every event is a
+    coin flip, and a count out of a handful of them is not evidence on its own: run over
+    the 121 archetypes the surface offers, 100 of the headline counts are ones a fair
+    coin produces at least 10% of the time, "8 of 14" (about 40%) among them.
+
+    True where the count sits further than :data:`INTERVAL_Z` standard errors from the
+    half the null predicts, the same 90% every other claim in this module is settled at,
+    on the binomial's ``sqrt(of) / 2``. Public, and beside the tool rather than in the
+    app, for the reason :func:`comparable_points` is: the count and the gate on it have
+    to be the same arithmetic, and this is the module that owns what the points mean.
+
+    **The half-step is a continuity correction, and it is load-bearing rather than a
+    refinement.** A normal cut approximates a discrete count, and every disagreement it
+    has with the exact binomial here falls the unsafe way. Without the correction the
+    gate certified 52 distinct counts at ``of`` up to 60 whose exact two-sided p is 0.10
+    or worse, and they are not exotic: ``MIN_ARCHETYPE_EVENTS`` is 2, so "3 of 3" is
+    drawable and was passed as a lead though a coin produces it a quarter of the time.
+    On the current artifact it wrongly certified 7 of the 121 headlines, "Golgari Cradle
+    7 of 9" (p = 0.18) and two unanimous "4 of 4" runs (p = 0.125) among them. With the
+    correction that sweep certifies nothing at p >= 0.10, and what it newly hedges is
+    only ever a claim the exact test also refuses.
+
+    A tie is counted in ``of`` by the caller and never in ``led``, which pulls the null's
+    centre above the highest count either side can reach and so only makes the gate
+    harder to clear. That is the safe direction, and it keeps the tested denominator the
+    same one the headline prints, so the sentence a reader checks is the sentence the
+    arithmetic ran on.
+    """
+    return abs(led - of / 2) - 0.5 > INTERVAL_Z * math.sqrt(of) / 2
 
 
 def archetype_timeline(
@@ -843,6 +1016,41 @@ def card_adoption_over_time(
     return Series(cells=cells)
 
 
+def _within_pilot_sd(conn: ladybug.Connection) -> float | None:
+    """The field's within-pilot spread: how far one finish bounces from a pilot's level.
+
+    The pilot chart's fit for :func:`_interval`, taken over every pilot carrying
+    :data:`MIN_SPREAD_FINISHES` ranked finishes and over their whole career rather than
+    per year, since it is the pilot's own level a finish bounces around and a year is
+    too short to see it. On the current artifact that is 272 pilots, 3,209 finishes and
+    a pooled sd of 0.268, so a two-event year earns a half-width of 0.31 and a
+    twenty-event one 0.10.
+
+    That 0.268 runs a little above the 0.2565 issue #175's coverage simulation was fitted
+    on, over the same finishes: :func:`_pooled_sd` divides by the degrees of freedom where
+    the ticket's residual figure divided by the count. The difference is 4.5% of the
+    width, it goes the conservative way (a wider interval covers more, and the simulation
+    already cleared 90% at the narrower fit), and the unbiased form is kept because the
+    quantity wanted here is the field's spread rather than this sample's.
+
+    It is a property of the field, so it is the same for every pilot and every year, and
+    a pilot's own record widens nobody's interval but their peers' by joining the pool.
+    Records are walked in pilot order and each is sorted inside :func:`_pooled_sd`, so
+    the fit does not move with Ladybug's row order between calls.
+    """
+    careers: dict[str, list[float]] = {}
+    for pilot, norm in rows(conn.execute(
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)
+           WHERE d.placementNorm IS NOT NULL
+           RETURN p.pilot, d.placementNorm"""
+    )):
+        careers.setdefault(pilot, []).append(norm)
+    return _pooled_sd([
+        career for _, career in sorted(careers.items())
+        if len(career) >= MIN_SPREAD_FINISHES
+    ])
+
+
 def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     """One pilot's mean ``placementNorm`` per year, for years with real history.
 
@@ -884,6 +1092,15 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     a pilot short of two of them raises :class:`NotEnoughHistory` rather than drawing
     a lone point on an empty line. Cells are ordered by year; the connecting line
     asserts no direction, only joins the points.
+
+    Every year that keeps its mean also carries the 90% interval on it, and that is what
+    the surface is for now. The movement between these means was measured against the
+    artifact and is not real: shuffling each pilot's finishes across their own years
+    moves the drawn line as far as their real career does (issue #175), so the value and
+    its width are what a reader can take. The width comes from the **field's**
+    within-pilot spread (:func:`_within_pilot_sd`), not from the year's own two or three
+    finishes, which is one extra query and the only honest way to width a mean this
+    thin: the year's own finishes cannot show the spread they were drawn from.
     """
     # The mean and its sample, over the ranked decks only: a null placementNorm is a
     # finish no rule could rank, so it neither shifts the mean nor pads the count.
@@ -905,18 +1122,19 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
            RETURN DISTINCT y.year""",
         {"pilot": pilot},
     )))
-    cells = [
-        PerformanceCell(
-            year=year,
-            # The floor is on the mean, not on the year: a thin year states its
-            # sample size and withholds only the value that sample cannot carry.
-            mean_norm=mean if events >= MIN_PILOT_YEAR_EVENTS else None,
-            events=events,
-        )
-        for year, (mean, events) in (
-            (year, scored.get(year, (None, 0))) for year in played
-        )
-    ]
+    # One fit for the whole chart, read off the field rather than off this pilot.
+    sd = _within_pilot_sd(conn)
+    cells = []
+    for year in played:
+        mean, events = scored.get(year, (None, 0))
+        # The floor is on the mean, not on the year: a thin year states its
+        # sample size and withholds only the value that sample cannot carry.
+        mean = mean if events >= MIN_PILOT_YEAR_EVENTS else None
+        bounds = _interval(mean, events, sd) if mean is not None else None
+        low, high = bounds or (None, None)
+        cells.append(PerformanceCell(
+            year=year, mean_norm=mean, events=events, mean_low=low, mean_high=high,
+        ))
     qualifying = [cell for cell in cells if cell.mean_norm is not None]
     if len(qualifying) < MIN_QUALIFYING_YEARS:
         raise NotEnoughHistory(

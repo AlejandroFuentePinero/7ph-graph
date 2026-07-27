@@ -165,3 +165,15 @@ Resolved the same day. **The warning was worth heeding: two of the nine moved th
 - The other seven moved denominator only: `ingest.py:139` (6), `trends.py:237` (98 of 107, the 9 corrected unchanged), `trends.py:255` (all), `trends.py:298` (21), `trends.py:839` (3), `app.py:1420` (10), `app.py:1540` (59).
 
 Two claims did not mean what they looked like, and guessing would have written a wrong number into a docstring that reads as measured fact. `app.py:1540`'s "Grixis and Lands, 59 of its 108 events" counts events where both are the **primary** tag (85 and 67 events respectively as primary, 91 and 69 if any engine tag counts, 59 where both are primary). And `trends.py:239`'s "71 of 71" has a denominator of 71 where 72 events carry no `players` field, because one of those 72 records no placement at all and so cannot be evidence either way.
+
+## 2026-07-27 - A gated statistic can be less honest than the plain one it replaces
+
+#175 gated three surfaces that were reading a mean `placementNorm` as a settled value. Two of the three gates shipped as specified. The landscape's did not, and the reason generalises past that chart.
+
+Its AC asked the caption to count only the dots whose interval clears the 0.5 line: "N of 25 clearly above". Built that way it printed **"1 of 25 clearly above"** beside a picture in which twenty dots plainly sit above the line. The number was correct and the sentence was unreadable, because a reader resolves a caption that contradicts the chart by disbelieving the caption, and then disbelieves the honest parts too. It now reports both counts, the plain one leading and the gated one qualifying. The gate and the evidence are unchanged; only which number leads moved.
+
+The transferable rule: **a gate that removes an overclaim can install a different one if its number visibly disagrees with what the surface shows.** Report the number the reader can see, and let the gate qualify it. Check a gated claim against the drawn artifact before shipping it, not only against the arithmetic.
+
+**#176 (the hidden gem band) is the open sibling of exactly this class** and will face the same choice, on the same kind of surface. Its threshold crossing is a coin flip for most of its members, so the obvious remedy is to gate the band's membership claim. Weigh reporting both there too.
+
+Two smaller things the ADR does not carry. The permutation practice ADR 0017 sets is worth running against the *built* surface and not only the plotted quantity: it is what surfaced that 98.7% of the pilot chart's adjacent-year pairs overlap, which is the finding drawn rather than a number in a ticket. And a normal-approximation sign test needs its continuity correction at these sample sizes: without it the gate certified 52 distinct counts at n <= 60 whose exact binomial p is 0.10 or worse, "3 of 3" among them, every disagreement falling the unsafe way.

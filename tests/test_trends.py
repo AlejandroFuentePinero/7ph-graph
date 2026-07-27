@@ -22,9 +22,12 @@ from graph7ph.trends import (
     PilotPerformanceOverTime,
     Series,
     SeriesCell,
+    _interval,
+    _pooled_sd,
     archetype_landscape,
     archetype_timeline,
     archetypes_with_history,
+    beats_a_coin,
     card_adoption_over_time,
     head_to_head_timeline,
     latest_deck_year,
@@ -453,6 +456,65 @@ def test_card_adoption_board_filter_scopes_the_count_not_the_base(tmp_path, buil
     assert (side.count, side.year_total) == (1, 4)
 
 
+def test_the_pooled_spread_is_taken_within_records_and_skips_the_lone_ones():
+    # The interval's whole input (issue #175): how far one finish bounces from its own
+    # subject's level, pooled over the field rather than read off the point's own two
+    # or three finishes. Worked by hand: [.2,.4,.6] deviates -.2/0/+.2 (sum of squares
+    # .08 over 2 degrees of freedom) and [.5,.7] deviates -.1/+.1 (.02 over 1), so the
+    # pooled variance is .10/3 and the sd its root. The lone record carries no spread
+    # of its own, so it contributes neither to the sum nor to the degrees of freedom.
+    assert _pooled_sd([[0.2, 0.4, 0.6], [0.5, 0.7], [0.9]]) == pytest.approx(0.18257, rel=1e-4)
+    # A field where nothing has been observed twice cannot say how much one
+    # observation bounces, so there is no spread to report rather than a zero one.
+    assert _pooled_sd([[0.4], [0.6]]) is None
+
+
+def test_the_pooled_spread_does_not_move_with_the_order_the_rows_arrive_in():
+    # Nothing here is resampled, so the interval is deterministic by construction, with
+    # one hazard left: Ladybug hands the same query's rows back in different orders
+    # between calls and float addition is not associative, so a record summed in row
+    # order lands a few bits apart run to run. These six finishes are one such record
+    # (0.24277490833333337 forwards, ...34 back), which is enough to move a bound in the
+    # last decimals and break "a moved number means moved evidence" (issue #175).
+    record = [0.3238, 0.1508, 0.6509, 0.0724, 0.5359, 0.3657]
+    assert _pooled_sd([record]) == _pooled_sd([list(reversed(record))])
+
+
+def test_the_interval_narrows_with_the_sample_and_never_leaves_the_scale():
+    # 1.645 * sd / sqrt(n) either side of the mean: at a spread of 0.2, four finishes
+    # carry a half-width of 0.1645 and sixteen carry half of that, so a thin point is
+    # visibly less settled than a thick one rather than sitting on the same dot.
+    assert _interval(0.4, 4, 0.2) == pytest.approx((0.2355, 0.5645))
+    assert _interval(0.4, 16, 0.2) == pytest.approx((0.3178, 0.4823), rel=1e-3)
+    # A finish is a normalised rank, so no bound can sit outside the scale: a mean of
+    # 0.1 on two finishes has a half-width of 0.349, and the low end is a win, not
+    # better than one.
+    assert _interval(0.1, 2, 0.3) == pytest.approx((0.0, 0.4490), abs=1e-4)
+    # No spread to divide, or nothing to divide it over: no interval, rather than one
+    # of width zero, which would draw as a settled point.
+    assert _interval(0.4, 3, None) is None
+    assert _interval(0.4, 0, 0.2) is None
+
+
+def test_a_short_unanimous_run_is_not_a_lead_a_coin_could_not_produce():
+    # The gate is a sign test, and the normal approximation behind it is optimistic on
+    # exactly the counts this surface prints most: MIN_ARCHETYPE_EVENTS is 2, so "3 of 3"
+    # is drawable, and a fair coin produces a run that lopsided a quarter of the time.
+    # Uncorrected, the gate certified it as a lead, which is the overclaim the gate was
+    # added to remove, so the half-step continuity correction is load-bearing rather
+    # than a refinement (#175).
+    assert not beats_a_coin(3, 3)   # exact two-sided p = 0.25
+    assert not beats_a_coin(4, 4)   # 0.125
+    assert not beats_a_coin(7, 9)   # 0.18
+    assert not beats_a_coin(8, 10)  # 0.109
+    # A run a coin really does not produce still clears, or the gate would hedge
+    # everything and say nothing.
+    assert beats_a_coin(13, 14)
+    assert beats_a_coin(0, 8)  # lopsided the other way, and the test is two-sided
+    # An even split is the null itself.
+    assert not beats_a_coin(5, 10)
+
+
 def _write_performance_snapshot(
     root: Path, decks: list[tuple[str, str, str, int, float | None]]
 ) -> Path:
@@ -540,6 +602,41 @@ def test_pilot_performance_returns_per_year_mean_and_n_for_qualifying_years(
     assert by_year[2025].mean_norm == pytest.approx(0.2)
 
 
+def test_every_drawn_year_carries_the_interval_its_own_sample_earns(
+    tmp_path, built_graph
+):
+    # The finding #175 exists for: a year's mean rests on a median of three events, and
+    # the surface presented it as a value. Every drawn point now carries the 90%
+    # interval on that mean, taken from the field's own within-pilot spread over the
+    # root of the year's events, so a two-event year is visibly less settled than a
+    # ten-event one and the two overlap where the evidence does not separate them.
+    #
+    # ``twin``'s 2025 is the case that rejects the alternative: its two finishes are
+    # identical, so resampling them, the method this replaces, returns an interval of
+    # width zero and calls a mean of two results settled. Held below five career
+    # finishes, ``twin`` is not one of the records the spread is fitted over.
+    decks = [(f"ada24-{i}", "ada", f"A24E{i}", 2024, n) for i, n in enumerate([0.2, 0.4, 0.6])]
+    decks += [(f"ada25-{i}", "ada", f"A25E{i}", 2025, n)
+              for i, n in enumerate([0.1, 0.1, 0.3, 0.3])]
+    decks += [(f"twin24-{i}", "twin", f"T24E{i}", 2024, 0.5) for i in range(2)]
+    decks += [(f"twin25-{i}", "twin", f"T25E{i}", 2025, 0.5) for i in range(2)]
+    conn = built_graph(tmp_path, _write_performance_snapshot(tmp_path, decks))
+
+    # ``ada`` is the whole fit: her seven finishes deviate from her 0.2857 career mean
+    # by a pooled sd of 0.1773, so two events earn 1.645 * 0.1773 / sqrt(2) = 0.206
+    # either side of the mean.
+    twin = {c.year: c for c in pilot_performance_over_time(conn, "twin").cells}[2025]
+    assert twin.mean_norm == pytest.approx(0.5)
+    assert (twin.mean_low, twin.mean_high) == pytest.approx((0.294, 0.706), abs=0.002)
+
+    # The same spread over more events is a narrower claim, which is the reading the
+    # chart could not make before: ``ada``'s four-event year is tighter than her
+    # three-event one, and both are still wide enough to overlap.
+    ada = {c.year: c for c in pilot_performance_over_time(conn, "ada").cells}
+    assert ada[2025].mean_high - ada[2025].mean_low < ada[2024].mean_high - ada[2024].mean_low
+    assert ada[2025].mean_high > ada[2024].mean_low
+
+
 def test_pilot_performance_of_a_single_year_pilot_is_not_enough_history(
     tmp_path, built_graph
 ):
@@ -571,6 +668,9 @@ def test_pilot_performance_refuses_a_thin_years_mean_but_still_states_the_year(
     assert set(by_year) == {2023, 2024, 2025}
     assert by_year[2023].mean_norm is None
     assert by_year[2023].events == 1
+    # A refused mean has nothing to bound, so it carries no interval either: a width
+    # around a value the cell withholds would be a claim about a claim it never made.
+    assert (by_year[2023].mean_low, by_year[2023].mean_high) == (None, None)
     # The floor still fires on the mean: no thin year is ever given a value.
     assert by_year[2024].mean_norm == pytest.approx(0.5)
     # 2025's unranked deck neither shifts the mean nor pads the event count: the mean
@@ -977,6 +1077,29 @@ def test_landscape_pairs_each_archetypes_share_with_its_mean_finish(
     # can state how much of a season the landscape rests on without a second query.
     assert {c.year for c in cells.values()} == {2025}
     assert storm.year_events == 2
+
+
+def test_every_landscape_dot_carries_an_interval_widened_by_events_not_decks(
+    tmp_path, built_graph
+):
+    # The same claim defect as the pilot chart, on the same statistic (#175): the dots
+    # are means of a handful of decks and the caption reads which side of 0.5 they sit.
+    # Each one now carries the 90% interval on its mean, fitted over the year's own
+    # within-archetype spread: Storm (.1/.3) and Grixis (.4/.6/.4/.6) pool to an sd of
+    # 0.1225 over 4 degrees of freedom.
+    conn = _landscape_graph(tmp_path, built_graph)
+    cells = {c.tag: c for c in archetype_landscape(conn, 2025).cells}
+
+    # Storm's two decks sat at two events, so 1.645 * 0.1225 / sqrt(2) either side.
+    assert (cells["storm"].mean_low, cells["storm"].mean_high) == pytest.approx(
+        (0.0575, 0.3425), abs=0.001
+    )
+    # Grixis has twice the decks and a **wider** interval, because all four sat at one
+    # event: several decks of one archetype at one event are one trial of the field it
+    # met, not four, so the events divide the spread and the decks do not.
+    assert (cells["grixis"].mean_low, cells["grixis"].mean_high) == pytest.approx(
+        (0.2985, 0.7015), abs=0.001
+    )
 
 
 def test_a_year_with_no_field_to_place_a_dot_in_is_refused_by_name(tmp_path, built_graph):
