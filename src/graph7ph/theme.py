@@ -270,6 +270,39 @@ def build_css() -> str:
    subtitle should not change colour with which of the two a plot happens to use. */
 .insight-card .t-caption, .insight-card .t-fieldstat {{ color: var(--accent-bright); }}
 
+/* The best-player race's standings, the one table the app draws (#135). It sits inside
+   an insight card, so it carries no surface or border of its own: the rules between rows
+   are the card's own hairline token and the header is set in the control-label role, so
+   the table reads as part of the card rather than as an embedded spreadsheet. Figures are
+   tabular and right-aligned, since the whole point of the column is comparing thousandths
+   down it; the rank stays muted because the name is what a reader is scanning for.
+   The swatch is the tie back to the chart: a drawn contender's row is dotted in the hue
+   their line takes, and a row past the eighth keeps the same indent with no dot, so the
+   names stay in one column rather than stepping in and out of it. */
+.leaderboard {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+.leaderboard th {{
+  padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-mute);
+}}
+.leaderboard td {{
+  padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); color: var(--text);
+}}
+.leaderboard tbody tr:last-child td {{ border-bottom: none; }}
+.leaderboard .rank, .leaderboard .score {{
+  text-align: right; font-variant-numeric: tabular-nums;
+}}
+.leaderboard .rank {{ width: 3ch; color: var(--text-mute); }}
+/* The rank interval is the column that qualifies the rank, so it is set back like the
+   rank itself rather than competing with the score: a reader scanning the board reads
+   name and score, and reads this when they stop to ask how firm a place is. */
+.leaderboard .spread {{ color: var(--text-mute); white-space: nowrap; }}
+.leaderboard .swatch {{
+  display: inline-block; width: 9px; height: 9px; border-radius: 999px;
+  margin-right: 0.6rem; vertical-align: middle;
+}}
+.leaderboard .swatch-hue {{ box-shadow: 0 0 0 3px var(--surface); }}
+
 /* The results stack wraps a view's insight cards and is toggled as a whole: hidden
    before a Draw (so the view opens as controls over empty ground, the guidance living
    in the control's help text, not a row of duplicated "nothing yet" cards), shown once

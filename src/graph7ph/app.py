@@ -54,12 +54,16 @@ from graph7ph.render import render_subgraph
 from graph7ph.trends import (
     ArchetypeLandscape,
     ArchetypeTimeline,
+    BestPlayerRace,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     LandscapeCell,
     MetaShareOverTime,
     NotEnoughHistory,
+    MAJOR_FIELD_SIZE,
     PilotPerformanceOverTime,
+    RACE_INTERVAL,
+    RaceCell,
     Series,
     archetypes_with_history,
     comparable_points,
@@ -531,6 +535,47 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "tool says so.",
     ),
     (
+        "faq-race",
+        "Pilots",
+        'How is the "Best player race" scored?',
+        "Only the biggest events count: a field of more than 64, which is about the top "
+        "fifth of them, so that every pilot in the race is measured on the same kind of "
+        "event. This is the only plot in the app that leaves events out. Everywhere "
+        "else, including a pilot's own performance chart and the hidden gems, every "
+        "event with a recorded finish counts, so a pilot's standing here and their "
+        "record elsewhere are answering different questions and will not always agree. "
+        "A pilot's score is the average of their finishes there, pulled toward "
+        "the average of the whole field by how little evidence stands behind it: a "
+        "pilot with five such events is scored about half on their own record and half "
+        "on the field's, while one with three times that record is scored mostly on "
+        "their own. "
+        "That is what stops a good weekend outranking a long strong record, and how "
+        "hard it pulls is measured from the data rather than chosen, by comparing how "
+        "much one pilot's results bounce around against how much pilots genuinely "
+        "differ. To be in the race at all a pilot needs five of these events behind "
+        "them and two of them in the last year, so the field is who is playing now. "
+        "Each point on a line is that same score over every one of these events the "
+        "pilot had played by that date, so a line climbing is their record filling in "
+        "rather than the pilot improving, and the last point of a line is the score "
+        "the standings rank them on. It is drawn this way because the obvious "
+        "alternative, a rolling window of recent form, was measured and found to be "
+        "noise: shuffling a pilot's results into a different order moved those lines "
+        "just as much as their real career did.",
+    ),
+    (
+        "faq-race-certainty",
+        "Pilots",
+        'How settled is the "Best player race" order?',
+        "Less than three decimal places make it look. These are the biggest events, so "
+        "there are only a couple of dozen of them and a typical contender has played "
+        "eight, which is not enough to separate pilots whose scores differ in the "
+        "thousandths. The standings put a number on that: each pilot's results are "
+        "redrawn at random from their own record a thousand times, the whole field is "
+        "rescored, and the last column reports the range their rank landed in 90% of "
+        "the time. Those ranges are wide, and they overlap heavily near the top. Read "
+        "the leading group as a group, not as a 1-2-3.",
+    ),
+    (
         "faq-adoption",
         "Cards",
         'How is "Adoption over time" calculated?',
@@ -620,6 +665,44 @@ def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
     return [cell for cell in ranked if cell.mean_norm is not None]
 
 
+# How many pilots the race draws as lines, and how many the leaderboard beside it
+# lists. Both are display cuts the tool never sees, the same division of labour as
+# `_LANDSCAPE_TOP_N`: `best_player_race` returns every contender's whole trajectory and
+# these pick what is drawn and what is tabled.
+#
+# Eight lines because eight is where the shared palette's *named* hues stop
+# (`palette.MAX_SLOTS`): past the eighth, the palette's own contract says a hue traces a
+# line but does not name it, which would leave this chart's legend decorative when the
+# legend is the only thing tying a line to a pilot. It is not a natural break in the
+# data and does not pretend to be: on the current record the gap from rank 8 to rank 9
+# is 0.0007, a seventh of the gap from 3 to 4 and half the gap between the top two. The
+# leaderboard is what makes that visible, which is most of why it is there.
+_RACE_LINES = palette.MAX_SLOTS
+_LEADERBOARD_ROWS = 50
+# The decimals the standings are written to, in the table and in the chart's hover
+# alike. Three, not the charts' usual two, because the board is separated by
+# thousandths: at two, ranks 4, 5 and 6 all print 0.74 on the current record and 7 and
+# 8 both print 0.73. Named once and shared, because the running score makes the chart's
+# right edge the leaderboard exactly (ADR 0017), so the two read one quantity and a
+# drift between them would print it two ways.
+LEADERBOARD_SCORE_PLACES = 3
+
+
+def _race_trajectories(series: Series) -> list[list[RaceCell]]:
+    """Every contender's trajectory, best first, each one oldest window first.
+
+    A trajectory is one pilot's cells in window order, which is the shape a line trace
+    wants. The tool already returns the field in standing order with each career in
+    window order, so this groups rather than re-ranks: re-sorting here would let the
+    chart's order and the leaderboard's drift apart on a tie. The caller slices it into
+    the leading few it draws in hue and the rest it draws as context behind them.
+    """
+    trajectories: dict[str, list[RaceCell]] = {}
+    for cell in series.cells:
+        trajectories.setdefault(cell.pilot, []).append(cell)
+    return list(trajectories.values())
+
+
 def _rgba(hex_colour: str, alpha: float) -> str:
     """A hex palette colour as an ``rgba()`` string at the given opacity."""
     r, g, b = pc.hex_to_rgb(hex_colour)
@@ -640,6 +723,26 @@ _SURFACE = theme.TOKENS["surface"]
 # light-theme era, which made the one orange thing inside a chart a different orange
 # from every orange outside it.
 _CONTROL_ACCENT = theme.TOKENS["accent-bright"]
+
+# The colour and opacity of the race's context layer, the contenders the cut left out.
+#
+# The app's own accent (§2) rather than the neutral axis token it first drew in (the
+# maintainer's call): the layer is the field, which is a thing the chart is about, and
+# the neutral read as chrome. The bright accent rather than the base one, since that is
+# the token §2 already assigns to a chart mark, and a layer at this opacity needs the
+# lighter of the two to register on the surface at all. It stays clear of the entity
+# palette's own orange (slot 2, `#d95926`), which one of the eight drawn lines may be
+# carrying, though the two are the same family: what separates them is strength, the
+# drawn line at full and this at a sixth of it.
+_RACE_CONTEXT_COLOUR = theme.TOKENS["accent-bright"]
+
+# Still well below `_CONTEXT_ALPHA` beside it, because the layer is four times as dense:
+# the meta chart fades at most 31 lines and this one draws every contender the cut left
+# out, 131 on the current record. Overlap is what sets the reading, not the single
+# stroke: ten lines crossing at one point composite to 83% at this value, so the crowded
+# middle of the field reads as a solid band while a lone contender out on their own
+# stays the faint thread they are.
+_RACE_CONTEXT_ALPHA = 0.16
 
 # The opacity the emphasis model (§6) fades its context lines to: far enough back that
 # a raised line reads as raised even against the widest cut, while each faded line keeps
@@ -1099,6 +1202,252 @@ def _performance_figure(pilot_name: str, series: Series) -> pgo.Figure:
     # caption above the plot already names where the pilot sits, so the line stays a
     # quiet unlabelled reference rather than repeating it.
     fig.add_hline(y=0.5, line=dict(color=_rgba(_AXIS, 0.55), width=1, dash="dot"))
+    return fig
+
+
+def _race_hues(lines: list[list[RaceCell]]) -> dict[str, str]:
+    """The drawn contenders' hues, keyed by pilot (§5).
+
+    One assignment feeding both surfaces: the chart draws its lines in these and the
+    leaderboard marks its rows with them, so a pilot's hue is the same thing in both
+    places. Keyed by pilot rather than by rank, the ADR-0013 reversal, so a contender
+    keeps their colour rather than inheriting the previous occupant's place.
+    """
+    return palette.assign([line[0].pilot for line in lines])
+
+
+def _leaderboard_html(
+    series: Series, names: dict[str, str], hues: dict[str, str], rows: int
+) -> str:
+    """The standings as a table: rank, pilot, score, the majors it rests on, and its width.
+
+    The chart's companion, and the reason the eight-line cut can be honest about being
+    a palette constraint: the table carries the standings past the cut, so a reader sees
+    how close rank 9 was to rank 8 rather than taking the cut as a break in the field.
+    Each drawn pilot is marked in their line's hue, which is what ties a row to a line;
+    the rest are listed unmarked, since colour names eight and no more.
+
+    Majors sits beside the score because it *is* the score's sample, so the two are on
+    one span and a reader can see a high score resting on the fewest events allowed. The
+    score is written to three decimals rather than the charts' two: the top of the board
+    is separated by thousandths, and at two decimals a dozen contenders would print as
+    ties they are not.
+
+    The last column is what keeps the first one honest (ADR 0017). Three decimals of
+    score over a median eight majors invites a reader to take the order as settled, and
+    it is not: on the current record only about five of the top eight survive a resample
+    of their own results. So every row states the interval its rank really sits in,
+    beside the rank rather than in a footnote, because a rank of 4 that could be 17 is a
+    different claim from a rank of 4 and a reader has to see the two together. It is the
+    one column that can say the table is less certain than it looks.
+
+    Display names are free text from the source, so they are escaped.
+    """
+    def row(cell: RaceCell) -> str:
+        hue = hues.get(cell.pilot)
+        swatch = (f"<span class='swatch swatch-hue' style='background:{hue}'></span>"
+                  if hue else "<span class='swatch'></span>")
+        return (
+            "<tr>"
+            f"<td class='rank'>{cell.rank}</td>"
+            f"<td>{swatch}{html.escape(names[cell.pilot])}</td>"
+            f"<td class='score'>{cell.score:.{LEADERBOARD_SCORE_PLACES}f}</td>"
+            f"<td class='score'>{cell.majors}</td>"
+            f"<td class='score spread'>{cell.rank_low}&ndash;{cell.rank_high}</td>"
+            "</tr>"
+        )
+
+    standings = list({cell.pilot: cell for cell in series.cells}.values())[:rows]
+    body = "".join(row(cell) for cell in standings)
+    return (
+        "<table class='leaderboard'><thead><tr>"
+        "<th class='rank'>#</th><th>Pilot</th><th class='score'>Score</th>"
+        "<th class='score'>Major events</th>"
+        "<th class='score spread'>Rank could be</th>"
+        f"</tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
+def _race_caption(series: Series, drawn: int) -> str:
+    """The race's caption: how much of the field is drawn, on what, and who is in it.
+
+    Three things the lines cannot say for themselves, in the field-standing form
+    :func:`_performance_caption` and :func:`_landscape_caption` share. The cut leads,
+    because eight lines out of a field of a hundred and thirty-odd read as the whole
+    field unless the caption says otherwise, and because where the cut falls is a
+    palette constraint rather than a break in the data. Then what a score is measured
+    on, since scoring the biggest events only is the chart's strongest assumption and
+    is invisible in the picture. Then the faded layer, which is the one mark on the
+    chart a reader cannot name from the picture (its predecessor, a p25-p75 band, was
+    asked about on sight at first review). Then what a point *is*, which under the
+    running score is the reading most at risk of being taken for its opposite: a rising
+    line is a record filling in, not a pilot improving, and nothing in the picture says
+    so (ADR 0017).
+
+    The eligibility gates are deliberately not here. They were, and the caption grew to
+    five clauses; the FAQ entry carries them, and none of the three readings above has
+    another home. All app-built numerics off named constants, no user free text, so it is
+    returned as trusted markup for :func:`_chart_heading`'s ``caption_html``.
+    """
+    contenders = len({cell.pilot for cell in series.cells})
+    return (
+        f"<div class='t-fieldstat'><span class='pct'>{drawn} of {contenders:,}</span> "
+        "contenders drawn, best first"
+        f"<span class='sample'> · scored on {series.cells[0].major_events:,} major "
+        f"events, the ones with a field over {MAJOR_FIELD_SIZE}, and this is the only "
+        "chart here that leaves the smaller events out · every other contender "
+        "is traced faintly behind them · each point counts every major a pilot had "
+        "played by then, so a line rises as their record fills in rather than as they "
+        "improve</span></div>"
+    )
+
+
+def _standings_caption(series: Series, rows: int) -> str:
+    """The standings table's caption: how much of the field it holds, and in what order.
+
+    Stated as the rule the table applied rather than as the number of lines it drew, the
+    same two readings :func:`_landscape_caption` keeps apart: a field larger than the cap
+    is a top-N of it, and a field smaller than the cap was never cut at all and must not
+    claim a ranking it did not apply.
+
+    Then what the last column's numbers are, since "Rank could be" says the direction of
+    the reading but not its strength, and a range with no confidence attached is not one.
+    """
+    contenders = len({cell.pilot for cell in series.cells})
+    held = (f"top {rows:,} of {contenders:,} contenders" if contenders > rows
+            else f"all {contenders:,} contenders")
+    return (f"{held}, best first · the last column is where a pilot's rank landed "
+            f"{RACE_INTERVAL:.0%} of the time when the record was resampled")
+
+
+def _race_label(at: datetime) -> str:
+    """A sample date's tick label: the month it falls in, ``"Jul 2026"``."""
+    return f"{at:%b %Y}"
+
+
+def _as_of_label(cell: RaceCell) -> str:
+    """A sample date as the reading it is, for the hover: ``"by Jul 2026"``.
+
+    "By", not a span: the point counts the pilot's whole record up to that date, and the
+    predecessor's ``"Jan 2025 to Jul 2026"`` said the opposite of what the number now
+    means (ADR 0017).
+    """
+    return f"by {_race_label(cell.as_of)}"
+
+
+def _race_figure(
+    lines: list[list[RaceCell]],
+    context: list[list[RaceCell]],
+    names: dict[str, str],
+) -> pgo.Figure:
+    """The best-player race: the leading contenders traced by what their record said.
+
+    One line per contender in the trend-chart grammar the rest of the app draws in: a
+    thin dashed join that only connects observations and asserts nothing between them,
+    hollow rings whose area is the majors each point rests on, and a direct hue per
+    pilot from the shared eight (§5). A point the tool refused for want of evidence is a
+    gap rather than a bridged one, the same break a refused year leaves on the
+    performance chart.
+
+    The x axis is five discrete samples, not a continuous timeline, so it is a category
+    axis labelled by the month each sample falls in; a point is every major the pilot
+    had played by then and the hover says so (ADR 0017). The y axis is the score, left
+    to fit the data rather than pinned to the full 0-to-1 range: contenders live in a
+    narrow band near the top of the scale, and the field drawn behind them is what gives
+    the height its meaning, where on the single-pilot chart the full range does that job.
+
+    What the shape means, and it is not what a rolling chart would have meant: a line
+    climbing is a record thickening under a pilot who was always this good, not a pilot
+    improving, because a thin record is held near the field average until there is
+    enough of it to say otherwise. The right edge is the leaderboard exactly, since a
+    pilot's record by the newest event is their whole record.
+    """
+    fig = pgo.Figure()
+    labels = [_race_label(cell.as_of) for cell in lines[0]]
+    # The context first, so every drawn line sits over it. It is one trace holding every
+    # other contender end to end, not one per pilot: 131 traces would fill the legend
+    # with names hue cannot tell apart, and the point of the layer is the shape of the
+    # crowd rather than any line in it. Each pilot's run is closed with a null y, or the
+    # last point of one would join the first of the next into a sawtooth.
+    #
+    # It replaces a p25-p75 band (user call). The band summarised the field; this is the
+    # field, so a reader sees the spread, the outliers, and where a drawn line really
+    # sits inside the crowd rather than against a box standing in for it. Under the
+    # running score it also carries a reading of its own: the crowd starts wide and
+    # closes on the drawn lines as the record fills in, and at the right edge none of it
+    # is above them, which is the chart saying how long it took to be sure (ADR 0017).
+    xs: list[str] = []
+    ys: list[float | None] = []
+    for cells in context:
+        xs.extend(labels + labels[-1:])
+        ys.extend([cell.as_of_score for cell in cells] + [None])
+    # A field small enough to draw whole has no "other" contender, so the layer is
+    # dropped rather than added empty: an empty trace still claims its legend entry, and
+    # the chart would advertise a set with nothing in it.
+    if context:
+        fig.add_trace(pgo.Scatter(
+            x=xs, y=ys, mode="lines",
+            # Lines only, no observation markers: their fill is the opaque surface, so
+            # a hundred of them per sample would tile over each other and over the drawn
+            # lines beneath, the same reason the meta chart's faded layer carries none.
+            # The accent, not a ninth hue from the entity palette: it names nobody.
+            line=dict(width=1, dash="dash", color=_rgba(_RACE_CONTEXT_COLOUR, _RACE_CONTEXT_ALPHA)),
+            # Named "contenders" and not "the field", which on this tab already means an
+            # event's field size ("a field over 64" in the caption above it).
+            name="All other contenders", hoverinfo="skip",
+            # Sorted past the pilots, so the legend reads as the standings with the
+            # ground they are drawn on named at the end.
+            legendrank=_RACE_LINES + 1,
+        ))
+    hues = _race_hues(lines)
+    for rank, cells in enumerate(lines, start=1):
+        pilot = names[cells[0].pilot]
+        colour = hues[cells[0].pilot]
+        fig.add_trace(pgo.Scatter(
+            x=labels,
+            y=[c.as_of_score for c in cells],
+            customdata=[
+                [_as_of_label(c),
+                 # Three decimals, the leaderboard's precision rather than the charts':
+                 # the right edge of this chart is the leaderboard by construction, so
+                 # the two state one quantity and cannot state it two ways.
+                 numfmt.score(c.as_of_score, LEADERBOARD_SCORE_PLACES)
+                 if c.as_of_score is not None else "",
+                 f"{c.as_of_rank} of {c.as_of_contenders}", c.as_of_majors]
+                for c in cells
+            ],
+            name=pilot,
+            mode="lines+markers",
+            line=dict(width=1, dash="dash", color=colour),
+            marker={**_observation_marker(colour),
+                    "size": [_confidence_size(c.as_of_majors) for c in cells]},
+            legendrank=rank,
+            hovertemplate=(
+                f"{pilot} · %{{customdata[0]}} · %{{customdata[1]}} · "
+                # The rank's denominator is the contenders who had a record *by then*,
+                # which is not the whole field the caption counts, so it is stated
+                # rather than left to be assumed.
+                "#%{customdata[2]} then · %{customdata[3]} major events so far"
+                "<extra></extra>"
+            ),
+        ))
+    _style_trend_chart(fig, f"Score ({_SCORE_DIRECTION})")
+    # A bounded 0-1 score, so a plain decimal axis, overriding the shared styler's
+    # percent format; and left to fit the data, overriding its zero-anchored range,
+    # because the whole field lives in a narrow band near the top of the scale and
+    # anchoring at zero would flatten the race into a strip. What keeps a height
+    # readable is the field drawn behind it rather than the axis reaching the floor.
+    fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, rangemode="normal")
+    # The samples in time order. The shared styler sorts categories alphabetically,
+    # which on month labels puts "Jan 2025" before "Jul 2024".
+    fig.update_xaxes(
+        title="Every major played up to",
+        categoryorder="array", categoryarray=labels,
+    )
+    # The legend is a key, not a control: this is a race, and a reader must not be able
+    # to tick a pilot out of the field. Both handlers are pinned off, so a click on an
+    # entry does nothing at all.
+    _legend_below_plot(fig, "Standings", itemclick=False, itemdoubleclick=False)
     return fig
 
 
@@ -1902,6 +2251,34 @@ def build_app(artifact: Path) -> gr.Blocks:
             gr.update(visible=False),
         )
 
+    # The race is field-wide and carries no control at all, so it is computed once here
+    # rather than behind a callback: one query at startup, and the tab below is the four
+    # values it produced. Exactly one of the figure and the note is ever set.
+    try:
+        race = run_series(catalogue, BestPlayerRace())
+    except NotEnoughHistory as e:
+        race_heading = race_fig = race_table = race_standings = None
+        # One short line in the app's voice (#114, §14), phrased from the count the
+        # refusal carries, so a graph one contender short reads differently from one
+        # holding no major at all.
+        race_note = (
+            "No pilot has" if not e.found
+            else f"Only {e.found} pilot has" if e.found == 1
+            else f"Only {e.found} pilots have"
+        ) + " enough major events to race here yet."
+    else:
+        trajectories = _race_trajectories(race)
+        drawn = trajectories[:_RACE_LINES]
+        race_heading = _chart_heading(
+            "The race", caption_html=_race_caption(race, drawn=len(drawn)),
+        )
+        race_fig = _race_figure(drawn, trajectories[_RACE_LINES:], pilot_labels)
+        race_table = _leaderboard_html(
+            race, pilot_labels, _race_hues(drawn), _LEADERBOARD_ROWS,
+        )
+        race_standings = _standings_caption(race, _LEADERBOARD_ROWS)
+        race_note = None
+
     def _graph_filters(view: str, values: dict) -> list[str]:
         # The reader-language filters a graph result ran under, for the insight-card
         # caption (#110/#132). Written from the display labels the dropdowns carry,
@@ -2407,6 +2784,38 @@ def build_app(artifact: Path) -> gr.Blocks:
                 outputs=[h2h_subject, h2h_results, h2h_nb_out,
                          h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
             )
+
+        # The race sits after Pilots and asks the question that tab cannot: not how one
+        # pilot did, but who the best of them were and when (#135). It is field-wide, so
+        # it takes the Archetypes tab's shape rather than the Pilots one: no subject
+        # picker, no Draw, and nothing to click on the chart. Everything on it is fixed
+        # at build time, so unlike the landscape it needs no callbacks at all.
+        with gr.Tab("Best player race") as race_tab:
+            gr.Markdown("## Best player race")
+            # Held inside the 62ch reading measure (`theme.MEASURE_CH`) so it sits on
+            # one row: the longer first draft wrapped, and the measure is repo-wide.
+            # It used to promise "how they rose and fell", which the chart could not
+            # deliver: that movement measured as noise (ADR 0017).
+            gr.Markdown(
+                "Who the best pilots are, and when the record could tell.",
+                elem_classes="t-lede",
+            )
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML(value=race_heading, visible=race_heading is not None,
+                        padding=False)
+                gr.Markdown(value=race_note, visible=race_note is not None)
+                gr.Plot(value=race_fig, visible=race_fig is not None)
+            # The standings in their own card below the chart, and only when there is a
+            # race to stand in: a refused race leaves no empty bordered table behind it
+            # (§12, the timeline card's precedent).
+            with gr.Group(elem_classes="insight-card", visible=race_table is not None):
+                gr.HTML(value=_chart_heading("Standings", race_standings),
+                        padding=False)
+                gr.HTML(value=race_table, padding=False)
+            # Drawn before its tab is ever shown, so like the landscape it comes up at
+            # Plotly's fallback width until the tab is opened and it is measured against
+            # the card it actually sits in.
+            race_tab.select(fn=None, js=theme.RESIZE_PLOTS_JS)
 
         # FAQ is the last tab (#133): static content, no controls. Each question is its
         # own box in the same insight-card frame the plots use (§12), so the methodology

@@ -7,8 +7,14 @@ import pytest
 from graph7ph.build import MIN_CUT_FIELD
 from graph7ph.db import rows
 from graph7ph.trends import (
+    MIN_CAREER_MAJORS,
+    MIN_RACE_CONTENDERS,
+    MIN_SCORED_MAJORS,
+    RACE_POINTS,
+    best_player_race,
     ArchetypeLandscape,
     ArchetypeTimeline,
+    BestPlayerRace,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
@@ -1227,3 +1233,530 @@ def test_the_timeline_catalogue_offers_every_archetype_that_draws_with_its_count
     offered = archetypes_with_history(conn)
 
     assert offered == [("Jund", "jund", 3), ("Storm", "storm", 3)]
+
+
+# The best-player race (#135). Its fixtures declare their own field sizes rather than
+# taking `_FIELD_SIZE`, because the whole tool turns on which events are majors.
+_RACE_MAJOR_FIELD = 100  # over MAJOR_FIELD_SIZE, so these events are majors
+_RACE_LOCAL_FIELD = 20   # under it, so these are locals and never scored on
+
+
+def _write_race_snapshot(
+    root: Path,
+    events: dict[str, tuple[str, int]],
+    entries: list[tuple[str, str, float]],
+) -> Path:
+    """A snapshot of dated, sized ``events`` and ``(pilot, event, norm)`` entries.
+
+    The race turns on two things the other trend fixtures do not carry: an event's
+    field size (which decides whether it is a major) and its date at day granularity
+    (which decides which window it falls in). Both are properties of the *event*, so
+    they are declared once per event here rather than per deck, which is also what
+    keeps every deck of an event on one date: a straddle across a year boundary would
+    abort the build.
+
+    Each field size is declared above the top-8 cut-off and above every placement the
+    fixture records, so the build's field-size correction leaves it alone (issue #140)
+    and the norms these tests craft stand as written.
+    """
+    snap = root / "snap"
+    snap.mkdir()
+    deck_records = []
+    for pilot, event, norm in entries:
+        date, field = events[event]
+        deck_records.append({
+            "deckId": f"{pilot}-{event}",
+            "name": f"1st {pilot} - Deck - {event}",
+            "deckName": "Deck",
+            "pilot": pilot,
+            "event": event,
+            "eventId": f"evt_{event}",
+            "eventType": "Tournament",
+            "eventSize": field,
+            "placement": 1,
+            "placementNorm": norm,
+            "createdAt": f"{date}T00:00:00+00:00",
+            "colour": "colour:U",
+            "macro": "macro:combo",
+            "engineTags": ["engine:deck"],
+            "engineTagLabels": {"engine:deck": "Deck"},
+            "primaryTag": "engine:deck",
+            "primaryTagWeights": {"engine:deck": 100},
+        })
+    (snap / "decks.json").write_text(json.dumps(deck_records))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 1,
+        "cards": [],
+        "decks": {d["deckId"]: {"m": [], "s": []} for d in deck_records},
+    }))
+    return snap
+
+
+# Eight majors spanning three and a half years, the newest of them the anchor every
+# window is measured back from, plus two locals inside the same span.
+_RACE_EVENTS = {
+    "M1": ("2023-02-01", _RACE_MAJOR_FIELD),
+    "M2": ("2023-08-01", _RACE_MAJOR_FIELD),
+    "M3": ("2024-02-01", _RACE_MAJOR_FIELD),
+    "M4": ("2024-08-01", _RACE_MAJOR_FIELD),
+    "M5": ("2025-02-01", _RACE_MAJOR_FIELD),
+    "M6": ("2025-08-01", _RACE_MAJOR_FIELD),
+    "M7": ("2026-02-01", _RACE_MAJOR_FIELD),
+    "M8": ("2026-06-01", _RACE_MAJOR_FIELD),
+    "L1": ("2025-03-01", _RACE_LOCAL_FIELD),
+    "L2": ("2026-03-01", _RACE_LOCAL_FIELD),
+}
+_RACE_MAJORS = [f"M{i}" for i in range(1, 9)]
+
+
+def _race_graph(root, built_graph, entries=None):
+    """A built graph holding two contenders and three pilots each gated out once.
+
+    ``ace`` (all eight majors, and two locals besides) and ``solid`` (the last five)
+    both clear the two gates. Each of the other three fails exactly one of them, so a
+    gate that stopped firing shows up as one named pilot joining the field:
+
+    - ``rookie`` plays four majors, one short of a career;
+    - ``veteran`` plays six, but only one after the recency line, so he is a retiree;
+    - ``grinder`` plays five events that are all locals, so he has no majors at all.
+    """
+    entries = entries or []
+    entries += [("ace", e, 0.1) for e in _RACE_MAJORS]
+    entries += [("ace", e, 0.1) for e in ("L1", "L2")]
+    entries += [("solid", e, 0.3) for e in _RACE_MAJORS[3:]]
+    entries += [("rookie", e, 0.2) for e in _RACE_MAJORS[4:]]
+    entries += [("veteran", e, 0.2) for e in _RACE_MAJORS[:6]]
+    entries += [("grinder", e, 0.1) for e in ("L1", "L2")]
+    return built_graph(root, _write_race_snapshot(root, _RACE_EVENTS, entries))
+
+
+def test_the_race_ranks_the_pilots_who_clear_both_gates_on_their_majors_alone(
+    tmp_path, built_graph
+):
+    # Who is ranked (#135): a contender needs MIN_CAREER_MAJORS majors behind them and
+    # MIN_RECENT_MAJORS of them inside the recency window, so the field is current
+    # rather than a hall of fame. ``rookie`` misses the first gate, ``veteran`` the
+    # second, and ``grinder`` never played a major at all.
+    conn = _race_graph(tmp_path, built_graph)
+    series = best_player_race(conn)
+
+    assert {c.pilot for c in series.cells} == {"ace", "solid"}
+    # The majors count is the score's own sample, so ``ace``'s two locals are no part
+    # of it: a career of 8 majors, not 10 events.
+    majors = {c.pilot: c.majors for c in series.cells}
+    assert majors == {"ace": 8, "solid": 5}
+    # Every cell carries the graph's own major count, the pool the field is drawn
+    # from, so a caption can state it without a second query.
+    assert {c.major_events for c in series.cells} == {8}
+
+
+# Twelve majors ending at the anchor, the newest six of them inside the recency
+# window, so a pilot given the newest N events is a contender whatever N is.
+_RACE_SPAN = [
+    "2023-07-01", "2023-11-01", "2024-03-01", "2024-07-01", "2024-11-01",
+    "2025-03-01", "2025-07-01", "2025-11-01", "2026-01-01", "2026-03-01",
+    "2026-05-01", "2026-06-01",
+]
+
+
+def _scored_race_graph(root, built_graph, records: dict[str, list[float]]):
+    """A graph where each pilot's flipped finishes land on the newest majors.
+
+    ``records`` maps a pilot to the finishes of their career, best-is-1. A list is
+    dealt onto the tail of :data:`_RACE_SPAN`, oldest first, so a record is as long as
+    the list given and always reaches the right edge of the chart; a dict places them
+    by event number instead, for a career with a shape (a gap, a late return).
+    """
+    events = {f"MJ{i}": (date, _RACE_MAJOR_FIELD) for i, date in enumerate(_RACE_SPAN, 1)}
+    entries = []
+    for pilot, record in records.items():
+        placed = (
+            record.items() if isinstance(record, dict)
+            else zip(range(len(_RACE_SPAN) - len(record) + 1, len(_RACE_SPAN) + 1), record)
+        )
+        entries += [(pilot, f"MJ{number}", 1 - finish) for number, finish in placed]
+    return built_graph(root, _write_race_snapshot(root, events, entries))
+
+
+def test_a_thin_record_is_shrunk_toward_the_field_and_can_lose_to_a_thicker_one(
+    tmp_path, built_graph
+):
+    # The spec's worked example, in the shape it makes the case for: ``streak`` has the
+    # better raw career mean (0.800 over 5 majors) than ``steady`` (0.746 over 12), but
+    # 0.800 over 5 is not the stronger evidence, so the score shrinks each toward the
+    # field average by how little of it there is and ``steady`` ends up ahead. The
+    # ``pack`` is the field they are shrunk toward: four ordinary contenders whose own
+    # finishes bounce far more than their means differ, which is what makes the pull
+    # worth applying at all.
+    streak = [1.0, 0.60, 0.95, 0.55, 0.90]
+    steady = [1.0, 0.50, 0.90, 0.60, 0.95, 0.55, 0.85, 0.65, 1.0, 0.45, 0.90, 0.60]
+    records = {"streak": streak, "steady": steady}
+    records |= {f"pack{i}": [0.9, 0.1, 0.7, 0.3, 0.6, 0.4] for i in range(4)}
+    conn = _scored_race_graph(tmp_path, built_graph, records)
+    scores = {c.pilot: c.score for c in best_player_race(conn).cells}
+
+    raw_streak = sum(streak) / len(streak)
+    raw_steady = sum(steady) / len(steady)
+    assert raw_streak > raw_steady  # the raw means rank one way ...
+    assert scores["steady"] > scores["streak"]  # ... and the scores the other
+
+    # Both are above the field, so both are pulled down, and the thinner record is
+    # pulled further: that is the whole of what the shrinkage does, stated without
+    # reference to the estimated constants (which are re-derived per rebuild).
+    assert scores["streak"] < raw_streak
+    assert scores["steady"] < raw_steady
+    assert raw_streak - scores["streak"] > raw_steady - scores["steady"]
+
+
+def _race_field(**records):
+    """``records`` over an ordinary four-pilot field, the pack a score is shrunk toward."""
+    return records | {f"pack{i}": [0.9, 0.1, 0.7, 0.3, 0.6, 0.4] for i in range(4)}
+
+
+def test_the_sample_dates_step_back_from_the_newest_event_and_floor_a_thin_start(
+    tmp_path, built_graph
+):
+    # The x axis (#135, as ADR 0017 rebuilt it): five sample dates stepped 6 months, the
+    # newest at the newest event in the graph so the chart re-anchors itself on every
+    # rebuild. A point counts every major up to its date, so ``late``, who played only
+    # the newest five majors, has nothing at the first three dates, one by the fourth,
+    # and their whole record by the fifth.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        late=[0.9, 0.9, 0.9, 0.9, 0.9],
+    ))
+    cells = [c for c in best_player_race(conn).cells if c.pilot == "late"]
+
+    assert len(cells) == RACE_POINTS
+    assert [c.as_of for c in cells] == [
+        datetime(2024, 6, 1),
+        datetime(2024, 12, 1),
+        datetime(2025, 6, 1),
+        datetime(2025, 12, 1),
+        datetime(2026, 6, 1),  # the newest event in the graph
+    ]
+    # The floor is on the value, not the row: a date under MIN_SCORED_MAJORS states the
+    # majors that refused it and withholds only the score they cannot carry, so a pilot
+    # who had not started and one a single event into their record stay different
+    # answers. A running count can only rise, and its last value is the whole career.
+    assert [c.as_of_majors for c in cells] == [0, 0, 0, 1, 5]
+    assert [c.as_of_score is None for c in cells] == [True, True, True, True, False]
+    assert cells[-1].as_of_majors == cells[-1].majors
+
+
+def test_a_two_major_start_does_not_draw_the_sharpest_point_on_the_chart(
+    tmp_path, built_graph
+):
+    # A point's score is the career statistic applied to the record so far, not a raw
+    # mean over it (#135). By the fourth sample date ``spike`` had won both majors they
+    # had played, a raw 1.0 on two events, while ``late`` was five events in averaging
+    # 0.9. Unshrunk, ``spike`` would draw the highest point on the chart off the least
+    # evidence on it, which is exactly what the two-major floor alone cannot prevent.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        spike={7: 1.0, 8: 1.0, 10: 0.5, 11: 0.4, 12: 0.5},
+        late={4: 1.0, 5: 0.8, 6: 0.95, 7: 0.85, 8: 0.9},
+    ))
+    fourth = {
+        c.pilot: c for c in best_player_race(conn).cells
+        if c.as_of == datetime(2025, 12, 1)
+    }
+
+    assert fourth["spike"].as_of_majors == 2   # a raw mean of 1.0 ...
+    assert fourth["late"].as_of_majors == 5    # ... against a raw mean of 0.9
+    assert fourth["spike"].as_of_score < 1.0
+    assert fourth["spike"].as_of_score < fourth["late"].as_of_score
+
+
+def test_the_rank_is_recomputed_at_each_date_over_whoever_had_a_record_by_then(
+    tmp_path, built_graph
+):
+    # The hover states a pilot's standing among the contenders, and that standing is a
+    # property of the date rather than of the career: on the evidence up to 2024 the
+    # ``veteran`` led, and the rest of the record revised that down while the
+    # ``climber``'s rose past them. It counts only the contenders scored by that date,
+    # so an early date nobody but those two had a record at ranks two pilots, not the
+    # whole field.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        veteran=[0.9, 0.95, 0.9, 0.85, 0.9, 0.6, 0.55, 0.5, 0.6, 0.5, 0.55, 0.6],
+        climber={4: 0.5, 5: 0.55, 6: 0.6, 7: 0.9, 8: 0.95, 9: 0.9, 10: 0.85,
+                 11: 0.95, 12: 0.9},
+        late=[0.75, 0.8, 0.75, 0.7, 0.75],
+    ))
+    cells = best_player_race(conn).cells
+    early = {c.pilot: c for c in cells if c.as_of == datetime(2024, 12, 1)}
+    newest = {c.pilot: c for c in cells if c.as_of == datetime(2026, 6, 1)}
+
+    # Early: the veteran leads the climber, and ``late`` had not started, so they carry
+    # no score and no rank rather than a last place they never played for.
+    assert (early["veteran"].as_of_rank, early["climber"].as_of_rank) == (1, 2)
+    assert early["late"].as_of_score is None
+    assert early["late"].as_of_rank is None
+    # Newest: on the whole record the climber leads and the veteran sits behind both.
+    assert newest["climber"].as_of_rank == 1
+    assert newest["late"].as_of_rank == 2
+    assert newest["veteran"].as_of_rank == 3
+
+
+def test_the_last_point_of_every_line_is_that_pilots_career_score(
+    tmp_path, built_graph
+):
+    # The property that makes the running score honest at the right edge (ADR 0017): the
+    # newest sample date is the newest event in the graph, so by then a pilot's record so
+    # far *is* their record, and the last point of a line is the score the leaderboard
+    # ranks them on. The rolling version this replaced had no such tie, which is what let
+    # a contender outside the drawn eight hold the highest point on the chart.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
+        second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
+        late=[0.9, 0.9, 0.9, 0.9, 0.9],
+    ))
+    cells = best_player_race(conn).cells
+    newest = max(c.as_of for c in cells)
+    final = {c.pilot: c for c in cells if c.as_of == newest}
+
+    assert len(final) == len({c.pilot for c in cells})   # every line reaches the edge
+    assert all(c.as_of_score == c.score for c in final.values())
+    assert all(c.as_of_rank == c.rank for c in final.values())
+    assert all(c.as_of_majors == c.majors for c in final.values())
+
+
+def test_the_career_rank_carries_the_interval_the_evidence_actually_supports(
+    tmp_path, built_graph
+):
+    # A rank is an ordering the record may not support, so every cell carries the
+    # resampled bounds on it (ADR 0017). Here two pilots are genuinely apart and four
+    # are a pack drawn from one distribution: the pack's bounds have to span most of the
+    # field, because which of them ranks where is the luck of which events fell in their
+    # record, while a real leader's bounds cannot reach the bottom of it.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
+        worst=[0.1, 0.05, 0.1, 0.15, 0.1, 0.05, 0.1, 0.15, 0.1, 0.05, 0.1, 0.15],
+    ))
+    cells = {c.pilot: c for c in best_player_race(conn).cells}
+    field = len(cells)
+
+    # The bounds bracket the rank they qualify, for everyone.
+    assert all(c.rank_low <= c.rank <= c.rank_high for c in cells.values())
+    assert all(1 <= c.rank_low and c.rank_high <= field for c in cells.values())
+    # A separable leader stays near the top across resamples; the pack does not.
+    assert cells["best"].rank == 1
+    assert cells["best"].rank_high < field
+    assert cells["worst"].rank_low > 1
+    # The pack are four draws from one distribution, so none of them holds a place: each
+    # one's bounds have to span the pack, rather than fixing them in the order this
+    # record happened to put them in.
+    packed = [cells[f"pack{i}"] for i in range(4)]
+    assert all(c.rank_high - c.rank_low >= len(packed) - 1 for c in packed)
+
+
+def test_the_whole_race_is_the_same_on_every_run_of_the_same_graph(
+    tmp_path, built_graph
+):
+    # Seeded (RACE_RESAMPLE_SEED), so a rebuild of the same artifact draws the same
+    # bounds and a moved bound means moved evidence rather than a fresh roll. The app
+    # computes the race once at startup and the oracle grades it, and neither can tell a
+    # real change from resampling noise unless this holds.
+    #
+    # The seed alone does not deliver it, which is why this asserts the whole cell rather
+    # than the bounds: Ladybug hands the same query's rows back in a different order
+    # between calls, so an unsorted walk over the field feeds the seeded stream to a
+    # different pilot each run, and every consumer that sums a record (the shrinkage, the
+    # score, each running point) lands a fraction apart. Both orders are settled in
+    # `_major_finishes` and `_rank_intervals`. This caught a real regression.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
+        second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
+        late=[0.9, 0.9, 0.9, 0.9, 0.9],
+    ))
+    assert best_player_race(conn).cells == best_player_race(conn).cells
+
+
+def test_a_field_of_one_is_not_a_race_and_is_refused_by_name(tmp_path, built_graph):
+    # A race is relative: one line says what a pilot scored, not who was best, which is
+    # what the single-pilot performance chart is already for. So a field short of
+    # MIN_RACE_CONTENDERS is refused by name carrying the contenders it found (ADR
+    # 0013's typed refusal), rather than coming back as an empty series the surface
+    # cannot tell from a graph with no majors in it.
+    conn = _scored_race_graph(tmp_path, built_graph, {
+        "alone": [0.9, 0.8, 0.85, 0.9, 0.75, 0.8],
+        "rookie": [0.5, 0.5],  # two majors: never a contender
+    })
+    with pytest.raises(NotEnoughHistory) as refusal:
+        best_player_race(conn)
+    assert refusal.value.found == 1
+
+    # A graph whose events are all locals has no contenders at all, and says so with
+    # the same refusal rather than dividing by an empty field.
+    root = tmp_path / "locals"
+    root.mkdir()
+    locals_only = _write_race_snapshot(
+        root,
+        {f"L{i}": (date, _RACE_LOCAL_FIELD) for i, date in enumerate(_RACE_SPAN, 1)},
+        [("grinder", f"L{i}", 0.2) for i in range(1, 13)],
+    )
+    with pytest.raises(NotEnoughHistory) as refusal:
+        best_player_race(built_graph(root, locals_only))
+    assert refusal.value.found == 0
+
+
+def test_a_field_the_data_cannot_separate_scores_everyone_at_the_field_average(
+    tmp_path, built_graph
+):
+    # The shrinkage weight is estimated, so the estimate can come back saying the field
+    # has no separable spread at all: these three swing further inside their own records
+    # than their records differ from each other, which is what "no evidence anybody is
+    # better" looks like arithmetically. Every score is then the field average, so the
+    # race draws with nothing between its runners rather than ranking noise. The real
+    # record is far from this, but a young graph can sit here.
+    records = {
+        "swing": [0.9, 0.95, 0.9, 0.85, 0.9, 0.4, 0.35, 0.3, 0.4, 0.3, 0.35, 0.4],
+        "surge": {4: 0.3, 5: 0.35, 6: 0.4, 7: 0.9, 8: 0.95, 9: 0.9, 10: 0.85,
+                  11: 0.95, 12: 0.9},
+        "steady": [0.6, 0.65, 0.6, 0.55, 0.6],
+    }
+    conn = _scored_race_graph(tmp_path, built_graph, records)
+    cells = best_player_race(conn).cells
+
+    finishes = [f for record in records.values()
+                for f in (record.values() if isinstance(record, dict) else record)]
+    field_average = sum(finishes) / len(finishes)
+    assert {round(c.score, 9) for c in cells} == {round(field_average, 9)}
+    # The plotted points collapse onto it too, so no date can rank a pilot the career
+    # score says nothing about.
+    assert {round(c.as_of_score, 9) for c in cells if c.as_of_score is not None} == {
+        round(field_average, 9)
+    }
+
+
+def test_run_series_routes_the_best_player_race_through_its_own_seam(
+    tmp_path, built_graph
+):
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field())
+    series = run_series(conn, BestPlayerRace())
+    assert isinstance(series, Series)
+    # The race takes no argument: it is one question about the whole field, the way
+    # the meta-share matrix is one question about the whole meta.
+    assert series.cells == best_player_race(conn).cells
+
+
+def test_the_race_comes_back_in_standing_order_with_each_career_oldest_first(
+    tmp_path, built_graph
+):
+    # The legend, the leaderboard and the colour assignment all read this order, so the
+    # tool settles it rather than leaving each caller to re-sort: contenders best first,
+    # and inside a contender the sample dates oldest first, which is the x axis's own
+    # order. The query's row order is not stable between calls, so an unsorted result
+    # also made two runs of the same graph disagree.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
+        second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
+    ))
+    cells = best_player_race(conn).cells
+
+    assert [c.pilot for c in cells[:RACE_POINTS]] == ["best"] * RACE_POINTS
+    assert [c.pilot for c in cells[RACE_POINTS:2 * RACE_POINTS]] == ["second"] * RACE_POINTS
+    dates = [c.as_of for c in cells[:RACE_POINTS]]
+    assert dates == sorted(dates)
+    scores = [c.score for c in cells]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_the_race_over_the_real_record_ends_where_the_leaderboard_starts(live_graph):
+    # A claim about the whole record, not a fixture. The newest sample date is the newest
+    # event in the graph, so every contender's record so far is their whole record there:
+    # the right edge of the chart is the leaderboard, line for line, and the drawn eight
+    # cannot be crossed by a contender the cut left out. The career gate then guarantees
+    # the point clears the per-date floor, so no line stops short of the edge.
+    assert MIN_CAREER_MAJORS >= MIN_SCORED_MAJORS
+    series = best_player_race(live_graph)
+    newest = max(c.as_of for c in series.cells)
+    final = [c for c in series.cells if c.as_of == newest]
+
+    assert all(c.majors >= MIN_CAREER_MAJORS for c in series.cells)
+    assert len(final) == len({c.pilot for c in series.cells})
+    assert all(c.as_of_score == c.score and c.as_of_rank == c.rank for c in final)
+    # Every score is a finish, so it stays on the finish's own 0-to-1 scale whatever
+    # the shrinkage did to it.
+    assert all(0.0 <= c.score <= 1.0 for c in series.cells)
+    assert all(0.0 <= c.as_of_score <= 1.0
+               for c in series.cells if c.as_of_score is not None)
+    # The rank interval brackets the rank it qualifies, and on a record this thin it is
+    # wide: the top of the board is separated by thousandths, so if these bounds ever
+    # collapsed onto the rank the reader would be being told the order is settled.
+    assert all(c.rank_low <= c.rank <= c.rank_high for c in series.cells)
+    assert max(c.rank_high - c.rank_low for c in final) > len(final) / 4
+    # Majors are the top slice of the record by size, not most of it.
+    assert len(final) > MIN_RACE_CONTENDERS
+    ((events,),) = rows(live_graph.execute("MATCH (e:Event) RETURN count(e)"))
+    assert 0 < series.cells[0].major_events < events / 2
+
+
+def test_the_career_standing_rides_on_the_cell_and_a_tie_shares_its_place(
+    tmp_path, built_graph
+):
+    # The leaderboard's rank column is data, not a row number: it is computed here so a
+    # tie shares its place rather than being split by whatever order the table happened
+    # to iterate in. In an ordinary field it counts 1, 2, 3 down the standings.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
+        second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
+    ))
+    standings = {c.pilot: c.rank for c in best_player_race(conn).cells}
+
+    assert standings["best"] == 1
+    assert standings["second"] == 2
+    # The four pack pilots have identical records, so they hold one place between them
+    # rather than four consecutive ones.
+    assert {standings[f"pack{i}"] for i in range(4)} == {3}
+
+
+def test_an_event_with_no_field_size_is_no_major_rather_than_a_crash(
+    tmp_path, built_graph
+):
+    # `Event.fieldSize` is nullable: the build only fills a missing one for a
+    # `Tournament` (`corrected_field`'s Rule C), so a non-Tournament event the source
+    # ships without a size reaches the graph with none. The Cypher half of the tool
+    # already reads that correctly, since a NULL fails `fieldSize > $major`, and the
+    # Python half comparing it here has to agree or the race raises TypeError, which
+    # `build_app` does not catch and so takes down every tab rather than this one.
+    root = tmp_path / "sizeless"
+    root.mkdir()
+    snapshot = _write_race_snapshot(
+        root,
+        {f"MJ{i}": (date, _RACE_MAJOR_FIELD) for i, date in enumerate(_RACE_SPAN, 1)},
+        [(pilot, f"MJ{i}", 0.2 + n / 10)
+         for n, pilot in enumerate(("ace", "rival"))
+         for i in range(1, 13)],
+    )
+    decks = json.loads((snapshot / "decks.json").read_text())
+    for deck in decks:
+        if deck["event"] == "MJ1":
+            deck["eventType"], deck["eventSize"] = "Teams", None
+    (snapshot / "decks.json").write_text(json.dumps(decks))
+    conn = built_graph(root, snapshot)
+
+    # The sizeless event is simply not a major: the pool is the other eleven.
+    assert {c.major_events for c in best_player_race(conn).cells} == {11}
+
+
+def test_an_as_of_rank_carries_the_contenders_it_was_taken_over(tmp_path, built_graph):
+    # A rank without its denominator is not a standing. The field a window ranks over is
+    # whoever scored *that* window, which is far fewer than the contenders at the old end
+    # of the chart (67 of 139 on the real record), so a surface reading "#5" against the
+    # caption's whole-field count would overstate it. Carried beside the rank the way
+    # ``majors`` is carried beside the score.
+    conn = _scored_race_graph(tmp_path, built_graph, _race_field(
+        veteran=[0.9, 0.95, 0.9, 0.85, 0.9, 0.6, 0.55, 0.5, 0.6, 0.5, 0.55, 0.6],
+        climber={4: 0.5, 5: 0.55, 6: 0.6, 7: 0.9, 8: 0.95, 9: 0.9, 10: 0.85,
+                 11: 0.95, 12: 0.9},
+        late=[0.75, 0.8, 0.75, 0.7, 0.75],
+    ))
+    cells = best_player_race(conn).cells
+    early = [c for c in cells if c.as_of == datetime(2024, 12, 1)]
+    newest = [c for c in cells if c.as_of == datetime(2026, 6, 1)]
+
+    # Only the veteran and the climber had a record by the early date; the pack and
+    # ``late`` are contenders who had not started, so they are no part of its standings.
+    assert {c.as_of_contenders for c in early} == {2}
+    assert {c.as_of_rank for c in early if c.as_of_rank} == {1, 2}
+    # By the newest date the whole field of seven is in it.
+    assert {c.as_of_contenders for c in newest} == {7}
