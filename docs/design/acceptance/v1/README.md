@@ -45,7 +45,7 @@ Every state below was captured at both widths: `phone/<name>.png` and
 | `cards-overview` | A card's usage graph and its adoption trend |
 | `cards-cooccurrence` | A pair's co-occurrence graph and both adoption lines |
 | `gems-nothing-picked` | Hidden gems before a pick |
-| `gems-drawn` | An archetype's gems |
+| `gems-drawn` | An archetype's gems: named at desktop, too long to name at phone width, where the shot is the stated fallback (#161) |
 | `gems-empty-result` | A slice with no gem in it: the empty result |
 | `pilots-nothing-picked` | Pilots before a pick |
 | `pilots-running` | Mid-query: the progress feedback while a Draw runs |
