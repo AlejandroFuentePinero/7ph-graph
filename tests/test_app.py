@@ -54,7 +54,6 @@ from graph7ph.app import (
 )
 from graph7ph.query import (
     GEM_TOP_CUT,
-    MAX_GEM_DECKS,
     MAX_GEM_LUCK,
     Coverage,
     Edge,
@@ -2378,8 +2377,9 @@ def test_the_faq_states_the_gem_rule_the_luck_in_it_and_why_nothing_is_filtered(
     # the next time it moves.
     assert f"best {GEM_TOP_CUT:.0%}" in rule
     assert "third" not in rule
-    # And the picture samples the decks, so the copy that describes the picture says so.
-    assert str(MAX_GEM_DECKS) in rule
+    # The picture draws every top-cut deck, so the copy promises the reader they can
+    # count the deck nodes against the column rather than warning that they cannot.
+    assert "every one of the best decks" in rule
 
     category, question, certainty = entries["faq-gems-certainty"]
     assert category == "Cards"

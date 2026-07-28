@@ -36,7 +36,6 @@ from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.query import (
     GEM_TOP_CUT,
-    MAX_GEM_DECKS,
     MAX_GEM_LUCK,
     MAX_GEM_SHARE,
     MIN_GEM_DECKS,
@@ -231,7 +230,9 @@ def _gem_table(subgraph: Subgraph) -> str:
     numbers per gem, in the order the claim is built (#184). **Archetype** is where
     every other number was measured, and it leads because nothing here is a
     format-wide statement: a card is rare, and lands well, *inside one archetype*.
-    **Decks** is how rare, against that archetype's own ranked decks. **In top N%** is
+    **Decks running it** is how rare, against that archetype's own ranked decks, and it
+    is named for what it counts because "Decks" beside "In top N%" reads as two
+    unrelated totals rather than a count and its subset. **In top N%** is
     the whole of the evidence: how much of the card sits in the archetype's best decks,
     over the cut :data:`GEM_TOP_CUT` names and this header prints, so the column and
     the constant cannot drift apart. **Pilots** says whether those decks are as many
@@ -280,7 +281,7 @@ def _gem_table(subgraph: Subgraph) -> str:
     body = "".join(row(node, blocks[named[node.id]] % 2 == 1) for node in gems)
     return (
         "<table class='leaderboard'><thead><tr>"
-        "<th>Card</th><th>Archetype</th><th class='score'>Decks</th>"
+        "<th>Card</th><th>Archetype</th><th class='score'>Decks running it</th>"
         f"<th class='score'>In top {GEM_TOP_CUT:.0%}</th>"
         "<th class='score'>Pilots</th><th class='score spread' title='How often chance "
         "alone would put this much of the card in this cut'>By chance</th>"
@@ -746,10 +747,11 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "archetype's own best decks are the ones running it. A card can be a gem in "
         "two archetypes at once, and that is two separate findings on two sets of "
         "decks. The graph shows each gem's archetype on one side and, on the other, "
-        f"around {MAX_GEM_DECKS} of the best decks that run it, which you can open on "
-        "Moxfield. The table counts every deck; the picture draws a few of each, "
-        "because an archetype's best decks nearly all run nearly all of its gems and "
-        "drawing every one of them leaves a knot no deck can be picked out of.",
+        "every one of the best decks that run it, which you can open on Moxfield, so "
+        "the deck nodes hanging off a card are exactly the number its In top column "
+        "gives. Decks of one archetype sit close together, because its best decks "
+        "nearly all run nearly all of its gems, which is itself the thing to read: a "
+        "deck between two cards is a deck that found both.",
     ),
     (
         "faq-gems-certainty",
@@ -757,16 +759,20 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         'How settled is a "Hidden gem"?',
         "Less than a list of names looks. Screening every rare card of every archetype "
         "means more than a thousand chances for coincidence, so a bar of "
-        f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: at least a "
-        "third of the list, and nothing distinguishes which ones. Likely more than a "
-        "third, because that count reads a card's decks as that many separate results, "
-        "when the same pilot is often behind several of them and one pilot's decks "
-        "rise and fall together. That is why the "
+        f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: getting on "
+        "for half the list, and nothing distinguishes which ones. That count no longer "
+        "flatters itself, which is why it is as high as it is. A card's odds used to "
+        "read its decks as that many separate results, when the same pilot is often "
+        "behind several of them and one pilot's decks rise and fall together; every "
+        "card is now charged for the pilots behind its decks rather than the decks, so "
+        "a card seven decks and three pilots deep is scored as the three opinions it "
+        "is. That is why the "
         "count is not printed beside the table, where it would raise a question it "
         "cannot answer. It is a real limit and not a hedge. There is no "
         "way to check the list against later results either, because a gem that works "
         "stops being rare, so a card that still looks like a gem a year on is a card "
-        "nobody acted on. Read the table for what a gem rests on: Decks is how rare "
+        "nobody acted on. Read the table for what a gem rests on: Decks running it is "
+        "how rare "
         "the card is in that archetype, the In top column is how much of it landed in "
         "the archetype's best decks, and Pilots says whether those decks are as many "
         "opinions or one pilot's, which matters because a deck's finish follows "
@@ -781,7 +787,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Cards",
         "Why can I not filter the hidden gems?",
         "Because there is nothing left to narrow. The rule is strict enough that the "
-        "whole format produces a couple of dozen gems across a handful of archetypes, "
+        "whole format produces a dozen or so gems across a handful of archetypes, "
         "which fits in one picture, so the tab draws all of them at once instead of "
         "asking "
         "you to guess which archetype to look in. It recalculates as decks are added. "
