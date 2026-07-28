@@ -94,16 +94,14 @@ def _state_message(text: str) -> str:
 # The run_graph fallback for a spec that cannot be built (a subject not yet chosen).
 # With the results stack hidden until a Draw with a subject, this is unreachable in
 # normal flow; kept as a defensive value so a stray call renders something, not None.
-_PROMPT = _state_message("Pick an entity and filters, then Draw.")
+_PROMPT = _state_message("Nothing picked yet.")
 
-# The guidance that used to sit as a duplicated empty-prompt card in every plot region
-# now rides the subject dropdown's help text (§14, user feedback): one place, at the
-# control you drive from, rather than a row of identical "nothing yet" boxes. Shown
-# under the dropdown until a Draw fills the view's results stack.
-_PICK_PILOT = "Pick a pilot, then Draw."
-_PICK_PILOT2 = "Required: pick a second pilot to compare."
-_PICK_CARD = "Pick a card, then Draw to see its plots."
-_PICK_TIMELINE_ARCHETYPE = "Pick an archetype to trace its finishes; it draws straight away."
+# The subject dropdowns carry no help text at all (§14, issue #156). They used to hold
+# a "pick a pilot, then Draw" line each, which said what the label above and the Draw
+# button beside them already say; help text that does not change the reader's choice is
+# deleted rather than shortened. The one `info` left in the app is the Archetypes year's
+# scope, which is a fact about the panel the reader cannot get from the control.
+_YEAR_SCOPE = "Landscape only"
 
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
 # Since #126 each of Pilots and Cards collapses to two views, and one Draw per view
@@ -283,8 +281,8 @@ def _gem_table(subgraph: Subgraph) -> str:
         "<table class='leaderboard'><thead><tr>"
         "<th>Card</th><th>Archetype</th><th class='score'>Decks running it</th>"
         f"<th class='score'>In top {GEM_TOP_CUT:.0%}</th>"
-        "<th class='score'>Pilots</th><th class='score spread' title='How often chance "
-        "alone would put this much of the card in this cut'>By chance</th>"
+        "<th class='score'>Pilots</th><th class='score spread' title='How often plain "
+        "luck would put this much of the card in the best decks'>By chance</th>"
         f"</tr></thead><tbody>{body}</tbody></table>"
     )
 
@@ -317,9 +315,9 @@ def _gem_caption(subgraph: Subgraph) -> str:
     gems = [node for node in subgraph.nodes if node.kind == "Card"]
     return (
         f"<div class='t-fieldstat'><span class='pct'>{len(gems)} "
-        f"gem{'' if len(gems) == 1 else 's'}</span><span class='sample'> found in the "
-        f"best {GEM_TOP_CUT:.0%} of each archetype's decks, over the archetypes with "
-        f"{MIN_GEM_SLICE} or more ranked decks</span></div>"
+        f"gem{'' if len(gems) == 1 else 's'}</span>, each turning up mostly in the "
+        f"best {GEM_TOP_CUT:.0%} of its archetype's decks<span class='sample'> · only "
+        f"archetypes with {MIN_GEM_SLICE} or more scored decks are checked</span></div>"
     )
 
 
@@ -521,8 +519,8 @@ def _refine_alert(plan: RenderPlan) -> str:
     separator, since a refused result is well over the 250-node line."""
     dominant = dominant_kind(plan.by_kind)
     return _state_message(
-        f"{plan.node_count:,} nodes (mostly {dominant}s) is over the "
-        f"{plan.threshold}-node draw limit; narrow the query and Draw again."
+        f"Too much to draw: {plan.node_count:,} nodes, mostly {dominant.lower()}s, "
+        f"against a limit of {plan.threshold}. Narrow the filters and Draw again."
     )
 
 
@@ -580,158 +578,163 @@ _CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
 _DEFAULT_CUT = "Top 50%"
 
 # The FAQ tab (#133): the how-it-is-calculated notes #132 strips off the plots, homed
-# one click away so the plot surfaces stay scannable. Each entry is (elem_id, category,
-# question, answer); the id anchors the box for any deep link. Kept succinct on the main
-# metrics for now and expanded as users ask (the issue's steer). The headline plots
-# (seven since the archetype timeline, #151) reduce to a shared primitive (a normalised
-# finish) plus one entry each, so the finish is explained first and the rest lean on it.
-# The category is the subject the answer is about, from `theme.FAQ_TAGS`, and the entries
-# are held in category order: the tab renders them down the page in this order, so the
-# boxes read as grouped by subject rather than as an arbitrary sequence.
+# one click away so the plot surfaces stay scannable, plus the qualifiers #156 took off
+# the captions. Each entry is (elem_id, category, question, answer); the id anchors the
+# box for any deep link. The headline plots (seven since the archetype timeline, #151)
+# reduce to a shared primitive (a normalised finish) plus one entry each, so the finish
+# is explained first and the rest lean on it. The category is the subject the answer is
+# about, from `theme.FAQ_TAGS`, and the entries are held in category order: the tab
+# renders them down the page in this order, so the boxes read as grouped by subject
+# rather than as an arbitrary sequence.
+#
+# **The answers are the app's one long-form surface, and they carry the app's one
+# explanation of each quantity (§14, #156).** Two rules hold them together. Plain
+# English: ordinary words, one idea per sentence, paragraphs rather than a wall, and
+# only as much detail as the question needs. And one description per quantity: the
+# bracket-only-event rule is defined once, in `faq-finish`, and every answer that
+# depends on it ("see the finish question above") points there instead of re-deriving
+# it, which is how the four charts that drop those events came to describe the same
+# rule four different ways. An answer never restates what its own surface already says;
+# what it is for is what the surface had no room for.
 _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
     (
         "faq-finish",
         "Metric",
         'What does a "finish" mean, and why is it shown as a percentage?',
-        "Every event places its decks, but 5th out of 200 is not 5th out of 12. Each "
-        "finish is normalised to where it landed in its field, on a 0-to-1 scale (1 is "
-        "a win, 0 is last). That single number is what lets finishes from "
-        "different-sized events be compared and averaged. A finish only counts where the "
-        "event actually recorded a placement.",
+        "5th out of 200 is not 5th out of 12, so every placement is rescaled to where "
+        "it landed in its own field: 1 is a win, 0 is last. That single number is what "
+        "lets finishes from events of different sizes be compared and averaged. A deck "
+        "is **scored** only where the event recorded a placement for it; unscored decks "
+        "are still counted as decks played, they just have no finish.\n\n"
+        "Some events published only their top eight rather than full standings. "
+        "There, the only finishes on record are good ones, because everyone who turned "
+        "up and lost is missing from the data, so a cut-only finish averages 0.97 "
+        "against 0.51 at a normal event. Every chart that averages finishes drops those "
+        "events: the metagame landscape's vertical axis, the archetype timeline, a "
+        "pilot's performance chart, and the best player race. The pilot head-to-head "
+        "keeps them, because it plots single placements rather than averaging them, and "
+        "hidden gems keeps them, because it compares an event's decks against the rest "
+        "of that same event.",
     ),
     (
         "faq-meta",
         "Archetypes",
         'How is "Meta share over time" calculated?',
-        "Each deck is counted once, under its primary archetype. An archetype's share in "
-        "a year is its decks that year divided by every deck that year. Low counts are "
-        "kept, not hidden: a small share is a real signal of an archetype entering or "
-        "leaving the format, and a year it is absent is a real zero, not a gap. The "
-        '"Top 25 / 50 / 75%" control only changes how many lines are drawn, not the '
-        "data: archetypes are ordered by their share of the most recent year, and the "
-        "strongest are kept until they add up to that percentage.",
+        "Each deck counts once, under its main archetype. An archetype's share in a "
+        "year is its decks that year divided by every deck that year. Small numbers are "
+        "kept rather than hidden: a thin share is a real sign of an archetype arriving "
+        "or leaving, and a year with none is a real zero, not a gap.\n\n"
+        'The "Top 25 / 50 / 75%" control only changes how many lines are drawn. '
+        "Archetypes are ordered by their share of the most recent year, and the biggest "
+        "are kept until they add up to that percentage.",
     ),
     (
         "faq-landscape",
         "Archetypes",
         'How is the "Metagame landscape" built?',
-        "Each deck is counted once, under its primary archetype, exactly as meta share "
-        "is. For the year selected, an archetype sits horizontally at its share of "
-        "that year's decks and vertically at the average of its finishes; "
-        "the dot's size is how many separate events those finishes came from. The two "
-        "directions count different decks, which the hover states side by side. Across "
-        "is every deck that was played, a handful of events included that published "
-        "only their top eight. Up and down leaves those events out, because the only "
-        "finishes they recorded are good ones and averaging them would draw whichever "
-        "archetype won a bracket as a better one than it is; an archetype whose finishes "
-        "were all at such events keeps its share and has no height to be drawn at. "
-        "Only the 25 most-played archetypes of that year are drawn, recomputed for each "
-        "year, and the chart says how many archetypes the year held in all. More of them "
-        "sit above the halfway line than below it, because even among the events that "
-        "did publish standings, the source records top finishers more completely than "
-        "the rest of the field. Each dot carries a bar: the range "
-        "its average could reasonably be in, 90% of the time, given how much one deck's "
-        "finish bounces around its archetype's and how many separate events the dot "
-        "rests on. A dot whose bar crosses the 0.5 line has not settled which side of "
-        "the middle of the field it belongs on, which is most of them, so the caption "
-        "gives two numbers: how many dots sit above the line, and how many of those the "
-        "bars actually settle. The gap between the two is the point. It is usually "
-        "large, and it is why a dot sitting just above the line is not yet a finding.",
+        "For the year you pick, each archetype sits across at its share of that year's "
+        "decks and up at the average of its finishes. The dot's size is how many "
+        "separate events those finishes came from.\n\n"
+        "The two directions count different decks, and the hover shows both. Across "
+        "counts every deck played. Up and down uses only events that published full "
+        "standings (see the finish question above), so an archetype that played "
+        "nowhere else keeps its share and simply has no height.\n\n"
+        "Only the 25 most-played archetypes of the year are drawn, and the caption says "
+        "how many the year held in all. More dots sit above the halfway line than "
+        "below, because even among events with published standings the source records "
+        "top finishers more completely than the rest of the field.\n\n"
+        "Each dot carries an error bar: the range its average could reasonably be in, "
+        "90% of the time, given how much one deck's finish bounces around and how many "
+        "events the dot rests on. Most bars cross the 0.5 line, which means most dots "
+        "have not settled which side of the middle they belong on. That is why the "
+        "caption gives two numbers, and the gap between them is the point: a dot just "
+        "above the line is not yet a finding.",
     ),
     (
         "faq-archetype-timeline",
         "Archetypes",
         'How is an archetype\'s "Finishes over time" built?',
-        "Each point is one event, placed on the date the event's first deck was "
-        "registered, and its height is the average of that archetype's finishes there. "
-        "That is an average, not a single placement: an archetype usually brings a handful "
-        "of decks to an event, and typically one to three of them were given a "
-        "placement, which is what the size of each point shows. Events that published "
-        "only their top eight get no point at all, for the reason the landscape leaves "
-        "them off its vertical axis: an average over the decks that made the cut says "
-        "nothing about how the archetype did there. Picking a second "
-        "archetype narrows the chart to the events both attended, so every point has "
-        "something to compare against, and the headline counts how many of those events "
-        "each of them finished ahead at. That count is only called a lead when it beats "
-        "what a coin would do: an archetype that is exactly average finishes ahead at "
-        "about half its events by luck alone, and most of these counts (102 of the 121 "
-        "archetypes offered) are splits a coin produces easily. The count is still "
-        "shown, since it is what happened; where it does not clear chance the headline "
-        "says so. Two archetypes given a placement at fewer than "
-        "two events in common are refused rather than drawn.",
+        "Each point is one event, placed on the date its first deck was registered. Its "
+        "height is the average of that archetype's finishes there, usually over just "
+        "one to three scored decks, so a single point is thin evidence. The hover gives "
+        "the exact count. Events that published only their top eight get no point at "
+        "all (see the finish question above).\n\n"
+        "Picking a second archetype narrows the chart to the events both attended, so "
+        "every point has something to compare against, and the headline counts how many "
+        "of those events each one finished ahead at. That count is only called a lead "
+        "when it beats what a coin would do: an average archetype wins about half its "
+        "events by luck alone, and most of these counts (102 of the 121 archetypes "
+        "offered) are splits a coin produces easily. The count is still shown, since it "
+        "is what happened; where it does not clear chance the headline says so.\n\n"
+        "The chart spans every year in the data. The year selector above it changes the "
+        "landscape only. Two archetypes scored at fewer than two events in common are "
+        "refused rather than drawn.",
     ),
     (
         "faq-performance",
         "Pilots",
         'How is a pilot\'s "Performance over time" calculated?',
-        "For each year, the pilot's finishes are averaged into one normalised score "
-        "(drawn flipped so higher is better; 0.5 is the coin-flip line a random finisher "
-        "would average). A year needs at least two events, otherwise it is left as a gap "
-        "rather than a misleading single-event dot, and a pilot needs at least two such "
-        "years before the chart is drawn at all, since a line through one point is not a "
-        "trajectory. The headline \"finishes ahead of X% "
-        "of the field\" is the average across all scored years, weighted by how many "
-        "events each year held, so a busy year counts for more than a quiet one. "
-        "Each year carries a bar: the range that year's average could reasonably be "
-        "in, 90% of the time, given how much one finish bounces around a pilot's own "
-        "level and how few events the year held. The bars are wide and they overlap, "
-        "and that is the finding, not a flaw in the drawing: a typical year here rests "
-        "on three events. The line between the points is there to join them and "
-        "nothing more. Shuffling a pilot's own finishes into a different order moves it "
+        "For each year, the pilot's finishes are averaged into one score, drawn so "
+        "higher is better. 0.5 is the line a random finisher would average. A year "
+        "needs at least two events, otherwise it is left as a gap rather than a "
+        "misleading single-event dot, and a pilot needs at least two such years before "
+        "the chart is drawn at all.\n\n"
+        'The headline "finishes ahead of X% of the field" is the average across all '
+        "scored years, weighted by how many events each year held, so a busy year "
+        "counts for more than a quiet one. It counts every event that published full "
+        "standings (see the finish question above), where the best player race counts "
+        "only the biggest ones. The two disagree by a median of 10 places out of 137, "
+        "so reading a pilot's number here against their place in the race is reading "
+        "two different measurements as one.\n\n"
+        "Each year carries an error bar: the range that year's average could reasonably "
+        "be in, 90% of the time. The bars are wide and they overlap, and that is the "
+        "finding rather than a flaw in the drawing: a typical year here rests on three "
+        "events. Shuffling a pilot's own finishes into a different order moves the line "
         "as much as their real career does, so a dip is not a slump and a rise is not "
-        "form; what the chart supports is each year's value, with its bar, and the "
+        "form. What the chart supports is each year's value, with its bar, and the "
         "career headline above it.",
     ),
     (
         "faq-head-to-head",
         "Pilots",
         'How is the "Head-to-head" timeline built?',
-        "It plots the two pilots' finishes at every event they both entered, placed on "
-        "the date the event's first deck was registered. Each point is one real placement, not an average. A pair needs "
+        "It plots the two pilots' finishes at every event they both entered, on the "
+        "date the event's first deck was registered. Each point is one real placement, "
+        "not an average, so it keeps the top-eight-only events the averaging charts "
+        "drop: there is no average here for a missing player to flatter. A pair needs "
         "at least two shared events, otherwise there is no trajectory to draw and the "
-        "tool says so. "
-        "A number with a * beside it is one this project worked out rather than one "
-        "the source recorded: a field size a few events publish wrongly, a place "
-        "recovered from a deck's title or from the rest of the cut, or a score "
-        "either worked out from a place that came without one or re-ranked against "
-        "a corrected field size.",
+        "tool says so.\n\n"
+        "A number with a * beside it is one this project worked out rather than one the "
+        "source recorded: a field size a few events published wrongly, a place "
+        "recovered from a deck's title or from the rest of the cut, or a score worked "
+        "out from a place that came without one or re-ranked against a corrected field "
+        "size.",
     ),
     (
         "faq-race",
         "Pilots",
         'How is the "Best player race" scored?',
         "Only the biggest events count: a field of more than 64, which is about the top "
-        "fifth of them, so that every pilot in the race is measured on the same kind of "
-        "event. This is the only plot in the app that leaves events out for being small, "
-        "so a pilot's standing here and their record elsewhere are answering different "
-        "questions and will not always agree. "
-        "A handful of events are left out of this chart for a second reason: they "
-        "published only their top eight rather than the whole standings. At those, the "
-        "only finishes on record are good ones, because everyone who turned up and lost "
-        "is missing from the data entirely, so turning up could only help you. Two of "
-        "the big events are like that, and a finish at one averages nearly twice what a "
-        "finish at a normal event does. Every chart that averages finishes into a "
-        "standing leaves them out for that reason: a pilot's performance chart, and the "
-        "archetype charts on their finish side. The hidden gems keep them, because that "
-        "measure compares an event's decks against the rest of that same event and so "
-        "is not fooled by it. "
-        "A pilot's score is the average of their finishes there, pulled toward "
-        "the average of the whole field by how little evidence stands behind it: a "
-        "pilot with five such events is scored about half on their own record and half "
-        "on the field's, while one with three times that record is scored mostly on "
-        "their own. "
-        "That is what stops a good weekend outranking a long strong record, and how "
-        "hard it pulls is measured from the data rather than chosen, by comparing how "
-        "much one pilot's results bounce around against how much pilots genuinely "
-        "differ. To be in the race at all a pilot needs five of these events behind "
-        "them and two of them in the last year, so the field is who is playing now. "
-        "Each point on a line is that same score over every one of these events the "
-        "pilot had played by that date, so a line climbing is their record filling in "
-        "rather than the pilot improving, and the last point of a line is the score "
-        "the standings rank them on. It is drawn this way because the obvious "
-        "alternative, a rolling window of recent form, was measured and found to be "
-        "noise: shuffling a pilot's results into a different order moved those lines "
-        "just as much as their real career did.",
+        "fifth of them, so every pilot in the race is measured on the same kind of "
+        "event. This is the only chart here that drops events for being small, so a "
+        "pilot's standing here and their record elsewhere answer different questions "
+        "and will not always agree. Top-eight-only events are dropped too (see the "
+        "finish question above).\n\n"
+        "A pilot's score is the average of their finishes there, pulled toward the "
+        "field average by how little evidence stands behind it. A pilot with five such "
+        "events is scored about half on their own record and half on the field's, while "
+        "one with fifteen is scored mostly on their own. That is what stops a good "
+        "weekend outranking a long strong record, and how hard it pulls is measured "
+        "from the data rather than chosen.\n\n"
+        "To be in the race at all a pilot needs five of these events behind them and "
+        "two in the last year, so the field is who is playing now.\n\n"
+        "Each point on a line is that pilot's score over every one of these events they "
+        "had played by that date. So a line climbing is their record filling in rather "
+        "than the pilot improving, and the last point of a line is the score the "
+        "standings rank them on. It is drawn this way because the obvious alternative, "
+        "a rolling window of recent form, was measured and found to be noise: shuffling "
+        "a pilot's results into a different order moved those lines just as much as "
+        "their real career did.",
     ),
     (
         "faq-race-certainty",
@@ -740,42 +743,42 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Less than three decimal places make it look. These are the biggest events, so "
         "there are only a couple of dozen of them and a typical contender has played "
         "eight, which is not enough to separate pilots whose scores differ in the "
-        "thousandths. The standings put a number on that: each pilot's results are "
-        "redrawn at random from their own record a thousand times, the whole field is "
-        "rescored, and the \"Rank CI\" column (a 90% confidence interval) reports the "
-        "range their rank landed in 90% of the time. Those ranges are wide, and they "
-        "overlap heavily near the top. Read the leading group as a group, not as a "
-        "1-2-3.",
+        "thousandths.\n\n"
+        "The standings put a number on that. Each pilot's results are redrawn at random "
+        'from their own record a thousand times, the whole field is rescored, and the '
+        '"Rank CI" column reports the range their rank landed in 90% of the time. Those '
+        "ranges are wide and they overlap heavily near the top. Read the leading group "
+        "as a group, not as a 1-2-3.",
     ),
     (
         "faq-adoption",
         "Cards",
         'How is "Adoption over time" calculated?',
         "For each year, it is the share of decks that ran the card: decks with the card "
-        "that year divided by all decks that year. As with meta share, low counts are "
-        "shown as signal and a year with none is a real zero.",
+        "that year divided by all decks that year. As with meta share, small numbers "
+        "are shown rather than hidden and a year with none is a real zero.",
     ),
     (
         "faq-gems",
         "Cards",
         'What makes a card a "Hidden gem"?',
-        "Everything is measured inside one archetype. Take an archetype's decks that "
-        f"have a recorded finish, rank them, and call the best {GEM_TOP_CUT:.0%} of "
-        "them its best "
-        f"decks. A gem is a card that is rare in that archetype (in at least "
-        f"{MIN_GEM_DECKS} of its decks, but no more than {MAX_GEM_SHARE:.0%} of them) "
-        "and yet sits in enough of those best "
-        "decks that plain luck would manage it less than one time in a hundred. "
+        "Everything is measured inside one archetype. Take that archetype's scored "
+        f"decks, rank them, and the best {GEM_TOP_CUT:.0%} of them are its best decks. "
+        f"A gem is a card that is rare in the archetype (in at least {MIN_GEM_DECKS} of "
+        f"its decks, but no more than {MAX_GEM_SHARE:.0%} of them) and yet sits in "
+        "enough of those best decks that plain luck would manage it no more than one "
+        f"time in a hundred. An archetype needs {MIN_GEM_SLICE} scored decks before the "
+        "question can be asked at all, which today leaves most of the format out.\n\n"
         "Nothing is compared across archetypes, so a card is never called a gem for "
         "belonging to an archetype that wins a lot: the question is only whether the "
-        "archetype's own best decks are the ones running it. A card can be a gem in "
-        "two archetypes at once, and that is two separate findings on two sets of "
-        "decks. The graph shows each gem's archetype on one side and, on the other, "
-        "every one of the best decks that run it, which you can open on Moxfield, so "
-        "the deck nodes hanging off a card are exactly the number its In top column "
-        "gives. Decks of one archetype sit close together, because its best decks "
-        "nearly all run nearly all of its gems, which is itself the thing to read: a "
-        "deck between two cards is a deck that found both.",
+        "archetype's own best decks are the ones running it. A card can be a gem in two "
+        "archetypes at once, and that is two separate findings.\n\n"
+        "The graph shows each gem's archetype on one side and, on the other, every one "
+        "of the best decks that run it, which you can open on Moxfield. So the deck "
+        'nodes hanging off a card are exactly the number its "In top" column gives. '
+        "Decks of one archetype sit close together, because its best decks nearly all "
+        "run nearly all of its gems, which is itself the thing to read: a deck between "
+        "two cards is a deck that found both.",
     ),
     (
         "faq-gems-certainty",
@@ -784,27 +787,24 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Less than a list of names looks. Screening every rare card of every archetype "
         "means more than a thousand chances for coincidence, so a bar of "
         f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: getting on "
-        "for half the list, and nothing distinguishes which ones. That count no longer "
-        "flatters itself, which is why it is as high as it is. A card's odds used to "
-        "read its decks as that many separate results, when the same pilot is often "
-        "behind several of them and one pilot's decks rise and fall together; every "
-        "card is now charged for the pilots behind its decks rather than the decks, so "
-        "a card seven decks and three pilots deep is scored as the three opinions it "
-        "is. That is why the "
-        "count is not printed beside the table, where it would raise a question it "
-        "cannot answer. It is a real limit and not a hedge. There is no "
-        "way to check the list against later results either, because a gem that works "
-        "stops being rare, so a card that still looks like a gem a year on is a card "
-        "nobody acted on. Read the table for what a gem rests on: Decks running it is "
-        "how rare "
-        "the card is in that archetype, the In top column is how much of it landed in "
-        "the archetype's best decks, and Pilots says whether those decks are as many "
+        "for half the list, and nothing distinguishes which ones. There is no way to "
+        "check the list against later results either, because a gem that works stops "
+        "being rare, so a card that still looks like a gem a year on is a card nobody "
+        "acted on.\n\n"
+        "That count is as high as it is because it stopped flattering itself. A card's "
+        "odds used to read its decks as that many separate results, when the same pilot "
+        "is often behind several of them and one pilot's decks rise and fall together. "
+        "Every card is now charged for the pilots behind its decks rather than the "
+        "decks, so a card seven decks and three pilots deep is scored as the three "
+        "opinions it is.\n\n"
+        'Read the table for what a gem rests on. "Decks running it" is how rare the '
+        'card is in that archetype, "In top" is how much of it landed in the '
+        'archetype\'s best decks, and "Pilots" says whether those decks are as many '
         "opinions or one pilot's, which matters because a deck's finish follows "
-        "whoever piloted it more than it follows any card. A card carried by one "
-        "pilot is kept and labelled, not hidden. Read a gem as a card worth trying, "
-        "not as a card proven good. Nothing is resampled or randomised, so a rebuild "
-        "of the same graph reports the same numbers, and a number that moved means "
-        "the evidence moved.",
+        "whoever piloted it more than it follows any card. A card carried by one pilot "
+        "is kept and labelled, not hidden. Read a gem as a card worth trying, not as a "
+        "card proven good. Nothing is randomised, so a rebuild of the same graph "
+        "reports the same numbers, and a number that moved means the evidence moved.",
     ),
     (
         "faq-gems-unfiltered",
@@ -813,10 +813,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Because there is nothing left to narrow. The rule is strict enough that the "
         "whole format produces well under a dozen gems across a handful of archetypes, "
         "which fits in one picture, so the tab draws all of them at once instead of "
-        "asking "
-        "you to guess which archetype to look in. It recalculates as decks are added. "
-        "If it ever finds more gems than the picture can hold, it draws the ones with "
-        "the longest odds and the caption counts what is shown.",
+        "asking you to guess which archetype to look in. It recalculates as decks are "
+        "added. If it ever finds more gems than the picture can hold, it draws the ones "
+        "with the longest odds and the caption counts what is shown.",
     ),
 ]
 
@@ -1444,14 +1443,19 @@ def _performance_caption(series: Series) -> str:
     no user text) for :func:`_chart_heading`'s ``caption_html``; empty when no year
     cleared the floor, which the caller's refusal note has already covered.
 
-    Two clauses follow the sample, and they are the ones this caption exists for as much
-    as the standing (issue #175). The **movement** between the years is not real: permuted
-    against the artifact, a pilot's drawn swing is 0.2376 against a shuffled 0.2404, so a
-    dip is not a slump and the whiskers overlap for that reason rather than by
-    misfortune. And the **population** is every event with a recorded finish, where the
-    race scores the biggest events only: the two disagree by a median of 10 places of 137
-    over the race's contenders, so a reader who reads this number against that board is
-    reading two different measurements as one.
+    Two clauses used to follow the sample, and both have moved to ``faq-performance``
+    (§14, issue #156): that the **movement** between the years is not real (permuted
+    against the artifact, a pilot's drawn swing is 0.2376 against a shuffled 0.2404, so
+    a dip is not a slump and the whiskers overlap for that reason rather than by
+    misfortune), and that the **population** is not the race's. Both are still true and
+    still stated; they are readings a reader takes once and keeps, not facts they need
+    beside the number, and the caption they made was a paragraph.
+
+    The one that came off the surface at some cost is the population clause, so it was
+    fixed rather than just moved: it read "every event with a recorded finish counts
+    here", which stopped being true when #191 dropped bracket-only events from this
+    chart's mean. The FAQ now states the rule once, in ``faq-finish``, and this chart's
+    answer points at it.
 
     The standing itself stays, and stays first. It is a mean over a pilot's whole record
     rather than one year of it, which is exactly the quantity this chart's sample sizes
@@ -1467,11 +1471,8 @@ def _performance_caption(series: Series) -> str:
     return (
         "<div class='t-fieldstat'>Finishes ahead of "
         f"<span class='pct'>{round(mean_score * 100)}%</span> of the field on average"
-        f"<span class='sample'> · {total} events over {len(scored)} scored {years} · "
-        "every event with a recorded finish counts here, not the biggest events only "
-        "as the race does · each bar is that year's 90% interval, and they overlap "
-        "because a handful of events cannot separate one year from the next, so a dip "
-        "is not a slump</span></div>"
+        f"<span class='sample'> · {total} events over {len(scored)} scored "
+        f"{years}</span></div>"
     )
 
 
@@ -1656,37 +1657,32 @@ def _leaderboard_html(
 
 
 def _race_caption(series: Series, drawn: int) -> str:
-    """The race's caption: how much of the field is drawn, on what, and who is in it.
+    """The race's caption: how much of the field is drawn, and what a score is measured on.
 
-    Three things the lines cannot say for themselves, in the field-standing form
-    :func:`_performance_caption` and :func:`_landscape_caption` share. The cut leads,
-    because eight lines out of a field of a hundred and thirty-odd read as the whole
-    field unless the caption says otherwise, and because where the cut falls is a
+    A headline and one qualifier, in the field-standing form
+    :func:`_performance_caption` and :func:`_landscape_caption` share (§14). The cut
+    leads, because eight lines out of a field of a hundred and thirty-odd read as the
+    whole field unless the caption says otherwise, and because where the cut falls is a
     palette constraint rather than a break in the data. Then what a score is measured
-    on, since scoring the biggest events only is the chart's strongest assumption and
-    is invisible in the picture. Then the faded layer, which is the one mark on the
-    chart a reader cannot name from the picture (its predecessor, a p25-p75 band, was
-    asked about on sight at first review). Then what a point *is*, which under the
-    running score is the reading most at risk of being taken for its opposite: a rising
-    line is a record filling in, not a pilot improving, and nothing in the picture says
-    so (ADR 0017).
+    on, since scoring the biggest events only is the chart's strongest assumption and is
+    invisible in the picture.
 
-    The eligibility gates are deliberately not here. They were, and the caption grew to
-    five clauses; the FAQ entry carries them, and none of the three readings above has
-    another home. All app-built numerics off named constants, no user free text, so it is
-    returned as trusted markup for :func:`_chart_heading`'s ``caption_html``.
+    Two clauses came off in #156, both because the chart already carries them. The faded
+    layer is a named legend entry ("All other contenders"), so a caption clause naming it
+    again is the legend read aloud. And what a point *is* is the x-axis title ("Every
+    major played up to"); the reading that follows from it, that a rising line is a
+    record filling in rather than a pilot improving, is the first thing ``faq-race``
+    says. The eligibility gates were never here, for the same reason.
+
+    All app-built numerics off named constants, no user free text, so it is returned as
+    trusted markup for :func:`_chart_heading`'s ``caption_html``.
     """
     contenders = len({cell.pilot for cell in series.cells})
     return (
         f"<div class='t-fieldstat'><span class='pct'>{drawn} of {contenders:,}</span> "
         "contenders drawn, best first"
-        f"<span class='sample'> · scored on {series.cells[0].major_events:,} major "
-        f"events, the ones with a field over {MAJOR_FIELD_SIZE} that published who "
-        "finished where, and this is the only "
-        "chart here that leaves the smaller events out · every other contender "
-        "is traced faintly behind them · each point counts every major a pilot had "
-        "played by then, so a line rises as their record fills in rather than as they "
-        "improve</span></div>"
+        f"<span class='sample'> · scored on {series.cells[0].major_events:,} events "
+        f"only, the ones with a field over {MAJOR_FIELD_SIZE}</span></div>"
     )
 
 
@@ -1704,8 +1700,8 @@ def _standings_caption(series: Series, rows: int) -> str:
     contenders = len({cell.pilot for cell in series.cells})
     held = (f"top {rows:,} of {contenders:,} contenders" if contenders > rows
             else f"all {contenders:,} contenders")
-    return (f"{held}, best first · the rank CI is where a pilot's rank landed "
-            f"{RACE_INTERVAL:.0%} of the time when the record was resampled")
+    return (f"{held}, best first · Rank CI is where a pilot's rank landed in "
+            f"{RACE_INTERVAL:.0%} of resamples of their own record")
 
 
 def _race_label(at: datetime) -> str:
@@ -1842,15 +1838,14 @@ def _race_figure(
 def _landscape_caption(
     series: Series, drawn: list[LandscapeCell], top_n: int, in_progress: bool
 ) -> str:
-    """The landscape's caption: the 0.5 line, the cut, and the season it rests on.
+    """The landscape's caption: one claim about the 0.5 line, then the sample (§14).
 
-    Three things the dots cannot say for themselves, in the field-standing form
-    :func:`_performance_caption` already uses: the reading first with its number in the
-    accent, the sample quiet behind it. The line leads, because "above 0.5" is only a
-    reading if the reader is told what it means (above it, an archetype beat the middle
-    of the field) and because more dots sit above it than below, which is a property of
-    the source rather than of the archetypes, so the count is stated rather than left to
-    be noticed. Counted on the drawn dots, not asserted.
+    The reading first with its number in the accent, the sample quiet behind it, the
+    field-standing form :func:`_performance_caption` already uses. The line leads,
+    because "above 0.5" is only a reading if the reader is told what it means (above it,
+    an archetype beat the middle of the field) and because more dots sit above it than
+    below, which is a property of the source rather than of the archetypes, so the count
+    is stated rather than left to be noticed. Counted on the drawn dots, not asserted.
 
     **Two counts, because either alone misleads (issue #175).** The dots are means of a
     handful of decks, so counting the ones that merely sit above the line sells a
@@ -1860,18 +1855,20 @@ def _landscape_caption(
     chart: a reader looking at nineteen dots above the line was told "0 of 25", which is
     2026 today, and the caption lost an argument with the picture it was captioning. So
     the plain count
-    leads, agreeing with what the eye does, and the settled count follows as the
-    qualifier it always was. The bars beside the dots are what makes the second number
-    checkable. Then the
-    cut, because a bounded chart that does not say what it is bounded to reads as the
-    whole field. The cut is stated as the rule it is (``top_n`` of the field), not as
-    the number of dots that survived it, so it stays true of a year where an unscored
-    archetype leaves a gap, and a year small enough that nothing was cut says so rather
-    than claiming a ranking it never applied. Then the season, because a year is the
-    reader's only sample size here, and the latest one is partial (the corpus ends
-    mid-year), so an in-progress year says so rather than being silently compared
-    against a full one. All app-built numerics and no user free text, so it is returned
-    as trusted markup for :func:`_chart_heading`'s ``caption_html``.
+    leads, agreeing with what the eye does, and the settled count follows in the same
+    breath as the qualifier it always was. The bars beside the dots are what makes the
+    second number checkable, and explaining what a bar *is* is now ``faq-landscape``'s
+    job rather than a third clause here (§14, issue #156).
+
+    The tail is the sample, one clause: the cut and the season, the two things that
+    decide what a reader may generalise from. The cut is stated as the rule it is
+    (``top_n`` of the field), not as the number of dots that survived it, so it stays
+    true of a year where an unscored archetype leaves a gap, and a year small enough
+    that nothing was cut says so rather than claiming a ranking it never applied. The
+    season says "so far" while the latest year is still filling (the corpus ends
+    mid-year), so a partial year is never silently compared against a full one. All
+    app-built numerics and no user free text, so it is returned as trusted markup for
+    :func:`_chart_heading`'s ``caption_html``.
     """
     year = series.cells[0]
     # The flip is the chart's, so above the line reads as a raw norm below 0.5. Settled
@@ -1887,16 +1884,16 @@ def _landscape_caption(
            else f"all {field} archetypes the year held")
     season = f"{year.year_events:,} events, {year.year_total:,} decks"
     season = (
-        f"{year.year} still in progress: {season} so far" if in_progress
+        f"{year.year} so far: {season}" if in_progress
         else f"{year.year}: {season}"
     )
     return (
         f"<div class='t-fieldstat'><span class='pct'>{above} of {len(drawn)}</span> "
-        "above the 0.5 line, the middle of the field, "
-        f"<span class='pct'>{settled}</span> of them settled once the bars are counted"
-        f"<span class='sample'> · {cut} · {season} · each bar is that dot's 90% "
-        "interval, and a dot whose bar crosses the line has not settled which side it "
-        "belongs on</span></div>"
+        "beat the middle of the field, the 0.5 line, and "
+        # "none" rather than a bare "0", which is the common case here and reads as a
+        # dropped number rather than as the answer it is.
+        f"<span class='pct'>{settled or 'none'}</span> by more than their error bar"
+        f"<span class='sample'> · {cut}, {season}</span></div>"
     )
 
 
@@ -2068,17 +2065,17 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
 
 
 def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series) -> str:
-    """The timeline's headline and the two things its points cannot say for themselves.
+    """The timeline's headline, and the one thing the picture cannot say for itself.
 
     The countable claim first, in the field-standing form the performance and landscape
     captions already use: the individual points are thin, so what a reader can quote is
     the count across the whole run. With two archetypes that is the win count over the
-    events both were placed at ("finished better at 30 of 44"), the tally the
+    events both were scored at ("beat Jund at 30 of 44 shared events"), the tally the
     shape of the band only suggests; with one it is the same count against the middle of
     the field, the 0.5 line the rest of the app already reads finishes against.
 
     That count is gated on :func:`beats_a_coin` before it is allowed to read as a lead
-    (issue #175). Each point is the mean of a median of one ranked deck, so under the
+    (issue #175). Each point is the mean of a median of one scored deck, so under the
     null every event is a coin flip, and 102 of the 121 headlines this surface can print
     are splits a fair coin produces at least a tenth of the time. The count itself is
     printed either way, because it is a fact about the record; what the gate governs is
@@ -2086,15 +2083,13 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
     split a coin could produce" in the same breath as the number. A tie needs no gate,
     since it already asserts no leader.
 
-    Then the two caveats, quiet behind it. First, that a point is a **mean** of that
-    archetype's ranked decks at that event and typically rests on one to three of
-    them (measured over the whole graph: 87% of ``(archetype, event)`` points hold one
-    to three ranked decks and the median is one). The pilot head-to-head's "each point
-    is one real result, not an average" is exactly false here and must never be
-    borrowed. Second, the shared-event restriction: stated as a definition when it
-    is in force, and as what a second archetype would do when it is not, since adding
-    one drops points from the first line and visibly reshapes it (Grixis attended 74
-    events and Jund 61, but they shared 55).
+    Then one qualifier, and only one (§14, issue #156): the span. The year selector
+    sits directly above this chart and governs the landscape alone, so a reader who is
+    not told otherwise will read these points as that year's. The two clauses this
+    caption used to carry behind it are gone from the surface: that a point is a mean
+    of one to three scored decks now lives in ``faq-archetype-timeline`` alone, and the
+    shared-event restriction is already in the pair's own headline ("of 44 shared
+    events"), so restating it under the plot said the same thing twice.
 
     All app-built numerics, with the two display names escaped, so it is returned as
     trusted markup for :func:`_chart_heading`'s ``caption_html``.
@@ -2103,9 +2098,6 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
     # The same definition the tool floors on, so the denominator here is the count the
     # refusal would have named.
     comparable = comparable_points(series.cells, paired=b is not None)
-    # The year selector above governs the scatter alone, which its own help text says
-    # from that side; here the span is stated in three words rather than restating the
-    # contrast, so the caption keeps to a headline and a short tail.
     span = "every year in the data"
     # A count that a fair coin produces is not a lead, and most of them are: the count
     # is printed either way (it is a fact) and only the reading is discounted (#175).
@@ -2114,12 +2106,10 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
         # A lower norm is a better finish, so beating the middle of the field is a
         # mean under 0.5, the same reading the 0.5 line carries on every other chart.
         led = sum(1 for c in comparable if c.mean_norm_a < 0.5)
-        headline = (f"{a} finished above the middle of the field at "
+        headline = (f"{a} beat the middle of the field at "
                     f"<span class='pct'>{led} of {len(comparable)}</span> events")
         if not beats_a_coin(led, len(comparable)):
             headline += hedge
-        restriction = "a second archetype narrows this to the events both attended"
-        decks = f"each point averages {a}'s placed decks there, typically 1 to 3"
     else:
         wins_a = sum(1 for c in comparable if c.mean_norm_a < c.mean_norm_b)
         wins_b = sum(1 for c in comparable if c.mean_norm_b < c.mean_norm_a)
@@ -2129,7 +2119,7 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
         # no lead for the coin to take away and it carries no hedge.
         if wins_a == wins_b:
             headline = (
-                f"{a} and {b} finished better at <span class='pct'>{wins_a} each</span> "
+                f"{a} and {b} each finished better at <span class='pct'>{wins_a}</span> "
                 f"of {len(comparable)} shared events"
             )
         else:
@@ -2138,12 +2128,9 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
                         "shared events")
             if not beats_a_coin(led, len(comparable)):
                 headline += hedge
-        restriction = ("drawn over the events both attended, counted over the ones "
-                       "both were placed at")
-        decks = "each point averages that side's placed decks there, typically 1 to 3"
     return (
         f"<div class='t-fieldstat'>{headline}"
-        f"<span class='sample'> · {restriction} · {decks} · {span}</span></div>"
+        f"<span class='sample'> · {span}</span></div>"
     )
 
 
@@ -2698,7 +2685,7 @@ def build_app(artifact: Path) -> gr.Blocks:
     def draw_adoption(subject: str, second: str | None, board: str | None):
         # Returns the heading, the plot, and a refusal note. With no card picked the
         # whole results stack is hidden by the view callback (the guidance lives in the
-        # dropdown help text now), so this simply hides its three parts; a drawn result
+        # panel is the guidance now), so this simply hides its three parts; a drawn result
         # fills the heading and plot, a refusal fills the note.
         canons = _adoption_cards(subject, second)
         if not canons:
@@ -2761,7 +2748,7 @@ def build_app(artifact: Path) -> gr.Blocks:
     def draw_head_to_head(a: str, b: str):
         # Returns the heading, the plot, and a refusal note. A missing or same-pilot
         # pair hides all three (the view callback carries the "pick both" / "pick two
-        # different" guidance on the neighbourhood card and in the dropdown help text);
+        # different" guidance on the neighbourhood card);
         # the note is the "refused, not a dot" surface for a pair the tool comes back
         # empty on.
         if not a or not b or a == b:
@@ -2962,24 +2949,25 @@ def build_app(artifact: Path) -> gr.Blocks:
                 landscape_year = gr.Dropdown(
                     choices=[(str(y), y) for y in corpus_years],
                     value=latest_landscape_year, label="Year",
-                    # The two plots below read different spans, and they sit under one
-                    # control panel (§13), so the year says which of them it governs.
-                    # The timeline's own caption says the same from the other side.
-                    info="The landscape only; the timeline below spans every year.",
+                    # The two plots below read different spans and sit under one control
+                    # panel (§13), so the year says which of them it governs. Two words,
+                    # and only from this side: the timeline's caption says "every year in
+                    # the data" from the other, and §14 states a scope once (#156).
+                    info=_YEAR_SCOPE,
                 )
                 timeline_a, _ = _clearable(
                     choices=timeline_archetypes, value=None, label="Archetype",
-                    info=_PICK_TIMELINE_ARCHETYPE, elem_classes="primary-control",
+                    elem_classes="primary-control",
                 )
                 timeline_b, _ = _clearable(
                     choices=timeline_archetypes, value=None,
-                    label="Second archetype (optional, to compare)",
+                    label="Second archetype (optional)",
                 )
             # A graph with no archetype at all has no year to open on, so the tab shows
             # the same shape of refusal a thin year does rather than failing to build.
             _ls_heading, _ls_fig, _ls_note = (
                 _landscape_view(latest_landscape_year) if latest_landscape_year
-                else (None, None, "This graph holds no archetype to place on a landscape.")
+                else (None, None, "No archetypes to place on a landscape yet.")
             )
             with gr.Group(elem_classes="insight-card"):
                 landscape_heading = gr.HTML(
@@ -3029,7 +3017,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         with gr.Tab("Cards"):
             gr.Markdown("## Cards")
             gr.Markdown(
-                "Explore any card's usage, companions, and adoption over time.",
+                "How much a card is played, what it plays with, and how that changed.",
                 elem_classes="t-lede",
             )
             cards_default = next(iter(_CARDS_TAB))
@@ -3042,7 +3030,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # (`toggle_cards_view`), so none is stranded below a plot.
             with gr.Group(elem_classes="control-panel"):
                 card, _ = _clearable(
-                    choices=cards, label="Card", value=None, info=_PICK_CARD,
+                    choices=cards, label="Card", value=None,
                     elem_classes="primary-control",
                 )
                 cards_view = gr.Dropdown(
@@ -3052,13 +3040,12 @@ def build_app(artifact: Path) -> gr.Blocks:
                     choices=_BOARD_CHOICES, label="Board", value="", visible=cov_default,
                 )
                 cooc_card2, cooc_card2_row = _clearable(
-                    choices=cards, value=None,
-                    label="Second card (optional, for shared packages)",
+                    choices=cards, value=None, label="Second card (optional)",
                     visible=cooc_default,
                 )
                 cooc_top_n = gr.Dropdown(
                     choices=[5, 15, 25], value=15,
-                    label="Top cards by co-occurrence rate", visible=cooc_default,
+                    label="Cards to show", visible=cooc_default,
                 )
                 cooc_drop_lands = gr.Checkbox(
                     value=False, label="Filter out lands", visible=cooc_default,
@@ -3198,13 +3185,13 @@ def build_app(artifact: Path) -> gr.Blocks:
             h2h_default = pilots_default == "pilot_head_to_head"
 
             # §13 control panel: subject, view, and every plot-affecting control in one
-            # raised surface above the results. The subject dropdown's help text carries
-            # the "pick and Draw" guidance (§14), so the results below open empty rather
-            # than as duplicated prompt cards. The second pilot and each view's Draw
-            # toggle with the picker (`toggle_pilots_view`).
+            # raised surface above the results. The results below open empty rather than
+            # as duplicated prompt cards (§14): the label and the Draw button are the
+            # invitation, and no control carries a "pick and Draw" sentence. The second
+            # pilot and each view's Draw toggle with the picker (`toggle_pilots_view`).
             with gr.Group(elem_classes="control-panel"):
                 pilot, _ = _clearable(
-                    choices=pilots, label="Pilot", value=None, info=_PICK_PILOT,
+                    choices=pilots, label="Pilot", value=None,
                     elem_classes="primary-control",
                 )
                 pilots_view = gr.Dropdown(
@@ -3212,15 +3199,15 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 h2h_pilot_b, h2h_pilot_b_row = _clearable(
                     choices=pilots, value=None, label="Second pilot (required)",
-                    info=_PICK_PILOT2, visible=h2h_default,
+                    visible=h2h_default,
                 )
                 po_go = gr.Button(DRAW_LABEL, variant="primary", visible=po_default)
                 h2h_go = gr.Button(DRAW_LABEL, variant="primary", visible=h2h_default)
 
             # Pilot overview: one pilot, three plots, each in its own insight card. The
             # results stack is hidden until a Draw fills it (§14), so the view opens as
-            # controls over empty ground, the dropdown help text guiding, not a row of
-            # duplicated empty-prompt cards. The subject line sits above the stack.
+            # controls over empty ground rather than a row of duplicated empty-prompt
+            # cards. The subject line sits above the stack.
             with gr.Group(visible=po_default) as g_pilot_overview:
                 po_subject = gr.HTML(visible=False)
                 with gr.Group(visible=False, elem_classes="results-stack") as po_results:
@@ -3249,8 +3236,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # One Draw fans out to all three plots: two subgraph queries and a
                 # series, each independent so a graph that refines composes beside a
                 # trend that refuses (#126). The results stack shows only when a pilot is
-                # picked (§14); with none, the dropdown help text guides and the stack
-                # stays hidden. draw_performance returns (heading, plot, note).
+                # picked (§14); with none the stack stays hidden and the panel above is
+                # the whole surface. draw_performance returns (heading, plot, note).
                 subject = _subject_update("Pilot", pilot_labels[p] if p else None)
                 if not p:
                     return (subject, gr.update(visible=False),
@@ -3265,7 +3252,7 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             def draw_head_to_head_view(a: str, b: str):
                 # One Draw fans out to the pair's neighbourhood and their timeline. A
-                # missing pair keeps the stack hidden (the dropdown help text guides); a
+                # missing pair keeps the stack hidden; a
                 # same-pilot pair shows the stack with a single "pick two different" note
                 # on the neighbourhood card, the empty timeline card hidden (self-vs-self is
                 # refused the same way the timeline refuses it, so the two plots never
@@ -3339,7 +3326,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # It used to promise "how they rose and fell", which the chart could not
             # deliver: that movement measured as noise (ADR 0017).
             gr.Markdown(
-                "Who the best pilots are, and when the record could tell.",
+                "Who the best pilots are, and how long the record took to say so.",
                 elem_classes="t-lede",
             )
             with gr.Group(elem_classes="insight-card"):
@@ -3373,7 +3360,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         with gr.Tab("FAQ"):
             gr.Markdown("## FAQ")
             gr.Markdown(
-                "How the headline numbers are calculated.",
+                "How the numbers here are worked out.",
                 elem_classes="t-lede",
             )
             for _eid, _cat, _q, _a in _FAQ_ENTRIES:
