@@ -169,6 +169,16 @@ def render_subgraph(subgraph: Subgraph) -> str:
             **shaped,
             **pinned,
         )
+        if node.shape is not None:
+            # A shaped node draws its label over its own fill rather than over the
+            # ground, which is the one place the halo `_SETTLE` sets would outline text
+            # in a colour that is not behind it. Only the stroke is turned off: vis.js
+            # reads each font key from the most specific source that sets it, so the
+            # size still follows the zoom the settle sets on every node.
+            #
+            # Written after the fact because pyvis's `Node` assigns `font` outright from
+            # the network's `font_color`, discarding any font passed as an option.
+            net.node_map[node.id]["font"]["strokeWidth"] = 0
     for edge in subgraph.edges:
         # Tint the edge to match its player so a chain reads as one colour; an
         # edge touching the neutral shared event takes the player on its other
@@ -221,6 +231,14 @@ _PROMPT = "Click a node to see its details."
 # (the 11px eyebrow). Nothing about it is a vis.js font size: see `_SETTLE`.
 LABEL_PX = 12
 
+# The halo drawn behind every label, in CSS pixels, in the ground's own colour.
+# A dense corner of a graph draws its labels across one another, and two names
+# in the same ink on the same ground melt into a single unreadable smear; a halo cuts
+# each label out of whatever is behind it, so the top one reads and the stack is visible
+# as a stack. Three is the width that closes the gaps between glyphs of adjacent labels
+# without eating into the letterforms it surrounds.
+HALO_PX = 3
+
 # vis.js draws a label in canvas units and multiplies by the zoom, then drops the label
 # entirely once that product falls under a floor of its own (`scaling.label.drawThreshold`
 # minus one, so 4px). At desktop width the fitted zoom leaves labels small rather than
@@ -244,6 +262,7 @@ LABEL_PX = 12
 _SETTLE = """
 <script>
   const LABEL_PX = __LABEL_PX__;
+  const HALO_PX = __HALO_PX__;
   const PINNED = __PINNED__;
   let hasSettled = false;
   let settledFrame = null;  // the frame the last completed settle fitted, as "WxH"
@@ -283,7 +302,13 @@ _SETTLE = """
       const converged = Math.abs(fitted - zoom) < 0.005 * fitted;
       zoom = fitted;
       if (converged) break;
-      network.setOptions({nodes: {font: {size: LABEL_PX / zoom}}});
+      // The halo rides the same divisor as the label: vis.js measures both in canvas
+      // units, so a stroke left at a fixed width thickens as a graph zooms out and
+      // swallows the labels it is there to separate.
+      network.setOptions({nodes: {font: {
+        size: LABEL_PX / zoom, strokeWidth: HALO_PX / zoom,
+        strokeColor: '__GROUND__',
+      }}});
       // A node's box is measured as it is drawn, and vis.js draws on the next frame,
       // where this loop runs to convergence within one. Without the redraw every pass
       // after the first fits against the box the *previous* label size gave, and the
@@ -457,6 +482,8 @@ def _compose(doc: str, meta: dict, legend: str, all_pinned: bool) -> str:
     panel = _PANEL.replace("__PROMPT__", _PROMPT).replace("__META__", payload)
     settle = (
         _SETTLE.replace("__LABEL_PX__", str(LABEL_PX))
+        .replace("__HALO_PX__", str(HALO_PX))
+        .replace("__GROUND__", TOKENS["surface"])
         .replace("__PINNED__", "true" if all_pinned else "false")
     )
     doc = _inject(doc, "</head>", _DOC_STYLE + "</head>")

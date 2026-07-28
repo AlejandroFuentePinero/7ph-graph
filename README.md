@@ -8,9 +8,11 @@ exploration and analytics.
 
 ## What it does
 
-Pick a view (a pilot's neighbourhood or archetype affinity, a card's usage or
-co-occurrence, or hidden gems), set filters, and see the result as an interactive
-graph. Click a node for its details; a deck links out to Moxfield.
+Pick a view (a pilot's neighbourhood or archetype affinity, or a card's usage or
+co-occurrence), set filters, and see the result as an interactive graph. Click a
+node for its details; a deck links out to Moxfield. Hidden gems is the one view
+with nothing to pick: it draws the whole format's rare-but-concentrated cards at
+once, and recalculates as decks are added.
 
 A result too large to read is neither drawn nor truncated: the app reports its
 node-kind distribution and asks you to narrow the query.

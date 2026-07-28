@@ -238,8 +238,9 @@ def _ns(**kwargs):
 def small_cases(monkeypatch):
     """Point the CLI's grader at the cases the 3-deck fixture can actually run.
 
-    The full CASES include the two hidden-gem views, which need >=50 ranked decks
-    and raise SliceTooSmall on the fixture. Issue #67 is capture-path orchestration
+    The full CASES include the hidden-gem view, whose rule needs archetypes of at
+    least MIN_GEM_SLICE ranked decks and which the 3-deck fixture can only answer
+    empty. Issue #67 is capture-path orchestration
     (grade, count, refuse unless --force), indifferent to which cases run, so the
     tests drive the real grader and real capture over the subset the fixture
     supports rather than mocking either. Grading correctness lives in

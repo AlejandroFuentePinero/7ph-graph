@@ -13,9 +13,9 @@ harness applies the rule each query actually promises:
   Python before emitting. Order is genuinely part of the contract for the
   two-seed co-occurrence view, whose shared-card column pins y-positions by
   list index.
-- **Order-insensitive** for ``pilot_subgraph`` and ``hidden_gems_subgraph``,
-  which have no ``ORDER BY`` and build their lists directly in row order. A
-  different engine may legitimately return the same rows in a different order.
+- **Order-insensitive** for ``pilot_subgraph``, which has no ``ORDER BY`` and
+  builds its lists directly in row order. A different engine may legitimately
+  return the same rows in a different order.
 """
 
 import json
@@ -43,21 +43,25 @@ from graph7ph.query import (
 # not under `data/`, because it is reviewed source rather than a build output.
 BASELINE_PATH = Path("baseline/subgraphs.json")
 
-# The two queries with no ORDER BY, which build their lists directly in row
-# order. Everything else sorts before emitting, so its order is a promise.
-ORDER_INSENSITIVE = (PilotNeighbourhood, HiddenGems)
+# The one query with no ORDER BY, which builds its lists directly in row order.
+# Everything else sorts before emitting, so its order is a promise. The gem view
+# joined them at #184: it now ranks its whole answer before drawing any of it, so
+# an order that moved would be an answer that moved.
+ORDER_INSENSITIVE = (PilotNeighbourhood,)
 
 # How far a float riding out on a node or edge may move and still count as
 # unchanged. Floats need a tolerance because `avg(d.placementNorm)` differs
 # between engines in the last bits: aggregation order changes, and float addition
 # is not associative. Measured on the real graph across every query, the largest
-# such difference is 5.6e-17, and the closest any hidden gem sits to the 0.33
-# band is 8.6e-4. This tolerance sits between the two, eight orders above the
-# noise and five orders below the margin, so it swallows engine noise and still
-# cannot hide a card crossing into or out of the gem answer. It stops being safe
-# if a future engine's noise grows past it, or if gems start crowding the
-# threshold; `test_the_tolerance_sits_between_the_noise_and_the_band_margin`
-# holds both ends.
+# such difference is 5.6e-17, and the closest any hidden gem sits to the odds bar
+# it was admitted on is 8.3e-4. This tolerance sits between the two, eight orders
+# above the noise and five orders below the margin, so it swallows engine noise
+# and still cannot hide a card crossing into or out of the gem answer. It stops
+# being safe if a future engine's noise grows past it, or if gems start crowding
+# the bar; `test_the_tolerance_sits_between_the_noise_and_the_gem_margin` holds
+# both ends. A gem's own odds are exact integer arithmetic and do not move with
+# aggregation order at all; what the margin bounds is a change in the record big
+# enough to matter.
 TOLERANCE = 1e-9
 
 
@@ -84,8 +88,8 @@ class Case:
 # shape worth grading: a pilot with many events and a head-to-head between two
 # who share most of them; a staple card and a rare one; a co-occurrence pair that
 # shares 1575 decks and one that shares none; every board filter; `drop_lands`
-# both ways; and the gem view both unfiltered and narrowed to the largest
-# archetype. Every case earns its place by answering differently from its
+# both ways; and the gem view, which takes no parameters and is one picture of
+# the whole format. Every case earns its place by answering differently from its
 # siblings: a variation that returns byte-identical output to another case grades
 # nothing twice. Editing a case's parameters invalidates the baseline, and
 # `compare` says so rather than grading the new query against the old answer.
@@ -111,8 +115,7 @@ CASES: list[Case] = [
          CardCooccurrence("pyroblast", "brainstorm", drop_lands=True)),
     Case("cooc_pair_no_shared_decks",
          CardCooccurrence("abiding grace", "________ goblin")),
-    Case("gems_whole_meta", HiddenGems()),
-    Case("gems_one_archetype", HiddenGems("grixis")),
+    Case("gems", HiddenGems()),
 ]
 
 
@@ -132,11 +135,20 @@ def _row_blob(record: dict) -> dict:
 
 
 def subgraph_blob(subgraph: Subgraph) -> dict:
-    """A Subgraph as the JSON the baseline files under a case name."""
-    return {
+    """A Subgraph as the JSON the baseline files under a case name.
+
+    ``expected_by_luck`` is captured where a query sets it, because it is a claim the
+    surface prints and not a derived convenience: the gem list states how many of its
+    own cards are coincidence, so a number that moved without the list moving is
+    exactly the regression this oracle exists to catch.
+    """
+    blob = {
         "nodes": [_row_blob(asdict(n)) for n in subgraph.nodes],
         "edges": [_row_blob(asdict(e)) for e in subgraph.edges],
     }
+    if subgraph.expected_by_luck is not None:
+        blob["luck"] = subgraph.expected_by_luck
+    return blob
 
 
 def capture(conn: ladybug.Connection, cases: list[Case] = CASES) -> dict:
@@ -293,4 +305,10 @@ def compare(expected: dict, actual: dict, cases: list[Case]) -> list[str]:
         ordered = not isinstance(case.spec, ORDER_INSENSITIVE)
         diffs += _compare_rows(f"{name}.nodes", want["nodes"], got["nodes"], ordered)
         diffs += _compare_rows(f"{name}.edges", want["edges"], got["edges"], ordered)
+        # Compared through the same row rule, so the float tolerance applies here too
+        # and an absent key on both sides is not a difference.
+        if not _same({"luck": want.get("luck")}, {"luck": got.get("luck")}):
+            diffs.append(
+                f"{name}.luck: baseline {want.get('luck')}, now {got.get('luck')}"
+            )
     return diffs

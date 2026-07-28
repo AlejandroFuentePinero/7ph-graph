@@ -1,5 +1,19 @@
 # Hidden gems state their own evidence: a chance, a pilot count, and no near misses
 
+> **Partly superseded by [ADR 0020](0020-hidden-gems-are-found-inside-their-own-archetype.md).**
+> `gem_prob` is **withdrawn**. Everything below about it is accurate and was still not
+> enough: the chance it printed is dominated by the slice mean it shrinks toward, so it
+> tracks how the archetype finishes rather than how the card does. 39 of the 44
+> archetypes with gems could not put a single card over 10%, and an average Storm card
+> scored 45.8% before its own record was read. The remedy is not a better estimator on
+> that bar, it is not asking an absolute bar at all, so ADR 0020 asks the question
+> inside the archetype and prints exact odds instead. What survives here, and is carried
+> forward unchanged: the **pilot count** (`Node.pilots`, and its measurements), and the
+> **rejection of the bootstrap hold-share**, which applies with equal force to the new
+> rule since that lift is also computed on the sample that selected the card. The
+> near-miss section is void with the band it ranked against. `_card_spread`,
+> `_gem_chance` and `MAX_GEM_MEAN_NORM` are deleted.
+
 The band ADR 0012 fixed is sound as a population and overclaims as a list. Membership is
 a hard cut (`MAX_GEM_MEAN_NORM = 0.33`) applied to a mean a gem takes from a median of
 **six** ranked decks, so a card near the line is admitted or refused on luck, and the tab
