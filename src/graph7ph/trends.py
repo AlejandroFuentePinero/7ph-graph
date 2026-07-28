@@ -385,11 +385,20 @@ class LandscapeCell:
     :class:`SeriesCell` states, never withheld. ``mean_norm`` is the mean
     ``placementNorm`` of the archetype's **scored** decks that year, left raw (0 is a
     win) as :class:`PerformanceCell` leaves it, so only the chart flips it; a deck the
-    source never scored neither shifts the mean nor pads the count. ``events`` is the
-    distinct events those scored decks were played at, the independent trials the mean
+    source never scored neither shifts the mean nor pads the count, and neither does one
+    played at an event that published a bracket rather than a field
+    (:func:`_cut_only_events`, ADR 0022). ``scored`` is how many decks did count, and
+    ``events`` the distinct events they were played at, the independent trials the mean
     rests on, which is why it can be smaller than the events the archetype's decks
-    span. An archetype whose year holds no scored deck at all has ``mean_norm``
-    ``None`` and ``events`` zero: it was played, and nothing about its finish is known.
+    span. An archetype whose year holds no such deck at all has ``mean_norm``
+    ``None``, ``scored`` and ``events`` zero: it was played, and nothing about its
+    finish is known.
+
+    **The two axes count different decks, and always have.** ``n`` and ``share`` are
+    every deck of the archetype; ``scored``, ``events`` and the mean are the decks whose
+    finish is worth reading. That is why ``scored`` is carried rather than left to be
+    inferred from ``n``: the hover states both, so a reader is never shown a mean over
+    29 decks beside a count of 34 with nothing saying which is which.
 
     ``mean_low`` and ``mean_high`` bound ``mean_norm``, the 90% interval on it over the
     year's own within-archetype spread (:func:`_interval`), raw as the mean is, so
@@ -416,6 +425,7 @@ class LandscapeCell:
     year_total: int
     year_events: int
     mean_norm: float | None
+    scored: int
     events: int
     mean_low: float | None
     mean_high: float | None
@@ -483,7 +493,7 @@ class ArchetypeTimelinePoint:
     brings several, so ``mean_norm_a`` is the **mean** ``placementNorm`` of side
     ``a``'s ranked decks at this event rather than one real result. ``decks_a`` is
     how many decks that mean rests on, carried on every point because it is usually
-    tiny: measured over the whole graph, 88% of ``(archetype, event)`` points rest on
+    tiny: measured over the whole graph, 87% of ``(archetype, event)`` points rest on
     one to three ranked decks and the median is one. ``_b`` is the second archetype's
     pair of the same, ``(None, 0)`` throughout when only one archetype was asked for.
 
@@ -688,15 +698,23 @@ def _year_shape(conn: ladybug.Connection, year: int) -> tuple[int, int]:
     return decks, events
 
 
-def _within_archetype_sd(conn: ladybug.Connection, year: int) -> float | None:
+def _within_archetype_sd(
+    conn: ladybug.Connection, year: int, skip: list[str]
+) -> float | None:
     """One year's within-archetype spread: how far one deck finishes from its engine's.
 
     The landscape's fit for :func:`_interval`, the archetype-scale sibling of
     :func:`_within_pilot_sd`. It is fitted per year because the query is already
     year-scoped and nothing is bought by widening it: measured across the corpus the
-    figure is 0.305 / 0.293 / 0.295 / 0.296 for 2023 to 2026, which the deck-norm scale
+    figure is 0.297 / 0.290 / 0.291 / 0.292 for 2023 to 2026, which the deck-norm scale
     pins near the 0.289 a uniform 0-to-1 spread would give, so a whole-corpus fit would
     move no bound a reader could see.
+
+    It is fitted over the same finishes the chart draws, so a bracket-only event is no
+    part of it either (:func:`_cut_only_events`, ADR 0022): the spread wanted is of the
+    quantity being plotted, which is :func:`_within_pilot_sd`'s reason too. The ``skip``
+    is passed in rather than read here, since the caller needs the same list for the
+    mean and it is a grouped scan of every ranked deck.
 
     It pools **deck** norms while :func:`_interval` divides by the archetype's distinct
     events, which is deliberately the conservative pairing: the decks are what there is
@@ -708,10 +726,10 @@ def _within_archetype_sd(conn: ladybug.Connection, year: int) -> float | None:
     by_tag: dict[str, list[float]] = {}
     for tag, norm in rows(conn.execute(
         """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
-                 (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(:Year {year: $year})
-           WHERE d.placementNorm IS NOT NULL
+                 (d)-[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(:Year {year: $year})
+           WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
            RETURN a.tag, d.placementNorm""",
-        {"year": year},
+        {"year": year, "skip": skip},
     )):
         by_tag.setdefault(tag, []).append(norm)
     return _pooled_sd([norms for _, norms in sorted(by_tag.items())])
@@ -726,8 +744,18 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
     tag would credit a deck to an archetype on 5% weight and push the year's shares
     past 100%); the share's base is every deck that year, the same base
     :func:`meta_share_over_time` divides by. The finish is the mean ``placementNorm``
-    over the archetype's scored decks, with the distinct events those decks sat at
-    beside it, so a mean is never read without the independent trials behind it.
+    over the archetype's scored decks, with the decks and the distinct events those
+    decks sat at beside it, so a mean is never read without the independent trials
+    behind it.
+
+    **The two axes read different events, on purpose (ADR 0022).** The share counts
+    every deck the source shipped, a bracket's included: they were genuinely played, and
+    dropping them would trade real sample for a correction no reader could see (0.14pp
+    at worst, over 193 decks of 4,590). The finish reads only the events that published
+    a field (:func:`_cut_only_events`), because a bracket records the decks that cut and
+    nothing else, so a mean over one is a mean over decks selected on their own answer.
+    That is the split :class:`LandscapeCell` already carried between every deck and the
+    scored ones, widened by one condition rather than a new contract.
 
     Only the archetypes the year actually held get a cell. The meta-share matrix is
     rectangular so a line can drop to a real zero across a year; a scatter has no line
@@ -742,30 +770,34 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
            RETURN a.tag, count(DISTINCT d)""",
         {"year": year},
     )))
+    # Read once and threaded through, as `pilot_performance_over_time` reads it: the
+    # mean and the spread it is widthed by both need it.
+    skip = _cut_only_events(conn)
     # The mean and its sample over the scored decks only: a null placementNorm is a
-    # finish the source never scored, so it neither shifts the mean nor pads the event
-    # count. **Keep `count(DISTINCT e)` last in this projection.** A non-DISTINCT
-    # aggregate placed after a DISTINCT count in a grouped projection comes back
-    # silently wrong on Ladybug (`avg()` NaN, `count()` zero, no error raised); swapping
-    # these two returns NaN for the mean on all 112 of 2025's archetypes. It is the
-    # order, not the combination, and not the number of groups: see
-    # `docs/research/7phstats-insight-gap.md`, and the same ordered shape in
+    # finish the source never scored, so it neither shifts the mean nor pads the deck or
+    # event count. Nor does a finish at an event that published only its bracket, where
+    # a recorded finish is a good one by construction. **Keep `count(DISTINCT e)` last
+    # in this projection.** A non-DISTINCT aggregate placed after a DISTINCT count in a
+    # grouped projection comes back silently wrong on Ladybug (`avg()` NaN, `count()`
+    # zero, no error raised); swapping these two returns NaN for the mean on all 112 of
+    # 2025's archetypes. It is the order, not the combination, and not the number of
+    # groups: see `docs/research/7phstats-insight-gap.md`, and the same ordered shape in
     # `pilot_performance_over_time`. Issue #145's own note prescribes splitting this
     # into two queries instead, which is the superseded diagnosis, not a second rule.
     finishes = {
-        tag: (mean, events)
-        for tag, mean, events in rows(conn.execute(
+        tag: (mean, decks, events)
+        for tag, mean, decks, events in rows(conn.execute(
             """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
                      (d)-[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(:Year {year: $year})
-               WHERE d.placementNorm IS NOT NULL
-               RETURN a.tag, avg(d.placementNorm), count(DISTINCT e)""",
-            {"year": year},
+               WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
+               RETURN a.tag, avg(d.placementNorm), count(d), count(DISTINCT e)""",
+            {"year": year, "skip": skip},
         ))
     }
-    sd = _within_archetype_sd(conn, year)
+    sd = _within_archetype_sd(conn, year, skip)
     cells = []
     for tag, n in sorted(counts.items()):
-        mean, events = finishes.get(tag, (None, 0))
+        mean, scored, events = finishes.get(tag, (None, 0, 0))
         bounds = _interval(mean, events, sd) if mean is not None else None
         low, high = bounds or (None, None)
         cells.append(LandscapeCell(
@@ -777,6 +809,7 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
             year_total=total,
             year_events=year_events,
             mean_norm=mean,
+            scored=scored,
             events=events,
             mean_low=low,
             mean_high=high,
@@ -805,7 +838,7 @@ def _event_dates(conn: ladybug.Connection) -> dict[str, datetime]:
 
 
 def _archetype_events(
-    conn: ladybug.Connection, tag: str
+    conn: ladybug.Connection, tag: str, skip: list[str]
 ) -> tuple[set[str], dict[str, tuple[float, int]]]:
     """One archetype's events: the ones it attended, and its mean finish at each.
 
@@ -815,12 +848,19 @@ def _archetype_events(
     neither shifts the mean nor pads the count beside it. An event in the first and
     not the second is an attendance with no known finish, which the caller draws as a
     break rather than as an absence.
+
+    ``skip`` leaves an event out of **both**, which is the one place this filter is not
+    a null: an event that published a bracket rather than a field is worth no point at
+    all here (ADR 0022), not a break. A break is the drawing of "they turned up and the
+    source scored none of it", and at a bracket the source scored a good deal of it and
+    none of it is readable, so the event is not the archetype's history to draw.
     """
     attended = {event for (event,) in rows(conn.execute(
         """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(:Archetype {tag: $tag}),
                  (d)-[:PLAYED_AT]->(e:Event)
+           WHERE NOT e.event IN $skip
            RETURN DISTINCT e.event""",
-        {"tag": tag},
+        {"tag": tag, "skip": skip},
     ))}
     # `avg()` and `count()` share this projection, which issue #151's note says to split
     # into two queries. That note carries the superseded diagnosis (see
@@ -834,9 +874,9 @@ def _archetype_events(
         for event, mean, decks in rows(conn.execute(
             """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(:Archetype {tag: $tag}),
                      (d)-[:PLAYED_AT]->(e:Event)
-               WHERE d.placementNorm IS NOT NULL
+               WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
                RETURN e.event, avg(d.placementNorm), count(d)""",
-            {"tag": tag},
+            {"tag": tag, "skip": skip},
         ))
     }
     return attended, scored
@@ -871,7 +911,7 @@ def beats_a_coin(led: int, of: int) -> bool:
     lead (issue #175). Each of its points is the mean of a median of **one** ranked
     deck, so under the null "this archetype is the middle of the field" every event is a
     coin flip, and a count out of a handful of them is not evidence on its own: run over
-    the 121 archetypes the surface offers, 100 of the headline counts are ones a fair
+    the 121 archetypes the surface offers, 102 of the headline counts are ones a fair
     coin produces at least 10% of the time, "8 of 14" (about 40%) among them.
 
     True where the count sits further than :data:`INTERVAL_Z` standard errors from the
@@ -886,8 +926,9 @@ def beats_a_coin(led: int, of: int) -> bool:
     gate certified 52 distinct counts at ``of`` up to 60 whose exact two-sided p is 0.10
     or worse, and they are not exotic: ``MIN_ARCHETYPE_EVENTS`` is 2, so "3 of 3" is
     drawable and was passed as a lead though a coin produces it a quarter of the time.
-    On the current artifact it wrongly certified 7 of the 121 headlines, "Golgari Cradle
-    7 of 9" (p = 0.18) and two unanimous "4 of 4" runs (p = 0.125) among them. With the
+    On the current artifact it wrongly certified 10 of the 121 headlines, "Golgari
+    Cradle 7 of 9" (p = 0.18) and three unanimous four-event runs (p = 0.125) among
+    them. With the
     correction that sweep certifies nothing at p >= 0.10, and what it newly hedges is
     only ever a claim the exact test also refuses.
 
@@ -911,9 +952,15 @@ def archetype_timeline(
     (:class:`ArchetypeTimelinePoint`). With two, the points are restricted to the events
     **both** attended and each carries both sides, so every drawn point has a
     counterpart to compare and the band between the two lines is continuous. That
-    restriction visibly reshapes the first archetype's line (Grixis attended 85 events
-    and Jund 73, but they shared 62), which is why the surface states it rather than
+    restriction visibly reshapes the first archetype's line (Grixis attended 74 events
+    and Jund 61, but they shared 55), which is why the surface states it rather than
     leaving the shift to be read as a glitch.
+
+    An event that published a bracket rather than a field is worth no point on either
+    line (:func:`_cut_only_events`, ADR 0022). A point here is a mean over the decks of
+    one archetype at one event, and at a bracket those are the decks that cut, so the
+    point would sit near the top of the axis whatever the archetype did. It is dropped
+    rather than broken over, since a break says the source scored none of it.
 
     An archetype has no rivalry with itself, so ``a == b`` is refused here rather than
     drawing every event twice as two identical sides. As in
@@ -925,8 +972,9 @@ def archetype_timeline(
     if a == b:
         raise ValueError(f"{a} has no rivalry with itself; pick one archetype or two")
     dates = _event_dates(conn)
-    attended_a, scored_a = _archetype_events(conn, a)
-    attended_b, scored_b = _archetype_events(conn, b) if b else (None, {})
+    skip = _cut_only_events(conn)
+    attended_a, scored_a = _archetype_events(conn, a, skip)
+    attended_b, scored_b = _archetype_events(conn, b, skip) if b else (None, {})
     events = attended_a if attended_b is None else attended_a & attended_b
     points = []
     for event in sorted(events, key=lambda e: (dates[e], e)):
@@ -1047,8 +1095,10 @@ def _cut_only_events(conn: ladybug.Connection) -> list[str]:
     is a published bracket every time: the only finishes that exist are the good ones,
     and everyone who attended and busted is missing. A mean over those is a mean over
     results selected on their own answer, so the events are dropped from every surface
-    that reads a pilot's *level* (the race and the performance chart) rather than
-    discounted, there being no way to infer how many bad finishes were withheld.
+    that reads a *level* off a finish rather than discounted, there being no way to
+    infer how many bad finishes were withheld. That is the race and the performance
+    chart for a pilot's level (ADR 0021), and the landscape's finish axis, the archetype
+    timeline and the catalogue over it for an archetype's (ADR 0022).
 
     Returned sorted, as a list rather than a set, because it is passed straight to a
     query as a parameter and a set has no stable order to bind.
@@ -1056,10 +1106,10 @@ def _cut_only_events(conn: ladybug.Connection) -> list[str]:
     Not every surface wants this. The hidden gem rule reads the same events and must
     keep them: its null is conditioned on each event's own cut (``query._gem_tails``),
     so a bracket is compared against a bracket's hit rate rather than the field's, which
-    uses the information instead of discarding it. The archetype surfaces keep them too,
-    for now, and carry a different bias from the same cause: a bracket contributes only
-    winning decks, which distorts which archetypes are counted rather than how they
-    placed.
+    uses the information instead of discarding it. Nor does a **count** of decks want
+    it: meta share, the landscape's share axis and card adoption count every deck the
+    source shipped, a bracket's included, because those decks were genuinely played and
+    the bias there is 0.14pp at worst (ADR 0022).
     """
     return sorted(
         event
@@ -1629,16 +1679,18 @@ def archetypes_with_history(conn: ladybug.Connection) -> list[tuple[str, str, in
     """``(name, tag, events)`` for every archetype :func:`archetype_timeline` can draw.
 
     An archetype qualifies exactly when a solo timeline would return a line: at least
-    :data:`MIN_ARCHETYPE_EVENTS` events it was ranked at. The same rule in two places,
-    as ``pilots_with_history`` holds it for the pilot trend, so a pick from the
-    catalogue never lands on a refusal.
+    :data:`MIN_ARCHETYPE_EVENTS` events it was ranked at, and ranked at an event the
+    timeline can draw, so the bracket-only ones are no part of the count either
+    (:func:`_cut_only_events`, ADR 0022). The same rule in two places, as
+    ``pilots_with_history`` holds it for the pilot trend, so a pick from the catalogue
+    never lands on a refusal.
 
     The count is the archetype's **scored** events, the evidence behind its line, and so
     the count the floor is taken on. It is not always the number of points the solo plot
-    draws, which is every event the archetype attended: the two differ at 26 of the 121,
-    by one event at 21 of them and by two at the other 5 (``boros``, ``jund``, ``rogue``,
-    ``tokens``, ``walks``), where the archetype turned up and the source scored none of
-    its decks. The label carries the evidence
+    draws, which is every event the archetype attended: the two differ by one event at 6
+    of the 121 (``boros``, ``breachbond``, ``goblins``, ``hardened_scales``, ``rogue``,
+    ``shops``), where the archetype turned up and the source scored none of its decks.
+    The label carries the evidence
     rather than the mark count, since what a reader is being warned about before picking
     a thin archetype is how much of it is known, not how many gaps it will draw.
 
@@ -1654,12 +1706,12 @@ def archetypes_with_history(conn: ladybug.Connection) -> list[tuple[str, str, in
     return [(name, tag, events) for name, tag, events in rows(conn.execute(
         """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
                  (d)-[:PLAYED_AT]->(e:Event)
-           WHERE d.placementNorm IS NOT NULL
+           WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
            WITH a, count(DISTINCT e) AS events
            WHERE events >= $floor
            RETURN a.name, a.tag, events
            ORDER BY a.name""",
-        {"floor": MIN_ARCHETYPE_EVENTS},
+        {"floor": MIN_ARCHETYPE_EVENTS, "skip": _cut_only_events(conn)},
     ))]
 
 

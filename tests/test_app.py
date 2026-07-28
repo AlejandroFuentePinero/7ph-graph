@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from datetime import datetime
 
@@ -1269,17 +1270,22 @@ def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snap
 
 
 def _landscape_cells(*rows, year=2026, total=100, year_events=10, half=0.1):
-    """Landscape cells from ``(tag, decks, mean_norm[, events])``, sharing one year.
+    """Landscape cells from ``(tag, decks, mean_norm[, events[, scored]])``, one year.
 
     Every scored cell carries an interval ``half`` either side of its mean (#175),
     stated flat rather than re-derived from the field's spread: what the surface owes a
     reader is the width the tool handed it, and a test that recomputed the width would
     be asserting the tool's arithmetic twice.
+
+    ``scored`` defaults to the deck count, the case where every deck of the archetype
+    was played at an event that published a field; a row states it only where the two
+    populations differ (ADR 0022).
     """
     return [
         LandscapeCell(tag=row[0], archetype=row[0].title(), year=year, n=row[1],
                       share=row[1] / total, year_total=total, year_events=year_events,
                       mean_norm=row[2], events=row[3] if len(row) > 3 else row[1],
+                      scored=row[4] if len(row) > 4 else row[1],
                       mean_low=None if row[2] is None else max(0.0, row[2] - half),
                       mean_high=None if row[2] is None else min(1.0, row[2] + half))
         for row in rows
@@ -1320,7 +1326,7 @@ def test_the_landscape_plots_share_against_finish_with_every_dot_named():
     from graph7ph import numfmt
 
     fig = _landscape_figure(_landscape_cells(
-        ("grixis", 30, 0.45), ("storm", 6, 0.25),
+        ("grixis", 30, 0.45, 12, 26), ("storm", 6, 0.25),
     ))
     (trace,) = fig.data
 
@@ -1334,11 +1340,20 @@ def test_the_landscape_plots_share_against_finish_with_every_dot_named():
     assert "text" in trace.mode
 
     # The hover carries the archetype, its share as both a percent and a deck count,
-    # its finish, and the distinct events behind that finish, all through numfmt.
+    # its finish, and the decks and distinct events behind that finish, all through
+    # numfmt. Both counts, because the two axes read different decks: 30 were played
+    # and 26 of them at an event that published a field, so the mean is over 26 (ADR
+    # 0022). Stated where a reader is already looking rather than left to be inferred,
+    # and each half named, so which count belongs to which axis is not a guess.
     grixis = trace.customdata[0]
     assert list(grixis) == ["Grixis", numfmt.share(0.30),
-                            numfmt.count_of(30, 100, "decks"), numfmt.score(0.55), 30]
-    assert "events" in trace.hovertemplate
+                            numfmt.count_of(30, 100, "decks"),
+                            numfmt.score(0.55, sense=False), 26, 12]
+    assert "share" in trace.hovertemplate and "finish" in trace.hovertemplate
+    assert "scored" in trace.hovertemplate and "events" in trace.hovertemplate
+    # The y axis already says which end is good, so the readout beside it does not.
+    assert "1 = 1st" not in trace.hovertemplate
+    assert not any("1 = 1st" in str(v) for row in trace.customdata for v in row)
 
 
 def test_landscape_marker_size_carries_the_events_not_the_deck_count():
@@ -1734,14 +1749,75 @@ def _tab_blocks(demo, label):
     return blocks[start:ends[0]] if ends else blocks[start:]
 
 
+def _cover_fields(decks: list[dict]) -> list[dict]:
+    """Fill every event's declared field with finishes, so none of them reads as a cut.
+
+    These demos declare a 31- and a 19-player event holding a handful of decks each,
+    which is the shape of an event that published its top cut and nothing else, and the
+    archetype surfaces read no finish from one (:data:`trends.MIN_FIELD_COVERAGE`, ADR
+    0022). Rather than weaken the rule to admit a fixture, the fixture is made a
+    possible tournament, as ``test_trends``'s own ``_cover_fields`` does for the trend
+    fixtures.
+
+    Each filler names its own pilot, finishes at the deep end of the field it covers,
+    and carries a ``primaryTag`` that is no engine of its own, the real shape of a deck
+    the source left unclassified. Every archetype surface reads the primary tag alone,
+    so a filler joins no archetype and the only number it moves is a share's
+    denominator.
+
+    The event is part of the **title** and not only of the pilot key, which is what
+    keeps a filler one-off: a name is recovered from the title and identical names are
+    one pilot (ADR 0007), so a bare "Filler 0" at two events reached the graph as one
+    pilot with a two-event career, which is exactly the shape :data:`MIN_PILOT_YEAR_EVENTS`
+    reads. Padding must never enter a pilot surface.
+    """
+    padded = list(decks)
+    held: dict[str, list[dict]] = {}
+    for deck in decks:
+        held.setdefault(deck["event"], []).append(deck)
+    for event, entries in held.items():
+        template = entries[0]
+        size = template["eventSize"]
+        ranked = sum(1 for d in entries if d["placementNorm"] is not None)
+        # Comfortably clear of the coverage line rather than exactly on it, so a demo
+        # never turns on which side of `>=` the threshold is read at.
+        for i in range(math.ceil(size * 0.6) - ranked):
+            placement = size - i
+            padded.append({**template,
+                           "deckId": f"filler-{event}-{i}",
+                           "name": f"{placement}th filler-{event}-{i} - Deck - {event}",
+                           "deckName": "Deck",
+                           "pilot": f"filler-{event}-{i}",
+                           "placement": placement,
+                           "placementNorm": (placement - 1) / (size - 1),
+                           "primaryTag": "engine:__none__"})
+    return padded
+
+
+def _write_covered(snap, decks: list[dict]) -> None:
+    """Cover every event's field (:func:`_cover_fields`) and write the snapshot back.
+
+    The card index is filled for the decks it does not already hold, so a filler reaches
+    the graph with an empty list rather than overwriting what the shared fixture says
+    about the decks it does hold.
+    """
+    decks = _cover_fields(decks)
+    (snap / "decks.json").write_text(json.dumps(decks))
+    index = json.loads((snap / "cards_index.json").read_text())
+    index["decks"].update({d["deckId"]: {"m": [], "s": []} for d in decks
+                           if d["deckId"] not in index["decks"]})
+    (snap / "cards_index.json").write_text(json.dumps(index))
+
+
 def _landscape_demo(tmp_path, snapshot_dir):
     """A built app over a snapshot fat enough for a landscape to draw.
 
     The shared fixture holds two archetypes, one short of
     :data:`MIN_LANDSCAPE_ARCHETYPES`, so it is copied and three more decks are added
     to its 31-player event (distinct pilots, placements it cannot contradict, norms
-    ranked against that field). The fixture itself is left alone: a hundred other
-    tests count its decks.
+    ranked against that field), and both its events are given the field they declare
+    (:func:`_cover_fields`). The fixture itself is left alone: a hundred other tests
+    count its decks.
     """
     import json
     import shutil
@@ -1771,10 +1847,7 @@ def _landscape_demo(tmp_path, snapshot_dir):
             "primaryTag": tag,
             "primaryTagWeights": {tag: 100},
         })
-    (snap / "decks.json").write_text(json.dumps(decks))
-    index = json.loads((snap / "cards_index.json").read_text())
-    index["decks"].update({f"extra-{i}": {"m": [], "s": []} for i in range(3)})
-    (snap / "cards_index.json").write_text(json.dumps(index))
+    _write_covered(snap, decks)
 
     artifact = tmp_path / "graph"
     build_graph(load_snapshot(snap), artifact)
@@ -1896,6 +1969,9 @@ def _timeline_demo(tmp_path, snapshot_dir):
     those events, so Grixis and Jund share a run to compare, and ``lands`` at two events
     of its own, so Grixis and Lands are a drawable pair that never met. ``storm`` is
     left as it is, the archetype too thin for the catalogue to offer at all.
+
+    Every event is then given the field it declares (:func:`_cover_fields`), since the
+    timeline draws no point at an event that published only its cut (ADR 0022).
     """
     import json
     import shutil
@@ -1934,10 +2010,7 @@ def _timeline_demo(tmp_path, snapshot_dir):
             "primaryTag": tag,
             "primaryTagWeights": {tag: 100},
         })
-    (snap / "decks.json").write_text(json.dumps(decks))
-    index = json.loads((snap / "cards_index.json").read_text())
-    index["decks"].update({d[0]: {"m": [], "s": []} for d in extras})
-    (snap / "cards_index.json").write_text(json.dumps(index))
+    _write_covered(snap, decks)
 
     artifact = tmp_path / "graph"
     build_graph(load_snapshot(snap), artifact)
