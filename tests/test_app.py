@@ -31,6 +31,7 @@ from graph7ph.app import (
     _embed,
     _gem_caption,
     _gem_table,
+    _head_to_head_caption,
     _head_to_head_figure,
     _confidence_size,
     _landscape_caption,
@@ -771,9 +772,9 @@ def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
     # light-theme era, so the one orange thing drawn inside a chart was a different orange
     # from every orange outside it. Read off both charts that carry the control.
     series = Series(cells=[
-        HeadToHeadPoint(event="GP", date=datetime(2024, 3, 1), field_size=100,
+        _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
                         placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
-        HeadToHeadPoint(event="PT", date=datetime(2024, 6, 1), field_size=80,
+        _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
                         placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
     ])
     for fig in (
@@ -801,9 +802,9 @@ def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
     # from the shared eight-hue set (slot 1, slot 2), not a position in a long
     # recycled wheel. Colour follows the entity: the pilot named first is blue.
     series = Series(cells=[
-        HeadToHeadPoint(event="GP", date=datetime(2024, 3, 1), field_size=100,
+        _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
                         placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
-        HeadToHeadPoint(event="PT", date=datetime(2024, 6, 1), field_size=80,
+        _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
                         placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
     ])
     fig = _head_to_head_figure("Ada L", "Bob C", series)
@@ -811,6 +812,79 @@ def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
 
     assert by_name["Ada L"].marker.line.color == palette.CATEGORICAL[0]
     assert by_name["Bob C"].marker.line.color == palette.CATEGORICAL[1]
+
+
+def _h2h_point(
+    event, date, field_size, placement_a=3, norm_a=2 / 23,
+    placement_b=5, norm_b=4 / 23, **decided,
+) -> HeadToHeadPoint:
+    """A shared event's point, every value the source's own unless ``decided`` says.
+
+    The point requires a rule beside each of its three numbers, since a null there
+    is the claim that the source's own value stands rather than an absence (ADR
+    0016). Only the provenance tests have anything to say about them, so this
+    spells the null case once for the rest.
+    """
+    return HeadToHeadPoint(
+        event=event, date=date, field_size=field_size,
+        placement_a=placement_a, norm_a=norm_a,
+        placement_b=placement_b, norm_b=norm_b,
+        **{"field_imputed": None, "placement_imputed_a": None,
+           "norm_imputed_a": None, "placement_imputed_b": None,
+           "norm_imputed_b": None, **decided},
+    )
+
+
+def _h2h_provenance_series() -> Series:
+    # One event of each kind. At PBB the field is Rule B's floor of 24, Ada's third
+    # place was read off her deck's title, and neither norm was scored by the source,
+    # so all three of her numbers are the project's. SSWam's 88 is the source's own
+    # count and every number on that point is the source's.
+    return Series(cells=[
+        _h2h_point("PBB", datetime(2024, 3, 1), 24,
+                   field_imputed="B", placement_imputed_a="title-range",
+                   norm_imputed_a="minted", norm_imputed_b="minted"),
+        _h2h_point("SSWam", datetime(2024, 6, 1), 88),
+    ])
+
+
+def test_head_to_head_hover_marks_the_numbers_the_project_decided():
+    # AC (#166): a value the project decided renders identically to a counted one, so
+    # the hover asserts a domain rule as a measurement. The mark lands on each decided
+    # number and only on it, PBB carrying all three and SSWam none.
+    fig = _head_to_head_figure("Ada L", "Bob C", _h2h_provenance_series())
+    ada = next(t for t in fig.data if t.name == "Ada L")
+    bob = next(t for t in fig.data if t.name == "Bob C")
+
+    assert list(ada.customdata[0]) == ["0.91* (1 = 1st)", "3* / 24*"]
+    assert list(ada.customdata[1]) == ["0.91 (1 = 1st)", "3 / 88"]
+    # Bob's placement at PBB is the source's own, so only his score and the field
+    # they share carry a mark: the three numbers are decided one at a time.
+    assert list(bob.customdata[0]) == ["0.83* (1 = 1st)", "5 / 24*"]
+
+
+def test_head_to_head_caption_explains_the_mark_only_where_one_is_drawn():
+    # One legend line for the whole plot, and only when the plot actually carries a
+    # mark: a caption explaining an asterisk nobody can see is chrome (§14).
+    caption = _head_to_head_caption(_h2h_provenance_series())
+    assert caption is not None and caption.startswith(numfmt.IMPUTED_MARK)
+
+    clean = Series(cells=[_h2h_point("SSWam", datetime(2024, 6, 1), 88)])
+    assert _head_to_head_caption(clean) is None
+
+
+def test_head_to_head_caption_ignores_a_mark_on_a_point_that_never_draws():
+    # A value no rule could recover is `none` on a null norm: the point is a gap in
+    # the line, so it puts no mark on screen and must not summon a legend for one.
+    unscored = Series(cells=[
+        HeadToHeadPoint(event="GGWAD", date=datetime(2024, 6, 1), field_size=28,
+                        field_imputed="A",
+                        placement_a=None, norm_a=None,
+                        placement_b=None, norm_b=None,
+                        placement_imputed_a="none", norm_imputed_a="none",
+                        placement_imputed_b="none", norm_imputed_b="none"),
+    ])
+    assert _head_to_head_caption(unscored) is None
 
 
 def test_adoption_colours_each_card_by_entity_from_the_shared_palette():
@@ -1484,9 +1558,9 @@ def test_the_range_filter_is_the_same_band_on_every_chart_whatever_its_height():
     figures = (
         _landscape_figure(_landscape_cells(("grixis", 30, 0.45), ("storm", 20, 0.4))),
         _head_to_head_figure("Ada L", "Bob C", Series(cells=[
-            HeadToHeadPoint(event="GP", date=datetime(2024, 3, 1), field_size=100,
+            _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
                             placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
-            HeadToHeadPoint(event="PT", date=datetime(2024, 6, 1), field_size=80,
+            _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
                             placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
         ])),
     )

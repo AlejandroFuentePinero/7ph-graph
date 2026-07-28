@@ -7,6 +7,15 @@ and the renderers only interpolate what these return.
 """
 
 
+# The one mark for an imputed value (CONTEXT.md's term, v1 visual direction §4),
+# appended to the number the project decided rather than the source supplying it. A
+# single glyph carrying a single meaning, so one legend line beside the surface
+# explains every one of them (issue #166); the rule that produced the value stays
+# queryable rather than drawn, since a reader is being told the number is ours, not
+# which pass minted it.
+IMPUTED_MARK = "*"
+
+
 def share(fraction: float) -> str:
     """A share as a trimmed two-decimal percent: ``0.0673`` -> ``"6.73%"``.
 
@@ -19,19 +28,35 @@ def share(fraction: float) -> str:
     return f"{pct}%"
 
 
-def count_of(count: int, total: int, unit: str = "") -> str:
+def count_of(
+    count: int,
+    total: int,
+    unit: str = "",
+    *,
+    count_imputed: bool = False,
+    total_imputed: bool = False,
+) -> str:
     """A count against its sample size: ``count_of(134, 2000, "decks")`` ->
     ``"134 / 2,000 decks"``.
 
     The one sample-size form, retiring the ``n=12`` / ``12/2000 decks`` split:
     both numbers thousands-comma'd, a spaced slash, the unit appended when the
     denominator names one (``"decks"``) and omitted when it does not.
+
+    The two flags mark either half as a number the project decided rather than the
+    source supplying it (:data:`IMPUTED_MARK`, issue #166). Marked separately
+    because the halves have separate provenance and a reader is being told which
+    number is ours: a head-to-head's ``3 / 24*`` is a 3rd the source recorded
+    against a field Rule B floored, and ``3* / 24`` is a placement recovered from a
+    deck title against a field the source counted. Each mark rides its own number
+    rather than the unit behind it or the string as a whole.
     """
-    ratio = f"{count:,} / {total:,}"
+    numerator = f"{count:,}{IMPUTED_MARK if count_imputed else ''}"
+    ratio = f"{numerator} / {total:,}{IMPUTED_MARK if total_imputed else ''}"
     return f"{ratio} {unit}" if unit else ratio
 
 
-def score(value: float, places: int = 2, sense: bool = True) -> str:
+def score(value: float, places: int = 2, sense: bool = True, imputed: bool = False) -> str:
     """An inverted-finish score, with the sense once: ``0.62`` -> ``"0.62 (1 = 1st)"``.
 
     The finish flipped so higher is better (1 a win); the parenthetical states
@@ -49,8 +74,14 @@ def score(value: float, places: int = 2, sense: bool = True) -> str:
     other side: once, and in the place a reader is already looking. The landscape's
     hover takes it, since it labels its two halves and repeating the sense inside
     one of them costs the label its shape.
+
+    ``imputed`` marks the number as one the project decided (:data:`IMPUTED_MARK`,
+    issue #166), which for a finish means the norm behind it was minted or rescaled
+    here rather than scored by the source. It sits on the number, ahead of the
+    parenthetical, which qualifies every score alike and is nobody's provenance.
     """
-    return f"{value:.{places}f} (1 = 1st)" if sense else f"{value:.{places}f}"
+    mark = IMPUTED_MARK if imputed else ""
+    return f"{value:.{places}f}{mark}" + (" (1 = 1st)" if sense else "")
 
 
 # The chart axes generate their own ticks client-side, so they carry the same

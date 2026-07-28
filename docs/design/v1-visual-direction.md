@@ -132,8 +132,20 @@ axis, and readout.
 | Share | trimmed two-decimal percent | `6.73%`, `0.12%` |
 | Count + sample size | `count / total unit`, thousands-comma'd | `134 / 2,000 decks` |
 | Score (inverted finish) | two decimals, with the sense once | `0.62 (1 = 1st)` |
+| Imputed value | a trailing `*` on the decided number | `3 / 24*`, `0.62* (1 = 1st)` |
 
 Retires the current split (`n=12` in one chart, `12/2000 decks` in another).
+
+**The imputed mark** (#166, added 2026-07-28). Every value the project decided
+rather than the source supplying it carries the rule that decided it in the graph
+(`Event.fieldImputed`, `Deck.normImputed`, `Deck.placementImputed`), and until #166
+no surface read one. The mark closes that: one glyph, one meaning, on the number
+whose provenance is in question and not on the unit or the sense beside it, with a
+single legend line per plot rather than one per point (§14). Each number is marked
+on its own rule, because they are decided one at a time: a placement read off a deck
+title can sit against a field the source counted. The rule name stays off the
+screen; a reader needs to know the number is ours, and "Rule B" answers a question
+only the record can hold.
 
 ## 5. Categorical palette (charts and graph share it)
 
@@ -239,6 +251,19 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   tell when a hand-curated archetype is wrong). That credit survives in `README.md`,
   which a Space visitor never sees; #85's criterion 13 is closed on this decision
   rather than on the links being present._
+- **Value provenance** is disclosed where a reader sees the value itself, by §4's
+  mark. Shipped on the **head-to-head hover**, which is where #166's two cases meet:
+  Pats Birthday Brawl's `3 / 24*` against SSWam's counted `5 / 88`, and a minted
+  norm's `0.62*` against a source-scored `0.62`. _Decided 2026-07-28: the aggregate
+  charts are deliberately left unmarked, and the reason is what the mark means rather
+  than how rare the case is. On a surface drawing a raw value the mark says "this
+  number is ours". On a mean it can only say "some of the decks behind this number
+  are", a different claim in the same glyph. Measured on the artifact, of 3,268 drawn
+  archetype-event points 90 rest wholly on decided norms and 22 on a mix, so both
+  claims are live and no reader can tell which one an asterisk is making. Aggregate
+  disclosure needs its own form (a count of the decided decks beside the deck count
+  the hover already carries), not this one. The 83 decided norms of 4,567 ranked
+  decks, 1.8%, stay queryable meanwhile._
 
 ## 9. ADR impact
 

@@ -689,7 +689,12 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "It plots the two pilots' finishes at every event they both entered, placed on "
         "the date the event's first deck was registered. Each point is one real placement, not an average. A pair needs "
         "at least two shared events, otherwise there is no trajectory to draw and the "
-        "tool says so.",
+        "tool says so. "
+        "A number with a * beside it is one this project worked out rather than one "
+        "the source recorded: a field size a few events publish wrongly, a place "
+        "recovered from a deck's title or from the rest of the cut, or a score "
+        "either worked out from a place that came without one or re-ranked against "
+        "a corrected field size.",
     ),
     (
         "faq-race",
@@ -2238,6 +2243,44 @@ def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
     ))
 
 
+def _head_to_head_caption(series: Series) -> str | None:
+    """The legend for the hover's imputed mark, or ``None`` where none is drawn.
+
+    Every decided value the graph holds carries the rule that decided it, and until
+    issue #166 no surface read one: the hover at Pats Birthday Brawl said "3 / 24"
+    where 24 is Rule B's floor, a domain rule nobody counted, in the same shape
+    SSWam uses for its counted 88. The mark makes the two different; this one line
+    says what it means, once for the plot rather than once per point (§14).
+
+    Only drawn where a mark is, judged over the whole series. A point the line breaks
+    over carries no label, so its provenance puts no asterisk on screen even where
+    the graph records one (``normImputed = 'none'`` on a norm no rule recovered), and
+    a legend for a mark nobody can see is chrome. The range slider is the one gap in
+    that: it slices the dates client-side with no round-trip, so a reader who drags
+    past the only imputed point keeps a legend for marks now off screen. Accepted
+    rather than fixed, because recomputing this per drag is the server round-trip the
+    slider exists to avoid, and a legend standing over an unmarked plot overstates
+    nothing.
+
+    Deliberately says the number is ours rather than which pass produced it: a reader
+    needs to know they are looking at the project's arithmetic, and "Rule B" answers
+    a question only the record can hold.
+    """
+    marked = any(
+        norm is not None
+        and (c.field_imputed is not None or norm_rule is not None
+             or placement_rule is not None)
+        for c in series.cells
+        for norm, norm_rule, placement_rule in (
+            (c.norm_a, c.norm_imputed_a, c.placement_imputed_a),
+            (c.norm_b, c.norm_imputed_b, c.placement_imputed_b),
+        )
+    )
+    if not marked:
+        return None
+    return f"{numfmt.IMPUTED_MARK} a number this project worked out, not one the source recorded"
+
+
 def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure:
     """Two pilots' rivalry over their shared events, on a registration-date x-axis.
 
@@ -2283,22 +2326,39 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
         [(c.date, flip(c.norm_a), flip(c.norm_b)) for c in cells], colour_a, colour_b,
     ))
 
-    pilots = [
-        (name_a, colour_a,
-         [(c.date, c.placement_a, c.norm_a, c.field_size) for c in cells]),
-        (name_b, colour_b,
-         [(c.date, c.placement_b, c.norm_b, c.field_size) for c in cells]),
-    ]
-    for name, colour, points in pilots:
+    # The two traces differ only in which half of each point they read, so a side is
+    # a function off the point rather than a tuple rebuilt per pilot.
+    def side_a(c):
+        return c.placement_a, c.norm_a, c.placement_imputed_a, c.norm_imputed_a
+
+    def side_b(c):
+        return c.placement_b, c.norm_b, c.placement_imputed_b, c.norm_imputed_b
+
+    def label(cell, side):
+        """One point's hover pair: the score, and the finish over the field it was
+        ranked against, with each of the three numbers marked where the project
+        decided it rather than the source supplying it (issue #166). Marked one by
+        one because they are decided one by one: a placement read off a deck title
+        can sit against a field the source counted, and a minted norm against a
+        field Rule B floored."""
+        placement, norm, placement_rule, norm_rule = side(cell)
+        if norm is None:
+            return [None, None]
+        return [
+            numfmt.score(1 - norm, imputed=norm_rule is not None),
+            numfmt.count_of(placement, cell.field_size,
+                            count_imputed=placement_rule is not None,
+                            total_imputed=cell.field_imputed is not None),
+        ]
+
+    for name, colour, side in ((name_a, colour_a, side_a), (name_b, colour_b, side_b)):
         fig.add_trace(pgo.Scatter(
-            x=[date for date, _, _, _ in points],
+            x=[c.date for c in cells],
             # The finish inverted to a score (1 a win), matching the performance
             # chart. A null norm is a finish the source never scored: a gap the line
             # breaks across rather than a fabricated point.
-            y=[1 - norm if norm is not None else None for _, _, norm, _ in points],
-            customdata=[[numfmt.score(1 - norm), numfmt.count_of(placement, field)]
-                        if norm is not None else [None, None]
-                        for _, placement, norm, field in points],
+            y=[flip(norm) for _, norm, _, _ in (side(c) for c in cells)],
+            customdata=[label(c, side) for c in cells],
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
@@ -2731,7 +2791,11 @@ def build_app(artifact: Path) -> gr.Blocks:
         # is the plot type alone.
         fig = _head_to_head_figure(pilot_labels[a], pilot_labels[b], series)
         return (
-            gr.update(value=_chart_heading("Head-to-head timeline"), visible=True),
+            gr.update(
+                value=_chart_heading(
+                    "Head-to-head timeline", _head_to_head_caption(series)),
+                visible=True,
+            ),
             gr.update(value=fig, visible=True),
             gr.update(visible=False),
         )
