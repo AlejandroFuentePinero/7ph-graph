@@ -63,8 +63,8 @@ _NORMAL = statistics.NormalDist()
 
 # The two bounds cross here: below this many ranked decks the ceiling falls under
 # the floor and the rule is empty by construction, because "rare" and "attested
-# by 6 decks" are contradictory in a small slice (6 decks IS a seventh of a
-# 40-deck archetype). That is not a bug to paper over: the slice genuinely cannot
+# by 5 decks" are contradictory in a small slice (5 decks IS a seventh of a
+# 34-deck archetype). That is not a bug to paper over: the slice genuinely cannot
 # support a gem claim, so it is skipped rather than lowering the floor and
 # reporting noise. Rounded UP, never to nearest: the smallest slice admitted must
 # satisfy `MIN_GEM_DECKS <= MAX_GEM_SHARE * MIN_GEM_SLICE`, and rounding down
@@ -88,11 +88,12 @@ MAX_GEM_NODES = 250
 # layer collapses: an archetype's best decks nearly all run nearly all of its gems, so
 # their nodes share a neighbourhood, a force layout has nothing to separate them by, and
 # they settle on one another with their labels on top. That collapse is real and the cap
-# was not what fixed it. Measured on the built graph against the current list, 26 of the
-# 32 decks a cap of five drew (81%) had an identical neighbour set to some other deck,
-# against 35 of 44 (80%) with every top-cut deck drawn. The rate is a property of how
-# gems overlap inside an archetype, not of how many decks are drawn, so the cap bought
-# 12 fewer nodes and no legibility, against a picture that disagreed with its own table.
+# was not what fixed it. Measured on the built graph against the current list, a cap of
+# five ties every one of the 27 decks it draws, where drawing all 38 ties 33 of them
+# (87%). Collapsing is a property of how gems overlap inside an archetype rather than of
+# how many decks are drawn, and the capped picture is if anything the worse of the two,
+# so the cap bought 11 fewer nodes and no legibility, against a picture that disagreed
+# with its own table.
 # The node budget above is what guards the canvas, and it now cuts the list of gems
 # rather than the evidence behind each one.
 
@@ -784,6 +785,15 @@ def _pilot_deflated(tail: float, decks: int, pilots: int) -> float:
     itself has no variance to divide. That is a normal approximation to a discrete
     tail, so it is honest about direction and size and not about the fourth digit: it
     is here to stop a card resting on one player's habit, not to price one exactly.
+
+    What it does is pull the statistic **toward the null**, which is the whole content
+    of a reduced effective sample size, so read "deflated" as "moved toward 0.5" and not
+    as "made larger". Below 0.5 the two are the same thing and that is the only region
+    the rule reads: a tail is only ever compared against :data:`MAX_GEM_LUCK`. Above
+    0.5 the tail shrinks instead (0.8 comes back 0.75), which is the same correction
+    applied to a card finishing *under* expectation and is equally right, but it means
+    a caller must not treat this as a monotone one-way inflation over the whole 0-to-1
+    range. Nothing here does; the caller looks for the first tail under a bar of 0.01.
     """
     if pilots >= decks:
         return tail
@@ -861,8 +871,10 @@ def _gem_slices(conn: ladybug.Connection) -> dict[str, _Slice]:
     finish. Ties are broken on the deck id, so two decks that finished identically can
     land on opposite sides of the cut: arbitrary, and deliberate, since a cut has to
     fall somewhere and only a deterministic rule makes one artifact draw one answer.
-    It is also close to free here, at 1 of the 651 cut decks on the built graph, and no
-    gem changes under a randomised tie-break.
+    It is also close to free here: of the 40 slices and 711 cut decks on the built
+    graph, 2 slices have their cut boundary land on a tie at all, 4 decks sharing those
+    two boundary finishes between them, and no gem changes under a randomised
+    tie-break.
     Counted by the **primary** tag alone, the aggregate rule ``CONTEXT.md`` fixes for
     exactly this reason: a deck may carry several weighted archetype tags, so counting
     every one of them sums to about 160% of the record and would put one deck in several
@@ -1010,7 +1022,7 @@ def _fit_to_budget(found: list[_Gem]) -> list[_Gem]:
     This is the only cap on the picture now, and it cuts whole gems rather than the
     decks behind one, which is the trade worth naming: a shorter list of fully evidenced
     findings beats a longer list whose deck layer is a sample the reader cannot see the
-    edge of. It does not bind today, at 59 nodes against 250.
+    edge of. It does not bind today, at 49 nodes against 250.
     """
     kept: list[_Gem] = []
     archetypes: set[str] = set()
