@@ -602,19 +602,18 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Metric",
         'What does a "finish" mean, and why is it shown as a percentage?',
         "5th out of 200 is not 5th out of 12, so every placement is rescaled to where "
-        "it landed in its own field: 1 is a win, 0 is last. That single number is what "
-        "lets finishes from events of different sizes be compared and averaged. A deck "
-        "is **scored** only where the event recorded a placement for it; unscored decks "
-        "are still counted as decks played, they just have no finish.\n\n"
-        "Some events published only their top eight rather than full standings. "
-        "There, the only finishes on record are good ones, because everyone who turned "
-        "up and lost is missing from the data, so a cut-only finish averages 0.97 "
-        "against 0.51 at a normal event. Every chart that averages finishes drops those "
-        "events: the metagame landscape's vertical axis, the archetype timeline, a "
-        "pilot's performance chart, and the best player race. The pilot head-to-head "
-        "keeps them, because it plots single placements rather than averaging them, and "
-        "hidden gems keeps them, because it compares an event's decks against the rest "
-        "of that same event.",
+        "it landed in its own field: 1 is a win, 0 is last. That single number lets "
+        "finishes from events of any size be compared and averaged. A deck is "
+        "**scored** only where the event recorded a placement for it; unscored decks "
+        "still count as decks played, they just have no finish.\n\n"
+        "Some events published only their top eight, not full standings. At those "
+        "events the only finishes on record are the good ones, so their average is "
+        "misleadingly high: 0.97, against 0.51 at a normal event. Every chart that "
+        "averages finishes leaves those events out: the metagame landscape's vertical "
+        "axis, the archetype timeline, a pilot's performance chart, and the best "
+        "player race. Two charts keep them. The pilot head-to-head plots single "
+        "placements, not averages, so there is nothing to distort; hidden gems "
+        "compares an event's decks only against the rest of that same event.",
     ),
     (
         "faq-meta",
@@ -632,123 +631,115 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "faq-landscape",
         "Archetypes",
         'How is the "Metagame landscape" built?',
-        "For the year you pick, each archetype sits across at its share of that year's "
-        "decks and up at the average of its finishes. The dot's size is how many "
-        "separate events those finishes came from.\n\n"
-        "The two directions count different decks, and the hover shows both. Across "
-        "counts every deck played. Up and down uses only events that published full "
-        "standings (see the finish question above), so an archetype that played "
-        "nowhere else keeps its share and simply has no height.\n\n"
-        "Only the 25 most-played archetypes of the year are drawn, and the caption says "
-        "how many the year held in all. More dots sit above the halfway line than "
-        "below, because even among events with published standings the source records "
-        "top finishers more completely than the rest of the field.\n\n"
+        "For the year you pick, each archetype is placed by two numbers: how far "
+        "right it sits is its share of that year's decks, and how high it sits is the "
+        "average of its finishes. The dot's size is how many separate events those "
+        "finishes came from.\n\n"
+        "The two directions count different decks, and the hover shows both. The "
+        "share counts every deck played. The height uses only events that published "
+        "full standings (see the finish question above); an archetype with none of "
+        "those still counts in the year's total but is not drawn.\n\n"
+        "Only the 25 most-played archetypes of the year are drawn, and the caption "
+        "says how many the year held in all. More dots sit above the halfway line "
+        "than below. That is a quirk of the source, which records top finishers more "
+        "completely than the rest of the field.\n\n"
         "Each dot carries an error bar: the range its average could reasonably be in, "
-        "90% of the time, given how much one deck's finish bounces around and how many "
-        "events the dot rests on. Most bars cross the 0.5 line, which means most dots "
-        "have not settled which side of the middle they belong on. That is why the "
-        "caption gives two numbers, and the gap between them is the point: a dot just "
-        "above the line is not yet a finding.",
+        "90% of the time, given how few events it rests on. Most bars cross the 0.5 "
+        "line, so most dots could sit on either side of the middle. That is why the "
+        "caption gives two numbers: how many dots sit above the line, and how many "
+        "are far enough above that their whole bar clears it. A dot just above the "
+        "line could easily be there by luck.",
     ),
     (
         "faq-archetype-timeline",
         "Archetypes",
         'How is an archetype\'s "Finishes over time" built?',
-        "Each point is one event, placed on the date its first deck was registered. Its "
-        "height is the average of that archetype's finishes there, usually over just "
-        "one to three scored decks, so a single point is thin evidence. The hover gives "
-        "the exact count. Events that published only their top eight get no point at "
-        "all (see the finish question above).\n\n"
-        "Picking a second archetype narrows the chart to the events both attended, so "
-        "every point has something to compare against, and the headline counts how many "
-        "of those events each one finished ahead at. That count is only called a lead "
-        "when it beats what a coin would do: an average archetype wins about half its "
-        "events by luck alone, and most of these counts (102 of the 121 archetypes "
-        "offered) are splits a coin produces easily. The count is still shown, since it "
-        "is what happened; where it does not clear chance the headline says so.\n\n"
-        "The chart spans every year in the data. The year selector above it changes the "
-        "landscape only. Two archetypes scored at fewer than two events in common are "
-        "refused rather than drawn.",
+        "Each point is one event, placed on the date its first deck was registered. "
+        "Its height is the average of that archetype's finishes there, usually over "
+        "just one to three scored decks, so a single point is thin evidence. The "
+        "hover gives the exact count. Events that published only their top eight get "
+        "no point (see the finish question above).\n\n"
+        "Picking a second archetype narrows the chart to the events both attended, "
+        "and the headline counts how many of those each finished ahead at. That count "
+        "is only called a lead when it is bigger than luck could explain: winning "
+        "about half the time is what a coin does, and most counts here (102 of the "
+        "121 archetypes offered) are that close. The count is shown either way, and "
+        "when it could be luck, the headline says so.\n\n"
+        "The chart spans every year in the data; the year selector above it changes "
+        "the landscape only. If two archetypes were scored together at fewer than two "
+        "events, the chart says so instead of drawing.",
     ),
     (
         "faq-performance",
         "Pilots",
         'How is a pilot\'s "Performance over time" calculated?',
         "For each year, the pilot's finishes are averaged into one score, drawn so "
-        "higher is better. 0.5 is the line a random finisher would average. A year "
-        "needs at least two events, otherwise it is left as a gap rather than a "
-        "misleading single-event dot, and a pilot needs at least two such years before "
-        "the chart is drawn at all.\n\n"
+        "higher is better; 0.5 is what a random finisher would average. A year needs "
+        "at least two events, otherwise it is left as a gap, and a pilot needs at "
+        "least two such years before the chart is drawn at all.\n\n"
         'The headline "finishes ahead of X% of the field" is the average across all '
-        "scored years, weighted by how many events each year held, so a busy year "
-        "counts for more than a quiet one. It counts every event that published full "
-        "standings (see the finish question above), where the best player race counts "
-        "only the biggest ones. The two disagree by a median of 10 places out of 137, "
-        "so reading a pilot's number here against their place in the race is reading "
-        "two different measurements as one.\n\n"
-        "Each year carries an error bar: the range that year's average could reasonably "
-        "be in, 90% of the time. The bars are wide and they overlap, and that is the "
-        "finding rather than a flaw in the drawing: a typical year here rests on three "
-        "events. Shuffling a pilot's own finishes into a different order moves the line "
-        "as much as their real career does, so a dip is not a slump and a rise is not "
-        "form. What the chart supports is each year's value, with its bar, and the "
-        "career headline above it.",
+        "scored years, weighted by events, so a busy year counts for more. It counts "
+        "every event that published full standings (see the finish question above); "
+        "the best player race counts only the biggest ones. The two measure different "
+        "things, and typically disagree by about 10 places out of 137.\n\n"
+        "Each year carries an error bar: the range that year's average could "
+        "reasonably be in, 90% of the time. The bars are wide and they overlap, "
+        "because a typical year rests on just three events. Shuffling a pilot's "
+        "finishes into a random order moves the line about as much as their real "
+        "career does, so a dip is not a slump and a rise is not improvement. Trust "
+        "each year's value with its bar, and the career headline, not the shape of "
+        "the line.",
     ),
     (
         "faq-head-to-head",
         "Pilots",
         'How is the "Head-to-head" timeline built?',
         "It plots the two pilots' finishes at every event they both entered, on the "
-        "date the event's first deck was registered. Each point is one real placement, "
-        "not an average, so it keeps the top-eight-only events the averaging charts "
-        "drop: there is no average here for a missing player to flatter. A pair needs "
-        "at least two shared events, otherwise there is no trajectory to draw and the "
+        "date the event's first deck was registered. Each point is one real "
+        "placement, not an average, so the top-eight-only events the averaging charts "
+        "drop (see the finish question above) are safe to keep here. A pair needs at "
+        "least two shared events, otherwise there is no trajectory to draw and the "
         "tool says so.\n\n"
-        "A number with a * beside it is one this project worked out rather than one the "
-        "source recorded: a field size a few events published wrongly, a place "
-        "recovered from a deck's title or from the rest of the cut, or a score worked "
-        "out from a place that came without one or re-ranked against a corrected field "
-        "size.",
+        "A number with a * beside it is one this project worked out rather than one "
+        "the source recorded: for example a place recovered from a deck's title, or a "
+        "score fixed after an event published the wrong field size.",
     ),
     (
         "faq-race",
         "Pilots",
         'How is the "Best player race" scored?',
-        "Only the biggest events count: a field of more than 64, which is about the top "
-        "fifth of them, so every pilot in the race is measured on the same kind of "
-        "event. This is the only chart here that drops events for being small, so a "
-        "pilot's standing here and their record elsewhere answer different questions "
-        "and will not always agree. Top-eight-only events are dropped too (see the "
-        "finish question above).\n\n"
-        "A pilot's score is the average of their finishes there, pulled toward the "
-        "field average by how little evidence stands behind it. A pilot with five such "
-        "events is scored about half on their own record and half on the field's, while "
-        "one with fifteen is scored mostly on their own. That is what stops a good "
-        "weekend outranking a long strong record, and how hard it pulls is measured "
-        "from the data rather than chosen.\n\n"
-        "To be in the race at all a pilot needs five of these events behind them and "
-        "two in the last year, so the field is who is playing now.\n\n"
-        "Each point on a line is that pilot's score over every one of these events they "
-        "had played by that date. So a line climbing is their record filling in rather "
-        "than the pilot improving, and the last point of a line is the score the "
-        "standings rank them on. It is drawn this way because the obvious alternative, "
-        "a rolling window of recent form, was measured and found to be noise: shuffling "
-        "a pilot's results into a different order moved those lines just as much as "
-        "their real career did.",
+        "Only the biggest events count: fields over 64, about the top fifth of all "
+        "events, so every pilot in the race is measured on the same kind of event. "
+        "This is the only chart here that drops events for being small, so a pilot's "
+        "standing here and their record elsewhere answer different questions and will "
+        "not always agree. Top-eight-only events are dropped too (see the finish "
+        "question above).\n\n"
+        "A pilot's score is the average of their finishes at those events, pulled "
+        "toward the field average when little evidence stands behind it. A pilot with "
+        "five such events is scored about half on their own record and half on the "
+        "field's; one with fifteen is scored mostly on their own. That stops one good "
+        "weekend from outranking a long, strong record.\n\n"
+        "To be in the race a pilot needs five of these events, two of them in the "
+        "last year, so the field is who is playing now.\n\n"
+        "Each point on a line is that pilot's score over everything they had played "
+        "by that date. A climbing line is a record filling in, not a pilot improving, "
+        "and the last point is the score the standings rank them on. A recent-form "
+        "version was tried and showed only noise, so the chart shows the record "
+        "building up instead.",
     ),
     (
         "faq-race-certainty",
         "Pilots",
         'How settled is the "Best player race" order?',
-        "Less than three decimal places make it look. These are the biggest events, so "
-        "there are only a couple of dozen of them and a typical contender has played "
-        "eight, which is not enough to separate pilots whose scores differ in the "
-        "thousandths.\n\n"
-        "The standings put a number on that. Each pilot's results are redrawn at random "
-        'from their own record a thousand times, the whole field is rescored, and the '
-        '"Rank CI" column reports the range their rank landed in 90% of the time. Those '
-        "ranges are wide and they overlap heavily near the top. Read the leading group "
-        "as a group, not as a 1-2-3.",
+        "Less settled than three-decimal scores suggest. These are the biggest "
+        "events, so there are only a couple of dozen of them, and a typical contender "
+        "has played eight. That is not enough to separate pilots whose scores differ "
+        "in the thousandths.\n\n"
+        "The standings put a number on that. Each pilot's results are redrawn at "
+        "random from their own record a thousand times, the field is rescored each "
+        'time, and the "Rank CI" column is the range their rank landed in 90% of '
+        "those runs. Near the top the ranges are wide and overlap heavily, so read "
+        "the leading group as a group, not as a 1-2-3.",
     ),
     (
         "faq-adoption",
@@ -765,57 +756,51 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Everything is measured inside one archetype. Take that archetype's scored "
         f"decks, rank them, and the best {GEM_TOP_CUT:.0%} of them are its best decks. "
         f"A gem is a card that is rare in the archetype (in at least {MIN_GEM_DECKS} of "
-        f"its decks, but no more than {MAX_GEM_SHARE:.0%} of them) and yet sits in "
-        "enough of those best decks that plain luck would manage it no more than one "
-        f"time in a hundred. An archetype needs {MIN_GEM_SLICE} scored decks before the "
-        "question can be asked at all, which today leaves most of the format out.\n\n"
-        "Nothing is compared across archetypes, so a card is never called a gem for "
-        "belonging to an archetype that wins a lot: the question is only whether the "
-        "archetype's own best decks are the ones running it. A card can be a gem in two "
-        "archetypes at once, and that is two separate findings.\n\n"
+        f"its decks, but no more than {MAX_GEM_SHARE:.0%} of them) yet shows up in so "
+        "many of those best decks that luck alone would manage it no more than one "
+        f"time in a hundred. An archetype needs {MIN_GEM_SLICE} scored decks before "
+        "the question can be asked, which today rules most of the format out.\n\n"
+        "Nothing is compared across archetypes, so a card is never a gem just because "
+        "its archetype wins a lot. The only question is whether the archetype's own "
+        "best decks are the ones running it. A card can be a gem in two archetypes at "
+        "once; that is two separate findings.\n\n"
         "The graph shows each gem's archetype on one side and, on the other, every one "
-        "of the best decks that run it, which you can open on Moxfield. So the deck "
-        'nodes hanging off a card are exactly the number its "In top" column gives. '
-        "Decks of one archetype sit close together, because its best decks nearly all "
-        "run nearly all of its gems, which is itself the thing to read: a deck between "
-        "two cards is a deck that found both.",
+        "of the best decks that run it, each openable on Moxfield. The deck nodes "
+        'hanging off a card match its "In top" column exactly. Decks of one archetype '
+        "sit close together because its best decks nearly all run nearly all of its "
+        "gems; a deck drawn between two cards runs both.",
     ),
     (
         "faq-gems-certainty",
         "Cards",
         'How settled is a "Hidden gem"?',
-        "Less than a list of names looks. Screening every rare card of every archetype "
-        "means more than a thousand chances for coincidence, so a bar of "
-        f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: getting on "
-        "for half the list, and nothing distinguishes which ones. There is no way to "
-        "check the list against later results either, because a gem that works stops "
-        "being rare, so a card that still looks like a gem a year on is a card nobody "
-        "acted on.\n\n"
-        "That count is as high as it is because it stopped flattering itself. A card's "
-        "odds used to read its decks as that many separate results, when the same pilot "
-        "is often behind several of them and one pilot's decks rise and fall together. "
-        "Every card is now charged for the pilots behind its decks rather than the "
-        "decks, so a card seven decks and three pilots deep is scored as the three "
-        "opinions it is.\n\n"
-        'Read the table for what a gem rests on. "Decks running it" is how rare the '
-        'card is in that archetype, "In top" is how much of it landed in the '
-        'archetype\'s best decks, and "Pilots" says whether those decks are as many '
-        "opinions or one pilot's, which matters because a deck's finish follows "
-        "whoever piloted it more than it follows any card. A card carried by one pilot "
-        "is kept and labelled, not hidden. Read a gem as a card worth trying, not as a "
-        "card proven good. Nothing is randomised, so a rebuild of the same graph "
-        "reports the same numbers, and a number that moved means the evidence moved.",
+        "Less settled than a printed list suggests. Screening every rare card of "
+        "every archetype gives more than a thousand chances for coincidence, so even "
+        f"a bar of {MAX_GEM_LUCK:.0%} lets some cards through on luck alone: likely "
+        "close to half the list, and nothing says which ones. The list cannot be "
+        "checked against later results either: a gem that works stops being rare, so "
+        "a card still looking like a gem a year on is a card nobody acted on.\n\n"
+        "The odds are counted per pilot, not per deck. The same pilot is often behind "
+        "several of a card's decks, and one pilot's decks rise and fall together, so "
+        "a card in seven decks by three pilots is treated as three pieces of "
+        "evidence, not seven.\n\n"
+        'The table says what each gem rests on. "Decks running it" is how rare the '
+        'card is in that archetype, "In top" is how many of those landed in the '
+        'archetype\'s best decks, and "Pilots" is how many people are behind them, '
+        "which matters because a finish follows the pilot more than any card. A card "
+        "carried by one pilot is kept and labelled, not hidden. Read a gem as a card "
+        "worth trying, not as a card proven good.",
     ),
     (
         "faq-gems-unfiltered",
         "Cards",
         "Why can I not filter the hidden gems?",
         "Because there is nothing left to narrow. The rule is strict enough that the "
-        "whole format produces well under a dozen gems across a handful of archetypes, "
-        "which fits in one picture, so the tab draws all of them at once instead of "
-        "asking you to guess which archetype to look in. It recalculates as decks are "
-        "added. If it ever finds more gems than the picture can hold, it draws the ones "
-        "with the longest odds and the caption counts what is shown.",
+        "whole format produces well under a dozen gems across a handful of "
+        "archetypes, which fits in one picture, so the tab draws all of them at once. "
+        "It recalculates as decks are added, and if it ever finds more gems than the "
+        "picture can hold, it draws the ones with the longest odds and the caption "
+        "counts what is shown.",
     ),
 ]
 
@@ -1701,7 +1686,7 @@ def _standings_caption(series: Series, rows: int) -> str:
     held = (f"top {rows:,} of {contenders:,} contenders" if contenders > rows
             else f"all {contenders:,} contenders")
     return (f"{held}, best first · Rank CI is where a pilot's rank landed in "
-            f"{RACE_INTERVAL:.0%} of resamples of their own record")
+            f"{RACE_INTERVAL:.0%} of a thousand redraws of their own record")
 
 
 def _race_label(at: datetime) -> str:

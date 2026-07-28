@@ -2711,7 +2711,7 @@ def test_the_standings_caption_states_what_the_table_actually_holds():
 
     assert _standings_caption(big, rows=5).startswith("top 5 of 12 contenders, best first")
     assert _standings_caption(small, rows=5).startswith("all 3 contenders, best first")
-    assert f"{RACE_INTERVAL:.0%} of resamples" in _standings_caption(big, rows=5)
+    assert f"{RACE_INTERVAL:.0%} of a thousand redraws" in _standings_caption(big, rows=5)
     # Named exactly as the column header it explains, so the two read as one thing.
     assert "Rank CI" in _standings_caption(big, rows=5)
 
