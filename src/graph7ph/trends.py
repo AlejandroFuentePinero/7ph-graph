@@ -102,9 +102,11 @@ MIN_ARCHETYPE_EVENTS = 2
 MIN_LANDSCAPE_ARCHETYPES = 3
 
 
-# The field size above which an event is a **major**, the only events the best-player
-# race scores on (issue #135). Over 64 is 21 of the 107 events on the current artifact,
-# 19.6%, near enough the top fifth by size; the field-size deciles run 3, 15, 22, 24,
+# The field size above which an event is a **major**, and with
+# :data:`MIN_FIELD_COVERAGE` one of the two things the best-player race requires before
+# it scores an event at all (issue #135). Over 64 is 21 of the 107 events on the current
+# artifact, 19.6%, near enough the top fifth by size (two of the 21 published a bracket
+# rather than a field, so 19 are scored); the field-size deciles run 3, 15, 22, 24,
 # 30, 35, 39, 45, 70, 102, 306, so the cut sits inside the top decile's shoulder rather
 # than on a cliff. Scoring majors only costs reliability and was chosen anyway: the
 # split-half reliability of a career score is rho 0.38 over majors against 0.62 over all
@@ -117,13 +119,34 @@ MIN_LANDSCAPE_ARCHETYPES = 3
 # finer above a strong player in a large field.
 MAJOR_FIELD_SIZE = 64
 
+# The fraction of a field whose finishes have to be on record before that event is
+# scored at all. Some events publish a top-8 bracket rather than standings, and at those
+# the only finishes that exist are good ones: SSWam holds 7 results against a field of
+# 88, ANZSS10 holds 8 against 81, and neither records a finish deeper than 5th. Everyone
+# who attended and busted is simply absent, so attending becomes a free roll (cut and the
+# record gains a career-best finish, bust and it never happened). A cut-only finish
+# scores 0.967 on average against 0.506 at a full-field major, which is what selecting on
+# the answer is worth. The race is a *ranking*, so a record built from one of those is
+# not comparable to a record built from standings, and it is dropped rather than
+# discounted: there is no number of good finishes that tells you how many bad ones were
+# withheld.
+#
+# Coverage is bimodal on this artifact and the threshold sits in the empty band. The 26
+# published brackets top out at 42.1% and real records start at 78.9%, with one event
+# between them (GGWAD, 16 finishes of 28) which is a thinned standings rather than a
+# bracket and is kept. So the live gap is 42.1% to 57.1%, about 8 points of slack either
+# side of the cut, and every event keeps its side anywhere inside it. Past 0.58 GGWAD
+# flips to dropped, which is the nearest thing to a real edge and is 8 points away. It
+# costs the race 15 finishes of 2,387 and two of 21 majors.
+MIN_FIELD_COVERAGE = 0.5
+
 # The two gates on who is ranked at all, both career-relative and both re-derived on
 # every rebuild. A contender needs this many majors in their whole career, so a score
 # rests on a record rather than a weekend...
 MIN_CAREER_MAJORS = 5
 
 # ...and this many inside the recency window, so the race holds current contenders and
-# not a hall of fame. Together they leave 139 of the 1075 pilots with any scored finish.
+# not a hall of fame. Together they leave 137 of the 852 pilots with any scored finish.
 # The recency half is also what guarantees every plotted line reaches the right edge of
 # the chart: a contender is by definition still playing.
 MIN_RECENT_MAJORS = 2
@@ -161,7 +184,7 @@ MIN_SCORED_MAJORS = 2
 # The interval is the reason the tool reports rank uncertainty at all. Scores at the top
 # of this board are separated by thousandths against a record of median 8 majors, and a
 # bare rank column presents an ordering the evidence does not support: on the current
-# field only 4.9 of the top 8 survive a resample of their own results, and 15 contenders
+# field only 4.9 of the top 8 survive a resample of their own results, and 16 contenders
 # hold a one-in-ten claim on a top-eight place. The interval is what makes a row say so.
 RACE_RESAMPLES = 1000
 RACE_RESAMPLE_SEED = 20260727
@@ -192,8 +215,9 @@ INTERVAL_Z = 1.645
 # The fewest finishes a pilot's career needs before it is one of the records the
 # within-pilot spread is pooled over. Five, so the term is estimated on records long
 # enough to carry a spread of their own, the same size of record :func:`_shrinkage`
-# fits on (:data:`MIN_CAREER_MAJORS`) and the population issue #175 measured: 272
-# pilots and 3,209 finishes. It is a fitting floor, not a drawing one:
+# fits on (:data:`MIN_CAREER_MAJORS`). That is 257 pilots and 3,003 finishes, where
+# issue #175 measured 272 and 3,209 over a corpus that still counted the
+# bracket-only events. It is a fitting floor, not a drawing one:
 # every drawn point gets an interval from it, including the two-event years no record
 # here is thin enough to reach.
 MIN_SPREAD_FINISHES = 5
@@ -508,8 +532,8 @@ class RaceCell:
     :data:`RACE_INTERVAL` interval over :data:`RACE_RESAMPLES` resamples of every
     contender's own finishes, rebuilt end to end each time so the shrinkage moves with
     the resampled field rather than being held at the point estimate's value. They are
-    the honest width of ``rank``, and on the current field they are wide: rank 7 spans
-    1 to 40 and the median contender's spans 64 of the 139 places. Carried on the cell
+    the honest width of ``rank``, and on the current field they are wide: rank 6 spans
+    1 to 40 and the median contender's spans 65 of the 137 places. Carried on the cell
     rather than derived by a caller, because the interval
     depends on the whole field's records and no consumer holds those.
 
@@ -1016,22 +1040,56 @@ def card_adoption_over_time(
     return Series(cells=cells)
 
 
-def _within_pilot_sd(conn: ladybug.Connection) -> float | None:
+def _cut_only_events(conn: ladybug.Connection) -> list[str]:
+    """Events that published a top cut instead of a field, worth no finish to anybody.
+
+    Fewer than :data:`MIN_FIELD_COVERAGE` of the field on record, which on this corpus
+    is a published bracket every time: the only finishes that exist are the good ones,
+    and everyone who attended and busted is missing. A mean over those is a mean over
+    results selected on their own answer, so the events are dropped from every surface
+    that reads a pilot's *level* (the race and the performance chart) rather than
+    discounted, there being no way to infer how many bad finishes were withheld.
+
+    Returned sorted, as a list rather than a set, because it is passed straight to a
+    query as a parameter and a set has no stable order to bind.
+
+    Not every surface wants this. The hidden gem rule reads the same events and must
+    keep them: its null is conditioned on each event's own cut (``query._gem_tails``),
+    so a bracket is compared against a bracket's hit rate rather than the field's, which
+    uses the information instead of discarding it. The archetype surfaces keep them too,
+    for now, and carry a different bias from the same cause: a bracket contributes only
+    winning decks, which distorts which archetypes are counted rather than how they
+    placed.
+    """
+    return sorted(
+        event
+        for event, field, ranked in rows(conn.execute(
+            "MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) WHERE d.placementNorm IS NOT NULL "
+            "RETURN e.event, e.fieldSize, count(d)"
+        ))
+        if field is not None and ranked < field * MIN_FIELD_COVERAGE
+    )
+
+
+def _within_pilot_sd(conn: ladybug.Connection, skip: list[str]) -> float | None:
     """The field's within-pilot spread: how far one finish bounces from a pilot's level.
 
     The pilot chart's fit for :func:`_interval`, taken over every pilot carrying
     :data:`MIN_SPREAD_FINISHES` ranked finishes and over their whole career rather than
     per year, since it is the pilot's own level a finish bounces around and a year is
-    too short to see it. On the current artifact that is 272 pilots, 3,209 finishes and
-    a pooled sd of 0.268, so a two-event year earns a half-width of 0.31 and a
-    twenty-event one 0.10.
+    too short to see it. It is fitted over the same finishes the chart draws, so a
+    bracket-only event is no part of it either (:func:`_cut_only_events`): the spread
+    wanted is of the quantity being plotted. On the current artifact that is 257 pilots,
+    3,003 finishes and a pooled sd of 0.266, so a two-event year earns a half-width of
+    0.31 and a twenty-event one 0.10.
 
-    That 0.268 runs a little above the 0.2565 issue #175's coverage simulation was fitted
-    on, over the same finishes: :func:`_pooled_sd` divides by the degrees of freedom where
-    the ticket's residual figure divided by the count. The difference is 4.5% of the
-    width, it goes the conservative way (a wider interval covers more, and the simulation
-    already cleared 90% at the narrower fit), and the unbiased form is kept because the
-    quantity wanted here is the field's spread rather than this sample's.
+    That 0.266 runs a little above the 0.2565 issue #175's coverage simulation was
+    fitted on: :func:`_pooled_sd` divides by the degrees of freedom where the ticket's
+    residual figure divided by the count, and the brackets the ticket still counted have
+    since come out. The difference is 3.7% of the width, it goes the conservative way (a
+    wider interval covers more, and the simulation already cleared 90% at the narrower
+    fit), and the unbiased form is kept because the quantity wanted here is the field's
+    spread rather than this sample's.
 
     It is a property of the field, so it is the same for every pilot and every year, and
     a pilot's own record widens nobody's interval but their peers' by joining the pool.
@@ -1040,9 +1098,10 @@ def _within_pilot_sd(conn: ladybug.Connection) -> float | None:
     """
     careers: dict[str, list[float]] = {}
     for pilot, norm in rows(conn.execute(
-        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)
-           WHERE d.placementNorm IS NOT NULL
-           RETURN p.pilot, d.placementNorm"""
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
+           RETURN p.pilot, d.placementNorm""",
+        {"skip": skip},
     )):
         careers.setdefault(pilot, []).append(norm)
     return _pooled_sd([
@@ -1102,16 +1161,21 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
     finishes, which is one extra query and the only honest way to width a mean this
     thin: the year's own finishes cannot show the spread they were drawn from.
     """
+    # Read once and threaded through: the mean and the spread it is widthed by both need
+    # it, and it is a grouped scan of every ranked deck on a per-request path.
+    skip = _cut_only_events(conn)
     # The mean and its sample, over the ranked decks only: a null placementNorm is a
-    # finish no rule could rank, so it neither shifts the mean nor pads the count.
+    # finish no rule could rank, so it neither shifts the mean nor pads the count. Nor
+    # does a finish at an event that published only its bracket, where a recorded finish
+    # is a good one by construction (:func:`_cut_only_events`).
     scored = {
         year: (mean, events)
         for year, mean, events in rows(conn.execute(
             """MATCH (:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)
                      -[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year)
-               WHERE d.placementNorm IS NOT NULL
+               WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
                RETURN y.year, avg(d.placementNorm), count(DISTINCT e)""",
-            {"pilot": pilot},
+            {"pilot": pilot, "skip": skip},
         ))
     }
     # The years are taken without that filter, so a year the source scored none of
@@ -1123,7 +1187,7 @@ def pilot_performance_over_time(conn: ladybug.Connection, pilot: str) -> Series:
         {"pilot": pilot},
     )))
     # One fit for the whole chart, read off the field rather than off this pilot.
-    sd = _within_pilot_sd(conn)
+    sd = _within_pilot_sd(conn, skip)
     cells = []
     for year in played:
         mean, events = scored.get(year, (None, 0))
@@ -1285,9 +1349,15 @@ def _major_finishes(
     # down rather than this one tab. The build fills a missing size only for a
     # ``Tournament`` (``corrected_field``'s Rule C), so a non-Tournament event the
     # source ships without one reaches the graph with a null.
+    #
+    # A major also has to have published its field and not just its bracket, which is
+    # what the second test is: a score is a claim about a pilot's level, and a bracket
+    # only records the pilots who did well (:func:`_cut_only_events`). It costs the
+    # current graph 2 of 21 majors.
+    skip = set(_cut_only_events(conn))
     majors = {
         e for e, (_, field) in events.items()
-        if field is not None and field > MAJOR_FIELD_SIZE
+        if field is not None and field > MAJOR_FIELD_SIZE and e not in skip
     }
     finishes: dict[str, list[tuple[datetime, float]]] = {}
     for pilot, event, norm in rows(conn.execute(
@@ -1296,7 +1366,8 @@ def _major_finishes(
            RETURN p.pilot, e.event, avg(d.placementNorm)""",
         {"major": MAJOR_FIELD_SIZE},
     )):
-        finishes.setdefault(pilot, []).append((events[event][0], 1 - norm))
+        if event in majors:
+            finishes.setdefault(pilot, []).append((events[event][0], 1 - norm))
     anchor = max((date for date, _ in events.values()), default=None)
     # Each record in date order, which the query's own row order does not give. Two calls
     # on one graph can hand these rows back in different orders, and every consumer here
@@ -1542,14 +1613,15 @@ def pilots_with_history(conn: ladybug.Connection) -> list[tuple[str, str]]:
     return [(name, key) for name, key in rows(conn.execute(
         """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)
                  -[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year)
-           WHERE d.placementNorm IS NOT NULL
+           WHERE d.placementNorm IS NOT NULL AND NOT e.event IN $skip
            WITH p, y.year AS year, count(DISTINCT e) AS events
            WHERE events >= $floor
            WITH p, count(year) AS years
            WHERE years >= $min_years
            RETURN p.displayName, p.pilot
            ORDER BY p.displayName""",
-        {"floor": MIN_PILOT_YEAR_EVENTS, "min_years": MIN_QUALIFYING_YEARS},
+        {"floor": MIN_PILOT_YEAR_EVENTS, "min_years": MIN_QUALIFYING_YEARS,
+         "skip": _cut_only_events(conn)},
     ))]
 
 

@@ -687,10 +687,17 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         'How is the "Best player race" scored?',
         "Only the biggest events count: a field of more than 64, which is about the top "
         "fifth of them, so that every pilot in the race is measured on the same kind of "
-        "event. This is the only plot in the app that leaves events out. Everywhere "
-        "else, including a pilot's own performance chart and the hidden gems, every "
-        "event with a recorded finish counts, so a pilot's standing here and their "
-        "record elsewhere are answering different questions and will not always agree. "
+        "event. This is the only plot in the app that leaves events out for being small, "
+        "so a pilot's standing here and their record elsewhere are answering different "
+        "questions and will not always agree. "
+        "A handful of events are left out of this chart and of a pilot's own "
+        "performance chart for a second reason: they published only their top eight "
+        "rather than the whole standings. At those, the only finishes on record are "
+        "good ones, because everyone who turned up and lost is missing from the data "
+        "entirely, so turning up could only help you. Two of the big events are like "
+        "that, and a finish at one averages nearly twice what a finish at a normal "
+        "event does. The hidden gems keep them, because that measure compares an "
+        "event's decks against the rest of that same event and so is not fooled by it. "
         "A pilot's score is the average of their finishes there, pulled toward "
         "the average of the whole field by how little evidence stands behind it: a "
         "pilot with five such events is scored about half on their own record and half "
@@ -1424,7 +1431,7 @@ def _performance_caption(series: Series) -> str:
     against the artifact, a pilot's drawn swing is 0.2376 against a shuffled 0.2404, so a
     dip is not a slump and the whiskers overlap for that reason rather than by
     misfortune. And the **population** is every event with a recorded finish, where the
-    race scores the biggest events only: the two disagree by a median of 10 places of 139
+    race scores the biggest events only: the two disagree by a median of 10 places of 137
     over the race's contenders, so a reader who reads this number against that board is
     reading two different measurements as one.
 
@@ -1656,7 +1663,8 @@ def _race_caption(series: Series, drawn: int) -> str:
         f"<div class='t-fieldstat'><span class='pct'>{drawn} of {contenders:,}</span> "
         "contenders drawn, best first"
         f"<span class='sample'> · scored on {series.cells[0].major_events:,} major "
-        f"events, the ones with a field over {MAJOR_FIELD_SIZE}, and this is the only "
+        f"events, the ones with a field over {MAJOR_FIELD_SIZE} that published who "
+        "finished where, and this is the only "
         "chart here that leaves the smaller events out · every other contender "
         "is traced faintly behind them · each point counts every major a pilot had "
         "played by then, so a line rises as their record fills in rather than as they "

@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +43,12 @@ from graph7ph.trends import (
 # contradict, so the build's field-size correction (issue #140) leaves it alone
 # and the placementNorms these tests craft stand as written.
 _FIELD_SIZE = 500
+
+# The same, for the fixtures whose surfaces also require an event to have published
+# its field rather than a bracket (:data:`trends.MIN_FIELD_COVERAGE`, ADR 0021). Small
+# enough that :func:`_cover_fields` can fill it in a handful of decks, and still over
+# the 8 that would read as a top-8 cut and trip the build's Rule B.
+_COVERED_FIELD = 12
 
 
 def _cell(tag, year, n):
@@ -515,6 +522,42 @@ def test_a_short_unanimous_run_is_not_a_lead_a_coin_could_not_produce():
     assert not beats_a_coin(5, 10)
 
 
+def _cover_fields(deck_records: list[dict]) -> list[dict]:
+    """Pad every event with filler finishes until its declared field is on record.
+
+    An event holding one finish against a field of 500 is a published bracket, and the
+    surfaces that read a pilot's level now refuse to score one
+    (:data:`trends.MIN_FIELD_COVERAGE`, ADR 0021). A fixture that declares such an
+    event is asserting on a case it does not mean to be testing, so the field it
+    declares is filled in rather than the rule being weakened to admit it.
+
+    Each filler is a **one-off** pilot with a single mid-table finish, so it covers the
+    field and clears no gate: at one event and one finish apiece, no filler reaches a
+    contender pool (:data:`trends.MIN_CAREER_MAJORS`), a year of the performance chart
+    (:data:`trends.MIN_PILOT_YEAR_EVENTS`) or a spread fit
+    (:data:`trends.MIN_SPREAD_FINISHES`). What the fixtures assert is therefore
+    untouched, which is the point: the padding exists to make the events real, not to
+    take part in any measurement.
+    """
+    padded = list(deck_records)
+    held: dict[str, list[dict]] = {}
+    for deck in deck_records:
+        held.setdefault(deck["event"], []).append(deck)
+    for event, decks in held.items():
+        template = decks[0]
+        ranked = sum(1 for d in decks if d["placementNorm"] is not None)
+        # Comfortably clear of the coverage line rather than exactly on it, so a fixture
+        # never turns on which side of `>=` the threshold is read at.
+        for i in range(math.ceil(template["eventSize"] * 0.6) - ranked):
+            padded.append({**template,
+                           "deckId": f"filler-{event}-{i}",
+                           "name": f"1st filler-{event}-{i} - Deck - {event}",
+                           "pilot": f"filler-{event}-{i}",
+                           "placement": 1,
+                           "placementNorm": 0.5})
+    return padded
+
+
 def _write_performance_snapshot(
     root: Path, decks: list[tuple[str, str, str, int, float | None]]
 ) -> Path:
@@ -549,7 +592,7 @@ def _write_performance_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
-            "eventSize": _FIELD_SIZE,
+            "eventSize": _COVERED_FIELD,
             "placement": 1 if norm is not None else None,
             "placementNorm": norm,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
@@ -560,11 +603,12 @@ def _write_performance_snapshot(
             "primaryTag": "engine:deck",
             "primaryTagWeights": {"engine:deck": 100},
         })
+    deck_records = _cover_fields(deck_records)
     (snap / "decks.json").write_text(json.dumps(deck_records))
     (snap / "cards_index.json").write_text(json.dumps({
         "v": 1,
         "cards": [],
-        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+        "decks": {d["deckId"]: {"m": [], "s": []} for d in deck_records},
     }))
     return snap
 
@@ -584,6 +628,50 @@ def _performance_graph(root, built_graph):
     decks += [(f"ada25-{i}", "ada", f"A25E{i}", 2025, [0.1, 0.1, 0.3, 0.3][i]) for i in range(4)]
     decks += [(f"bo25-{i}", "bo", f"B25E{i}", 2025, 0.5) for i in range(2)]
     return built_graph(root, _write_performance_snapshot(root, decks))
+
+
+def _publish_only_a_bracket(snapshot: Path, event: str) -> None:
+    """Strip ``event`` back to the finishes its real pilots recorded.
+
+    The filler decks :func:`_cover_fields` added keep their lists and lose their
+    placements, which is what an event that published a top-8 bracket looks like in the
+    source: the field registered, and only the cut has a finish on record.
+    """
+    decks = json.loads((snapshot / "decks.json").read_text())
+    for deck in decks:
+        if deck["event"] == event and deck["deckId"].startswith("filler-"):
+            deck["name"] = deck["name"].removeprefix("1st ")
+            deck["placement"], deck["placementNorm"] = None, None
+    (snapshot / "decks.json").write_text(json.dumps(decks))
+
+
+def test_a_year_scores_only_the_events_that_published_a_field_not_a_bracket(
+    tmp_path, built_graph
+):
+    # ADR 0021. Some events publish a top-8 bracket instead of standings, and at those
+    # the only finishes on record are good ones: everyone who attended and busted is
+    # absent, so a mean over them is a mean over results selected on their own answer.
+    # Measured on the artifact it is worth 0.91 against a field mean of 0.507, and it
+    # moved 83 of the 602 year points it still draws, one of them by 0.32.
+    root = tmp_path / "bracket"
+    root.mkdir()
+    decks = [(f"ada24-{i}", "ada", f"A24E{i}", 2024, [0.2, 0.4, 0.6][i]) for i in range(3)]
+    decks += [(f"ada25-{i}", "ada", f"A25E{i}", 2025, 0.3) for i in range(2)]
+    snapshot = _write_performance_snapshot(root, decks)
+    # Ada won A24E0 outright. It is also the one event of the three whose field never
+    # reached the record, so the 0.2 it is worth to her is withheld and her 2024 is the
+    # mean of the two that stand.
+    _publish_only_a_bracket(snapshot, "A24E0")
+    conn = built_graph(root, snapshot)
+
+    by_year = {c.year: c for c in pilot_performance_over_time(conn, "ada").cells}
+
+    assert by_year[2024].events == 2
+    assert by_year[2024].mean_norm == pytest.approx(0.5)  # 0.4 and 0.6, not 0.2
+    # The year is still hers and still on the axis: what the rule drops is the finish,
+    # never the year, the same way a thin year keeps its place and withholds its mean.
+    assert by_year[2024].mean_norm is not None
+    assert [c.year for c in pilot_performance_over_time(conn, "ada").cells] == [2024, 2025]
 
 
 def test_pilot_performance_returns_per_year_mean_and_n_for_qualifying_years(
@@ -1359,9 +1447,12 @@ def test_the_timeline_catalogue_offers_every_archetype_that_draws_with_its_count
 
 
 # The best-player race (#135). Its fixtures declare their own field sizes rather than
-# taking `_FIELD_SIZE`, because the whole tool turns on which events are majors.
-_RACE_MAJOR_FIELD = 100  # over MAJOR_FIELD_SIZE, so these events are majors
-_RACE_LOCAL_FIELD = 20   # under it, so these are locals and never scored on
+# taking `_FIELD_SIZE`, because the whole tool turns on which events are majors. Both
+# sit just past the boundary they are there to cross, since `_cover_fields` has to fill
+# every one of these seats with a deck and a hundred-seat major would dominate the
+# build time of every test in this section.
+_RACE_MAJOR_FIELD = 66  # over MAJOR_FIELD_SIZE, so these events are majors
+_RACE_LOCAL_FIELD = 20  # under it, so these are locals and never scored on
 
 
 def _write_race_snapshot(
@@ -1380,7 +1471,9 @@ def _write_race_snapshot(
 
     Each field size is declared above the top-8 cut-off and above every placement the
     fixture records, so the build's field-size correction leaves it alone (issue #140)
-    and the norms these tests craft stand as written.
+    and the norms these tests craft stand as written. It is then filled in by
+    :func:`_cover_fields`, because a major the source published a bracket of is not
+    scored at all (ADR 0021) and every event here is meant to be a real one.
     """
     snap = root / "snap"
     snap.mkdir()
@@ -1406,6 +1499,7 @@ def _write_race_snapshot(
             "primaryTag": "engine:deck",
             "primaryTagWeights": {"engine:deck": 100},
         })
+    deck_records = _cover_fields(deck_records)
     (snap / "decks.json").write_text(json.dumps(deck_records))
     (snap / "cards_index.json").write_text(json.dumps({
         "v": 1,
@@ -1471,6 +1565,38 @@ def test_the_race_ranks_the_pilots_who_clear_both_gates_on_their_majors_alone(
     # Every cell carries the graph's own major count, the pool the field is drawn
     # from, so a caption can state it without a second query.
     assert {c.major_events for c in series.cells} == {8}
+
+
+def test_a_major_that_published_only_its_bracket_is_worth_no_finish(
+    tmp_path, built_graph
+):
+    # ADR 0021. A major whose record is a top-8 cut records no bad finish, so a pilot
+    # who attended it either gained a near-perfect score or left no trace, and
+    # attending became a free roll. Two of the artifact's 21 majors are like this
+    # (SSWam holds 7 finishes of an 88 field, ANZSS10 8 of 81, neither recording a
+    # finish deeper than 5th), and a cut-only finish is worth 0.967 against 0.506 at a
+    # major that published its standings.
+    #
+    # A ranking cannot hold both kinds at once, so the event is dropped whole rather
+    # than discounted: no count of the good finishes on record says how many bad ones
+    # were withheld.
+    root = tmp_path / "bracket"
+    root.mkdir()
+    entries = [("ace", e, 0.1) for e in _RACE_MAJORS]
+    entries += [("solid", e, 0.3) for e in _RACE_MAJORS]
+    snapshot = _write_race_snapshot(root, _RACE_EVENTS, entries)
+    _publish_only_a_bracket(snapshot, "M8")
+    conn = built_graph(root, snapshot)
+
+    series = best_player_race(conn)
+
+    # M8 is still a major by field size and still the newest event in the graph, so it
+    # goes on anchoring the sample dates. It is simply not one the race scores.
+    assert {c.major_events for c in series.cells} == {7}
+    assert {c.pilot: c.majors for c in series.cells} == {"ace": 7, "solid": 7}
+    assert max(c.as_of for c in series.cells) == datetime.fromisoformat(
+        _RACE_EVENTS["M8"][0]
+    )
 
 
 # Twelve majors ending at the anchor, the newest six of them inside the recency

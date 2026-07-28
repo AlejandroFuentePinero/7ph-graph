@@ -1,5 +1,15 @@
 # The best-player race plots a running score, and every rank carries its interval
 
+> **Amended by [ADR 0021](0021-a-pilots-level-is-read-only-from-events-that-published-a-field.md).**
+> Two of the 21 majors counted below published a top-8 bracket rather than standings, so
+> the only finishes on record at them are good ones and attending could only help. The
+> race now scores **19** majors over **137** contenders, not 21 over 139, and the drawn
+> eight changes by one place. Every figure below that counts majors, contenders or the
+> field average is therefore stated against the wider pool; the reasoning is unaffected,
+> and the permutation and bootstrap findings were both re-run and hold (top-8 stability
+> is still 4.9 of 8). The same ADR applies the rule to `pilot_performance_over_time`,
+> where it moved 83 of 602 drawn points.
+
 Issue #135 built the race as a rolling window: five sample points, each the shrunk mean of a pilot's finishes at majors in the 18 months ending there, drawn as eight lines over a faded layer of every other contender. It was tested, reviewed, and waiting to land when the shape it draws was measured directly.
 
 The movement was noise. The chart now plots a **running** score instead, and the leaderboard beside it states the interval on every rank rather than presenting an ordering the evidence does not support.
