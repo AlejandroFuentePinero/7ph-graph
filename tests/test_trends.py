@@ -999,6 +999,65 @@ def test_head_to_head_field_size_reads_the_corrected_field_not_the_deck_count(li
         assert by_event[event] == MIN_CUT_FIELD
 
 
+def test_head_to_head_carries_which_of_a_points_numbers_the_project_decided(
+    tmp_path, built_graph
+):
+    # Issue #166: the point already knows its field size and its norms, but not
+    # which of them the source gave. EB claims a field of 6 with a deepest finish
+    # of 4th, the top-8-cut signature Rule B corrects to MIN_CUT_FIELD, and neither
+    # deck was scored, so the build mints both norms against that floor. EC is
+    # untouched on both counts, so the pair reads as the contrast the disclosure
+    # exists to draw.
+    decks = [
+        ("eb-ann", "ann", "EB", "2025-03-01T00:00:00+00:00", 1, None),
+        ("eb-bob", "bob", "EB", "2025-03-01T00:00:00+00:00", 4, None),
+        ("eb-f1", "ebf1", "EB", "2025-03-02T00:00:00+00:00", None, None),
+        ("ec-ann", "ann", "EC", "2025-05-01T00:00:00+00:00", 2, 1 / 19),
+        ("ec-bob", "bob", "EC", "2025-05-01T00:00:00+00:00", 5, 4 / 19),
+        ("ec-f1", "ecf1", "EC", "2025-05-02T00:00:00+00:00", 20, 1.0),
+    ]
+    conn = built_graph(tmp_path, _write_h2h_snapshot(
+        tmp_path, decks, field_sizes={"EB": 6, "EC": 20}))
+
+    by_event = {c.event: c for c in head_to_head_timeline(conn, "ann", "bob").cells}
+
+    eb = by_event["EB"]
+    assert eb.field_size == MIN_CUT_FIELD
+    assert eb.field_imputed == "B"
+    assert (eb.norm_imputed_a, eb.norm_imputed_b) == ("minted", "minted")
+    # The placements are the source's own at both events: a null there is the claim
+    # that the source recorded the rank, which is what the label leaves unmarked.
+    assert (eb.placement_imputed_a, eb.placement_imputed_b) == (None, None)
+
+    ec = by_event["EC"]
+    assert ec.field_size == 20
+    assert ec.field_imputed is None
+    assert (ec.norm_imputed_a, ec.norm_imputed_b) == (None, None)
+    assert (ec.placement_imputed_a, ec.placement_imputed_b) == (None, None)
+
+
+def test_head_to_head_provenance_separates_the_floored_field_from_the_counted_one(
+    live_graph
+):
+    # The two cases issue #166 was filed on, read off the record rather than a
+    # fixture: Pats Birthday Brawl's 24 is Rule B's floor, a domain rule nobody
+    # counted, and SSWam's 88 is the source's own entrant count. Unmarked they
+    # render identically, which is the whole complaint.
+    floored = {
+        c.event: c
+        for c in head_to_head_timeline(
+            live_graph, "CleverAzureFalcon", "CleverCyanStag").cells
+    }["Pats Birthday Brawl"]
+    assert (floored.field_size, floored.field_imputed) == (MIN_CUT_FIELD, "B")
+
+    counted = {
+        c.event: c
+        for c in head_to_head_timeline(
+            live_graph, "BraveJadeEagle", "HiddenTealOtter").cells
+    }["SSWam"]
+    assert (counted.field_size, counted.field_imputed) == (88, None)
+
+
 def test_head_to_head_field_size_is_a_top_cuts_whole_field_not_its_seven_held_decks(
     live_graph
 ):

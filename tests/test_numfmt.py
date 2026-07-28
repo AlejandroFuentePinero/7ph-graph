@@ -31,6 +31,18 @@ def test_count_of_total_takes_no_unit_when_the_denominator_has_none():
     assert count_of(5, 143, "") == "5 / 143"
 
 
+def test_count_of_marks_each_half_on_its_own_provenance():
+    # An imputed value is one a rule here produced, not one the source supplied
+    # (issue #166): Pats Birthday Brawl's field of 24 is MIN_CUT_FIELD's floor and
+    # SSWam's 88 is the source's own, and unmarked they read alike. The halves are
+    # marked apart because they are decided apart: 27 decks carry a placement read
+    # off a deck title or derived from a cut, against fields the source counted.
+    assert count_of(3, 24, total_imputed=True) == "3 / 24*"
+    assert count_of(3, 88, count_imputed=True) == "3* / 88"
+    assert count_of(3, 24, count_imputed=True, total_imputed=True) == "3* / 24*"
+    assert count_of(5, 88) == "5 / 88"
+
+
 def test_score_is_two_decimals_carrying_the_sense_once():
     assert score(0.62) == "0.62 (1 = 1st)"
 
@@ -38,6 +50,14 @@ def test_score_is_two_decimals_carrying_the_sense_once():
 def test_score_keeps_both_decimals_and_rounds_to_two():
     assert score(1.0) == "1.00 (1 = 1st)"
     assert score(0.617) == "0.62 (1 = 1st)"
+
+
+def test_score_marks_a_finish_the_project_decided():
+    # The other half of issue #166's disclosure: a minted or rescaled norm is a
+    # finish a pass here produced, and the mark sits on the number rather than
+    # after the parenthetical, which belongs to every score alike.
+    assert score(0.62, imputed=True) == "0.62* (1 = 1st)"
+    assert score(0.62, sense=False, imputed=True) == "0.62*"
 
 
 def test_score_drops_the_sense_where_the_reader_is_already_told_it():

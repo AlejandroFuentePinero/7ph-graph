@@ -473,15 +473,36 @@ class HeadToHeadPoint:
     ``placementImputed`` says ``none`` rather than leaving a null that reads like a
     number the source chose not to give. The y-axis is ``norm`` (comparable across
     field sizes); the raw placement and field size ride along for the point's label.
+
+    The three ``_imputed`` fields are the rules behind the three numbers, read off
+    ``Event.fieldImputed``, ``Deck.normImputed`` and ``Deck.placementImputed``: null
+    where the source's own value stands, a rule name where a pass here produced it
+    (ADR 0016). They ride the point because the label is what a reader sees, and a
+    decided number and a counted one render identically without them (issue #166):
+    Pats Birthday Brawl's field of 24 is Rule B's domain rule while SSWam's 88 is an
+    entrant count, and a point carrying only the numbers asserts both as the same
+    kind of fact. Null is a claim of its own here, not an absence, so all three are
+    required rather than defaulted: a caller that leaves one out would be asserting
+    the source's authorship of a number it never looked at.
+
+    A value no rule could recover reads ``none`` rather than null, and a point in
+    that state draws nothing: 24 decks carry neither placement nor norm, and no deck
+    in the record carries a norm without a placement. So a drawn label's placement
+    and norm rules are either null or a real rule, never ``none``.
     """
 
     event: str
     date: datetime
     field_size: int
+    field_imputed: str | None
     placement_a: int | None
     norm_a: float | None
     placement_b: int | None
     norm_b: float | None
+    placement_imputed_a: str | None
+    norm_imputed_a: str | None
+    placement_imputed_b: str | None
+    norm_imputed_b: str | None
 
 
 @dataclass(frozen=True)
@@ -1300,8 +1321,15 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
                 norm_a=norm_a,
                 placement_b=placement_b,
                 norm_b=norm_b,
+                field_imputed=field_imputed,
+                placement_imputed_a=placement_imputed_a,
+                norm_imputed_a=norm_imputed_a,
+                placement_imputed_b=placement_imputed_b,
+                norm_imputed_b=norm_imputed_b,
             )
-            for event, date, field_size, placement_a, norm_a, placement_b, norm_b
+            for (event, date, field_size, field_imputed,
+                 placement_a, norm_a, placement_imputed_a, norm_imputed_a,
+                 placement_b, norm_b, placement_imputed_b, norm_imputed_b)
             in rows(conn.execute(
                 # field_size is read off the Event node, which is where the build
                 # stores the field it normalises against (`build.corrected_field`,
@@ -1320,9 +1348,11 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
                          (:Pilot {pilot: $b})<-[:PILOTED_BY]-(db:Deck)
                          -[:PLAYED_AT]->(e),
                          (f:Deck)-[:PLAYED_AT]->(e)
-                   RETURN e.event, min(f.createdAt), e.fieldSize,
+                   RETURN e.event, min(f.createdAt), e.fieldSize, e.fieldImputed,
                           da.placement, da.placementNorm,
-                          db.placement, db.placementNorm""",
+                          da.placementImputed, da.normImputed,
+                          db.placement, db.placementNorm,
+                          db.placementImputed, db.normImputed""",
                 {"a": a, "b": b},
             ))
         ),
