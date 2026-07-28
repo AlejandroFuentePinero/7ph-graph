@@ -24338,8 +24338,16 @@
     ],
     "gem_archetypes": [
       [
+        "4c Control",
+        "4c_control"
+      ],
+      [
         "4c Midrange",
         "4c_midrange"
+      ],
+      [
+        "Academy",
+        "academy"
       ],
       [
         "Blue Moon",
@@ -24348,6 +24356,10 @@
       [
         "Blue Tron",
         "blue_tron"
+      ],
+      [
+        "Boros",
+        "boros"
       ],
       [
         "Boros Moonshine",
@@ -24370,6 +24382,10 @@
         "bus_stop_grixis"
       ],
       [
+        "Dimir",
+        "dimir"
+      ],
+      [
         "Eldrazi",
         "eldrazi"
       ],
@@ -24388,6 +24404,10 @@
       [
         "Goblins",
         "goblins"
+      ],
+      [
+        "Green Eldrazi",
+        "green_eldrazi"
       ],
       [
         "Grixis",
@@ -24454,12 +24474,24 @@
         "rogue"
       ],
       [
+        "Stoneblade",
+        "stoneblade"
+      ],
+      [
         "Storm",
         "storm"
       ],
       [
         "Time Vault",
         "time_vault"
+      ],
+      [
+        "Tinker",
+        "tinker"
+      ],
+      [
+        "Tokens",
+        "tokens"
       ],
       [
         "Walks",
@@ -24594,21 +24626,6 @@
         {
           "id": "placement:CeJkOCt7ZE-z8g1SFh0cMg",
           "label": "3rd",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:PogSep25",
-          "label": "PogSep25",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:1USDKHbzFEOEYNejZpZQGw",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:1USDKHbzFEOEYNejZpZQGw",
-          "label": "14th",
           "kind": "Placement"
         },
         {
@@ -24792,6 +24809,21 @@
           "kind": "Placement"
         },
         {
+          "id": "event:POG2501",
+          "label": "POG2501",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:u-5Cypv4xEK3YVizIiTshQ",
+          "label": "Lurrus Breach",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:u-5Cypv4xEK3YVizIiTshQ",
+          "label": "1st",
+          "kind": "Placement"
+        },
+        {
           "id": "event:RC7",
           "label": "RC7",
           "kind": "Event"
@@ -24834,36 +24866,6 @@
         {
           "id": "placement:n3NVc4ZfdEaha8dFOkrTTw",
           "label": "19th",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:RC6",
-          "label": "RC6",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:SzJZmo_fL0eLzmZc99b_jg",
-          "label": "Miracles",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:SzJZmo_fL0eLzmZc99b_jg",
-          "label": "5th",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:TMC24",
-          "label": "TMC24",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:rHIfZXU2tUa49ZW3OA_6Zw",
-          "label": "Jeskai Miracles",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:rHIfZXU2tUa49ZW3OA_6Zw",
-          "label": "32nd",
           "kind": "Placement"
         },
         {
@@ -24912,21 +24914,6 @@
           "kind": "Placement"
         },
         {
-          "id": "event:Pats Birthday Brawl",
-          "label": "Pats Birthday Brawl",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:qutYjZj65EGjJB9DbmhbXQ",
-          "label": "Brennan C",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:qutYjZj65EGjJB9DbmhbXQ",
-          "label": "3rd",
-          "kind": "Placement"
-        },
-        {
           "id": "event:Super Series 27-10",
           "label": "Super Series 27-10",
           "kind": "Event"
@@ -24942,21 +24929,6 @@
           "kind": "Placement"
         },
         {
-          "id": "event:RadClaus",
-          "label": "RadClaus",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:TQEjOV-lzk-Sq8eKIkz_1w",
-          "label": "High Tide",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:TQEjOV-lzk-Sq8eKIkz_1w",
-          "label": "26th",
-          "kind": "Placement"
-        },
-        {
           "id": "event:PogInvi2025",
           "label": "PogInvi2025",
           "kind": "Event"
@@ -24969,21 +24941,6 @@
         {
           "id": "placement:8vEzPCbfokCNoPrU4ylkCg",
           "label": "1st",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:TABGHC2025",
-          "label": "TABGHC2025",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:4fVob0NHskyzeaQ-D_Dm2g",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:4fVob0NHskyzeaQ-D_Dm2g",
-          "label": "5th",
           "kind": "Placement"
         },
         {
@@ -25032,6 +24989,171 @@
           "kind": "Placement"
         },
         {
+          "id": "event:S&CWAD",
+          "label": "S&CWAD",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:KC6PewP2j0u76Y9k-6p75g",
+          "label": "BUG Thoracle",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:KC6PewP2j0u76Y9k-6p75g",
+          "label": "10th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:PogApr26",
+          "label": "PogApr26",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:cm1WQZW2ake35ZN2M_Ckmg",
+          "label": "4C Breach",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:cm1WQZW2ake35ZN2M_Ckmg",
+          "label": "37th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:S&CWADMay",
+          "label": "S&CWADMay",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:EUdOr7gWYEW0L0CojgduQA",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:EUdOr7gWYEW0L0CojgduQA",
+          "label": "1st",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:Masters26",
+          "label": "Masters26",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:6kGSVzJ_IEycKqyGA_2KHg",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:6kGSVzJ_IEycKqyGA_2KHg",
+          "label": "5th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:PogSep25",
+          "label": "PogSep25",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:1USDKHbzFEOEYNejZpZQGw",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:1USDKHbzFEOEYNejZpZQGw",
+          "label": "14th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:TMC24",
+          "label": "TMC24",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:rHIfZXU2tUa49ZW3OA_6Zw",
+          "label": "Jeskai Miracles",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:rHIfZXU2tUa49ZW3OA_6Zw",
+          "label": "32nd",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:Pats Birthday Brawl",
+          "label": "Pats Birthday Brawl",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:qutYjZj65EGjJB9DbmhbXQ",
+          "label": "Brennan C",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:qutYjZj65EGjJB9DbmhbXQ",
+          "label": "3rd",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:RadClaus",
+          "label": "RadClaus",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:TQEjOV-lzk-Sq8eKIkz_1w",
+          "label": "High Tide",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:TQEjOV-lzk-Sq8eKIkz_1w",
+          "label": "26th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:TABGHC2025",
+          "label": "TABGHC2025",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:4fVob0NHskyzeaQ-D_Dm2g",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:4fVob0NHskyzeaQ-D_Dm2g",
+          "label": "5th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:POGTeams26",
+          "label": "POGTeams26",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:WAOeSdA_tEyZj5zpJsp5NA",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:WAOeSdA_tEyZj5zpJsp5NA",
+          "label": "1st",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:PogFeb26",
+          "label": "PogFeb26",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:lWqgZprhj0-qwbAxa-HlSg",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:lWqgZprhj0-qwbAxa-HlSg",
+          "label": "5th",
+          "kind": "Placement"
+        },
+        {
           "id": "event:ANZSS11",
           "label": "ANZSS11",
           "kind": "Event"
@@ -25077,126 +25199,6 @@
           "kind": "Placement"
         },
         {
-          "id": "event:S&CWADJune",
-          "label": "S&CWADJune",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:lFWO6eT8MECr8kJwE5dkKg",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:lFWO6eT8MECr8kJwE5dkKg",
-          "label": "5th",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:PogApr26",
-          "label": "PogApr26",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:cm1WQZW2ake35ZN2M_Ckmg",
-          "label": "4C Breach",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:cm1WQZW2ake35ZN2M_Ckmg",
-          "label": "37th",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:POG2501",
-          "label": "POG2501",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "Lurrus Breach",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "1st",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:POGTeams26",
-          "label": "POGTeams26",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:WAOeSdA_tEyZj5zpJsp5NA",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:WAOeSdA_tEyZj5zpJsp5NA",
-          "label": "1st",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:PogFeb26",
-          "label": "PogFeb26",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "5th",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:S&CWAD",
-          "label": "S&CWAD",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:KC6PewP2j0u76Y9k-6p75g",
-          "label": "BUG Thoracle",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:KC6PewP2j0u76Y9k-6p75g",
-          "label": "10th",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:S&CWADMay",
-          "label": "S&CWADMay",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:EUdOr7gWYEW0L0CojgduQA",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:EUdOr7gWYEW0L0CojgduQA",
-          "label": "1st",
-          "kind": "Placement"
-        },
-        {
-          "id": "event:Masters26",
-          "label": "Masters26",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:6kGSVzJ_IEycKqyGA_2KHg",
-          "label": "Storm",
-          "kind": "Deck"
-        },
-        {
-          "id": "placement:6kGSVzJ_IEycKqyGA_2KHg",
-          "label": "5th",
-          "kind": "Placement"
-        },
-        {
           "id": "event:PogJul26",
           "label": "PogJul26",
           "kind": "Event"
@@ -25209,6 +25211,36 @@
         {
           "id": "placement:98vUjoccqkuzdYEvkx0nZw",
           "label": "15th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:RC6",
+          "label": "RC6",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:SzJZmo_fL0eLzmZc99b_jg",
+          "label": "Miracles",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:SzJZmo_fL0eLzmZc99b_jg",
+          "label": "5th",
+          "kind": "Placement"
+        },
+        {
+          "id": "event:S&CWADJune",
+          "label": "S&CWADJune",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:lFWO6eT8MECr8kJwE5dkKg",
+          "label": "Storm",
+          "kind": "Deck"
+        },
+        {
+          "id": "placement:lFWO6eT8MECr8kJwE5dkKg",
+          "label": "5th",
           "kind": "Placement"
         }
       ],
@@ -25354,24 +25386,6 @@
         {
           "source": "deck:CeJkOCt7ZE-z8g1SFh0cMg",
           "target": "placement:CeJkOCt7ZE-z8g1SFh0cMg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:PogSep25",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PogSep25",
-          "target": "deck:1USDKHbzFEOEYNejZpZQGw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:1USDKHbzFEOEYNejZpZQGw",
-          "target": "placement:1USDKHbzFEOEYNejZpZQGw",
           "label": "PLACED",
           "visible": false
         },
@@ -25593,6 +25607,24 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
+          "target": "event:POG2501",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:POG2501",
+          "target": "deck:u-5Cypv4xEK3YVizIiTshQ",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:u-5Cypv4xEK3YVizIiTshQ",
+          "target": "placement:u-5Cypv4xEK3YVizIiTshQ",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
           "target": "event:RC7",
           "label": "PLAYED_AT",
           "visible": false
@@ -25642,42 +25674,6 @@
         {
           "source": "deck:n3NVc4ZfdEaha8dFOkrTTw",
           "target": "placement:n3NVc4ZfdEaha8dFOkrTTw",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:RC6",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:RC6",
-          "target": "deck:SzJZmo_fL0eLzmZc99b_jg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:SzJZmo_fL0eLzmZc99b_jg",
-          "target": "placement:SzJZmo_fL0eLzmZc99b_jg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:TMC24",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:TMC24",
-          "target": "deck:rHIfZXU2tUa49ZW3OA_6Zw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:rHIfZXU2tUa49ZW3OA_6Zw",
-          "target": "placement:rHIfZXU2tUa49ZW3OA_6Zw",
           "label": "PLACED",
           "visible": false
         },
@@ -25737,24 +25733,6 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
-          "target": "event:Pats Birthday Brawl",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:Pats Birthday Brawl",
-          "target": "deck:qutYjZj65EGjJB9DbmhbXQ",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:qutYjZj65EGjJB9DbmhbXQ",
-          "target": "placement:qutYjZj65EGjJB9DbmhbXQ",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
           "target": "event:Super Series 27-10",
           "label": "PLAYED_AT",
           "visible": false
@@ -25773,24 +25751,6 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
-          "target": "event:RadClaus",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:RadClaus",
-          "target": "deck:TQEjOV-lzk-Sq8eKIkz_1w",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:TQEjOV-lzk-Sq8eKIkz_1w",
-          "target": "placement:TQEjOV-lzk-Sq8eKIkz_1w",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
           "target": "event:PogInvi2025",
           "label": "PLAYED_AT",
           "visible": false
@@ -25804,24 +25764,6 @@
         {
           "source": "deck:8vEzPCbfokCNoPrU4ylkCg",
           "target": "placement:8vEzPCbfokCNoPrU4ylkCg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:TABGHC2025",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:TABGHC2025",
-          "target": "deck:4fVob0NHskyzeaQ-D_Dm2g",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:4fVob0NHskyzeaQ-D_Dm2g",
-          "target": "placement:4fVob0NHskyzeaQ-D_Dm2g",
           "label": "PLACED",
           "visible": false
         },
@@ -25881,6 +25823,204 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
+          "target": "event:S&CWAD",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:S&CWAD",
+          "target": "deck:KC6PewP2j0u76Y9k-6p75g",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:KC6PewP2j0u76Y9k-6p75g",
+          "target": "placement:KC6PewP2j0u76Y9k-6p75g",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:PogApr26",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PogApr26",
+          "target": "deck:cm1WQZW2ake35ZN2M_Ckmg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:cm1WQZW2ake35ZN2M_Ckmg",
+          "target": "placement:cm1WQZW2ake35ZN2M_Ckmg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:S&CWADMay",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:S&CWADMay",
+          "target": "deck:EUdOr7gWYEW0L0CojgduQA",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:EUdOr7gWYEW0L0CojgduQA",
+          "target": "placement:EUdOr7gWYEW0L0CojgduQA",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:Masters26",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:Masters26",
+          "target": "deck:6kGSVzJ_IEycKqyGA_2KHg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:6kGSVzJ_IEycKqyGA_2KHg",
+          "target": "placement:6kGSVzJ_IEycKqyGA_2KHg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:PogSep25",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PogSep25",
+          "target": "deck:1USDKHbzFEOEYNejZpZQGw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:1USDKHbzFEOEYNejZpZQGw",
+          "target": "placement:1USDKHbzFEOEYNejZpZQGw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:TMC24",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:TMC24",
+          "target": "deck:rHIfZXU2tUa49ZW3OA_6Zw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:rHIfZXU2tUa49ZW3OA_6Zw",
+          "target": "placement:rHIfZXU2tUa49ZW3OA_6Zw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:Pats Birthday Brawl",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:Pats Birthday Brawl",
+          "target": "deck:qutYjZj65EGjJB9DbmhbXQ",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:qutYjZj65EGjJB9DbmhbXQ",
+          "target": "placement:qutYjZj65EGjJB9DbmhbXQ",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:RadClaus",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:RadClaus",
+          "target": "deck:TQEjOV-lzk-Sq8eKIkz_1w",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:TQEjOV-lzk-Sq8eKIkz_1w",
+          "target": "placement:TQEjOV-lzk-Sq8eKIkz_1w",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:TABGHC2025",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:TABGHC2025",
+          "target": "deck:4fVob0NHskyzeaQ-D_Dm2g",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:4fVob0NHskyzeaQ-D_Dm2g",
+          "target": "placement:4fVob0NHskyzeaQ-D_Dm2g",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:POGTeams26",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:POGTeams26",
+          "target": "deck:WAOeSdA_tEyZj5zpJsp5NA",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:WAOeSdA_tEyZj5zpJsp5NA",
+          "target": "placement:WAOeSdA_tEyZj5zpJsp5NA",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:PogFeb26",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PogFeb26",
+          "target": "deck:lWqgZprhj0-qwbAxa-HlSg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:lWqgZprhj0-qwbAxa-HlSg",
+          "target": "placement:lWqgZprhj0-qwbAxa-HlSg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
           "target": "event:ANZSS11",
           "label": "PLAYED_AT",
           "visible": false
@@ -25935,150 +26075,6 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
-          "target": "event:S&CWADJune",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:S&CWADJune",
-          "target": "deck:lFWO6eT8MECr8kJwE5dkKg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:lFWO6eT8MECr8kJwE5dkKg",
-          "target": "placement:lFWO6eT8MECr8kJwE5dkKg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:PogApr26",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PogApr26",
-          "target": "deck:cm1WQZW2ake35ZN2M_Ckmg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:cm1WQZW2ake35ZN2M_Ckmg",
-          "target": "placement:cm1WQZW2ake35ZN2M_Ckmg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:POG2501",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:POG2501",
-          "target": "deck:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:u-5Cypv4xEK3YVizIiTshQ",
-          "target": "placement:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:POGTeams26",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:POGTeams26",
-          "target": "deck:WAOeSdA_tEyZj5zpJsp5NA",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:WAOeSdA_tEyZj5zpJsp5NA",
-          "target": "placement:WAOeSdA_tEyZj5zpJsp5NA",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:PogFeb26",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PogFeb26",
-          "target": "deck:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:lWqgZprhj0-qwbAxa-HlSg",
-          "target": "placement:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:S&CWAD",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:S&CWAD",
-          "target": "deck:KC6PewP2j0u76Y9k-6p75g",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:KC6PewP2j0u76Y9k-6p75g",
-          "target": "placement:KC6PewP2j0u76Y9k-6p75g",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:S&CWADMay",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:S&CWADMay",
-          "target": "deck:EUdOr7gWYEW0L0CojgduQA",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:EUdOr7gWYEW0L0CojgduQA",
-          "target": "placement:EUdOr7gWYEW0L0CojgduQA",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:Masters26",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:Masters26",
-          "target": "deck:6kGSVzJ_IEycKqyGA_2KHg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:6kGSVzJ_IEycKqyGA_2KHg",
-          "target": "placement:6kGSVzJ_IEycKqyGA_2KHg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
           "target": "event:PogJul26",
           "label": "PLAYED_AT",
           "visible": false
@@ -26092,6 +26088,42 @@
         {
           "source": "deck:98vUjoccqkuzdYEvkx0nZw",
           "target": "placement:98vUjoccqkuzdYEvkx0nZw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:RC6",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:RC6",
+          "target": "deck:SzJZmo_fL0eLzmZc99b_jg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:SzJZmo_fL0eLzmZc99b_jg",
+          "target": "placement:SzJZmo_fL0eLzmZc99b_jg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:S&CWADJune",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:S&CWADJune",
+          "target": "deck:lFWO6eT8MECr8kJwE5dkKg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:lFWO6eT8MECr8kJwE5dkKg",
+          "target": "placement:lFWO6eT8MECr8kJwE5dkKg",
           "label": "PLACED",
           "visible": false
         }
@@ -26302,18 +26334,6 @@
           "label": "1st",
           "kind": "Placement",
           "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "deck:YhHiFP1gGUGi9dDFXfxLnA",
-          "label": "Esper Midrange",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:YhHiFP1gGUGi9dDFXfxLnA",
-          "label": "3rd",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
         },
         {
           "id": "event:PogJul25",
@@ -26536,18 +26556,6 @@
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "deck:j0oLzeEPckioPik7rBCc8Q",
-          "label": "4C Nadu Walks",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:j0oLzeEPckioPik7rBCc8Q",
-          "label": "63rd",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
           "id": "event:TGC2024",
           "label": "TGC2024",
           "kind": "Event"
@@ -26561,23 +26569,6 @@
         {
           "id": "placement:gGPYkFVIW0ehw_OVHERb7A",
           "label": "15th",
-          "kind": "Placement",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "event:POG2501",
-          "label": "POG2501",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "Lurrus Breach",
-          "kind": "Deck",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "placement:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "1st",
           "kind": "Placement",
           "group": "pilot:LuckyTealLynx"
         },
@@ -26616,18 +26607,6 @@
           "kind": "Event"
         },
         {
-          "id": "deck:DVlCe-heZkiDX9aiD6TAZg",
-          "label": "Nadu Walks",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:DVlCe-heZkiDX9aiD6TAZg",
-          "label": "18th",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
           "id": "deck:eLP6NJeIaEGyR51YEhhakg",
           "label": "Lurrus Breach",
           "kind": "Deck",
@@ -26636,18 +26615,6 @@
         {
           "id": "placement:eLP6NJeIaEGyR51YEhhakg",
           "label": "75th",
-          "kind": "Placement",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "deck:n3NVc4ZfdEaha8dFOkrTTw",
-          "label": "Miracles",
-          "kind": "Deck",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "placement:n3NVc4ZfdEaha8dFOkrTTw",
-          "label": "19th",
           "kind": "Placement",
           "group": "pilot:LuckyTealLynx"
         },
@@ -26669,18 +26636,6 @@
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "deck:qgP04WN0T0qgp-KGIsfwLw",
-          "label": "Grixis Eris",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:qgP04WN0T0qgp-KGIsfwLw",
-          "label": "21st",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
           "id": "event:TMC24",
           "label": "TMC24",
           "kind": "Event"
@@ -26698,18 +26653,6 @@
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "deck:v65KRCMQM0SH4o_DForLEg",
-          "label": "Grixis Eris",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:v65KRCMQM0SH4o_DForLEg",
-          "label": "5th",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
           "id": "event:NHC24",
           "label": "NHC24",
           "kind": "Event"
@@ -26725,18 +26668,6 @@
           "label": "54th",
           "kind": "Placement",
           "group": "pilot:Michael B"
-        },
-        {
-          "id": "deck:ywowXF2eRUuQtUfC83IQEg",
-          "label": "Lurrus Breach",
-          "kind": "Deck",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "placement:ywowXF2eRUuQtUfC83IQEg",
-          "label": "10th",
-          "kind": "Placement",
-          "group": "pilot:LuckyTealLynx"
         },
         {
           "id": "event:PoGTeams2024",
@@ -26761,16 +26692,16 @@
           "kind": "Event"
         },
         {
-          "id": "deck:rgI637RAIE6vLTnBBQDgAQ",
-          "label": "Lurrus Breach",
+          "id": "deck:5nx7tG_ioUePhZ3nd2enbQ",
+          "label": "Omnath Walks",
           "kind": "Deck",
-          "group": "pilot:LuckyTealLynx"
+          "group": "pilot:Michael B"
         },
         {
-          "id": "placement:rgI637RAIE6vLTnBBQDgAQ",
+          "id": "placement:5nx7tG_ioUePhZ3nd2enbQ",
           "label": "5th",
           "kind": "Placement",
-          "group": "pilot:LuckyTealLynx"
+          "group": "pilot:Michael B"
         },
         {
           "id": "event:Super Series 27-10",
@@ -26778,31 +26709,14 @@
           "kind": "Event"
         },
         {
-          "id": "deck:RNk4RZx1uEqtydgfJ7smgA",
-          "label": "Omnath Walks",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:RNk4RZx1uEqtydgfJ7smgA",
-          "label": "2nd",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "event:PogInvi2025",
-          "label": "PogInvi2025",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:8vEzPCbfokCNoPrU4ylkCg",
-          "label": "Storm",
+          "id": "deck:2ysXMw7E1EWzQ5hpaj4oSA",
+          "label": "Lurrus Breach",
           "kind": "Deck",
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "placement:8vEzPCbfokCNoPrU4ylkCg",
-          "label": "1st",
+          "id": "placement:2ysXMw7E1EWzQ5hpaj4oSA",
+          "label": "3rd",
           "kind": "Placement",
           "group": "pilot:LuckyTealLynx"
         },
@@ -26819,23 +26733,6 @@
         },
         {
           "id": "placement:4fVob0NHskyzeaQ-D_Dm2g",
-          "label": "5th",
-          "kind": "Placement",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "event:POGWADiamond",
-          "label": "POGWADiamond",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:su3N2kAVeUu6BUCLnpFxIw",
-          "label": "Storm",
-          "kind": "Deck",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "placement:su3N2kAVeUu6BUCLnpFxIw",
           "label": "5th",
           "kind": "Placement",
           "group": "pilot:LuckyTealLynx"
@@ -26863,16 +26760,16 @@
           "kind": "Event"
         },
         {
-          "id": "deck:pVLb9HNvckG6xj6jMPhdvw",
-          "label": "Walks",
+          "id": "deck:lWqgZprhj0-qwbAxa-HlSg",
+          "label": "Storm",
           "kind": "Deck",
-          "group": "pilot:Michael B"
+          "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "placement:pVLb9HNvckG6xj6jMPhdvw",
-          "label": "17th",
+          "id": "placement:lWqgZprhj0-qwbAxa-HlSg",
+          "label": "5th",
           "kind": "Placement",
-          "group": "pilot:Michael B"
+          "group": "pilot:LuckyTealLynx"
         },
         {
           "id": "event:PogMar26",
@@ -26909,23 +26806,6 @@
           "group": "pilot:Michael B"
         },
         {
-          "id": "event:HighlanderWorlds26",
-          "label": "HighlanderWorlds26",
-          "kind": "Event"
-        },
-        {
-          "id": "deck:5x3LVIEraUmik4rH5sFSgA",
-          "label": "4C Walks",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:5x3LVIEraUmik4rH5sFSgA",
-          "label": "37th",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
           "id": "event:PogJul26",
           "label": "PogJul26",
           "kind": "Event"
@@ -26943,40 +26823,134 @@
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "deck:iMrTMRqvIUWYSl_DNNliBQ",
-          "label": "Nadu Walks",
+          "id": "deck:YhHiFP1gGUGi9dDFXfxLnA",
+          "label": "Esper Midrange",
           "kind": "Deck",
           "group": "pilot:Michael B"
         },
         {
-          "id": "placement:iMrTMRqvIUWYSl_DNNliBQ",
-          "label": "5th",
+          "id": "placement:YhHiFP1gGUGi9dDFXfxLnA",
+          "label": "3rd",
           "kind": "Placement",
           "group": "pilot:Michael B"
         },
         {
-          "id": "deck:5nx7tG_ioUePhZ3nd2enbQ",
-          "label": "Omnath Walks",
+          "id": "deck:j0oLzeEPckioPik7rBCc8Q",
+          "label": "4C Nadu Walks",
           "kind": "Deck",
           "group": "pilot:Michael B"
         },
         {
-          "id": "placement:5nx7tG_ioUePhZ3nd2enbQ",
-          "label": "5th",
+          "id": "placement:j0oLzeEPckioPik7rBCc8Q",
+          "label": "63rd",
           "kind": "Placement",
           "group": "pilot:Michael B"
         },
         {
-          "id": "deck:2ysXMw7E1EWzQ5hpaj4oSA",
+          "id": "event:POG2501",
+          "label": "POG2501",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:u-5Cypv4xEK3YVizIiTshQ",
           "label": "Lurrus Breach",
           "kind": "Deck",
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "placement:2ysXMw7E1EWzQ5hpaj4oSA",
-          "label": "3rd",
+          "id": "placement:u-5Cypv4xEK3YVizIiTshQ",
+          "label": "1st",
           "kind": "Placement",
           "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "deck:DVlCe-heZkiDX9aiD6TAZg",
+          "label": "Nadu Walks",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:DVlCe-heZkiDX9aiD6TAZg",
+          "label": "18th",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:n3NVc4ZfdEaha8dFOkrTTw",
+          "label": "Miracles",
+          "kind": "Deck",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "placement:n3NVc4ZfdEaha8dFOkrTTw",
+          "label": "19th",
+          "kind": "Placement",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "deck:qgP04WN0T0qgp-KGIsfwLw",
+          "label": "Grixis Eris",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:qgP04WN0T0qgp-KGIsfwLw",
+          "label": "21st",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:v65KRCMQM0SH4o_DForLEg",
+          "label": "Grixis Eris",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:v65KRCMQM0SH4o_DForLEg",
+          "label": "5th",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:ywowXF2eRUuQtUfC83IQEg",
+          "label": "Lurrus Breach",
+          "kind": "Deck",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "placement:ywowXF2eRUuQtUfC83IQEg",
+          "label": "10th",
+          "kind": "Placement",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "deck:FwfcUkUIzkWXFJYEcESp0A",
+          "label": "Omnath Walks",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:FwfcUkUIzkWXFJYEcESp0A",
+          "label": "1st",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:RNk4RZx1uEqtydgfJ7smgA",
+          "label": "Omnath Walks",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:RNk4RZx1uEqtydgfJ7smgA",
+          "label": "2nd",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "event:PogInvi2025",
+          "label": "PogInvi2025",
+          "kind": "Event"
         },
         {
           "id": "deck:9ikW3SZi1kG_SHZONZ-Lpw",
@@ -27003,18 +26977,6 @@
           "group": "pilot:Michael B"
         },
         {
-          "id": "deck:4nYvFYwyGEGWCmdmFsAcjw",
-          "label": "Blue Moon",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:4nYvFYwyGEGWCmdmFsAcjw",
-          "label": "10th",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
-        },
-        {
           "id": "deck:tzyrWN0BBE2j2fFWGdTj7g",
           "label": "Blue Moon",
           "kind": "Deck",
@@ -27027,26 +26989,14 @@
           "group": "pilot:Michael B"
         },
         {
-          "id": "deck:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "Storm",
-          "kind": "Deck",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "placement:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "5th",
-          "kind": "Placement",
-          "group": "pilot:LuckyTealLynx"
-        },
-        {
-          "id": "deck:zH39EWcAoE2LH1Fkd6DBTw",
-          "label": "4C Walks",
+          "id": "deck:pVLb9HNvckG6xj6jMPhdvw",
+          "label": "Walks",
           "kind": "Deck",
           "group": "pilot:Michael B"
         },
         {
-          "id": "placement:zH39EWcAoE2LH1Fkd6DBTw",
-          "label": "2nd",
+          "id": "placement:pVLb9HNvckG6xj6jMPhdvw",
+          "label": "17th",
           "kind": "Placement",
           "group": "pilot:Michael B"
         },
@@ -27063,16 +27013,9 @@
           "group": "pilot:LuckyTealLynx"
         },
         {
-          "id": "deck:FwfcUkUIzkWXFJYEcESp0A",
-          "label": "Omnath Walks",
-          "kind": "Deck",
-          "group": "pilot:Michael B"
-        },
-        {
-          "id": "placement:FwfcUkUIzkWXFJYEcESp0A",
-          "label": "1st",
-          "kind": "Placement",
-          "group": "pilot:Michael B"
+          "id": "event:HighlanderWorlds26",
+          "label": "HighlanderWorlds26",
+          "kind": "Event"
         },
         {
           "id": "deck:_lixuRM_jUmrZP9s_qSgKw",
@@ -27097,6 +27040,95 @@
           "label": "20th",
           "kind": "Placement",
           "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:iMrTMRqvIUWYSl_DNNliBQ",
+          "label": "Nadu Walks",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:iMrTMRqvIUWYSl_DNNliBQ",
+          "label": "5th",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:rgI637RAIE6vLTnBBQDgAQ",
+          "label": "Lurrus Breach",
+          "kind": "Deck",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "placement:rgI637RAIE6vLTnBBQDgAQ",
+          "label": "5th",
+          "kind": "Placement",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "deck:8vEzPCbfokCNoPrU4ylkCg",
+          "label": "Storm",
+          "kind": "Deck",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "placement:8vEzPCbfokCNoPrU4ylkCg",
+          "label": "1st",
+          "kind": "Placement",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "event:POGWADiamond",
+          "label": "POGWADiamond",
+          "kind": "Event"
+        },
+        {
+          "id": "deck:4nYvFYwyGEGWCmdmFsAcjw",
+          "label": "Blue Moon",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:4nYvFYwyGEGWCmdmFsAcjw",
+          "label": "10th",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:zH39EWcAoE2LH1Fkd6DBTw",
+          "label": "4C Walks",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:zH39EWcAoE2LH1Fkd6DBTw",
+          "label": "2nd",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:5x3LVIEraUmik4rH5sFSgA",
+          "label": "4C Walks",
+          "kind": "Deck",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "placement:5x3LVIEraUmik4rH5sFSgA",
+          "label": "37th",
+          "kind": "Placement",
+          "group": "pilot:Michael B"
+        },
+        {
+          "id": "deck:su3N2kAVeUu6BUCLnpFxIw",
+          "label": "Storm",
+          "kind": "Deck",
+          "group": "pilot:LuckyTealLynx"
+        },
+        {
+          "id": "placement:su3N2kAVeUu6BUCLnpFxIw",
+          "label": "5th",
+          "kind": "Placement",
+          "group": "pilot:LuckyTealLynx"
         }
       ],
       "edges": [
@@ -27331,24 +27363,6 @@
         {
           "source": "deck:3l9JQyfFzUSnSCuQWlkNjQ",
           "target": "placement:3l9JQyfFzUSnSCuQWlkNjQ",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:Michael B",
-          "target": "event:PogAug25",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PogAug25",
-          "target": "deck:YhHiFP1gGUGi9dDFXfxLnA",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:YhHiFP1gGUGi9dDFXfxLnA",
-          "target": "placement:YhHiFP1gGUGi9dDFXfxLnA",
           "label": "PLACED",
           "visible": false
         },
@@ -27623,24 +27637,6 @@
           "visible": false
         },
         {
-          "source": "pilot:Michael B",
-          "target": "event:NHC25",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:NHC25",
-          "target": "deck:j0oLzeEPckioPik7rBCc8Q",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:j0oLzeEPckioPik7rBCc8Q",
-          "target": "placement:j0oLzeEPckioPik7rBCc8Q",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
           "source": "pilot:LuckyTealLynx",
           "target": "event:TGC2024",
           "label": "PLAYED_AT",
@@ -27655,24 +27651,6 @@
         {
           "source": "deck:gGPYkFVIW0ehw_OVHERb7A",
           "target": "placement:gGPYkFVIW0ehw_OVHERb7A",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:POG2501",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:POG2501",
-          "target": "deck:u-5Cypv4xEK3YVizIiTshQ",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:u-5Cypv4xEK3YVizIiTshQ",
-          "target": "placement:u-5Cypv4xEK3YVizIiTshQ",
           "label": "PLACED",
           "visible": false
         },
@@ -27713,24 +27691,6 @@
           "visible": false
         },
         {
-          "source": "pilot:Michael B",
-          "target": "event:RC7",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:RC7",
-          "target": "deck:DVlCe-heZkiDX9aiD6TAZg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:DVlCe-heZkiDX9aiD6TAZg",
-          "target": "placement:DVlCe-heZkiDX9aiD6TAZg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
           "source": "pilot:LuckyTealLynx",
           "target": "event:RC7",
           "label": "PLAYED_AT",
@@ -27750,24 +27710,6 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
-          "target": "event:Masters2024",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:Masters2024",
-          "target": "deck:n3NVc4ZfdEaha8dFOkrTTw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:n3NVc4ZfdEaha8dFOkrTTw",
-          "target": "placement:n3NVc4ZfdEaha8dFOkrTTw",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
           "target": "event:RC6",
           "label": "PLAYED_AT",
           "visible": false
@@ -27781,24 +27723,6 @@
         {
           "source": "deck:SzJZmo_fL0eLzmZc99b_jg",
           "target": "placement:SzJZmo_fL0eLzmZc99b_jg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:Michael B",
-          "target": "event:RC6",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:RC6",
-          "target": "deck:qgP04WN0T0qgp-KGIsfwLw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:qgP04WN0T0qgp-KGIsfwLw",
-          "target": "placement:qgP04WN0T0qgp-KGIsfwLw",
           "label": "PLACED",
           "visible": false
         },
@@ -27822,24 +27746,6 @@
         },
         {
           "source": "pilot:Michael B",
-          "target": "event:TMC24",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:TMC24",
-          "target": "deck:v65KRCMQM0SH4o_DForLEg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:v65KRCMQM0SH4o_DForLEg",
-          "target": "placement:v65KRCMQM0SH4o_DForLEg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:Michael B",
           "target": "event:NHC24",
           "label": "PLAYED_AT",
           "visible": false
@@ -27853,24 +27759,6 @@
         {
           "source": "deck:wuf4rOg5MUu5CO9Ls9XARg",
           "target": "placement:wuf4rOg5MUu5CO9Ls9XARg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:NHC24",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:NHC24",
-          "target": "deck:ywowXF2eRUuQtUfC83IQEg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:ywowXF2eRUuQtUfC83IQEg",
-          "target": "placement:ywowXF2eRUuQtUfC83IQEg",
           "label": "PLACED",
           "visible": false
         },
@@ -27893,56 +27781,38 @@
           "visible": false
         },
         {
-          "source": "pilot:LuckyTealLynx",
+          "source": "pilot:Michael B",
           "target": "event:PoGWinaDual07-01",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
           "source": "event:PoGWinaDual07-01",
-          "target": "deck:rgI637RAIE6vLTnBBQDgAQ",
+          "target": "deck:5nx7tG_ioUePhZ3nd2enbQ",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:rgI637RAIE6vLTnBBQDgAQ",
-          "target": "placement:rgI637RAIE6vLTnBBQDgAQ",
+          "source": "deck:5nx7tG_ioUePhZ3nd2enbQ",
+          "target": "placement:5nx7tG_ioUePhZ3nd2enbQ",
           "label": "PLACED",
           "visible": false
         },
         {
-          "source": "pilot:Michael B",
+          "source": "pilot:LuckyTealLynx",
           "target": "event:Super Series 27-10",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
           "source": "event:Super Series 27-10",
-          "target": "deck:RNk4RZx1uEqtydgfJ7smgA",
+          "target": "deck:2ysXMw7E1EWzQ5hpaj4oSA",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:RNk4RZx1uEqtydgfJ7smgA",
-          "target": "placement:RNk4RZx1uEqtydgfJ7smgA",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
-          "target": "event:PogInvi2025",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PogInvi2025",
-          "target": "deck:8vEzPCbfokCNoPrU4ylkCg",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:8vEzPCbfokCNoPrU4ylkCg",
-          "target": "placement:8vEzPCbfokCNoPrU4ylkCg",
+          "source": "deck:2ysXMw7E1EWzQ5hpaj4oSA",
+          "target": "placement:2ysXMw7E1EWzQ5hpaj4oSA",
           "label": "PLACED",
           "visible": false
         },
@@ -27966,24 +27836,6 @@
         },
         {
           "source": "pilot:LuckyTealLynx",
-          "target": "event:POGWADiamond",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:POGWADiamond",
-          "target": "deck:su3N2kAVeUu6BUCLnpFxIw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:su3N2kAVeUu6BUCLnpFxIw",
-          "target": "placement:su3N2kAVeUu6BUCLnpFxIw",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:LuckyTealLynx",
           "target": "event:POGTeams26",
           "label": "PLAYED_AT",
           "visible": false
@@ -28001,20 +27853,20 @@
           "visible": false
         },
         {
-          "source": "pilot:Michael B",
+          "source": "pilot:LuckyTealLynx",
           "target": "event:PogFeb26",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
           "source": "event:PogFeb26",
-          "target": "deck:pVLb9HNvckG6xj6jMPhdvw",
+          "target": "deck:lWqgZprhj0-qwbAxa-HlSg",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:pVLb9HNvckG6xj6jMPhdvw",
-          "target": "placement:pVLb9HNvckG6xj6jMPhdvw",
+          "source": "deck:lWqgZprhj0-qwbAxa-HlSg",
+          "target": "placement:lWqgZprhj0-qwbAxa-HlSg",
           "label": "PLACED",
           "visible": false
         },
@@ -28055,24 +27907,6 @@
           "visible": false
         },
         {
-          "source": "pilot:Michael B",
-          "target": "event:HighlanderWorlds26",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:HighlanderWorlds26",
-          "target": "deck:5x3LVIEraUmik4rH5sFSgA",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:5x3LVIEraUmik4rH5sFSgA",
-          "target": "placement:5x3LVIEraUmik4rH5sFSgA",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
           "source": "pilot:LuckyTealLynx",
           "target": "event:PogJul26",
           "label": "PLAYED_AT",
@@ -28092,55 +27926,181 @@
         },
         {
           "source": "pilot:Michael B",
+          "target": "event:PogAug25",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PogAug25",
+          "target": "deck:YhHiFP1gGUGi9dDFXfxLnA",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:YhHiFP1gGUGi9dDFXfxLnA",
+          "target": "placement:YhHiFP1gGUGi9dDFXfxLnA",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:NHC25",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:NHC25",
+          "target": "deck:j0oLzeEPckioPik7rBCc8Q",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:j0oLzeEPckioPik7rBCc8Q",
+          "target": "placement:j0oLzeEPckioPik7rBCc8Q",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
           "target": "event:POG2501",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
           "source": "event:POG2501",
-          "target": "deck:iMrTMRqvIUWYSl_DNNliBQ",
+          "target": "deck:u-5Cypv4xEK3YVizIiTshQ",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:iMrTMRqvIUWYSl_DNNliBQ",
-          "target": "placement:iMrTMRqvIUWYSl_DNNliBQ",
+          "source": "deck:u-5Cypv4xEK3YVizIiTshQ",
+          "target": "placement:u-5Cypv4xEK3YVizIiTshQ",
           "label": "PLACED",
           "visible": false
         },
         {
           "source": "pilot:Michael B",
-          "target": "event:PoGWinaDual07-01",
+          "target": "event:RC7",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
-          "source": "event:PoGWinaDual07-01",
-          "target": "deck:5nx7tG_ioUePhZ3nd2enbQ",
+          "source": "event:RC7",
+          "target": "deck:DVlCe-heZkiDX9aiD6TAZg",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:5nx7tG_ioUePhZ3nd2enbQ",
-          "target": "placement:5nx7tG_ioUePhZ3nd2enbQ",
+          "source": "deck:DVlCe-heZkiDX9aiD6TAZg",
+          "target": "placement:DVlCe-heZkiDX9aiD6TAZg",
           "label": "PLACED",
           "visible": false
         },
         {
           "source": "pilot:LuckyTealLynx",
+          "target": "event:Masters2024",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:Masters2024",
+          "target": "deck:n3NVc4ZfdEaha8dFOkrTTw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:n3NVc4ZfdEaha8dFOkrTTw",
+          "target": "placement:n3NVc4ZfdEaha8dFOkrTTw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:RC6",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:RC6",
+          "target": "deck:qgP04WN0T0qgp-KGIsfwLw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:qgP04WN0T0qgp-KGIsfwLw",
+          "target": "placement:qgP04WN0T0qgp-KGIsfwLw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:TMC24",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:TMC24",
+          "target": "deck:v65KRCMQM0SH4o_DForLEg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:v65KRCMQM0SH4o_DForLEg",
+          "target": "placement:v65KRCMQM0SH4o_DForLEg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:NHC24",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:NHC24",
+          "target": "deck:ywowXF2eRUuQtUfC83IQEg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:ywowXF2eRUuQtUfC83IQEg",
+          "target": "placement:ywowXF2eRUuQtUfC83IQEg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:PoGTeams2024",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PoGTeams2024",
+          "target": "deck:FwfcUkUIzkWXFJYEcESp0A",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:FwfcUkUIzkWXFJYEcESp0A",
+          "target": "placement:FwfcUkUIzkWXFJYEcESp0A",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
           "target": "event:Super Series 27-10",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
           "source": "event:Super Series 27-10",
-          "target": "deck:2ysXMw7E1EWzQ5hpaj4oSA",
+          "target": "deck:RNk4RZx1uEqtydgfJ7smgA",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:2ysXMw7E1EWzQ5hpaj4oSA",
-          "target": "placement:2ysXMw7E1EWzQ5hpaj4oSA",
+          "source": "deck:RNk4RZx1uEqtydgfJ7smgA",
+          "target": "placement:RNk4RZx1uEqtydgfJ7smgA",
           "label": "PLACED",
           "visible": false
         },
@@ -28182,24 +28142,6 @@
         },
         {
           "source": "pilot:Michael B",
-          "target": "event:POGWADiamond",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:POGWADiamond",
-          "target": "deck:4nYvFYwyGEGWCmdmFsAcjw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:4nYvFYwyGEGWCmdmFsAcjw",
-          "target": "placement:4nYvFYwyGEGWCmdmFsAcjw",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:Michael B",
           "target": "event:POGTeams26",
           "label": "PLAYED_AT",
           "visible": false
@@ -28217,38 +28159,20 @@
           "visible": false
         },
         {
-          "source": "pilot:LuckyTealLynx",
+          "source": "pilot:Michael B",
           "target": "event:PogFeb26",
           "label": "PLAYED_AT",
           "visible": false
         },
         {
           "source": "event:PogFeb26",
-          "target": "deck:lWqgZprhj0-qwbAxa-HlSg",
+          "target": "deck:pVLb9HNvckG6xj6jMPhdvw",
           "label": "ENTERED",
           "visible": false
         },
         {
-          "source": "deck:lWqgZprhj0-qwbAxa-HlSg",
-          "target": "placement:lWqgZprhj0-qwbAxa-HlSg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:Michael B",
-          "target": "event:PogMar26",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PogMar26",
-          "target": "deck:zH39EWcAoE2LH1Fkd6DBTw",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:zH39EWcAoE2LH1Fkd6DBTw",
-          "target": "placement:zH39EWcAoE2LH1Fkd6DBTw",
+          "source": "deck:pVLb9HNvckG6xj6jMPhdvw",
+          "target": "placement:pVLb9HNvckG6xj6jMPhdvw",
           "label": "PLACED",
           "visible": false
         },
@@ -28267,24 +28191,6 @@
         {
           "source": "deck:cm1WQZW2ake35ZN2M_Ckmg",
           "target": "placement:cm1WQZW2ake35ZN2M_Ckmg",
-          "label": "PLACED",
-          "visible": false
-        },
-        {
-          "source": "pilot:Michael B",
-          "target": "event:PoGTeams2024",
-          "label": "PLAYED_AT",
-          "visible": false
-        },
-        {
-          "source": "event:PoGTeams2024",
-          "target": "deck:FwfcUkUIzkWXFJYEcESp0A",
-          "label": "ENTERED",
-          "visible": false
-        },
-        {
-          "source": "deck:FwfcUkUIzkWXFJYEcESp0A",
-          "target": "placement:FwfcUkUIzkWXFJYEcESp0A",
           "label": "PLACED",
           "visible": false
         },
@@ -28321,6 +28227,132 @@
         {
           "source": "deck:j7KA4naR3keZ0rbACiByEA",
           "target": "placement:j7KA4naR3keZ0rbACiByEA",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:POG2501",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:POG2501",
+          "target": "deck:iMrTMRqvIUWYSl_DNNliBQ",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:iMrTMRqvIUWYSl_DNNliBQ",
+          "target": "placement:iMrTMRqvIUWYSl_DNNliBQ",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:PoGWinaDual07-01",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PoGWinaDual07-01",
+          "target": "deck:rgI637RAIE6vLTnBBQDgAQ",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:rgI637RAIE6vLTnBBQDgAQ",
+          "target": "placement:rgI637RAIE6vLTnBBQDgAQ",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:PogInvi2025",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PogInvi2025",
+          "target": "deck:8vEzPCbfokCNoPrU4ylkCg",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:8vEzPCbfokCNoPrU4ylkCg",
+          "target": "placement:8vEzPCbfokCNoPrU4ylkCg",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:POGWADiamond",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:POGWADiamond",
+          "target": "deck:4nYvFYwyGEGWCmdmFsAcjw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:4nYvFYwyGEGWCmdmFsAcjw",
+          "target": "placement:4nYvFYwyGEGWCmdmFsAcjw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:PogMar26",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:PogMar26",
+          "target": "deck:zH39EWcAoE2LH1Fkd6DBTw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:zH39EWcAoE2LH1Fkd6DBTw",
+          "target": "placement:zH39EWcAoE2LH1Fkd6DBTw",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:Michael B",
+          "target": "event:HighlanderWorlds26",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:HighlanderWorlds26",
+          "target": "deck:5x3LVIEraUmik4rH5sFSgA",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:5x3LVIEraUmik4rH5sFSgA",
+          "target": "placement:5x3LVIEraUmik4rH5sFSgA",
+          "label": "PLACED",
+          "visible": false
+        },
+        {
+          "source": "pilot:LuckyTealLynx",
+          "target": "event:POGWADiamond",
+          "label": "PLAYED_AT",
+          "visible": false
+        },
+        {
+          "source": "event:POGWADiamond",
+          "target": "deck:su3N2kAVeUu6BUCLnpFxIw",
+          "label": "ENTERED",
+          "visible": false
+        },
+        {
+          "source": "deck:su3N2kAVeUu6BUCLnpFxIw",
+          "target": "placement:su3N2kAVeUu6BUCLnpFxIw",
           "label": "PLACED",
           "visible": false
         }
@@ -33467,62 +33499,10 @@
       "spec": "HiddenGems()",
       "nodes": [
         {
-          "id": "arch:initiative",
-          "label": "Initiative",
-          "kind": "Archetype",
-          "decks": 123
-        },
-        {
-          "id": "card:initiative:chaos defiler",
-          "label": "Chaos Defiler",
-          "kind": "Card",
-          "decks": 12,
-          "total_decks": 123,
-          "pilots": 6,
-          "top_decks": 8,
-          "gem_luck": 0.00029433997761173605
-        },
-        {
-          "id": "arch:mardu",
-          "label": "Mardu",
-          "kind": "Archetype",
-          "decks": 128
-        },
-        {
-          "id": "card:mardu:force of despair",
-          "label": "Force of Despair",
-          "kind": "Card",
-          "decks": 10,
-          "total_decks": 128,
-          "pilots": 6,
-          "top_decks": 7,
-          "gem_luck": 0.0005347922022222583
-        },
-        {
           "id": "arch:lands",
           "label": "Lands",
           "kind": "Archetype",
           "decks": 194
-        },
-        {
-          "id": "card:lands:urza's bauble",
-          "label": "Urza's Bauble",
-          "kind": "Card",
-          "decks": 10,
-          "total_decks": 194,
-          "pilots": 4,
-          "top_decks": 7,
-          "gem_luck": 0.0006162765315904013
-        },
-        {
-          "id": "card:lands:rishadan port",
-          "label": "Rishadan Port",
-          "kind": "Card",
-          "decks": 19,
-          "total_decks": 194,
-          "pilots": 9,
-          "top_decks": 10,
-          "gem_luck": 0.0008699837138288441
         },
         {
           "id": "card:lands:lair of the hydra",
@@ -33532,17 +33512,33 @@
           "total_decks": 194,
           "pilots": 10,
           "top_decks": 9,
-          "gem_luck": 0.0008945294229924877
+          "gem_luck": 0.0019143231999564359
         },
         {
-          "id": "card:initiative:oliphaunt",
-          "label": "Oliphaunt",
+          "id": "arch:tinker",
+          "label": "Tinker",
+          "kind": "Archetype",
+          "decks": 34
+        },
+        {
+          "id": "card:tinker:night scythe",
+          "label": "Night Scythe",
           "kind": "Card",
-          "decks": 17,
-          "total_decks": 123,
-          "pilots": 10,
-          "top_decks": 9,
-          "gem_luck": 0.0012479674680749412
+          "decks": 5,
+          "total_decks": 34,
+          "pilots": 4,
+          "top_decks": 4,
+          "gem_luck": 0.0054811342386831274
+        },
+        {
+          "id": "card:lands:mana vault",
+          "label": "Mana Vault",
+          "kind": "Card",
+          "decks": 9,
+          "total_decks": 194,
+          "pilots": 6,
+          "top_decks": 5,
+          "gem_luck": 0.005568498960849211
         },
         {
           "id": "arch:blue_moon",
@@ -33558,239 +33554,47 @@
           "total_decks": 181,
           "pilots": 15,
           "top_decks": 11,
-          "gem_luck": 0.0017265393818547696
+          "gem_luck": 0.005744736810242568
         },
         {
-          "id": "card:initiative:xander's lounge",
-          "label": "Xander's Lounge",
-          "kind": "Card",
-          "decks": 9,
-          "total_decks": 123,
-          "pilots": 5,
-          "top_decks": 6,
-          "gem_luck": 0.002228733593202967
-        },
-        {
-          "id": "card:lands:mishra's bauble",
-          "label": "Mishra's Bauble",
-          "kind": "Card",
-          "decks": 18,
-          "total_decks": 194,
-          "pilots": 8,
-          "top_decks": 9,
-          "gem_luck": 0.002752203169733025
-        },
-        {
-          "id": "card:blue_moon:fiery impulse",
-          "label": "Fiery Impulse",
-          "kind": "Card",
-          "decks": 7,
-          "total_decks": 181,
-          "pilots": 5,
-          "top_decks": 5,
-          "gem_luck": 0.0037641846334590607
-        },
-        {
-          "id": "card:mardu:gemstone caverns",
-          "label": "Gemstone Caverns",
-          "kind": "Card",
-          "decks": 7,
-          "total_decks": 128,
-          "pilots": 5,
-          "top_decks": 5,
-          "gem_luck": 0.0038399469608482065
-        },
-        {
-          "id": "arch:jund",
-          "label": "Jund",
-          "kind": "Archetype",
-          "decks": 281
-        },
-        {
-          "id": "card:jund:mox emerald",
-          "label": "Mox Emerald",
-          "kind": "Card",
-          "decks": 7,
-          "total_decks": 281,
-          "pilots": 5,
-          "top_decks": 5,
-          "gem_luck": 0.004077360376578121
-        },
-        {
-          "id": "card:initiative:scion of draco",
-          "label": "Scion of Draco",
-          "kind": "Card",
-          "decks": 10,
-          "total_decks": 123,
-          "pilots": 6,
-          "top_decks": 6,
-          "gem_luck": 0.004787361787422836
-        },
-        {
-          "id": "card:mardu:taiga",
-          "label": "Taiga",
-          "kind": "Card",
-          "decks": 10,
-          "total_decks": 128,
-          "pilots": 7,
-          "top_decks": 6,
-          "gem_luck": 0.004847757770376505
-        },
-        {
-          "id": "arch:goblins",
-          "label": "Goblins",
-          "kind": "Archetype",
-          "decks": 97
-        },
-        {
-          "id": "card:goblins:_____ goblin",
-          "label": "_____ Goblin",
-          "kind": "Card",
-          "decks": 14,
-          "total_decks": 97,
-          "pilots": 9,
-          "top_decks": 7,
-          "gem_luck": 0.005528919180849643
-        },
-        {
-          "id": "arch:rogue",
-          "label": "Rogue",
-          "kind": "Archetype",
-          "decks": 84
-        },
-        {
-          "id": "card:rogue:scavenging ooze",
-          "label": "Scavenging Ooze",
-          "kind": "Card",
-          "decks": 11,
-          "total_decks": 84,
-          "pilots": 10,
-          "top_decks": 6,
-          "gem_luck": 0.007303107471806838
-        },
-        {
-          "id": "card:blue_moon:ancestral vision",
-          "label": "Ancestral Vision",
+          "id": "card:lands:pick your poison",
+          "label": "Pick Your Poison",
           "kind": "Card",
           "decks": 17,
-          "total_decks": 181,
-          "pilots": 10,
-          "top_decks": 8,
-          "gem_luck": 0.0073161955448299565
-        },
-        {
-          "id": "card:initiative:generous ent",
-          "label": "Generous Ent",
-          "kind": "Card",
-          "decks": 11,
-          "total_decks": 123,
-          "pilots": 7,
-          "top_decks": 6,
-          "gem_luck": 0.009044194535328457
-        },
-        {
-          "id": "card:initiative:slimefoot and squee",
-          "label": "Slimefoot and Squee",
-          "kind": "Card",
-          "decks": 11,
-          "total_decks": 123,
-          "pilots": 7,
-          "top_decks": 6,
-          "gem_luck": 0.009044194535328457
-        },
-        {
-          "id": "card:lands:nether void",
-          "label": "Nether Void",
-          "kind": "Card",
-          "decks": 14,
           "total_decks": 194,
-          "pilots": 5,
+          "pilots": 9,
+          "top_decks": 4,
+          "gem_luck": 0.006228416979652485
+        },
+        {
+          "id": "arch:initiative",
+          "label": "Initiative",
+          "kind": "Archetype",
+          "decks": 123
+        },
+        {
+          "id": "card:initiative:chaos defiler",
+          "label": "Chaos Defiler",
+          "kind": "Card",
+          "decks": 12,
+          "total_decks": 123,
+          "pilots": 6,
+          "top_decks": 8,
+          "gem_luck": 0.006866862561329512
+        },
+        {
+          "id": "card:lands:urza's bauble",
+          "label": "Urza's Bauble",
+          "kind": "Card",
+          "decks": 10,
+          "total_decks": 194,
+          "pilots": 4,
           "top_decks": 7,
-          "gem_luck": 0.00916489215268277
+          "gem_luck": 0.007199361771512702
         },
         {
-          "id": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "label": "Rob L \u00b7 1st",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "label": "Brandon R \u00b7 3rd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:34zx7VnvaUmffWOvAY-wew",
-          "label": "Beckett W \u00b7 2nd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:5aQoyeQa-kmYtHoYh1bhQg",
-          "label": "Jake M \u00b7 21st",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:6-anQrEC20uFS3x4G5esJg",
-          "label": "Beckett W \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:jyl4eWU1WkyboCduniLlXg",
-          "label": "Marco T \u00b7 1st",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:muN-WPEoJUSKdf1fuc4gXw",
-          "label": "Marco T \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:9auhOIi4qkOg3mMiH2mGhA",
-          "label": "Marco T \u00b7 3rd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:u44dPGBXVkmcFuCILY3K6A",
-          "label": "Brayden W \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:zwXk9nagpUuAOmb53D4TXg",
-          "label": "Messier \u00b7 18th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:QODKx8micE2gOB4OhMMEhw",
-          "label": "JD H \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:-TWWTYi4qk21-HE3mZ_cFQ",
-          "label": "JD H \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:ZjwmzBOGg0OFT7XG-XdjOg",
-          "label": "Liam W \u00b7 3rd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:iGiq5NcEf0-MFWZ--poXtw",
-          "label": "Liam W \u00b7 3rd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:3XUDtUsffEWt6bw9ULTOIQ",
-          "label": "Liam M \u00b7 15th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:SKIx2hPsjkiGoKWvBHEdeA",
-          "label": "Liam W \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:mJMFuQ0UT06l-y18Si36MQ",
-          "label": "Liam M \u00b7 5th",
+          "id": "deck:yc3qvYDnbEWNUnq-I-3N7A",
+          "label": "William L \u00b7 1st",
           "kind": "Deck"
         },
         {
@@ -33799,8 +33603,13 @@
           "kind": "Deck"
         },
         {
-          "id": "deck:_5KTxSckykeKhLbMFdehNQ",
-          "label": "William L \u00b7 15th",
+          "id": "deck:yM6LdKgbxUq6IKfSKDob7Q",
+          "label": "Harry F \u00b7 2nd",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:3XUDtUsffEWt6bw9ULTOIQ",
+          "label": "Liam M \u00b7 15th",
           "kind": "Deck"
         },
         {
@@ -33809,23 +33618,53 @@
           "kind": "Deck"
         },
         {
-          "id": "deck:yc3qvYDnbEWNUnq-I-3N7A",
-          "label": "William L \u00b7 1st",
+          "id": "deck:ZlDCNDVN8ECfNCnoaKAYNA",
+          "label": "Beckett W \u00b7 9th",
           "kind": "Deck"
         },
         {
-          "id": "deck:yM6LdKgbxUq6IKfSKDob7Q",
-          "label": "Harry F \u00b7 2nd",
+          "id": "deck:Fp1QvcWmM0u0SycckL9ulA",
+          "label": "Macy P \u00b7 5th",
           "kind": "Deck"
         },
         {
-          "id": "deck:G7rncn3oDE6kpSi_fFvWFw",
-          "label": "Brandon R \u00b7 1st",
+          "id": "deck:8ArXoGNl_k2JN-0bEXnetA",
+          "label": "Liam M \u00b7 32nd",
           "kind": "Deck"
         },
         {
-          "id": "deck:K-KFGLB2IEu6Oh14-segAg",
-          "label": "Chifley C \u00b7 1st",
+          "id": "deck:iCtRp05RTEWQ9Zdx9bxDeg",
+          "label": "Elliott R \u00b7 5th",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:8NAcYp2P0U-lQ_Qtb9JIDA",
+          "label": "Trent C \u00b7 1st",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:vCN0SiJGqEmj95SAppHgDA",
+          "label": "Graham C \u00b7 5th",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:siVmNsn5XUGvzDTk5W4zgA",
+          "label": "Trent C \u00b7 9th",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:vQbYsgZ1TUCQ0GxUVAPzfw",
+          "label": "Ignacio C \u00b7 19th",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:mUgXxfBlqUSkuqLE6tK95A",
+          "label": "CalM29 \u00b7 1st",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:mJMFuQ0UT06l-y18Si36MQ",
+          "label": "Liam M \u00b7 5th",
           "kind": "Deck"
         },
         {
@@ -33859,164 +33698,92 @@
           "kind": "Deck"
         },
         {
+          "id": "deck:lQ6r9n-_ykSDfg6t-Eng_Q",
+          "label": "Yang J \u00b7 5th",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:2o066K9NqE2W_qQLWL4a8w",
+          "label": "Elliot B \u00b7 33rd",
+          "kind": "Deck"
+        },
+        {
+          "id": "deck:PKWOzRbKzkWNREdkErVD5A",
+          "label": "Andrea C \u00b7 10th",
+          "kind": "Deck"
+        },
+        {
           "id": "deck:38jo4XXK7kON-t-y9pLTLw",
           "label": "Jinhao Y \u00b7 26th",
           "kind": "Deck"
         },
         {
-          "id": "deck:__AnQhNC-0OnjFklQIN5Ag",
-          "label": "Yang J \u00b7 1st",
+          "id": "deck:3aJPgBEc2U6i_xsPJBsKzg",
+          "label": "Yang J \u00b7 3rd",
           "kind": "Deck"
         },
         {
-          "id": "deck:y9cBiyN1HU6AntZI6rTC8Q",
-          "label": "Yang J \u00b7 5th",
+          "id": "deck:GcU_9-Q-b0GjYW7QxfaRpg",
+          "label": "Alex W \u00b7 5th",
           "kind": "Deck"
         },
         {
-          "id": "deck:07oXog8uKkSfJrgWSiqkQA",
-          "label": "Yang J \u00b7 5th",
+          "id": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
+          "label": "Rob L \u00b7 1st",
           "kind": "Deck"
         },
         {
-          "id": "deck:lX7Fj7ifZkatZXcapy165w",
-          "label": "Brayden W \u00b7 2nd",
+          "id": "deck:9dr6WgTuukOeq8M3A5FgWw",
+          "label": "Brandon R \u00b7 3rd",
           "kind": "Deck"
         },
         {
-          "id": "deck:3Z6yRiUPNkez_sg9YCA_-Q",
-          "label": "Justin C \u00b7 1st",
+          "id": "deck:34zx7VnvaUmffWOvAY-wew",
+          "label": "Beckett W \u00b7 2nd",
           "kind": "Deck"
         },
         {
-          "id": "deck:JmElt6iDgEih_3gJMDDwkw",
-          "label": "Jack D \u00b7 5th",
+          "id": "deck:5aQoyeQa-kmYtHoYh1bhQg",
+          "label": "Jake M \u00b7 21st",
           "kind": "Deck"
         },
         {
-          "id": "deck:Sd3_lqnSSUuKt3dhCjR4ug",
-          "label": "Beckett W \u00b7 13th",
+          "id": "deck:6-anQrEC20uFS3x4G5esJg",
+          "label": "Beckett W \u00b7 5th",
           "kind": "Deck"
         },
         {
-          "id": "deck:XiGqur8z1Uy7SGsDbcJoow",
-          "label": "Torin K \u00b7 19th",
+          "id": "deck:5m8UIiBmMEqgDz6RPYTq8Q",
+          "label": "Brandon R \u00b7 17th",
           "kind": "Deck"
         },
         {
-          "id": "deck:0dqhPEtjp0ST2OQPuqoRxQ",
-          "label": "Jack D \u00b7 12th",
+          "id": "deck:0jYm4-7sVESrF9oc7xX-lQ",
+          "label": "Brandon R \u00b7 5th",
           "kind": "Deck"
         },
         {
-          "id": "deck:Ao8QgXsXC0KZ7EBVM7b8mw",
-          "label": "Daniel Y \u00b7 1st",
+          "id": "deck:sLNoYTptOEGGoyhl2zKaqQ",
+          "label": "Brandon R \u00b7 36th",
           "kind": "Deck"
         },
         {
-          "id": "deck:atbNqgNOIkC45_peIIZiHw",
-          "label": "Brayden W \u00b7 5th",
+          "id": "deck:ZjwmzBOGg0OFT7XG-XdjOg",
+          "label": "Liam W \u00b7 3rd",
           "kind": "Deck"
         },
         {
-          "id": "deck:xrlHrxVChk2-NOWDSCTbDg",
-          "label": "Lachlan S \u00b7 3rd",
+          "id": "deck:iGiq5NcEf0-MFWZ--poXtw",
+          "label": "Liam W \u00b7 3rd",
           "kind": "Deck"
         },
         {
-          "id": "deck:7PbGqM7o6UyG38O0uWsL8A",
-          "label": "Tyrone P \u00b7 9th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:SGP7Lgy6KUGQ1j2zZYClEg",
-          "label": "Luke M 1 \u00b7 3rd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:1c1SAVPAHUCUTNIB8JBLhw",
-          "label": "Jared A \u00b7 2nd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:vPG7vwPTn0GCPmlSMxvcxw",
-          "label": "Voltie L \u00b7 9th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:AeNikAFpYUm4VxKYbQ3rsQ",
-          "label": "Reece E \u00b7 3rd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:A0OOcu9R0EKny7WWD8o5_Q",
-          "label": "Chris M \u00b7 31st",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:efsuCG_qPkuQHIbU5OuVvA",
-          "label": "Lachlan S \u00b7 11th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:ntIiQ2P-wUuH5_d2JSMIbQ",
-          "label": "Tim S \u00b7 5th",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:9zt7ZBWUGUW4umFh5qBYyw",
-          "label": "William L \u00b7 1st",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:LOUU5UAx90aVWjRsz1X59A",
-          "label": "William L \u00b7 1st",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:aio_8Dj94EmV-I1cffFrpA",
-          "label": "Samir D \u00b7 2nd",
-          "kind": "Deck"
-        },
-        {
-          "id": "deck:iLLi1i1mREWu0YiGeCzktA",
-          "label": "Mitchell P \u00b7 5th",
+          "id": "deck:SKIx2hPsjkiGoKWvBHEdeA",
+          "label": "Liam W \u00b7 5th",
           "kind": "Deck"
         }
       ],
       "edges": [
-        {
-          "source": "arch:initiative",
-          "target": "card:initiative:chaos defiler",
-          "label": "IN:12 of 123 decks",
-          "visible": false,
-          "decks": 12,
-          "total_decks": 123
-        },
-        {
-          "source": "arch:mardu",
-          "target": "card:mardu:force of despair",
-          "label": "IN:10 of 128 decks",
-          "visible": false,
-          "decks": 10,
-          "total_decks": 128
-        },
-        {
-          "source": "arch:lands",
-          "target": "card:lands:urza's bauble",
-          "label": "IN:10 of 194 decks",
-          "visible": false,
-          "decks": 10,
-          "total_decks": 194
-        },
-        {
-          "source": "arch:lands",
-          "target": "card:lands:rishadan port",
-          "label": "IN:19 of 194 decks",
-          "visible": false,
-          "decks": 19,
-          "total_decks": 194
-        },
         {
           "source": "arch:lands",
           "target": "card:lands:lair of the hydra",
@@ -34026,12 +33793,20 @@
           "total_decks": 194
         },
         {
-          "source": "arch:initiative",
-          "target": "card:initiative:oliphaunt",
-          "label": "IN:17 of 123 decks",
+          "source": "arch:tinker",
+          "target": "card:tinker:night scythe",
+          "label": "IN:5 of 34 decks",
           "visible": false,
-          "decks": 17,
-          "total_decks": 123
+          "decks": 5,
+          "total_decks": 34
+        },
+        {
+          "source": "arch:lands",
+          "target": "card:lands:mana vault",
+          "label": "IN:9 of 194 decks",
+          "visible": false,
+          "decks": 9,
+          "total_decks": 194
         },
         {
           "source": "arch:blue_moon",
@@ -34042,246 +33817,28 @@
           "total_decks": 181
         },
         {
-          "source": "arch:initiative",
-          "target": "card:initiative:xander's lounge",
-          "label": "IN:9 of 123 decks",
-          "visible": false,
-          "decks": 9,
-          "total_decks": 123
-        },
-        {
           "source": "arch:lands",
-          "target": "card:lands:mishra's bauble",
-          "label": "IN:18 of 194 decks",
-          "visible": false,
-          "decks": 18,
-          "total_decks": 194
-        },
-        {
-          "source": "arch:blue_moon",
-          "target": "card:blue_moon:fiery impulse",
-          "label": "IN:7 of 181 decks",
-          "visible": false,
-          "decks": 7,
-          "total_decks": 181
-        },
-        {
-          "source": "arch:mardu",
-          "target": "card:mardu:gemstone caverns",
-          "label": "IN:7 of 128 decks",
-          "visible": false,
-          "decks": 7,
-          "total_decks": 128
-        },
-        {
-          "source": "arch:jund",
-          "target": "card:jund:mox emerald",
-          "label": "IN:7 of 281 decks",
-          "visible": false,
-          "decks": 7,
-          "total_decks": 281
-        },
-        {
-          "source": "arch:initiative",
-          "target": "card:initiative:scion of draco",
-          "label": "IN:10 of 123 decks",
-          "visible": false,
-          "decks": 10,
-          "total_decks": 123
-        },
-        {
-          "source": "arch:mardu",
-          "target": "card:mardu:taiga",
-          "label": "IN:10 of 128 decks",
-          "visible": false,
-          "decks": 10,
-          "total_decks": 128
-        },
-        {
-          "source": "arch:goblins",
-          "target": "card:goblins:_____ goblin",
-          "label": "IN:14 of 97 decks",
-          "visible": false,
-          "decks": 14,
-          "total_decks": 97
-        },
-        {
-          "source": "arch:rogue",
-          "target": "card:rogue:scavenging ooze",
-          "label": "IN:11 of 84 decks",
-          "visible": false,
-          "decks": 11,
-          "total_decks": 84
-        },
-        {
-          "source": "arch:blue_moon",
-          "target": "card:blue_moon:ancestral vision",
-          "label": "IN:17 of 181 decks",
+          "target": "card:lands:pick your poison",
+          "label": "IN:17 of 194 decks",
           "visible": false,
           "decks": 17,
-          "total_decks": 181
+          "total_decks": 194
         },
         {
           "source": "arch:initiative",
-          "target": "card:initiative:generous ent",
-          "label": "IN:11 of 123 decks",
+          "target": "card:initiative:chaos defiler",
+          "label": "IN:12 of 123 decks",
           "visible": false,
-          "decks": 11,
-          "total_decks": 123
-        },
-        {
-          "source": "arch:initiative",
-          "target": "card:initiative:slimefoot and squee",
-          "label": "IN:11 of 123 decks",
-          "visible": false,
-          "decks": 11,
+          "decks": 12,
           "total_decks": 123
         },
         {
           "source": "arch:lands",
-          "target": "card:lands:nether void",
-          "label": "IN:14 of 194 decks",
+          "target": "card:lands:urza's bauble",
+          "label": "IN:10 of 194 decks",
           "visible": false,
-          "decks": 14,
+          "decks": 10,
           "total_decks": 194
-        },
-        {
-          "source": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "target": "card:initiative:chaos defiler",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "target": "card:initiative:chaos defiler",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:34zx7VnvaUmffWOvAY-wew",
-          "target": "card:initiative:chaos defiler",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:5aQoyeQa-kmYtHoYh1bhQg",
-          "target": "card:initiative:chaos defiler",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:6-anQrEC20uFS3x4G5esJg",
-          "target": "card:initiative:chaos defiler",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:jyl4eWU1WkyboCduniLlXg",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:muN-WPEoJUSKdf1fuc4gXw",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:9auhOIi4qkOg3mMiH2mGhA",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:u44dPGBXVkmcFuCILY3K6A",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:zwXk9nagpUuAOmb53D4TXg",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:QODKx8micE2gOB4OhMMEhw",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:-TWWTYi4qk21-HE3mZ_cFQ",
-          "target": "card:mardu:force of despair",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:ZjwmzBOGg0OFT7XG-XdjOg",
-          "target": "card:lands:urza's bauble",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:iGiq5NcEf0-MFWZ--poXtw",
-          "target": "card:lands:urza's bauble",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:3XUDtUsffEWt6bw9ULTOIQ",
-          "target": "card:lands:urza's bauble",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:SKIx2hPsjkiGoKWvBHEdeA",
-          "target": "card:lands:urza's bauble",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:mJMFuQ0UT06l-y18Si36MQ",
-          "target": "card:lands:urza's bauble",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:d6Lw9KkAq0qtlTTKudBlWw",
-          "target": "card:lands:rishadan port",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:iGiq5NcEf0-MFWZ--poXtw",
-          "target": "card:lands:rishadan port",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:3XUDtUsffEWt6bw9ULTOIQ",
-          "target": "card:lands:rishadan port",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:_5KTxSckykeKhLbMFdehNQ",
-          "target": "card:lands:rishadan port",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:kjKylLoWuU6hk4TQceVHtA",
-          "target": "card:lands:rishadan port",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:mJMFuQ0UT06l-y18Si36MQ",
-          "target": "card:lands:rishadan port",
-          "label": "CONTAINS:Main",
-          "visible": false
         },
         {
           "source": "deck:yc3qvYDnbEWNUnq-I-3N7A",
@@ -34314,38 +33871,80 @@
           "visible": false
         },
         {
-          "source": "deck:G7rncn3oDE6kpSi_fFvWFw",
-          "target": "card:initiative:oliphaunt",
+          "source": "deck:ZlDCNDVN8ECfNCnoaKAYNA",
+          "target": "card:lands:lair of the hydra",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:K-KFGLB2IEu6Oh14-segAg",
-          "target": "card:initiative:oliphaunt",
+          "source": "deck:Fp1QvcWmM0u0SycckL9ulA",
+          "target": "card:lands:lair of the hydra",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "target": "card:initiative:oliphaunt",
+          "source": "deck:8ArXoGNl_k2JN-0bEXnetA",
+          "target": "card:lands:lair of the hydra",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "target": "card:initiative:oliphaunt",
+          "source": "deck:iCtRp05RTEWQ9Zdx9bxDeg",
+          "target": "card:lands:lair of the hydra",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:34zx7VnvaUmffWOvAY-wew",
-          "target": "card:initiative:oliphaunt",
+          "source": "deck:8NAcYp2P0U-lQ_Qtb9JIDA",
+          "target": "card:tinker:night scythe",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:6-anQrEC20uFS3x4G5esJg",
-          "target": "card:initiative:oliphaunt",
+          "source": "deck:vCN0SiJGqEmj95SAppHgDA",
+          "target": "card:tinker:night scythe",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:siVmNsn5XUGvzDTk5W4zgA",
+          "target": "card:tinker:night scythe",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:vQbYsgZ1TUCQ0GxUVAPzfw",
+          "target": "card:tinker:night scythe",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:mUgXxfBlqUSkuqLE6tK95A",
+          "target": "card:lands:mana vault",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:3XUDtUsffEWt6bw9ULTOIQ",
+          "target": "card:lands:mana vault",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:mJMFuQ0UT06l-y18Si36MQ",
+          "target": "card:lands:mana vault",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:8ArXoGNl_k2JN-0bEXnetA",
+          "target": "card:lands:mana vault",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:iCtRp05RTEWQ9Zdx9bxDeg",
+          "target": "card:lands:mana vault",
           "label": "CONTAINS:Main",
           "visible": false
         },
@@ -34386,409 +33985,151 @@
           "visible": false
         },
         {
+          "source": "deck:lQ6r9n-_ykSDfg6t-Eng_Q",
+          "target": "card:blue_moon:aether gust",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
+          "source": "deck:2o066K9NqE2W_qQLWL4a8w",
+          "target": "card:blue_moon:aether gust",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
+          "source": "deck:PKWOzRbKzkWNREdkErVD5A",
+          "target": "card:blue_moon:aether gust",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
           "source": "deck:38jo4XXK7kON-t-y9pLTLw",
           "target": "card:blue_moon:aether gust",
           "label": "CONTAINS:Side",
           "visible": false
         },
         {
-          "source": "deck:G7rncn3oDE6kpSi_fFvWFw",
-          "target": "card:initiative:xander's lounge",
-          "label": "CONTAINS:Main",
+          "source": "deck:3aJPgBEc2U6i_xsPJBsKzg",
+          "target": "card:blue_moon:aether gust",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
+          "source": "deck:3XUDtUsffEWt6bw9ULTOIQ",
+          "target": "card:lands:pick your poison",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
+          "source": "deck:GcU_9-Q-b0GjYW7QxfaRpg",
+          "target": "card:lands:pick your poison",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
+          "source": "deck:8ArXoGNl_k2JN-0bEXnetA",
+          "target": "card:lands:pick your poison",
+          "label": "CONTAINS:Side",
+          "visible": false
+        },
+        {
+          "source": "deck:iCtRp05RTEWQ9Zdx9bxDeg",
+          "target": "card:lands:pick your poison",
+          "label": "CONTAINS:Side",
           "visible": false
         },
         {
           "source": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "target": "card:initiative:xander's lounge",
+          "target": "card:initiative:chaos defiler",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "target": "card:initiative:xander's lounge",
+          "target": "card:initiative:chaos defiler",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:34zx7VnvaUmffWOvAY-wew",
-          "target": "card:initiative:xander's lounge",
+          "target": "card:initiative:chaos defiler",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:5aQoyeQa-kmYtHoYh1bhQg",
+          "target": "card:initiative:chaos defiler",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:6-anQrEC20uFS3x4G5esJg",
-          "target": "card:initiative:xander's lounge",
+          "target": "card:initiative:chaos defiler",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:5m8UIiBmMEqgDz6RPYTq8Q",
+          "target": "card:initiative:chaos defiler",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:0jYm4-7sVESrF9oc7xX-lQ",
+          "target": "card:initiative:chaos defiler",
+          "label": "CONTAINS:Main",
+          "visible": false
+        },
+        {
+          "source": "deck:sLNoYTptOEGGoyhl2zKaqQ",
+          "target": "card:initiative:chaos defiler",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:ZjwmzBOGg0OFT7XG-XdjOg",
-          "target": "card:lands:mishra's bauble",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:iGiq5NcEf0-MFWZ--poXtw",
-          "target": "card:lands:mishra's bauble",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:3XUDtUsffEWt6bw9ULTOIQ",
-          "target": "card:lands:mishra's bauble",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:SKIx2hPsjkiGoKWvBHEdeA",
-          "target": "card:lands:mishra's bauble",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
           "source": "deck:mJMFuQ0UT06l-y18Si36MQ",
-          "target": "card:lands:mishra's bauble",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:__AnQhNC-0OnjFklQIN5Ag",
-          "target": "card:blue_moon:fiery impulse",
+          "source": "deck:Fp1QvcWmM0u0SycckL9ulA",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
           "visible": false
         },
         {
-          "source": "deck:ugZGJG9cXkiv9HpNSAT1CA",
-          "target": "card:blue_moon:fiery impulse",
+          "source": "deck:8ArXoGNl_k2JN-0bEXnetA",
+          "target": "card:lands:urza's bauble",
           "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:y9cBiyN1HU6AntZI6rTC8Q",
-          "target": "card:blue_moon:fiery impulse",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:07oXog8uKkSfJrgWSiqkQA",
-          "target": "card:blue_moon:fiery impulse",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:38jo4XXK7kON-t-y9pLTLw",
-          "target": "card:blue_moon:fiery impulse",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:jyl4eWU1WkyboCduniLlXg",
-          "target": "card:mardu:gemstone caverns",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:lX7Fj7ifZkatZXcapy165w",
-          "target": "card:mardu:gemstone caverns",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9auhOIi4qkOg3mMiH2mGhA",
-          "target": "card:mardu:gemstone caverns",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:QODKx8micE2gOB4OhMMEhw",
-          "target": "card:mardu:gemstone caverns",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:-TWWTYi4qk21-HE3mZ_cFQ",
-          "target": "card:mardu:gemstone caverns",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:3Z6yRiUPNkez_sg9YCA_-Q",
-          "target": "card:jund:mox emerald",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:JmElt6iDgEih_3gJMDDwkw",
-          "target": "card:jund:mox emerald",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:Sd3_lqnSSUuKt3dhCjR4ug",
-          "target": "card:jund:mox emerald",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:XiGqur8z1Uy7SGsDbcJoow",
-          "target": "card:jund:mox emerald",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:0dqhPEtjp0ST2OQPuqoRxQ",
-          "target": "card:jund:mox emerald",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:G7rncn3oDE6kpSi_fFvWFw",
-          "target": "card:initiative:scion of draco",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "target": "card:initiative:scion of draco",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "target": "card:initiative:scion of draco",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:34zx7VnvaUmffWOvAY-wew",
-          "target": "card:initiative:scion of draco",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:6-anQrEC20uFS3x4G5esJg",
-          "target": "card:initiative:scion of draco",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:jyl4eWU1WkyboCduniLlXg",
-          "target": "card:mardu:taiga",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:muN-WPEoJUSKdf1fuc4gXw",
-          "target": "card:mardu:taiga",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9auhOIi4qkOg3mMiH2mGhA",
-          "target": "card:mardu:taiga",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:u44dPGBXVkmcFuCILY3K6A",
-          "target": "card:mardu:taiga",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:QODKx8micE2gOB4OhMMEhw",
-          "target": "card:mardu:taiga",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:-TWWTYi4qk21-HE3mZ_cFQ",
-          "target": "card:mardu:taiga",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:Ao8QgXsXC0KZ7EBVM7b8mw",
-          "target": "card:goblins:_____ goblin",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:atbNqgNOIkC45_peIIZiHw",
-          "target": "card:goblins:_____ goblin",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:xrlHrxVChk2-NOWDSCTbDg",
-          "target": "card:goblins:_____ goblin",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:7PbGqM7o6UyG38O0uWsL8A",
-          "target": "card:goblins:_____ goblin",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:SGP7Lgy6KUGQ1j2zZYClEg",
-          "target": "card:goblins:_____ goblin",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:1c1SAVPAHUCUTNIB8JBLhw",
-          "target": "card:rogue:scavenging ooze",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:vPG7vwPTn0GCPmlSMxvcxw",
-          "target": "card:rogue:scavenging ooze",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:AeNikAFpYUm4VxKYbQ3rsQ",
-          "target": "card:rogue:scavenging ooze",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:A0OOcu9R0EKny7WWD8o5_Q",
-          "target": "card:rogue:scavenging ooze",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:efsuCG_qPkuQHIbU5OuVvA",
-          "target": "card:rogue:scavenging ooze",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:CgdfnTMtpkmtpgLbsnTJzA",
-          "target": "card:blue_moon:ancestral vision",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:Y6zB0sQXCEi6cP-275bUbw",
-          "target": "card:blue_moon:ancestral vision",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:_TWh2rMYjEqdoUxL6j8N_g",
-          "target": "card:blue_moon:ancestral vision",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:TpUXiGBbFEOHet0DceU71g",
-          "target": "card:blue_moon:ancestral vision",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:ntIiQ2P-wUuH5_d2JSMIbQ",
-          "target": "card:blue_moon:ancestral vision",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:G7rncn3oDE6kpSi_fFvWFw",
-          "target": "card:initiative:generous ent",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "target": "card:initiative:generous ent",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "target": "card:initiative:generous ent",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:34zx7VnvaUmffWOvAY-wew",
-          "target": "card:initiative:generous ent",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:6-anQrEC20uFS3x4G5esJg",
-          "target": "card:initiative:generous ent",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:G7rncn3oDE6kpSi_fFvWFw",
-          "target": "card:initiative:slimefoot and squee",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:qv8e1PdXCU-xbvWDYSiwPQ",
-          "target": "card:initiative:slimefoot and squee",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9dr6WgTuukOeq8M3A5FgWw",
-          "target": "card:initiative:slimefoot and squee",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:34zx7VnvaUmffWOvAY-wew",
-          "target": "card:initiative:slimefoot and squee",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:6-anQrEC20uFS3x4G5esJg",
-          "target": "card:initiative:slimefoot and squee",
-          "label": "CONTAINS:Main",
-          "visible": false
-        },
-        {
-          "source": "deck:9zt7ZBWUGUW4umFh5qBYyw",
-          "target": "card:lands:nether void",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:LOUU5UAx90aVWjRsz1X59A",
-          "target": "card:lands:nether void",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:yc3qvYDnbEWNUnq-I-3N7A",
-          "target": "card:lands:nether void",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:aio_8Dj94EmV-I1cffFrpA",
-          "target": "card:lands:nether void",
-          "label": "CONTAINS:Side",
-          "visible": false
-        },
-        {
-          "source": "deck:iLLi1i1mREWu0YiGeCzktA",
-          "target": "card:lands:nether void",
-          "label": "CONTAINS:Side",
           "visible": false
         }
       ],
-      "luck": 7.041595655993263
+      "luck": 3.2916751578242334
     }
   }
 }
