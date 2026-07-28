@@ -57,8 +57,8 @@ from graph7ph.trends import MAJOR_FIELD_SIZE
 #
 # `SHARES` is the exception, and deliberately: 0.15 is the top of the axis *and* the
 # shipped value, because it is a definition rather than a measurement. Widening it wins
-# on this script's own score every time (0.20 scores 23.0 genuine against 0.15's 13.0,
-# and 0.30 scores 33.1, with no sign of a peak), and the premise refuses it: a card in
+# on this script's own score every time (0.20 scores 5.9 genuine against 0.15's 3.7,
+# and 0.30 scores 8.6, with no sign of a peak), and the premise refuses it: a card in
 # 30% of an archetype's decks is a staple, not hidden tech, so a ceiling chosen by the
 # score would be answering a different question (ADR 0020). Read a high-share cell as
 # out of scope rather than as a finding this grid missed.

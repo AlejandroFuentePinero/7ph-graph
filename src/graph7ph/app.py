@@ -294,7 +294,7 @@ def _gem_caption(subgraph: Subgraph) -> str:
 
     The last of those is the archetypes the rule could ask at all. Below
     :data:`MIN_GEM_SLICE` ranked decks the band is empty by construction, so those
-    archetypes are skipped in the query rather than answered for, and today that is 92
+    archetypes are skipped in the query rather than answered for, and today that is 84
     of the format's 124. Without the clause a reader whose archetype is absent reads
     "no gems here" off a page that means "not enough decks to tell", which is the
     distinction ADR 0012 raised `SliceTooSmall` for and ADR 0020 dropped along with the
@@ -787,7 +787,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Cards",
         "Why can I not filter the hidden gems?",
         "Because there is nothing left to narrow. The rule is strict enough that the "
-        "whole format produces a dozen or so gems across a handful of archetypes, "
+        "whole format produces well under a dozen gems across a handful of archetypes, "
         "which fits in one picture, so the tab draws all of them at once instead of "
         "asking "
         "you to guess which archetype to look in. It recalculates as decks are added. "

@@ -726,7 +726,7 @@ def _gem_tails(strata: tuple[Stratum, ...]) -> tuple[float, ...]:
     how often chance alone clears the bar.
 
     **Inside the event, because the event decides most of whether a deck is in the
-    cut.** 27 of the 107 events publish only a top cut rather than a field: SSWam
+    cut.** 26 of the 107 events publish only a top cut rather than a field: SSWam
     records 7 decks against a field of 88, so all 7 score between 0.00 and 0.05 while
     the ~81 entrants who missed the bracket carry no decklist here at all. That is not
     a field-size error and the correction ADR 0015 makes does not reach it, the field
@@ -734,7 +734,7 @@ def _gem_tails(strata: tuple[Stratum, ...]) -> tuple[float, ...]:
     tilt, since recognising a bracket as the top of a 24-player field is recognising
     those decks as good: Pats Birthday Brawl's mean norm moves 0.375 to 0.114 under
     Rule B. Measured over the offered archetypes, a deck from such an event lands in
-    its archetype's cut 64% of the time against 18% for a deck from a full-coverage
+    its archetype's cut 70% of the time against 18% for a deck from a full-coverage
     event, so two cards of the same rarity are not exchangeable and an unstratified
     tail is not the probability it prints.
 
@@ -742,8 +742,9 @@ def _gem_tails(strata: tuple[Stratum, ...]) -> tuple[float, ...]:
     whatever decks the cut is drawn from". Simulating the unstratified screen under
     this null puts its true expected-by-luck at 9.3 where it reported 7.0, and 13 of
     the 20 cards it admitted do not clear the bar once the question is asked inside
-    the event. What it costs is list length rather than evidence: 11 cards at 3.1
-    expected by luck, against 20 at a true 9.2.
+    the event. What it costs is list length rather than evidence: 12 cards at 3.5
+    expected by luck, against 20 at a true 9.3. Charging those 12 for their pilots
+    (:func:`_pilot_deflated`) then takes the shipped list to 7.
 
     A card whose decks all sit at one event, or in an archetype fielding one deck per
     event, folds to forced strata and comes back 1.0. That is an answer rather than a
@@ -797,9 +798,10 @@ def _luck_of_clearing(
     """How often chance alone admits a card of this shape at ``threshold``.
 
     Not ``threshold`` itself, and the difference is why the count is summed this way.
-    A card in six decks has only seven possible outcomes, so the smallest tail it can
-    reach may sit well under the bar (six of six in a 20% cut of 200 lands at 0.00005,
-    against a bar of :data:`MAX_GEM_LUCK`) while a card in twenty has finer steps. Each card's own chance of clearing
+    A card in five decks has only six possible outcomes, so the smallest tail it can
+    reach may sit well under the bar (five of five in a 20% cut of 200 lands at 0.00026,
+    against a bar of :data:`MAX_GEM_LUCK`) while a card in twenty has finer steps. Each
+    card's own chance of clearing
     is its first tail at or under the threshold, since the tails fall as the hit count
     rises; ``0.0`` for a card so common that even all of its decks in the cut would
     not be surprising, and for one whose strata leave it nothing to vary.
@@ -1037,7 +1039,7 @@ def hidden_gems_subgraph(conn: ladybug.Connection) -> Subgraph:
 
     That last question is asked one level finer still, **inside each event** the card
     turned up at (:func:`_gem_tails`), because a quarter of the corpus's events publish
-    only a top cut and a deck from one lands in its archetype's cut 64% of the time
+    only a top cut and a deck from one lands in its archetype's cut 70% of the time
     against 18% for a deck from a full field. Crowding the cut by having played where
     only winners were recorded is not the card's doing, and an unstratified tail books
     it as though it were.

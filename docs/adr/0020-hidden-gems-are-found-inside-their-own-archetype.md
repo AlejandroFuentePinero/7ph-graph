@@ -33,9 +33,12 @@ against 4566 primaries, and getting it wrong dominated everything else in this t
 | **primary tags only**, same constants | **10** |
 | primary tags, constants re-swept | 20 |
 
+That last row is the list before the two corrections below take it to 7; it is here to
+size the primary-tag effect, not to describe what ships.
+
 Two mechanisms, and the first is not subtle. **Nine of the fifteen archetypes that
 produced gems fell below `MIN_GEM_SLICE` once only primary tags counted**: Jeskai went
-from 217 ranked decks to under 40, Bant from 160, Temur from 76. Those were not
+from 217 ranked decks to 26, Bant from 160 to 18, Temur from 76 to 20. Those were not
 archetypes being measured inside, they were secondary labels pooling decks whose engine
 is something else, and Bant alone contributed three gems including one resting on a
 single pilot.
@@ -122,7 +125,7 @@ tags, scored under the shipped null including the pilot correction below:
 | 3.3 | 6 | 2.7 | 39 | 0.33 | 0.10 | 6 | 0.010 | 2 |
 | 3.0 | 6 | 3.0 | 43 | 0.20 | 0.15 | 6 | 0.010 | 3 |
 
-A 20% cut takes every one of the top five and the 15% ceiling takes four, which is what
+A 20% cut takes four of the top five and the 15% ceiling takes three, which is what
 alternative 3 predicts: a tight rarity bound is what suppresses the signal, and a cut of
 the best third dilutes what "best" means.
 
@@ -138,8 +141,8 @@ falls from 40 to 34, widening the archetypes the hunt can ask about from 32 to 4
 **The ceiling did not win this grid; it is the top of it.** `SHARES` stops at 0.15 and
 0.15 ships, so the score never had the chance to reject it, and widening the axis shows
 the score climbing with no peak in sight: at a 20% cut and the shipped floor and bar,
-0.20 scores 23.0 genuine finds, 0.25 scores 27.1 and 0.30 scores 33.1, against 0.15's
-13.0. That is refused rather than unmeasured, and the reason is the premise, not the
+0.20 scores 5.9 genuine finds, 0.25 scores 8.1 and 0.30 scores 8.6, against 0.15's
+3.7. That is refused rather than unmeasured, and the reason is the premise, not the
 corpus: a card in 30% of an archetype's decks is its standard build, so a ceiling picked
 by the score would be answering a different question from the one this rule asks. So
 three of the four constants are measurements and the ceiling is a definition, and it is
@@ -147,18 +150,18 @@ listed in the table above the way a swept result would be, which it is not.
 
 The one thing the corpus does say about the ceiling is that widening it is not where the
 signal is anyway. Binned by how much of its archetype a card holds, at the shipped cell:
-cards in 5-10% of the decks run at **4.51x** their expected count (14 found against 3.1),
-while 10-15% runs at **1.57x** (4 against 2.6) and 5% and under at 1.44x (2 against 1.4).
+cards in 5-10% of the decks run at **2.93x** their expected count (4 found against 1.4),
+while 10-15% runs at **2.02x** (2 against 1.0) and 5% and under at 1.07x (1 against 0.9).
 The productive band is the middle of the rule, not its top edge, which is the opposite of
 what alternative 3's cross-ceiling monotonicity suggested and is worth re-reading before
 anyone widens the axis on that argument. It also means the tighter cell (a 10% ceiling:
-16 found, 4.5 luck, 11.5 genuine) costs 1.5 genuine finds for a list where every card is
+5 found, 2.3 luck, 2.7 genuine) costs 1.0 genuine finds for a list where every card is
 in under one deck in ten, which is the trade to make if this list is ever accused of not
 being about rare cards.
 
 The sweep is checked in as `scripts/gem_sweep.py`, beside the other measurement that
 backs a decision (`scripts/points_agreement.py`, issue #143), and reproduces this table
-and the shipped list of 20. The winning cell is a property of the corpus rather than of
+and the shipped list of 7. The winning cell is a property of the corpus rather than of
 the rule, so re-run it whenever the artifact grows. It is checked in rather than
 attached to the issue because the version attached to #184 rotted invisibly: it calls
 `query._ranked_deck_slice`, which this ticket deleted, and it matches `HAS_ARCHETYPE`
@@ -169,8 +172,9 @@ loudly instead of leaving a plausible harness on a closed issue.
 ## The luck count is part of the answer, not a caveat on it
 
 Screening every rare card of every archetype is thousands of chances for
-coincidence (36,844 archetype-card pairs before the two rarity bounds, 2,267 after
-them, and it is the 2,267 that were actually tested), so a bar of
+coincidence (36,844 archetype-card pairs in the format, 17,639 of them inside an
+archetype big enough to ask and 2,267 surviving the two rarity bounds, and it is the
+2,267 that were actually tested), so a bar of
 1-in-100 still lets cards through: at the chosen constants **3.3 of the 7 are expected
 by chance alone**, and nothing distinguishes which. The bar is a dial for list length,
 not a filter for truth, which is why the sweep optimised genuine finds rather than the
@@ -196,8 +200,8 @@ So the count rides on the answer (`Subgraph.expected_by_luck`) rather than being
 the reader, and the oracle grades it. It is summed over every card the rule *screened*,
 not over the ones it kept: the rejects are most of the evidence about how often this bar
 is cleared by accident. And it is each card's own chance of clearing, not the bar itself,
-because a card in six decks has seven possible outcomes and its smallest reachable tail
-(0.0008) sits well under the bar, while a card in twenty has finer steps.
+because a card in five decks has six possible outcomes and its smallest reachable tail
+(0.0002) sits well under the bar, while a card in twenty has finer steps.
 
 That number is load-bearing rather than decorative, because there is no validation route
 behind it (below). Without it this design reproduces #176's defect at a smaller scale.
@@ -242,15 +246,15 @@ matter here:
 - **It is proportional, not binary.** A card whose decks are all different players has a
   mean of 1, a design effect of 1, and is returned untouched. Only repetition is charged,
   and it is charged at the rate the corpus actually exhibits rather than at the extreme.
-  1,813 of the 2,267 screened pairs have at least one repeat pilot, at a mean of 1.53
+  1,813 of the 2,267 screened pairs have at least one repeat pilot, at a mean of 1.67
   decks per pilot, so this is the common case and not an edge.
 - **It is deterministic.** No RNG, no seed, no resampling. The FAQ's promise holds and
   the oracle still grades bit for bit, which is what ruled the three shuffles out.
 - **It is honest about its own precision.** Deflating on the z scale is a normal
   approximation to a discrete tail, so it is right about direction and size and not about
   the fourth digit. It exists to stop a card resting on one player's habit, not to price
-  one exactly. Rishadan Port and Fiery Impulse land at 0.0099 and are coin flips against
-  the bar rather than clear rejections.
+  one exactly. Rishadan Port lands at 0.0102 and Fiery Impulse at 0.0100, coin flips
+  against the bar rather than clear rejections.
 
 The effect on the shipped list is large and points the way the evidence pointed all
 along: **twelve gems become seven, and genuine finds fall from 8.5 to 3.7**. Dropped are
@@ -340,15 +344,16 @@ The first clause is true of field size and false of the thing field size was sta
 in for.
 
 Field size is the denominator. The quantity that breaks the null is **how much of an
-event's record exists at all**. 27 of the 107 events publish only a top cut: SSWam holds
-7 decks against a field of 88, so all 7 score between 0.00 and 0.05 and the ~81 entrants
-who missed the bracket leave no trace. Every deck the graph holds from such an event is
-a good finish by construction. Measured over the offered archetypes:
+event's record exists at all**. 26 of the 107 events record under half their own field
+and so publish only a top cut: SSWam holds 7 decks against a field of 88, so all 7 score
+between 0.00 and 0.05 and the ~81 entrants who missed the bracket leave no trace. Every
+deck the graph holds from such an event is a good finish by construction. Measured over
+the offered archetypes:
 
 | a deck from | lands in its archetype's top cut |
 |---|---|
-| a full-coverage event | 523 / 2944 = **17.8%** |
-| a top-cut-only event | 101 / 157 = **64.3%** |
+| a full-coverage event | 597 / 3399 = **17.6%** |
+| a top-cut-only event | 114 / 162 = **70.4%** |
 
 That is not a field-size error and ADR 0015's correction does not reach it, the field
 being right and the record short. Correcting a field in fact **strengthens** the tilt,
@@ -370,7 +375,7 @@ odds only where some decks of its archetype did well, some did not, and the ones
 it are the ones that did.
 
 What this costs is list length rather than evidence: **12 cards at 3.5 expected by luck,
-against 20 at a true 9.2.** The honest reading goes from "20 cards, 9 of them accidents"
+against 20 at a true 9.3.** The honest reading goes from "20 cards, 9 of them accidents"
 to "12 cards, 3 or 4 of them accidents". It reduces exactly to the old arithmetic wherever an
 archetype sits at a single event, which is what the fixtures in `test_query.py` pin.
 
@@ -384,8 +389,11 @@ Two costs are worth naming. The stratified null discards all between-event varia
 including any a card genuinely caused; that is accepted, because the cut is drawn inside
 the archetype and an event's level is a property of who turned up rather than of any
 card. And its power varies with how many decks an archetype fields per event: on the
-current corpus 76% of a card's decks sit in strata that can vary, with null standard
-deviations of 0.46 to 1.45 hits, but a sparse archetype (mardu fields a median of one
+current corpus only 46% of a screened card's decks sit in strata that can vary at all,
+and the null's spread across those cards runs 0.40 to 1.15 hits between the tenth and
+ninetieth percentiles. Dropping the floor to five is what made that share as low as it
+is, since a five-deck card is the likeliest to have every one of its strata forced. A
+sparse archetype (mardu fields a median of one
 deck per event) has less to say than a dense one and will lose cards to power rather
 than to bias.
 
@@ -408,16 +416,16 @@ This is the maintainer's decision, recorded so it is not silently reversed.
 ADR 0012's original reason: the floor asks "is there enough evidence", a property of
 sample size that does not scale with the meta, and the ceiling asks "is this still
 rare", which is meaningless except against the slice. `MIN_GEM_SLICE` is still the
-crossover where the ceiling falls under the floor, recomputed at 40 from the new
+crossover where the ceiling falls under the floor, recomputed at 34 from the new
 constants, and an archetype under it still has no answer rather than an empty one.
 
 **Loses.** The performance bar and its absolute reasoning are gone. The refusal is now
 *silent in the query*: with no dropdown there is no user to refuse, so a small archetype
 is skipped inside the query and `SliceTooSmall` is deleted rather than caught. It is not
 silent on the page. Dropping the dropdown removed the user to refuse, not the reason for
-refusing, and 92 of the format's 124 archetypes (28% of its ranked decks) are never
+refusing, and 84 of the format's 124 archetypes (22% of its ranked decks) are never
 screened, so the caption names the population: "found in the best 20% of each archetype's
-decks, over the archetypes with 40 or more ranked decks". Without that clause a reader
+decks, over the archetypes with 34 or more ranked decks". Without that clause a reader
 whose archetype is absent reads "no gems here" off a page that means "not enough decks to
 tell", which is the exact distinction ADR 0012 raised `SliceTooSmall` for. And ADR 0012's
 refusal of the unfiltered view is **reversed**: it refused because the whole-meta view
@@ -445,11 +453,13 @@ spring length and gravity can inflate the blob but cannot separate nodes the gra
 no reason to separate.
 
 The cap was not what fixed it either, which is why it is gone. Measured against the
-current list, a cap of five drew 36 decks of which **30 (83%) had an identical neighbour
-set** to some other deck; drawing every top-cut deck draws 44 of which **35 (80%)** do.
+current list, a cap of five drew 27 decks of which **all 27 had an identical neighbour
+set** to some other deck; drawing every top-cut deck draws 38 of which **33 (87%)** do.
 The tie rate is a property of how gems overlap inside an archetype, not of how many
-decks are drawn. So the cap bought 8 fewer nodes, no legibility, and a picture that
-disagreed with its own table.
+decks are drawn, and capping made it worse rather than better, since the decks a cap
+keeps are the archetype's very best and those are the ones that run everything. So the
+cap bought 11 fewer nodes, no legibility, and a picture that disagreed with its own
+table.
 
 What it cost was worth more than that. `top_decks`, and so the table's **In top 20%**
 column, is the true count, and a reader who counted deck nodes against the column found
@@ -467,7 +477,7 @@ findings beats a longer list whose deck layer is a sample the reader cannot see 
 of. It does not bind today, at 49 nodes against 250.
 
 Deck nodes are labelled `pilot · finish` ("Rob L · 1st") rather than by `d.name`, which
-everywhere else in the app is the deck's whole Moxfield title. Forty-odd decks around
+everywhere else in the app is the deck's whole Moxfield title. Thirty-eight decks around
 seven cards at forty characters each draw an unreadable mat of overlapping text; the
 picture's job is to show *which* good decks run a card, and who played it and how they
 finished is that in four words. The title stays one click away on Moxfield, which is
@@ -483,7 +493,7 @@ every ingest and a fixed bar would eventually breach the canvas. The drawn list 
 therefore the **strongest prefix** that fits `MAX_GEM_NODES`, and the luck count is then
 read at the odds of the weakest drawn gem rather than at the bar, so it describes the
 list on screen. Taken as a prefix rather than packed with whatever else would fit,
-because the picture has to stay a set the reader can name. Today it does not bind: 82
+because the picture has to stay a set the reader can name. Today it does not bind: 49
 nodes against 250.
 
 ## Consequences
