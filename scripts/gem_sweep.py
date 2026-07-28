@@ -49,8 +49,16 @@ from graph7ph.query import (
 )
 from graph7ph.trends import MAJOR_FIELD_SIZE
 
-# The grid. Each axis brackets the shipped value on both sides, so a cell winning at
-# an edge shows up as an edge and can be widened rather than silently taken.
+# The grid. Three of the four axes bracket the shipped value on both sides, so a cell
+# winning at an edge shows up as an edge and can be widened rather than silently taken.
+#
+# `SHARES` is the exception, and deliberately: 0.15 is the top of the axis *and* the
+# shipped value, because it is a definition rather than a measurement. Widening it wins
+# on this script's own score every time (0.20 scores 23.0 genuine against 0.15's 13.0,
+# and 0.30 scores 33.1, with no sign of a peak), and the premise refuses it: a card in
+# 30% of an archetype's decks is a staple, not hidden tech, so a ceiling chosen by the
+# score would be answering a different question (ADR 0020). Read a high-share cell as
+# out of scope rather than as a finding this grid missed.
 TOP_CUTS = (0.10, 0.20, 0.25, 0.33)
 SHARES = (0.05, 0.10, 0.15)
 FLOORS = (5, 6, 8)

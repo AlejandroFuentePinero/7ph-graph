@@ -104,9 +104,9 @@ played by significantly *worse* pilots than chance, against 36 expected.** Rarit
 corpus marks brewing and inexperience more than hidden tech, which is the finding this
 whole rule is built around rather than against.
 
-## Every constant is swept, not chosen
+## Three constants are swept; the ceiling is a definition
 
-135 combinations of top cut (10/20/25/33%), rarity ceiling (5/10/15%), deck floor
+144 combinations of top cut (10/20/25/33%), rarity ceiling (5/10/15%), deck floor
 (5/6/8) and probability bar (0.05/0.01/0.005/0.001) were scored under a rule fixed
 before the results were looked at: **maximise genuine finds (found minus expected by
 luck), subject to the graph fitting under `RENDER_THRESHOLD` and at most half the list
@@ -127,6 +127,27 @@ cut of the best third dilutes what "best" means. The runner-up raises the floor 
 and gives up 1.5 genuine finds to remove 1.5 expected false ones, which is a wash by
 this rule and a real trade if the list ever needs to be shorter.
 
+**The ceiling did not win this grid; it is the top of it.** `SHARES` stops at 0.15 and
+0.15 ships, so the score never had the chance to reject it, and widening the axis shows
+the score climbing with no peak in sight: at a 20% cut and the shipped floor and bar,
+0.20 scores 23.0 genuine finds, 0.25 scores 27.1 and 0.30 scores 33.1, against 0.15's
+13.0. That is refused rather than unmeasured, and the reason is the premise, not the
+corpus: a card in 30% of an archetype's decks is its standard build, so a ceiling picked
+by the score would be answering a different question from the one this rule asks. So
+three of the four constants are measurements and the ceiling is a definition, and it is
+listed in the table above the way a swept result would be, which it is not.
+
+The one thing the corpus does say about the ceiling is that widening it is not where the
+signal is anyway. Binned by how much of its archetype a card holds, at the shipped cell:
+cards in 5-10% of the decks run at **4.51x** their expected count (14 found against 3.1),
+while 10-15% runs at **1.57x** (4 against 2.6) and 5% and under at 1.44x (2 against 1.4).
+The productive band is the middle of the rule, not its top edge, which is the opposite of
+what alternative 3's cross-ceiling monotonicity suggested and is worth re-reading before
+anyone widens the axis on that argument. It also means the tighter cell (a 10% ceiling:
+16 found, 4.5 luck, 11.5 genuine) costs 1.5 genuine finds for a list where every card is
+in under one deck in ten, which is the trade to make if this list is ever accused of not
+being about rare cards.
+
 The sweep is checked in as `scripts/gem_sweep.py`, beside the other measurement that
 backs a decision (`scripts/points_agreement.py`, issue #143), and reproduces this table
 and the shipped list of 20. The winning cell is a property of the corpus rather than of
@@ -139,8 +160,9 @@ loudly instead of leaving a plausible harness on a closed issue.
 
 ## The luck count is part of the answer, not a caveat on it
 
-Screening every rare card of every archetype is tens of thousands of chances for
-coincidence (36,844 archetype-card pairs before the two rarity bounds), so a bar of
+Screening every rare card of every archetype is over a thousand chances for
+coincidence (36,844 archetype-card pairs before the two rarity bounds, 1,697 after
+them, and it is the 1,697 that were actually tested), so a bar of
 1-in-100 still lets cards through: at the chosen constants **7.0 of the 20 are expected
 by chance alone**, and nothing distinguishes which. The bar is a dial for list length,
 not a filter for truth, which is why the sweep optimised genuine finds rather than the
@@ -168,6 +190,33 @@ because a card in six decks has seven possible outcomes and its smallest reachab
 
 That number is load-bearing rather than decorative, because there is no validation route
 behind it (below). Without it this design reproduces #176's defect at a smaller scale.
+
+**7.0 is a floor, not an estimate, and the page says so rather than the code.** The null
+shuffles *decks*, so it treats a card's twelve decks as twelve separate results. Often
+they are not: a pilot's decks rise and fall together, the pilot ICC of `placementNorm`
+inside an archetype is 0.213, and pilot volume tracks finish hard (a pilot with 8 or more
+ranked decks averages 0.438, a one-deck pilot 0.624). Rerun with *pilots* shuffled instead
+of decks, keeping each pilot's run of results together, three ways: resampling each card's
+decks pilot-block by pilot-block gives 12.3, permuting pilot blocks of equal size gives
+14.3 (sd 4.1), and permuting them within size bins gives 15.3 (sd 4.9). Against those, a
+list of 20 sits at P = 0.11 to 0.16 rather than under 0.001, and genuine finds fall from
+13.0 to about 5 to 8. Two of the Lands gems (both baubles) land at 0.38 and 0.39.
+
+The shuffle that shuffles decks is verified correct at what it measures: permuting
+finishes within each archetype, which preserves the dependence between cards that the
+analytic sum ignores, reproduces it exactly (7.1, sd 3.2, against the summed 7.0).
+
+The clustered figure is **not** shipped, for two reasons and neither is that it is wrong.
+It needs resampling, so it would cost the exactness the FAQ promises the reader ("nothing
+is resampled or randomised, so a rebuild of the same graph reports the same numbers") and
+the oracle grades bit for bit. And it errs as far the other way: it credits the pilot with
+everything, so a real card found early by a strong pilot is indistinguishable from that
+pilot's pet card, which is the same wall alternative 4 hit. The truth is between 7 and 15
+and this corpus cannot narrow it further. So the arithmetic stays deck-level and exact,
+`faq-gems-certainty` states the count as "at least a third, and likely more" with the
+pilot reason given in plain words, and this paragraph is the range. If the number is ever
+wanted pilot-aware *and* exact, the route is to run the same hypergeometric with pilots as
+the unit rather than decks: blunter, deterministic, and a much shorter list.
 
 **Where it is printed is a separate question from whether it is kept, and the two were
 decided differently.** It first shipped in the caption beside the table and was moved
@@ -251,8 +300,14 @@ crossover where the ceiling falls under the floor, recomputed at 40 from the new
 constants, and an archetype under it still has no answer rather than an empty one.
 
 **Loses.** The performance bar and its absolute reasoning are gone. The refusal is now
-*silent*: with no dropdown there is no user to refuse, so a small archetype is skipped
-inside the query and `SliceTooSmall` is deleted rather than caught. And ADR 0012's
+*silent in the query*: with no dropdown there is no user to refuse, so a small archetype
+is skipped inside the query and `SliceTooSmall` is deleted rather than caught. It is not
+silent on the page. Dropping the dropdown removed the user to refuse, not the reason for
+refusing, and 92 of the format's 124 archetypes (28% of its ranked decks) are never
+screened, so the caption names the population: "found in the best 20% of each archetype's
+decks, over the archetypes with 40 or more ranked decks". Without that clause a reader
+whose archetype is absent reads "no gems here" off a page that means "not enough decks to
+tell", which is the exact distinction ADR 0012 raised `SliceTooSmall` for. And ADR 0012's
 refusal of the unfiltered view is **reversed**: it refused because the whole-meta view
 dragged in 308 decks over the 250-node limit, and at 20 gems drawing only their top-cut
 decks it is 102 nodes. That is a measurement that changed, not a rule that was
@@ -285,8 +340,11 @@ best five, and once drawn it is wired to every gem of its archetype it runs, inc
 one whose own best five it missed. Otherwise the picture would show a deck that visibly
 does not run a card it runs, and the overlaps between gems are precisely what the
 picture says that the table cannot. This costs no node: every drawn deck is already
-inside its archetype's cut, so a gem it runs holds it by construction. Three of the
-twenty gems therefore draw six or seven decks rather than five.
+inside its archetype's cut, so a gem it runs holds it by construction. Five of the
+twenty gems therefore draw six or seven decks rather than five (Force of Despair and
+Aether Gust seven, Rishadan Port, Oliphaunt and Taiga six), which is why the FAQ says
+"around five" rather than "up to five": the cap is on what a gem *samples*, not on what
+it ends up wired to, and a reader counting nodes would catch the difference.
 
 The screen counts every deck; only the drawing is sampled. `top_decks` on the card node,
 and so the table's **In top 20%** column, stays the true count, and the FAQ says plainly
