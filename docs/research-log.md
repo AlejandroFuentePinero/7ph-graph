@@ -220,8 +220,9 @@ chance". That claims concentration, not quality, and it is verifiable rather tha
 Anything phrased as "this card performs well" is not supportable on this corpus and should be
 challenged at design time rather than at review.
 
-[handoff] #176 is complete but **uncommitted**, awaiting maintainer approval, with
-`docs/adr/0019-...md` untracked. Note before committing: ADR 0019's shrunk posterior is already
-superseded by #184, which deletes `gem_prob` and `_card_spread`. Shipping it is still right (it
-makes the live tab honest today), but it lands knowing part of it is scheduled for removal.
-Prune this line once #176 lands.
+**ADR 0019 landed already partly superseded**, which is worth knowing before reading it as
+current. It records the shrunk posterior as the answer, and #184 deletes `gem_prob` and
+`_card_spread` outright, because the posterior turned out to be dominated by the archetype's
+own mean rather than the card's record. Shipping it was still right: it makes the live tab
+honest today, and #184 is a redesign rather than a fix. What survives from it is the pilot
+count, the rejection of the bootstrap hold-share, and the two recorded positions.
