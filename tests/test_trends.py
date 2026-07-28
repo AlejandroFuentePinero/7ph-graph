@@ -526,9 +526,9 @@ def _cover_fields(deck_records: list[dict]) -> list[dict]:
     """Pad every event with filler finishes until its declared field is on record.
 
     An event holding one finish against a field of 500 is a published bracket, and the
-    surfaces that read a pilot's level now refuse to score one
-    (:data:`trends.MIN_FIELD_COVERAGE`, ADR 0021). A fixture that declares such an
-    event is asserting on a case it does not mean to be testing, so the field it
+    surfaces that read a level off a finish now refuse to score one
+    (:data:`trends.MIN_FIELD_COVERAGE`, ADR 0021, ADR 0022). A fixture that declares
+    such an event is asserting on a case it does not mean to be testing, so the field it
     declares is filled in rather than the rule being weakened to admit it.
 
     Each filler is a **one-off** pilot with a single mid-table finish, so it covers the
@@ -538,6 +538,12 @@ def _cover_fields(deck_records: list[dict]) -> list[dict]:
     (:data:`trends.MIN_SPREAD_FINISHES`). What the fixtures assert is therefore
     untouched, which is the point: the padding exists to make the events real, not to
     take part in any measurement.
+
+    A filler carries no **primary** archetype either, since it copies the event's first
+    deck and would otherwise join whichever engine that deck plays and pad the very
+    count under test. Every archetype surface reads the primary tag alone, so an
+    unprimaried filler is a deck of its event and of its year, and a member of no
+    archetype: the one thing the padding is allowed to move is a share's denominator.
     """
     padded = list(deck_records)
     held: dict[str, list[dict]] = {}
@@ -554,7 +560,8 @@ def _cover_fields(deck_records: list[dict]) -> list[dict]:
                            "name": f"1st filler-{event}-{i} - Deck - {event}",
                            "pilot": f"filler-{event}-{i}",
                            "placement": 1,
-                           "placementNorm": 0.5})
+                           "placementNorm": 0.5,
+                           "primaryTag": "engine:__none__"})
     return padded
 
 
@@ -1066,6 +1073,12 @@ def _write_landscape_snapshot(
     Each deck names a distinct pilot, so neither the fuzzy pilot merge nor the
     one-deck-per-pilot-per-event drop (ADR 0004, 0007) folds fixtures meant to stay
     separate.
+
+    Every event's declared field is covered by ``filler`` decks
+    (:func:`_cover_fields`), because the landscape's finish axis reads only the events
+    that published one (ADR 0022): uncovered, these fixtures would describe brackets and
+    every dot would lose its mean. The fillers hold a year's share denominators well
+    above its named decks, which is the shape of a real year anyway.
     """
     snap = root / "snap"
     snap.mkdir()
@@ -1083,7 +1096,7 @@ def _write_landscape_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
-            "eventSize": _FIELD_SIZE,
+            "eventSize": _COVERED_FIELD,
             "placement": 1 if norm is not None else None,
             "placementNorm": norm,
             "createdAt": f"{year}-06-01T00:00:00+00:00",
@@ -1096,11 +1109,12 @@ def _write_landscape_snapshot(
         }
         for deck_id, archetype, event, year, norm in decks
     ]
+    deck_records = _cover_fields(deck_records)
     (snap / "decks.json").write_text(json.dumps(deck_records))
     (snap / "cards_index.json").write_text(json.dumps({
         "v": 1,
         "cards": [],
-        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+        "decks": {d["deckId"]: {"m": [], "s": []} for d in deck_records},
     }))
     return snap
 
@@ -1108,12 +1122,16 @@ def _write_landscape_snapshot(
 def _landscape_graph(root, built_graph):
     """A built graph holding one full year beside an earlier one.
 
-    2025 (8 decks over two events, E25A and E25B): ``storm`` has 2 decks, one at each
-    event, norms .1 and .3 (mean .2). ``grixis`` has 5 decks, four scored at E25A
+    2025 (8 named decks over two events, E25A and E25B): ``storm`` has 2 decks, one at
+    each event, norms .1 and .3 (mean .2). ``grixis`` has 5 decks, four scored at E25A
     (.4/.6/.4/.6, mean .5) and one at E25B the source never scored, so its deck count
     spans both events while its mean rests on one. ``oracle`` has the single remaining
     deck, so the year clears :data:`MIN_LANDSCAPE_ARCHETYPES` with a field of three.
     2024 holds 3 ``lands`` decks, an archetype 2025 never saw.
+
+    Each event also holds the filler decks :func:`_cover_fields` adds to put its
+    declared field on record. They carry no primary archetype, so they are decks of the
+    year and members of nothing: the year's totals count them and no cell does.
     """
     decks = [
         ("s1", "storm", "E25A", 2025, 0.1),
@@ -1146,9 +1164,9 @@ def test_landscape_pairs_each_archetypes_share_with_its_mean_finish(
     # meta-share trend divides by, so the year's shares sum to one.
     storm, grixis = cells["storm"], cells["grixis"]
     assert (storm.n, grixis.n) == (2, 5)
-    assert storm.year_total == grixis.year_total == 8
-    assert storm.share == pytest.approx(2 / 8)
-    assert grixis.share == pytest.approx(5 / 8)
+    assert storm.year_total == grixis.year_total == 17  # 8 named decks and 9 fillers
+    assert storm.share == pytest.approx(2 / 17)
+    assert grixis.share == pytest.approx(5 / 17)
 
     # The finish is the mean placementNorm of the archetype's **scored** decks, left
     # raw (0 is a win), the codebase convention; the chart flips it for the eye.
@@ -1167,6 +1185,58 @@ def test_landscape_pairs_each_archetypes_share_with_its_mean_finish(
     assert storm.year_events == 2
 
 
+def test_the_landscape_reads_a_finish_only_from_events_that_published_a_field(
+    tmp_path, built_graph
+):
+    # ADR 0022. A bracket publishes only the decks that cut, so a mean taken over it is
+    # a mean over decks selected on their own answer: measured on the artifact, 69 of
+    # the 140 archetype-years with 8 or more scored decks move once the brackets come
+    # out, by up to 0.095, and all 69 move the same way, the archetype's finish getting
+    # worse. The share axis keeps them, because the decks were genuinely played and the
+    # bias there tops out at 0.14pp.
+    root = tmp_path / "bracket"
+    root.mkdir()
+    decks = [
+        ("s1", "storm", "E25A", 2025, 0.1),
+        ("s2", "storm", "E25B", 2025, 0.3),
+        ("g1", "grixis", "E25A", 2025, 0.4),
+        ("g2", "grixis", "E25A", 2025, 0.6),
+        ("g3", "grixis", "E25A", 2025, 0.4),
+        ("g4", "grixis", "E25A", 2025, 0.6),
+        ("o1", "oracle", "E25B", 2025, 0.5),
+        # A third archetype at the covered event, so the year still has a landscape
+        # once Grixis loses the only finishes it had (:data:`MIN_LANDSCAPE_ARCHETYPES`).
+        ("l1", "lands", "E25B", 2025, 0.7),
+    ]
+    snapshot = _write_landscape_snapshot(root, decks)
+    # E25A published its bracket alone: the five decks it holds a finish for are the
+    # named ones, against a field of 12.
+    _publish_only_a_bracket(snapshot, "E25A")
+    conn = built_graph(root, snapshot)
+
+    cells = {c.tag: c for c in archetype_landscape(conn, 2025).cells}
+    storm, grixis = cells["storm"], cells["grixis"]
+
+    # The .1 Storm took at the bracket is not a finish the landscape can read, so its
+    # dot rests on the one event that published who finished where.
+    assert storm.mean_norm == pytest.approx(0.3)
+    assert (storm.scored, storm.events) == (1, 1)
+
+    # And Storm is still two decks of the year's meta: the share axis counts every deck
+    # the source shipped, at the bracket as anywhere else.
+    assert storm.n == 2
+    assert storm.year_total == 16  # 8 named decks and 8 fillers
+    assert storm.share == pytest.approx(2 / 16)
+    assert storm.year_events == 2
+
+    # Grixis played the bracket and nothing else, so it is an archetype the year held
+    # and knows no finish for: a share with no dot, the same shape as an archetype the
+    # source never scored, rather than a mean over four results that were all wins.
+    assert grixis.mean_norm is None
+    assert (grixis.scored, grixis.events) == (0, 0)
+    assert grixis.n == 4
+
+
 def test_every_landscape_dot_carries_an_interval_widened_by_events_not_decks(
     tmp_path, built_graph
 ):
@@ -1174,7 +1244,8 @@ def test_every_landscape_dot_carries_an_interval_widened_by_events_not_decks(
     # are means of a handful of decks and the caption reads which side of 0.5 they sit.
     # Each one now carries the 90% interval on its mean, fitted over the year's own
     # within-archetype spread: Storm (.1/.3) and Grixis (.4/.6/.4/.6) pool to an sd of
-    # 0.1225 over 4 degrees of freedom.
+    # 0.1225 over 4 degrees of freedom (the fixture's fillers carry no primary
+    # archetype, so they are no part of a within-archetype spread).
     conn = _landscape_graph(tmp_path, built_graph)
     cells = {c.tag: c for c in archetype_landscape(conn, 2025).cells}
 
@@ -1247,6 +1318,11 @@ def _write_timeline_snapshot(
     a straddle, and each deck names a distinct pilot so neither the fuzzy pilot merge
     nor the one-deck-per-pilot-per-event drop (ADR 0004, 0007) folds fixtures meant
     to stay separate.
+
+    Every event's declared field is covered by ``filler`` decks
+    (:func:`_cover_fields`), for the reason :func:`_write_landscape_snapshot` gives:
+    the timeline draws no point at an event that published only a bracket (ADR 0022),
+    so an uncovered fixture would describe a chart with nothing on it.
     """
     snap = root / "snap"
     snap.mkdir()
@@ -1264,7 +1340,7 @@ def _write_timeline_snapshot(
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
-            "eventSize": _FIELD_SIZE,
+            "eventSize": _COVERED_FIELD,
             "placement": 1 if norm is not None else None,
             "placementNorm": norm,
             "createdAt": created_at,
@@ -1277,11 +1353,12 @@ def _write_timeline_snapshot(
         }
         for deck_id, archetype, event, created_at, norm in decks
     ]
+    deck_records = _cover_fields(deck_records)
     (snap / "decks.json").write_text(json.dumps(deck_records))
     (snap / "cards_index.json").write_text(json.dumps({
         "v": 1,
         "cards": [],
-        "decks": {d[0]: {"m": [], "s": []} for d in decks},
+        "decks": {d["deckId"]: {"m": [], "s": []} for d in deck_records},
     }))
     return snap
 
@@ -1360,6 +1437,30 @@ def test_a_second_archetype_restricts_the_timeline_to_the_events_both_attended(
     # E4 is a shared attendance the source scored on one side only: kept as a point
     # both lines break over, not dropped and not half-drawn against nothing.
     assert points[-1].date == datetime(2025, 9, 1, 0, 0)
+
+
+def test_the_timeline_draws_no_point_at_an_event_that_published_only_a_bracket(
+    tmp_path, built_graph
+):
+    # ADR 0022. Every point here is a per-event mean, and at a bracket that mean is
+    # taken over the decks that cut, so the event is worth no point at all. Not a
+    # break either: a break says the archetype turned up and the source scored none of
+    # it, and this event scored plenty, none of it readable.
+    root = tmp_path / "bracket"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.5),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.1),
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", 0.4),
+    ]
+    snapshot = _write_timeline_snapshot(root, decks)
+    _publish_only_a_bracket(snapshot, "E2")
+    conn = built_graph(root, snapshot)
+
+    points = archetype_timeline(conn, "storm").cells
+
+    assert [p.event for p in points] == ["E1", "E3"]
+    assert [p.mean_norm_a for p in points] == [pytest.approx(0.5), pytest.approx(0.4)]
 
 
 def test_an_archetype_scored_at_one_event_is_refused_rather_than_drawn_as_a_dot(
@@ -1444,6 +1545,36 @@ def test_the_timeline_catalogue_offers_every_archetype_that_draws_with_its_count
     offered = archetypes_with_history(conn)
 
     assert offered == [("Jund", "jund", 3), ("Storm", "storm", 3)]
+
+
+def test_the_catalogue_counts_the_events_the_timeline_can_actually_draw(
+    tmp_path, built_graph
+):
+    # The catalogue's whole promise is that a pick never lands on a refusal, so it has
+    # to count what the timeline draws: events that published a field, not a bracket
+    # (ADR 0022). ``jund`` was ranked at two events and one of them is a bracket, so it
+    # holds a single drawable point and is not offered at all.
+    root = tmp_path / "bracket"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.5),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 0.6),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.1),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 0.2),
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", 0.4),
+    ]
+    snapshot = _write_timeline_snapshot(root, decks)
+    _publish_only_a_bracket(snapshot, "E2")
+    conn = built_graph(root, snapshot)
+
+    # Storm is offered on the two events it can be drawn at, not the three it was
+    # ranked at, so the label states the evidence a reader will actually see.
+    assert archetypes_with_history(conn) == [("Storm", "storm", 2)]
+
+    # And the count it withheld Jund on is the count the timeline refuses it on.
+    with pytest.raises(NotEnoughHistory) as refusal:
+        archetype_timeline(conn, "jund")
+    assert refusal.value.found == 1
 
 
 # The best-player race (#135). Its fixtures declare their own field sizes rather than

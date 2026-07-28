@@ -31,7 +31,7 @@ def count_of(count: int, total: int, unit: str = "") -> str:
     return f"{ratio} {unit}" if unit else ratio
 
 
-def score(value: float, places: int = 2) -> str:
+def score(value: float, places: int = 2, sense: bool = True) -> str:
     """An inverted-finish score, with the sense once: ``0.62`` -> ``"0.62 (1 = 1st)"``.
 
     The finish flipped so higher is better (1 a win); the parenthetical states
@@ -43,8 +43,14 @@ def score(value: float, places: int = 2) -> str:
     the chart's right edge (ADR 0017) and the board is separated by thousandths.
     At two decimals half the drawn eight print as ties they are not, so a reader
     hovering two lines to tell them apart is shown one number.
+
+    ``sense=False`` drops the parenthetical for a readout whose own axis already
+    carries it (``app._SCORE_DIRECTION``), which is the same rule stated from the
+    other side: once, and in the place a reader is already looking. The landscape's
+    hover takes it, since it labels its two halves and repeating the sense inside
+    one of them costs the label its shape.
     """
-    return f"{value:.{places}f} (1 = 1st)"
+    return f"{value:.{places}f} (1 = 1st)" if sense else f"{value:.{places}f}"
 
 
 # The chart axes generate their own ticks client-side, so they carry the same

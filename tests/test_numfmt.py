@@ -38,3 +38,11 @@ def test_score_is_two_decimals_carrying_the_sense_once():
 def test_score_keeps_both_decimals_and_rounds_to_two():
     assert score(1.0) == "1.00 (1 = 1st)"
     assert score(0.617) == "0.62 (1 = 1st)"
+
+
+def test_score_drops_the_sense_where_the_reader_is_already_told_it():
+    # The sense is stated once, not once per number: a readout that sits beside its own
+    # labelled axis would print it twice, which is the "same quantity two ways" this
+    # module exists to prevent. The value is unchanged, only the parenthetical goes.
+    assert score(0.62, sense=False) == "0.62"
+    assert score(0.617, places=3, sense=False) == "0.617"

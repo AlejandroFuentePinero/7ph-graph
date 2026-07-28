@@ -249,3 +249,31 @@ Either land recaptures as their own PR, or amend `development.md` to say the sep
 at PR level. **Raised with the maintainer on 2026-07-28 and left undecided**, so a future
 session should follow the rule as written (separate commit on the branch) and not re-raise the
 question unprompted.
+
+## 2026-07-28 - Landscape dots collide on the x axis by construction, and no axis control can fix it
+
+Raised by the maintainer looking at the drawn scatter: archetypes sit at exactly the same
+share. It is real data, not a rendering artifact. `share = n / year_total`, and every dot in a
+year divides by the same denominator, so two archetypes with the same deck count land on an
+**identical** x rather than a near one.
+
+Measured over the drawn top 25:
+
+| year | drawn dots sharing an x with another | worst group | year total |
+|---|---|---|---|
+| 2023 | 21 of 25 | six archetypes at 3 decks | 192 |
+| 2024 | 10 of 25 | pairs at 11, 12, 22, 23, 25 | 941 |
+| 2025 | 6 of 25 | four at 28 decks | 2,095 |
+| 2026 | 11 of 25 | three at 26 decks | 1,363 |
+
+It worsens as a year gets smaller, because a smaller `year_total` makes the share steps coarser
+and the drawn set is long-tailed (2026 puts twenty of its twenty-five between 1% and 3%).
+
+**What this rules out.** `_label_sides` and the share range filter are the chart's documented
+answers to crowding, and neither touches this: alternating sides moves a *name*, and a zoom
+cannot separate two dots at the same coordinate no matter how far it is pulled. Anything
+proposing either as the fix has misread the cause. The remedies that would work all cost
+something a caption has to carry: a deterministic x-jitter draws a share the archetype does not
+have, and breaking ties on the y axis makes vertical position mean two things. Worth a ticket
+if the collisions bother a reader, but it is a display decision with a caveat attached, not a
+bug.

@@ -49,6 +49,8 @@ Of the 602 year points both versions draw, **83 move**, with a median move of 0.
 
 **The archetype surfaces keep them for now**, and carry a different bias from the same cause: a bracket contributes only winning decks. Measured, that splits cleanly. Meta share moves by at most 0.14pp for any archetype, which is invisible and not worth changing. The landscape's *finish* axis moves for 49 of 92 archetypes, by up to 0.073, always in the same direction. Filed as #189 rather than fixed here, because the share/finish asymmetry is a design question and it interacts with the reference line that surface is drawn against.
 
+_Superseded by ADR 0022, which took that split as measured here: the finish axis and the archetype timeline drop these events, the share axis keeps them, and the reference line stays at 0.5._
+
 That interaction is worth stating, since it will surprise whoever picks up #189: the field's mean `placementNorm` is **0.4767** with brackets counted and **0.4927** without. Most of the gap between the drawn 0.5 reference and the true field mean was the brackets, not a real asymmetry in the scale. That gap is now 0.007, and the reference line **stays at 0.5**: it is what a random finisher's expected rank actually implies, and the residual is far below what a reader can resolve on the chart.
 
 ## Two more places the angle reaches, both measured and both left alone

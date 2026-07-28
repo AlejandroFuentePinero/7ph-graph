@@ -618,11 +618,18 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Each deck is counted once, under its primary archetype, exactly as meta share "
         "is. For the year selected, an archetype sits horizontally at its share of "
         "that year's decks and vertically at the average of its finishes; "
-        "the dot's size is how many separate events those finishes came from. Only the "
-        "25 most-played archetypes of that year are drawn, recomputed for each year, "
-        "and the chart says how many archetypes the year held in all. More of them sit "
-        "above the halfway line than below it, because the source records top finishers "
-        "more completely than the rest of the field. Each dot carries a bar: the range "
+        "the dot's size is how many separate events those finishes came from. The two "
+        "directions count different decks, which the hover states side by side. Across "
+        "is every deck that was played, a handful of events included that published "
+        "only their top eight. Up and down leaves those events out, because the only "
+        "finishes they recorded are good ones and averaging them would draw whichever "
+        "archetype won a bracket as a better one than it is; an archetype whose finishes "
+        "were all at such events keeps its share and has no height to be drawn at. "
+        "Only the 25 most-played archetypes of that year are drawn, recomputed for each "
+        "year, and the chart says how many archetypes the year held in all. More of them "
+        "sit above the halfway line than below it, because even among the events that "
+        "did publish standings, the source records top finishers more completely than "
+        "the rest of the field. Each dot carries a bar: the range "
         "its average could reasonably be in, 90% of the time, given how much one deck's "
         "finish bounces around its archetype's and how many separate events the dot "
         "rests on. A dot whose bar crosses the 0.5 line has not settled which side of "
@@ -639,12 +646,15 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "registered, and its height is the average of that archetype's finishes there. "
         "That is an average, not a single placement: an archetype usually brings a handful "
         "of decks to an event, and typically one to three of them were given a "
-        "placement, which is what the size of each point shows. Picking a second "
+        "placement, which is what the size of each point shows. Events that published "
+        "only their top eight get no point at all, for the reason the landscape leaves "
+        "them off its vertical axis: an average over the decks that made the cut says "
+        "nothing about how the archetype did there. Picking a second "
         "archetype narrows the chart to the events both attended, so every point has "
         "something to compare against, and the headline counts how many of those events "
         "each of them finished ahead at. That count is only called a lead when it beats "
         "what a coin would do: an archetype that is exactly average finishes ahead at "
-        "about half its events by luck alone, and most of these counts (100 of the 121 "
+        "about half its events by luck alone, and most of these counts (102 of the 121 "
         "archetypes offered) are splits a coin produces easily. The count is still "
         "shown, since it is what happened; where it does not clear chance the headline "
         "says so. Two archetypes given a placement at fewer than "
@@ -690,14 +700,16 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "event. This is the only plot in the app that leaves events out for being small, "
         "so a pilot's standing here and their record elsewhere are answering different "
         "questions and will not always agree. "
-        "A handful of events are left out of this chart and of a pilot's own "
-        "performance chart for a second reason: they published only their top eight "
-        "rather than the whole standings. At those, the only finishes on record are "
-        "good ones, because everyone who turned up and lost is missing from the data "
-        "entirely, so turning up could only help you. Two of the big events are like "
-        "that, and a finish at one averages nearly twice what a finish at a normal "
-        "event does. The hidden gems keep them, because that measure compares an "
-        "event's decks against the rest of that same event and so is not fooled by it. "
+        "A handful of events are left out of this chart for a second reason: they "
+        "published only their top eight rather than the whole standings. At those, the "
+        "only finishes on record are good ones, because everyone who turned up and lost "
+        "is missing from the data entirely, so turning up could only help you. Two of "
+        "the big events are like that, and a finish at one averages nearly twice what a "
+        "finish at a normal event does. Every chart that averages finishes into a "
+        "standing leaves them out for that reason: a pilot's performance chart, and the "
+        "archetype charts on their finish side. The hidden gems keep them, because that "
+        "measure compares an event's decks against the rest of that same event and so "
+        "is not fooled by it. "
         "A pilot's score is the average of their finishes there, pulled toward "
         "the average of the whole field by how little evidence stands behind it: a "
         "pilot with five such events is scored about half on their own record and half "
@@ -876,7 +888,8 @@ def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
     redraw the claim the caption makes, which is a cut of the year's most-played
     archetypes. It stays in the series either way, and so in the count of archetypes the
     year held that the surface states. No corpus year exercises this: 2023 is the only
-    year with unscored archetypes (3 of 56) and none of them fall inside a top 25.
+    year with unscored archetypes (4 of 56, every one of them scored at a bracket alone
+    and nowhere else, ADR 0022) and none of them fall inside a top 25.
     """
     ranked = sorted(series.cells, key=lambda c: (-c.n, c.tag))[:top_n]
     return [cell for cell in ranked if cell.mean_norm is not None]
@@ -1836,11 +1849,12 @@ def _landscape_caption(
 
     **Two counts, because either alone misleads (issue #175).** The dots are means of a
     handful of decks, so counting the ones that merely sit above the line sells a
-    reading the evidence does not carry: 17 to 20 of 25 land above it in each corpus
-    year, but only 1 to 3 have an interval that clears it. Reporting only the settled
+    reading the evidence does not carry: 14 to 19 of 25 land above it in each corpus
+    year, but only 0 to 2 have an interval that clears it. Reporting only the settled
     count was tried first and was worse, for a reason that shows up only on the drawn
-    chart: a reader looking at twenty dots above the line was told "1 of 25", and the
-    caption lost an argument with the picture it was captioning. So the plain count
+    chart: a reader looking at nineteen dots above the line was told "0 of 25", which is
+    2026 today, and the caption lost an argument with the picture it was captioning. So
+    the plain count
     leads, agreeing with what the eye does, and the settled count follows as the
     qualifier it always was. The bars beside the dots are what makes the second number
     checkable. Then the
@@ -1972,16 +1986,24 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         error_y=_interval_bars(cells, colour, cap=0),
         customdata=[
             [cell.archetype, numfmt.share(cell.share),
-             numfmt.count_of(cell.n, cell.year_total, "decks"), numfmt.score(score),
-             cell.events]
+             numfmt.count_of(cell.n, cell.year_total, "decks"),
+             # The axis below already carries the sense (:data:`_SCORE_DIRECTION`), and
+             # a "(1 = 1st)" inside a named half would read as part of the label.
+             numfmt.score(score, sense=False), cell.scored, cell.events]
             for cell, score in zip(cells, scores)
         ],
         # Let a dot and its label at the edge of the field draw over the axis rather
         # than being clipped out of the plot.
         cliponaxis=False,
+        # Named halves, because the dot's two axes are taken over different decks (ADR
+        # 0022): every deck of the archetype places it horizontally, and only the ones
+        # played at an event that published a field place it vertically. Each count sits
+        # inside the half it belongs to, so "238 / 2,095 decks" and "224 scored" cannot
+        # read as one number stated twice, or as a rounding error between them.
         hovertemplate=(
-            "%{customdata[0]} · %{customdata[1]} · %{customdata[2]} · "
-            "%{customdata[3]} · %{customdata[4]} events<extra></extra>"
+            "%{customdata[0]} · share %{customdata[1]} (%{customdata[2]}) · "
+            "finish %{customdata[3]} (%{customdata[4]} scored at "
+            "%{customdata[5]} events)<extra></extra>"
         ),
         showlegend=False,
     ))
@@ -2052,7 +2074,7 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
 
     That count is gated on :func:`beats_a_coin` before it is allowed to read as a lead
     (issue #175). Each point is the mean of a median of one ranked deck, so under the
-    null every event is a coin flip, and 100 of the 121 headlines this surface can print
+    null every event is a coin flip, and 102 of the 121 headlines this surface can print
     are splits a fair coin produces at least a tenth of the time. The count itself is
     printed either way, because it is a fact about the record; what the gate governs is
     whether the sentence gets to sound like a finding, and an ungated one carries "a
@@ -2061,13 +2083,13 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
 
     Then the two caveats, quiet behind it. First, that a point is a **mean** of that
     archetype's ranked decks at that event and typically rests on one to three of
-    them (measured over the whole graph: 88% of ``(archetype, event)`` points hold one
+    them (measured over the whole graph: 87% of ``(archetype, event)`` points hold one
     to three ranked decks and the median is one). The pilot head-to-head's "each point
     is one real result, not an average" is exactly false here and must never be
     borrowed. Second, the shared-event restriction: stated as a definition when it
     is in force, and as what a second archetype would do when it is not, since adding
-    one drops points from the first line and visibly reshapes it (Grixis attended 85
-    events and Jund 73, but they shared 62).
+    one drops points from the first line and visibly reshapes it (Grixis attended 74
+    events and Jund 61, but they shared 55).
 
     All app-built numerics, with the two display names escaped, so it is returned as
     trusted markup for :func:`_chart_heading`'s ``caption_html``.

@@ -2,6 +2,17 @@
 
 > Amended by issue #145: a fifth tool, `archetype_landscape`, joins the four ([amendment](#amendment-a-fifth-tool-archetype_landscape-and-a-floor-on-the-field-rather-than-the-value-issue-145)).
 
+> **Amended by [ADR 0022](0022-an-archetypes-finish-is-read-only-from-events-that-published-a-field.md).**
+> 26 of the 107 events published a top-8 bracket rather than standings, and the two
+> archetype surfaces below now read no finish from one. Every figure here counting an
+> archetype's events or points is therefore stated against the wider pool: Grixis
+> attended **74** events and Jund **61**, sharing **55**, not 85 and 73 sharing 62;
+> **87%** of `(archetype, event)` points rest on one to three ranked decks, not 88%;
+> and **102** of the 121 headlines are splits a fair coin produces easily, not 100. The
+> landscape's caption counts move with it, from 17-to-20 above the line and 1-to-3
+> settled to **14-to-19** and **0-to-2**. The reasoning is unaffected, and the share
+> axis is untouched.
+
 ADR 0006 gave the graph a `Year` dimension but nothing traversed it. This ADR decides what does. Four analytics were grilled as candidate trends: archetype share (the meta), card adoption, pilot performance, and pilot head-to-head. All four are kept, but as a new kind of result that the existing graph seam does not carry.
 
 ## A trend is a Series, not a Subgraph
