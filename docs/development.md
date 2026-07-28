@@ -78,3 +78,14 @@ moved from the reordering, and the count it leaves should match the grade printe
 just before the capture. Recapture in its own commit with nothing else in the
 diff, and say in the message which lines are real, or the reordering becomes a
 place a regression can hide (issues #67, #165).
+
+A change that only *adds a field* to some nodes needs neither form. Splice it
+instead: take a live capture, assert every existing value, node set, edge list,
+count and catalogue equal (floats within `baseline.TOLERANCE`) and that the only
+difference anywhere is the new key, then write that key in, in the field order
+`dataclasses.asdict` emits, so a later `--force` moves nothing. Those assertions
+are the safeguard; without them a splice is a blind edit to the oracle. What comes
+out is a diff of exactly the rows that gained the field, no reordering and no
+float churn, which is why a splice can ride in the same commit as the change that
+adds the field where a `--force` recapture cannot: the reviewer can read every
+line of it. First used for the two gem node fields at issue #176 (ADR 0019).

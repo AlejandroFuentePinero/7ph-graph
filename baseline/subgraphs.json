@@ -33547,252 +33547,324 @@
           "label": "Yawgmoth's Will",
           "kind": "Card",
           "decks": 105,
-          "mean_norm": 0.32801065614634595
+          "mean_norm": 0.32801065614634595,
+          "pilots": 29,
+          "gem_prob": 0.0123214272970259
         },
         {
           "id": "card:dark petition",
           "label": "Dark Petition",
           "kind": "Card",
           "decks": 95,
-          "mean_norm": 0.31314804127265683
+          "mean_norm": 0.31314804127265683,
+          "pilots": 28,
+          "gem_prob": 0.025875083087130213
         },
         {
           "id": "card:conduit goblin",
           "label": "Conduit Goblin",
           "kind": "Card",
           "decks": 11,
-          "mean_norm": 0.2929561547200943
+          "mean_norm": 0.2929561547200943,
+          "pilots": 8,
+          "gem_prob": 0.0004168580293755775
         },
         {
           "id": "card:predict",
           "label": "Predict",
           "kind": "Card",
           "decks": 14,
-          "mean_norm": 0.31448479144809616
+          "mean_norm": 0.31448479144809616,
+          "pilots": 5,
+          "gem_prob": 0.00040851418208831536
         },
         {
           "id": "card:afterlife insurance",
           "label": "Afterlife Insurance",
           "kind": "Card",
           "decks": 6,
-          "mean_norm": 0.25370102280190293
+          "mean_norm": 0.25370102280190293,
+          "pilots": 1,
+          "gem_prob": 0.00028632720558824376
         },
         {
           "id": "card:glimpse the impossible",
           "label": "Glimpse the Impossible",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.16334918704483922
+          "mean_norm": 0.16334918704483922,
+          "pilots": 2,
+          "gem_prob": 0.00045750270892164213
         },
         {
           "id": "card:fractured identity",
           "label": "Fractured Identity",
           "kind": "Card",
           "decks": 8,
-          "mean_norm": 0.2786002122181735
+          "mean_norm": 0.2786002122181735,
+          "pilots": 5,
+          "gem_prob": 0.0003220439285527843
         },
         {
           "id": "card:traveling chocobo",
           "label": "Traveling Chocobo",
           "kind": "Card",
           "decks": 7,
-          "mean_norm": 0.2635648212053364
+          "mean_norm": 0.2635648212053364,
+          "pilots": 4,
+          "gem_prob": 0.000318148293519005
         },
         {
           "id": "card:silent arbiter",
           "label": "Silent Arbiter",
           "kind": "Card",
           "decks": 6,
-          "mean_norm": 0.2722364293522949
+          "mean_norm": 0.2722364293522949,
+          "pilots": 3,
+          "gem_prob": 0.00024167063752633666
         },
         {
           "id": "card:void winnower",
           "label": "Void Winnower",
           "kind": "Card",
           "decks": 6,
-          "mean_norm": 0.3263797082987547
+          "mean_norm": 0.3263797082987547,
+          "pilots": 2,
+          "gem_prob": 0.00014562813767349247
         },
         {
           "id": "card:ravenous trap",
           "label": "Ravenous Trap",
           "kind": "Card",
           "decks": 10,
-          "mean_norm": 0.30576249678497597
+          "mean_norm": 0.30576249678497597,
+          "pilots": 6,
+          "gem_prob": 0.00030100093579987774
         },
         {
           "id": "card:deathmark",
           "label": "Deathmark",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.3066881676159107
+          "mean_norm": 0.3066881676159107,
+          "pilots": 3,
+          "gem_prob": 0.00015228311732384814
         },
         {
           "id": "card:natural state",
           "label": "Natural State",
           "kind": "Card",
           "decks": 11,
-          "mean_norm": 0.23772462269094233
+          "mean_norm": 0.23772462269094233,
+          "pilots": 6,
+          "gem_prob": 0.0009635445899877637
         },
         {
           "id": "card:arnyn, deathbloom botanist",
           "label": "Arnyn, Deathbloom Botanist",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.3235644257703081
+          "mean_norm": 0.3235644257703081,
+          "pilots": 2,
+          "gem_prob": 0.00013305839522925744
         },
         {
           "id": "card:moseo, vein's new dean",
           "label": "Moseo, Vein's New Dean",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.2843487394957983
+          "mean_norm": 0.2843487394957983,
+          "pilots": 2,
+          "gem_prob": 0.00018174709809554157
         },
         {
           "id": "card:radiant flames",
           "label": "Radiant Flames",
           "kind": "Card",
           "decks": 8,
-          "mean_norm": 0.3291385357340919
+          "mean_norm": 0.3291385357340919,
+          "pilots": 6,
+          "gem_prob": 0.00017472180420685657
         },
         {
           "id": "card:nest invader",
           "label": "Nest Invader",
           "kind": "Card",
           "decks": 12,
-          "mean_norm": 0.26643749750011503
+          "mean_norm": 0.26643749750011503,
+          "pilots": 5,
+          "gem_prob": 0.0007395180058267226
         },
         {
           "id": "card:the endstone",
           "label": "The Endstone",
           "kind": "Card",
           "decks": 15,
-          "mean_norm": 0.2563538983016114
+          "mean_norm": 0.2563538983016114,
+          "pilots": 8,
+          "gem_prob": 0.0014253958042697024
         },
         {
           "id": "card:_____ goblin",
           "label": "_____ Goblin",
           "kind": "Card",
           "decks": 15,
-          "mean_norm": 0.3164188041563522
+          "mean_norm": 0.3164188041563522,
+          "pilots": 10,
+          "gem_prob": 0.0004344124827326823
         },
         {
           "id": "card:redcap melee",
           "label": "Redcap Melee",
           "kind": "Card",
           "decks": 10,
-          "mean_norm": 0.29781866739348095
+          "mean_norm": 0.29781866739348095,
+          "pilots": 6,
+          "gem_prob": 0.00033804720919644593
         },
         {
           "id": "card:the enigma jewel // locus of enlightenment",
           "label": "The Enigma Jewel // Locus of Enlightenment",
           "kind": "Card",
           "decks": 17,
-          "mean_norm": 0.2484395225068743
+          "mean_norm": 0.2484395225068743,
+          "pilots": 9,
+          "gem_prob": 0.0022726333690628042
         },
         {
           "id": "card:culling ritual",
           "label": "Culling Ritual",
           "kind": "Card",
           "decks": 59,
-          "mean_norm": 0.2720193142943732
+          "mean_norm": 0.2720193142943732,
+          "pilots": 21,
+          "gem_prob": 0.04816082664649024
         },
         {
           "id": "card:cavern-hoard dragon",
           "label": "Cavern-Hoard Dragon",
           "kind": "Card",
           "decks": 6,
-          "mean_norm": 0.18445499975254312
+          "mean_norm": 0.18445499975254312,
+          "pilots": 4,
+          "gem_prob": 0.0005302255557168012
         },
         {
           "id": "card:rain of filth",
           "label": "Rain of Filth",
           "kind": "Card",
           "decks": 77,
-          "mean_norm": 0.26387248711102695
+          "mean_norm": 0.26387248711102695,
+          "pilots": 20,
+          "gem_prob": 0.14137575475487207
         },
         {
           "id": "card:stormscale scion",
           "label": "Stormscale Scion",
           "kind": "Card",
           "decks": 62,
-          "mean_norm": 0.2934251615781656
+          "mean_norm": 0.2934251615781656,
+          "pilots": 21,
+          "gem_prob": 0.02326539902700797
         },
         {
           "id": "card:arachnogenesis",
           "label": "Arachnogenesis",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.22516075127638438
+          "mean_norm": 0.22516075127638438,
+          "pilots": 3,
+          "gem_prob": 0.0002875894912802157
         },
         {
           "id": "card:goblin settler",
           "label": "Goblin Settler",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.3017128843614413
+          "mean_norm": 0.3017128843614413,
+          "pilots": 3,
+          "gem_prob": 0.00015842919465125505
         },
         {
           "id": "card:ill-gotten gains",
           "label": "Ill-Gotten Gains",
           "kind": "Card",
           "decks": 8,
-          "mean_norm": 0.2840474661272133
+          "mean_norm": 0.2840474661272133,
+          "pilots": 4,
+          "gem_prob": 0.0003018668709809935
         },
         {
           "id": "card:slick sequence",
           "label": "Slick Sequence",
           "kind": "Card",
           "decks": 18,
-          "mean_norm": 0.2577989843855421
+          "mean_norm": 0.2577989843855421,
+          "pilots": 7,
+          "gem_prob": 0.0021706547282432376
         },
         {
           "id": "card:electrolyze",
           "label": "Electrolyze",
           "kind": "Card",
           "decks": 6,
-          "mean_norm": 0.24925880135789882
+          "mean_norm": 0.24925880135789882,
+          "pilots": 4,
+          "gem_prob": 0.00029811562224879573
         },
         {
           "id": "card:tithe",
           "label": "Tithe",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.2874559371481798
+          "mean_norm": 0.2874559371481798,
+          "pilots": 2,
+          "gem_prob": 0.0001773517328143015
         },
         {
           "id": "card:inkshield",
           "label": "Inkshield",
           "kind": "Card",
           "decks": 13,
-          "mean_norm": 0.32882962041953123
+          "mean_norm": 0.32882962041953123,
+          "pilots": 3,
+          "gem_prob": 0.0002819408519113553
         },
         {
           "id": "card:zealous conscripts",
           "label": "Zealous Conscripts",
           "kind": "Card",
           "decks": 7,
-          "mean_norm": 0.28696182599579506
+          "mean_norm": 0.28696182599579506,
+          "pilots": 4,
+          "gem_prob": 0.0002485902929710848
         },
         {
           "id": "card:fallen shinobi",
           "label": "Fallen Shinobi",
           "kind": "Card",
           "decks": 23,
-          "mean_norm": 0.3277673624278709
+          "mean_norm": 0.3277673624278709,
+          "pilots": 14,
+          "gem_prob": 0.0006367710047291419
         },
         {
           "id": "card:fiery impulse",
           "label": "Fiery Impulse",
           "kind": "Card",
           "decks": 7,
-          "mean_norm": 0.1708185451248714
+          "mean_norm": 0.1708185451248714,
+          "pilots": 5,
+          "gem_prob": 0.0008119756519193722
         },
         {
           "id": "card:mole man, moloid master",
           "label": "Mole Man, Moloid Master",
           "kind": "Card",
           "decks": 12,
-          "mean_norm": 0.30068690175073154
+          "mean_norm": 0.30068690175073154,
+          "pilots": 12,
+          "gem_prob": 0.00041879040810344215
         },
         {
           "id": "deck:m6vFk_hpW0SB4LDw4hz1kw",
@@ -39645,56 +39717,72 @@
           "label": "Stone of Erech",
           "kind": "Card",
           "decks": 8,
-          "mean_norm": 0.2729769101883843
+          "mean_norm": 0.2729769101883843,
+          "pilots": 5,
+          "gem_prob": 0.009417424678671016
         },
         {
           "id": "card:elesh norn, grand cenobite",
           "label": "Elesh Norn, Grand Cenobite",
           "kind": "Card",
           "decks": 7,
-          "mean_norm": 0.2678199596367284
+          "mean_norm": 0.2678199596367284,
+          "pilots": 5,
+          "gem_prob": 0.008782706335302093
         },
         {
           "id": "card:chain of vapor",
           "label": "Chain of Vapor",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.16014008683917152
+          "mean_norm": 0.16014008683917152,
+          "pilots": 5,
+          "gem_prob": 0.01255469075575466
         },
         {
           "id": "card:fallen shinobi",
           "label": "Fallen Shinobi",
           "kind": "Card",
           "decks": 8,
-          "mean_norm": 0.3217630711831376
+          "mean_norm": 0.3217630711831376,
+          "pilots": 3,
+          "gem_prob": 0.006098814258028495
         },
         {
           "id": "card:perish",
           "label": "Perish",
           "kind": "Card",
           "decks": 12,
-          "mean_norm": 0.2860849021197382
+          "mean_norm": 0.2860849021197382,
+          "pilots": 8,
+          "gem_prob": 0.012060488476294484
         },
         {
           "id": "card:delayed blast fireball",
           "label": "Delayed Blast Fireball",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.32418918918918915
+          "mean_norm": 0.32418918918918915,
+          "pilots": 4,
+          "gem_prob": 0.004962587820015851
         },
         {
           "id": "card:virtue's ruin",
           "label": "Virtue's Ruin",
           "kind": "Card",
           "decks": 5,
-          "mean_norm": 0.2953747072599532
+          "mean_norm": 0.2953747072599532,
+          "pilots": 3,
+          "gem_prob": 0.005885560933442391
         },
         {
           "id": "card:back to basics",
           "label": "Back to Basics",
           "kind": "Card",
           "decks": 6,
-          "mean_norm": 0.23400674220914777
+          "mean_norm": 0.23400674220914777,
+          "pilots": 5,
+          "gem_prob": 0.009776763647048325
         },
         {
           "id": "deck:H8MEwXyTbEKRrp49ZyeygQ",

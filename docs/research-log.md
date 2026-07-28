@@ -187,3 +187,41 @@ The frame itself was the problem. At Plotly's 450px default the chart's own furn
 Why it matters: the recorded remedy on #175 points at the y-range, and acting on it would trade away the honest range (a clipped interval misstates the evidence) to buy height that was already there for the taking. **The range decision stands. Do not reopen it for crowding.**
 
 [handoff] Uncommitted at the time of writing, on top of `34819bf`: `_LANDSCAPE_HEIGHT`, plus a fixed-pixel range-filter band in `app.py`. Prune this line once it lands.
+
+## 2026-07-28 - Card choice barely moves a deck's finish, which bounds what this corpus can ever support
+
+The 2026-07-27 entry above predicted #176 would face the same gate-versus-report choice as the
+landscape. It did, and it shipped the qualification. What working it also turned up is larger
+than that ticket, and it constrains any future feature that tries to say a *card* is good.
+
+Fitting a one-way random-effects model over every card in the graph: within-card sd **0.2994**
+against a between-card sd of **0.0385**. Refit inside archetypes, so the archetype's own level
+cannot inflate the spread, the gap widens: within **0.2872**, between **0.0258**, eleven times
+more noise than signal. That sets `k` around 124, meaning a card needs roughly 124 decks before
+its own record outweighs simply knowing it is a card. The best-attested rare card anywhere in
+the corpus has 21.
+
+**Consequence: no estimator recovers per-card performance here, and five separate routes were
+measured to confirm it** (absolute bar, within-archetype normalisation, scale flipping,
+top-deck enrichment, pilot endorsement). Every one landed at or below chance. Restricting to
+above-median pilots first makes it slightly worse, not better, because a top-quarter cut is
+relative: removing weak pilots moves the goalposts by the same amount it removes noise. Full
+numbers on #184.
+
+**The sibling constraint, which explains the rest:** rarity in this data is anti-correlated
+with quality. 115 rare cards are played by significantly *worse* pilots than chance against 36
+expected, and cards in <=5% of an archetype's decks turn up in its best decks at **0.68x** the
+chance rate. A rare card here usually marks someone brewing, not someone who found tech. This
+is the other side of #175's finding that pilot level is the strongest reliable signal.
+
+What does remain sayable is a **counting fact plus its luck expectation**: "this card is in 6
+of its archetype's 7 top-third decks, and about 8 of the 31 cards shown would look this good by
+chance". That claims concentration, not quality, and it is verifiable rather than inferred.
+Anything phrased as "this card performs well" is not supportable on this corpus and should be
+challenged at design time rather than at review.
+
+[handoff] #176 is complete but **uncommitted**, awaiting maintainer approval, with
+`docs/adr/0019-...md` untracked. Note before committing: ADR 0019's shrunk posterior is already
+superseded by #184, which deletes `gem_prob` and `_card_spread`. Shipping it is still right (it
+makes the live tab honest today), but it lands knowing part of it is scheduled for removal.
+Prune this line once #176 lands.
