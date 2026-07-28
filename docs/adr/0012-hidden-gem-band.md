@@ -1,5 +1,16 @@
 # Hidden gems: a fixed band, with a share as the ceiling and a count as the floor
 
+> **Partly superseded by [ADR 0020](0020-hidden-gems-are-found-inside-their-own-archetype.md).**
+> The performance bar and its absolute reasoning are gone: `MAX_GEM_MEAN_NORM` was
+> measured to track a gem's *archetype* rather than the card, so overperformance is now
+> asked inside the archetype instead. `MIN_GEM_DECKS` and `MAX_GEM_SHARE` are still a
+> count and a share for the reasons below, at 6 and 15%, which puts `MIN_GEM_SLICE` at
+> 40. Two further things below have changed rather than merely moved: the
+> `SliceTooSmall` refusal is now a silent skip, since removing the dropdown left nobody
+> to refuse; and the refusal of the unfiltered view in "Consequences" is **reversed**,
+> because the measurement it rested on changed (82 nodes, not 308-plus). Read the rest
+> as it stands: the asymmetry of the two bounds, and the crossover, are still the rule.
+
 A hidden gem is a card that is rare within its slice yet places highly (user story 14). The definition is three fixed constants in `graph7ph.query`, not user controls:
 
 | Constant | Value | Question it answers |
@@ -54,3 +65,5 @@ The archetype dropdown offers 51 of the format's 126 archetypes. The other 75 ho
 Of the 51 offered, 8 legitimately return no gems (Breach, at 127 ranked decks, among them). An empty result is 0 nodes, which is under the render threshold and would draw as a blank canvas reading as a broken app, so the view states that nothing matched instead of drawing nothing.
 
 The unfiltered gem view returns 34 gems but drags in the 308 ranked decks that run them, over the 250-node `RENDER_THRESHOLD`. It therefore refuses to draw and refines instead, pointing the user at the archetype filter (the only remaining control). Every archetype-scoped view renders. The whole-meta view is reachable as a number but not as a picture, which is a consequence of the node budget rather than of the band.
+
+> **Reversed by [ADR 0020](0020-hidden-gems-are-found-inside-their-own-archetype.md).** A stricter rule produces 20 gems and draws only the best few top-cut decks behind them, which is 82 nodes: the unfiltered view fits, and it is now the only view the tab has. The reasoning above stands as written, and its input changed.

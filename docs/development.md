@@ -66,9 +66,18 @@ report "no regression" about code it never ran (issue #55). Each build stamps
 the gate compares that against the sources standing here. Rebuild to clear it.
 
 Rows are compared under each query's own rule: order-exact where the query sorts
-before emitting, order-insensitive for the two that do not, and floats within a
+before emitting, order-insensitive for the one that does not, and floats within a
 tolerance, because aggregation order changes the last bits of a mean between
-engines.
+engines. A case also carries any whole-of-answer number its query sets, which
+today is the gem list's expected-by-luck count: a claim the surface prints, and
+one that can move while every drawn row holds.
+
+A case's *parameters* are part of the oracle, so a query whose signature changes
+invalidates its cases rather than regrading them: `compare` says "spec changed"
+and a case the new signature cannot express reads as "in the baseline but not in
+the cases being run". The gem query lost its archetype parameter at #184, which
+turned its two cases into one and forced a `--force` recapture; expect the same
+whenever a query's spec changes shape.
 
 A `--force` recapture rewrites the file wholesale, in the engine's row order and
 with the last bits of every float redrawn, so its diff is mostly churn and cannot

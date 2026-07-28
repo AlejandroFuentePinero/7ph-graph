@@ -1,4 +1,8 @@
+import json
+import re
+
 from graph7ph.palette import CATEGORICAL
+from graph7ph import render
 from graph7ph.query import Edge, Node, Subgraph
 from graph7ph.render import render_subgraph
 from graph7ph.serve import VIS_CSS_URL, VIS_JS_URL
@@ -172,3 +176,40 @@ def test_the_settle_ships_in_the_document_with_its_substitutions_resolved():
         assert "__LABEL_PX__" not in html and "__PINNED__" not in html
     assert "const PINNED = false;" in physics
     assert "const PINNED = true;" in pinned
+
+
+def test_a_label_is_haloed_in_the_ground_so_crossed_labels_stay_readable():
+    # A dense cluster draws its labels over one another, and two names in the same
+    # colour on the same ground melt into one unreadable smear. A halo in the ground's
+    # own colour cuts each label out of whatever is behind it, so the top one reads and
+    # the layering is visible. It is drawn, not laid out: no node moves and physics is
+    # never consulted (ADR 0018), so it costs no relayout on any view.
+    html = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
+
+    assert f"const HALO_PX = {render.HALO_PX};" in html
+    assert "__HALO_PX__" not in html
+    # Sized off the same zoom as the label it surrounds: vis.js measures both in canvas
+    # units, so a halo left at a fixed width would thicken as a graph zoomed out and
+    # swallow the very labels it is there to separate.
+    assert "strokeWidth: HALO_PX / zoom" in html
+    assert f"strokeColor: '{TOKENS['surface']}'" in html
+
+
+def test_a_label_drawn_inside_its_node_takes_no_halo():
+    # The halo is the ground's colour, which is only what is behind a label drawn ON
+    # the ground. A shape override draws the label inside the node instead, over a
+    # categorical fill, where a ground-coloured stroke outlines the text in something
+    # that is not behind it. So a shaped node carries its own `strokeWidth: 0`: vis
+    # takes each font key from the most specific source that sets it, so the node wins
+    # the stroke while its size still follows the zoom the settle sets globally.
+    html = render_subgraph(Subgraph(
+        nodes=[
+            Node("card:a", "Sol Ring", "Card"),
+            Node("both:a|b", "Both · 9 decks", "Card", shape="circle"),
+        ],
+        edges=[],
+    ))
+
+    drawn = json.loads(re.search(r"new vis\.DataSet\((\[.*?\])\)", html, re.S).group(1))
+    haloed = {node["id"]: node.get("font", {}).get("strokeWidth") for node in drawn}
+    assert haloed == {"card:a": None, "both:a|b": 0}

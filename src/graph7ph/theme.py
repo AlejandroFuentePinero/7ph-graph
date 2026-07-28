@@ -180,7 +180,7 @@ def build_css() -> str:
 .prose p, .prose li, .t-body {{ font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text); }}
 .t-caption {{ font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--text-mute); }}
 /* State message (#114): the one on-theme surface for every state with nothing (or not
-   yet) to draw (nothing picked, empty result, SliceTooSmall, too-large-to-draw). It
+   yet) to draw (nothing picked, empty result, a refused trend, too-large-to-draw). It
    pairs with `.t-body` for the type, adding only the padding that seats the line where a
    plot would sit, so it reads the same as the Markdown refusal notes (`.prose p`). This
    retires the inline-styled divs' `padding:1rem;font-family:sans-serif`. */
@@ -302,6 +302,14 @@ def build_css() -> str:
   margin-right: 0.6rem; vertical-align: middle;
 }}
 .leaderboard .swatch-hue {{ box-shadow: 0 0 0 3px var(--surface); }}
+
+/* The gem table is grouped by archetype rather than ranked outright (#184), so every
+   other archetype is banded whole: the blocks read apart at a glance, and a block of
+   one row bands as plainly as a block of six. The band is the well surface, one step
+   off the card and the same step an inset takes, since a group is a grouping and not a
+   category: a hue per archetype would read as a key, and the graph beside the table
+   gives archetypes no hue to key against. */
+.leaderboard tbody tr.band td {{ background: var(--surface-2); }}
 
 /* The results stack wraps a view's insight cards and is toggled as a whole: hidden
    before a Draw (so the view opens as controls over empty ground, the guidance living

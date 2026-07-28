@@ -49,7 +49,7 @@ VIEWPORTS = {
 # Entities picked off the shipped artifact for states that need one, so each shot
 # shows a real answer rather than a contrived one. Chosen for shape: a pilot with
 # four scored years, a pair who met four times and a pair who never met, a card
-# whose usage draws inside the limit, an archetype with gems and one with none.
+# whose usage draws inside the limit.
 PILOT = "Ariel M"
 PILOT_THIN = "Aaron C"          # played, but no year with enough events to average
 PILOT_B = "Alex V"              # four events shared with Adam D
@@ -57,8 +57,6 @@ PILOT_RIVAL = "Adam D"
 PILOT_STRANGER = "Alex B"       # never met Adam D
 CARD = "Snapcaster Mage"
 CARD_B = "Lightning Bolt"
-GEM_ARCHETYPE = "Academy"
-GEM_ARCHETYPE_EMPTY = "Abzan"   # a slice large enough to ask, with no gem in it
 ARCHETYPE = "Grixis"
 ARCHETYPE_B = "Walks"
 ARCHETYPE_LONE = "Bogles"       # never ranked at an event with Jeskai Ascendancy
@@ -246,18 +244,11 @@ def recipes() -> list[Shot]:
         pick(page, "Second card (optional, for shared packages)", CARD_B)
         draw(page)
 
-    def gems_nothing_picked(page):
+    def gems(page):
+        # Nothing to pick and nothing to draw since #184: the tab renders the whole
+        # format's gems on open, so the shot is the tab.
         tab(page, "Hidden gems")
-
-    def gems_drawn(page):
-        tab(page, "Hidden gems")
-        pick(page, "Archetype", GEM_ARCHETYPE)
-        draw(page)
-
-    def gems_empty(page):
-        tab(page, "Hidden gems")
-        pick(page, "Archetype", GEM_ARCHETYPE_EMPTY)
-        draw(page, settle=3000)
+        wait(page, 1500)
 
     def pilots_nothing_picked(page):
         tab(page, "Pilots")
@@ -332,9 +323,7 @@ def recipes() -> list[Shot]:
         Shot("cards-nothing-picked", "Cards, nothing picked yet", cards_nothing_picked),
         Shot("cards-overview", "Cards, a card's usage graph and adoption trend", cards_overview),
         Shot("cards-cooccurrence", "Cards, co-occurrence of a pair", cards_cooccurrence),
-        Shot("gems-nothing-picked", "Hidden gems, nothing picked yet", gems_nothing_picked),
-        Shot("gems-drawn", "Hidden gems, an archetype's gems", gems_drawn),
-        Shot("gems-empty-result", "Hidden gems, a slice with no gem in it (empty result)", gems_empty),
+        Shot("gems-drawn", "Hidden gems, the whole format's gems, drawn on open", gems),
         Shot("pilots-nothing-picked", "Pilots, nothing picked yet", pilots_nothing_picked),
         Shot("pilots-running", "Pilots, mid-query: progress while a Draw runs", pilots_running),
         Shot("pilots-overview", "Pilots, a pilot's neighbourhood, affinity and performance", pilots_overview),
@@ -348,20 +337,14 @@ def recipes() -> list[Shot]:
 
 
 def forced_recipes() -> list[Shot]:
-    """The two states the shipped corpus cannot reach from the controls."""
+    """The one state the shipped corpus cannot reach from the controls."""
     def too_large(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT)
         draw(page, settle=3000)
 
-    def slice_too_small(page):
-        tab(page, "Hidden gems")
-        pick(page, "Archetype", GEM_ARCHETYPE)
-        draw(page, settle=3000)
-
     return [
         Shot("forced-too-large", "Too large to draw, with the draw limit lowered to 20 nodes", too_large),
-        Shot("forced-slice-too-small", "Slice too small to answer, with the gem floor raised", slice_too_small),
     ]
 
 
@@ -554,8 +537,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("docs/design/acceptance/v1"))
     parser.add_argument("--forced", action="store_true",
-                        help="lower the draw limit and raise the gem floor, to reach "
-                             "the two refusals the shipped corpus cannot")
+                        help="lower the draw limit, to reach the refusal the shipped "
+                             "corpus cannot")
     parser.add_argument("--only", help="capture only these states (comma-separated)")
     parser.add_argument("--gallery", action="store_true",
                         help="rebuild the review page from the shots already captured")
@@ -566,7 +549,7 @@ def main() -> None:
         return
 
     from graph7ph import app as app_module
-    from graph7ph import explore, query
+    from graph7ph import explore
     from graph7ph.db import artifact_path
     from graph7ph.serve import APP_KWARGS
 
@@ -577,11 +560,7 @@ def main() -> None:
 
     demo = app_module.build_app(artifact_path())
     if args.forced:
-        # Patched after the app is built, so the catalogues (which the gem dropdown
-        # is filtered by) still hold every archetype and the refusal comes from the
-        # real query rather than from an emptied control.
         app_module.assess = lambda subgraph: explore.assess(subgraph, threshold=20)
-        query.MIN_GEM_SLICE = 10_000
 
     port = free_port()
     demo.launch(server_port=port, app_kwargs=APP_KWARGS, quiet=True,

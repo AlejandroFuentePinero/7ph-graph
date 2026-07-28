@@ -227,7 +227,7 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
 ## 8. States, first contact, provenance
 
 - **One treatment for all five states**: nothing picked, running, empty result,
-  `SliceTooSmall`, too-large-to-draw (`_refine_alert`). Progress feedback on every
+  a refused trend, too-large-to-draw (`_refine_alert`). Progress feedback on every
   query-running action. Add the missing Trends empty states.
 - **Cold start** lands on a drawn default or 2–3 one-click examples (which one is
   a child-level decision), never an empty canvas.
@@ -272,7 +272,7 @@ collapse to **two views**, one Draw per view rendering all of that view's plots.
 | **Cards** | **Card overview**: usage + adoption over time (one card + board); **Co-occurrence**: co-occurrence graph + adoption over time (card + second card + top-N + drop-lands, board-agnostic) |
 | **Meta** | meta share over time |
 | **Archetypes** | the metagame landscape: meta share against finish for one year (entered by year) |
-| **Hidden gems** | over-indexing cards for an archetype (entered by archetype) |
+| **Hidden gems** | rare cards crowding their own archetype's best decks (no controls) |
 
 - **Two archetype tabs, two reader questions.** Meta and Archetypes (#145) are both
   about archetypes, so each states the question that is its own: Meta answers "who is

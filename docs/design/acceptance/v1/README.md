@@ -44,9 +44,7 @@ Every state below was captured at both widths: `phone/<name>.png` and
 | `cards-nothing-picked` | Cards before a pick: controls over empty ground |
 | `cards-overview` | A card's usage graph and its adoption trend |
 | `cards-cooccurrence` | A pair's co-occurrence graph and both adoption lines |
-| `gems-nothing-picked` | Hidden gems before a pick |
-| `gems-drawn` | An archetype's gems |
-| `gems-empty-result` | A slice with no gem in it: the empty result |
+| `gems-drawn` | The whole format's gems, drawn on open |
 | `pilots-nothing-picked` | Pilots before a pick |
 | `pilots-running` | Mid-query: the progress feedback while a Draw runs |
 | `pilots-overview` | A pilot's neighbourhood, archetype affinity and performance |
@@ -57,19 +55,16 @@ Every state below was captured at both widths: `phone/<name>.png` and
 | `pilots-never-met` | A pair who never met: the refusal |
 | `faq` | The FAQ tab |
 | `forced-too-large` | Too large to draw, with the draw limit lowered to 20 nodes |
-| `forced-slice-too-small` | Slice too small to answer, with the gem floor raised |
 
 The provenance and credit surface is a page footer, so it sits at the foot of every
 shot rather than having one of its own.
 
-### The two forced states
+### The forced state
 
-Nothing in the shipped corpus reaches the too-large refusal (the biggest subgraph
-any query draws is 148 nodes against a 250-node limit), and the gem dropdown only
-offers archetypes whose slice can answer, so `SliceTooSmall` cannot be reached from
-the controls either (ADR 0012). Both states are real code paths with real messages,
-so `--forced` lowers those two floors and captures them; the shots are named
-`forced-` to say that the threshold, not the corpus, produced them.
+Nothing in the shipped corpus reaches the too-large refusal: the biggest subgraph
+any query draws is 172 nodes against a 250-node limit. It is a real code path with
+a real message, so `--forced` lowers that floor and captures it; the shot is named
+`forced-` to say that the threshold, not the corpus, produced it.
 
 ## The contrast pass
 

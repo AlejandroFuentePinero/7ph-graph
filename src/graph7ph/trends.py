@@ -254,8 +254,8 @@ def _interval(mean: float, n: int, sd: float | None) -> tuple[float, float] | No
 class NotEnoughHistory(ValueError):
     """Raised when a trend is refused for want of evidence, and says how much it found.
 
-    The sibling of ``query.SliceTooSmall``, and for the same reason: an empty result
-    is not an answer, it is four answers wearing one coat. ``Series(cells=[])`` used
+    Raised for the reason ``query.SliceTooSmall`` was until #184 retired it: an empty
+    result is not an answer, it is four answers wearing one coat. ``Series(cells=[])`` used
     to mean "refused as too thin", "never played", "never met" and "met once" alike,
     so the agent seam could not tell a refusal from a zero (issue #101). Raising
     names the refusal, and the message carries the count that caused it, so a pair

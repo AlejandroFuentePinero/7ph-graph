@@ -10,7 +10,6 @@ tested (Gradio wiring and pyvis HTML are verified by running it).
 """
 
 import html
-import statistics
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +35,9 @@ from graph7ph import numfmt, palette, theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.query import (
+    GEM_TOP_CUT,
+    MAX_GEM_DECKS,
+    MAX_GEM_LUCK,
     CardCooccurrence,
     CardUsage,
     Coverage,
@@ -44,11 +46,9 @@ from graph7ph.query import (
     PilotNeighbourhood,
     Node,
     QuerySpec,
-    SliceTooSmall,
     Subgraph,
     card_catalogue,
     coverage,
-    gem_archetypes,
     pilot_catalogue,
     run_query,
 )
@@ -82,7 +82,7 @@ def _state_message(text: str) -> str:
     (#114): the message set in the app's own body type role (§3) on the tokens, in place
     of the retired hand-styled inline divs (``style='padding:1rem;font-family:sans-serif'``)
     that overrode the theme font with a system sans. The nothing-picked prompt, the empty
-    result, the ``SliceTooSmall`` refusal, and the too-large refine alert all speak through
+    result, and the too-large refine alert all speak through
     this, so the app has one voice when it has nothing to draw, reading the same as the
     Markdown refusal notes (the same ``.t-body`` type role as ``.prose p``). One short line
     in the interface's voice; the message is free text, so it is escaped into the markup."""
@@ -101,7 +101,6 @@ _PROMPT = _state_message("Pick an entity and filters, then Draw.")
 _PICK_PILOT = "Pick a pilot, then Draw."
 _PICK_PILOT2 = "Required: pick a second pilot to compare."
 _PICK_CARD = "Pick a card, then Draw to see its plots."
-_PICK_ARCHETYPE = "Pick an archetype, then Draw to see its hidden gems."
 _PICK_TIMELINE_ARCHETYPE = "Pick an archetype to trace its finishes; it draws straight away."
 
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
@@ -201,123 +200,112 @@ def _result_header(plot: str, filters: list[str], node_count: int) -> str:
 
 # The smallest share the app's numeric convention writes: `numfmt.share` carries two
 # decimals of percent, so 0.01% is its last step and everything under half of that reads
-# as a flat "0%". A quarter of the gems on the built graph land there, and a card the
-# band admitted is not impossible, so the table says "under the last step" instead of
-# printing a zero it does not mean.
+# as a flat "0%". The strongest gems land far below it, and "chance alone would never do
+# this" is a different claim from "less often than we can write", so the table says
+# "under the last step" instead of printing a zero it does not mean.
 _SMALLEST_CHANCE = 0.0001
 
 
-def _gem_chance_label(prob: float | None) -> str:
-    """A gem's chance as the table prints it: a share, an "under", or a dash.
+def _gem_luck_label(luck: float) -> str:
+    """A gem's odds as the table prints them: a share, or an "under".
 
-    Three readings the column has to keep apart, which one number cannot: a chance the
-    convention can write, a chance too small for it to write (still not zero), and no
-    chance statable at all (:func:`query._card_spread` found no spread to divide). The
-    last is a dash rather than a zero, since "we cannot say" and "no chance" are
-    different answers and only one of them is a claim.
-
-    The "under" case is decided by asking the convention rather than by comparing against
-    a threshold of its own: the two would have to agree about where `share` starts
-    rounding to nothing, and a threshold set a step out would downgrade chances the
-    convention can in fact write.
+    The "under" case is decided by asking the convention rather than by comparing
+    against a threshold of its own: the two would have to agree about where `share`
+    starts rounding to nothing, and a threshold set a step out would misprint chances
+    the convention can in fact write.
     """
-    if prob is None:
-        return "&ndash;"
-    written = numfmt.share(prob)
+    written = numfmt.share(luck)
     if written == numfmt.share(0):
         return f"&lt;{numfmt.share(_SMALLEST_CHANCE)}"
     return written
 
 
 def _gem_table(subgraph: Subgraph) -> str:
-    """The gems as a table: what each rests on, how it finished, and how firm that is.
+    """The gems as a table: the claim each one makes, and how often chance alone makes it.
 
-    The graph beside it draws which decks run which card and carries no number at all,
-    so before #176 the tab stated a threshold crossing and showed a reader nothing they
-    could discount it with. This is the leaderboard's answer to the same problem (ADR
-    0017): the value, and beside it the column that says how settled the value is.
+    The graph beside it draws which of an archetype's best decks run which card and
+    carries no number at all, so the table is where the claim is actually stated. Five
+    numbers per gem, in the order the claim is built (#184). **Archetype** is where
+    every other number was measured, and it leads because nothing here is a
+    format-wide statement: a card is rare, and lands well, *inside one archetype*.
+    **Decks** is how rare, against that archetype's own ranked decks. **In top N%** is
+    the whole of the evidence: how much of the card sits in the archetype's best decks,
+    over the cut :data:`GEM_TOP_CUT` names and this header prints, so the column and
+    the constant cannot drift apart. **Pilots** says whether those decks are as many
+    opinions or one pilot's, a
+    distinction the deck count cannot make and #175 showed matters more than any
+    other. **By chance** is the exact odds of a card that rare landing that much of
+    itself in that cut by luck alone.
 
-    Four numbers per gem, in the order a claim is built. **Decks** and **Pilots** are the
-    sample: a median gem across the offered slices rests on six decks, and 17% of them on
-    two pilots or fewer, so "in six decks" and "one pilot's six decks" are the
-    difference between a finding and an attendance record. **Finish** is the mean
-    placement the band cut on, inverted to the app's higher-is-better score (1 a win)
-    like every other finish it prints. **Gem chance** is that cut asked as a question
-    about the card rather than about its sample: how much of the card's shrunk
-    distribution really clears the bar (``query._gem_chance``). It is the one column that
-    can say the list is less certain than it looks, and on the built graph it usually
-    does: 16 of 283 gems reach even a coin flip.
+    Grouped by archetype and then ordered by those odds, longest first. Grouped rather
+    than ranked outright, because a gem is a claim about one archetype and a flat
+    ranking invites reading two archetypes' cards against each other, which is exactly
+    the comparison the rule refuses to make; within an archetype the ranking is real.
+    Ties fall back to the card name, so one artifact always draws one table.
 
-    Ordered by that chance, best first, so the reader meets the gems the record actually
-    supports before the ones it merely admitted; ties fall back to the finish and then
-    the name, so one artifact always draws one table. A gem whose chance cannot be stated
-    sorts last and prints a dash rather than a zero, since "we cannot say" and "no
-    chance" are different answers.
+    Every other archetype is banded, so where one block stops and the next starts is
+    visible without reading the names down the column. Banded whole rather than ruled
+    between, because a block is often a single row and a rule around one row reads as
+    an emphasis on that row rather than as a boundary.
 
-    Card names are free text from the source, so they are escaped.
+    Card and archetype names are free text from the source, so they are escaped.
     """
+    archetypes = {node.id: node.label for node in subgraph.nodes
+                  if node.kind == "Archetype"}
+    # Which archetype a gem was measured inside is carried by the edge that draws it,
+    # since the same card can be a gem in two archetypes and is then two nodes.
+    named = {edge.target: archetypes[edge.source] for edge in subgraph.edges
+             if edge.source in archetypes}
     gems = sorted(
         (node for node in subgraph.nodes if node.kind == "Card"),
-        key=lambda n: (n.gem_prob is None, -(n.gem_prob or 0), n.mean_norm, n.label),
+        key=lambda n: (named[n.id], n.gem_luck, n.label),
     )
 
-    def row(node: Node) -> str:
-        chance = _gem_chance_label(node.gem_prob)
+    def row(node: Node, band: bool) -> str:
         return (
-            "<tr>"
-            f"<td>{html.escape(node.label)}</td>"
-            f"<td class='score'>{node.decks}</td>"
-            f"<td class='score'>{node.pilots}</td>"
-            f"<td class='score'>{1 - node.mean_norm:.2f}</td>"
-            f"<td class='score spread'>{chance}</td>"
-            "</tr>"
+            ("<tr class='band'>" if band else "<tr>")
+            + f"<td>{html.escape(node.label)}</td>"
+            + f"<td>{html.escape(named[node.id])}</td>"
+            + f"<td class='score'>{node.decks}</td>"
+            + f"<td class='score'>{node.top_decks}</td>"
+            + f"<td class='score'>{node.pilots}</td>"
+            + f"<td class='score spread'>{_gem_luck_label(node.gem_luck)}</td>"
+            + "</tr>"
         )
 
-    body = "".join(row(node) for node in gems)
+    blocks = {arch: i for i, arch in enumerate(dict.fromkeys(named[n.id] for n in gems))}
+    body = "".join(row(node, blocks[named[node.id]] % 2 == 1) for node in gems)
     return (
         "<table class='leaderboard'><thead><tr>"
-        "<th>Card</th><th class='score'>Decks</th><th class='score'>Pilots</th>"
-        "<th class='score'>Finish</th><th class='score spread'>Gem chance</th>"
+        "<th>Card</th><th>Archetype</th><th class='score'>Decks</th>"
+        f"<th class='score'>In top {GEM_TOP_CUT:.0%}</th>"
+        "<th class='score'>Pilots</th><th class='score spread' title='How often chance "
+        "alone would put this much of the card in this cut'>By chance</th>"
         f"</tr></thead><tbody>{body}</tbody></table>"
     )
 
 
 def _gem_caption(subgraph: Subgraph) -> str:
-    """The gem table's caption: what the band cut on, and how little that is.
+    """The gem table's caption: how many gems, and the cut they were found in.
 
-    The tab's lede calls these under-the-radar cards, and the FAQ states the rule
-    exactly; between the two there was nothing to tell a reader that the rule is a hard
-    cut on a handful of decks and that a card near it is admitted or refused on a deck or
-    two (issue #176). This is that sentence, with this slice's own sample in it rather
-    than the format-wide figure, because the reader is looking at one slice and the
-    median gem in it may be thinner than the median gem anywhere.
+    One clause, and deliberately not two. A list admitted on a probability threshold has
+    a false-positive count whether or not it is printed, and this rule has no validation
+    route behind it (a temporal holdout was built, run, and set aside: gems are transient
+    by nature, so a card still looking like one is a card nobody acted on), so that count
+    stays on the page. It is not on *this* line, because it is a property of the list and
+    of no row in it: raised beside the table it asks "which ones?" at the one place with
+    no room to answer, and the answer is long. It lives in `faq-gems-certainty` instead,
+    inside the answer to that question, where the per-row reading (the odds column, and
+    what Decks, In top and Pilots each rest on) can be given properly (issue #184).
 
-    The medians are the drawn gems' own, so they move with the archetype, and they are
-    stated as medians rather than as totals for the reason the race states its sample per
-    contender: a total over the whole list hides that most of the list rests on the
-    floor. All app-built numerics off the drawn nodes, no user free text, so it is
-    returned as trusted markup.
+    All app-built numerics off the drawn nodes, no user free text, so it is returned as
+    trusted markup.
     """
     gems = [node for node in subgraph.nodes if node.kind == "Card"]
-    # The median proper, which over an even list is the midpoint of the two middles and
-    # not the upper of them: a caption on this tab of all tabs cannot round its own
-    # sample up. Written through `:g` so a whole median prints whole ("6 decks") and a
-    # half one prints as it is ("6.5 decks") rather than as a false integer.
-    decks = statistics.median(node.decks for node in gems)
-    pilots = statistics.median(node.pilots for node in gems)
-    # The table orders by the chance where there is one and falls back to the finish
-    # where there is not, so the caption names whichever order it is actually in: a
-    # promise of "the firmest first" over a column of dashes would be its own small
-    # version of the overclaim this tab is fixing.
-    order = ("the firmest first" if any(node.gem_prob is not None for node in gems)
-             else "best finish first")
     return (
         f"<div class='t-fieldstat'><span class='pct'>{len(gems)} "
-        f"gem{'' if len(gems) == 1 else 's'}</span> found, {order}"
-        f"<span class='sample'> · a median one here rests on {decks:g} decks and "
-        f"{pilots:g} pilot{'' if pilots == 1 else 's'} · near the bar the band turns on a "
-        "deck or two, so read the gem chance beside a finish rather than the finish "
-        "alone</span></div>"
+        f"gem{'' if len(gems) == 1 else 's'}</span><span class='sample'> found in the "
+        f"best {GEM_TOP_CUT:.0%} of each archetype's decks</span></div>"
     )
 
 
@@ -553,9 +541,7 @@ def _spec(view: str, values: dict) -> QuerySpec | None:
                 bool(values["cooccur_drop_lands"]),
             )
         case "meta_gems":
-            if not values["gem_archetype"]:
-                return None
-            return HiddenGems(values["gem_archetype"])
+            return HiddenGems()
     return None
 
 
@@ -735,33 +721,55 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "faq-gems",
         "Cards",
         'What makes a card a "Hidden gem"?',
-        "A gem is a card that is rare in the slice (in at least five decks but no more "
-        "than 10% of them) yet finishes in the slice's top third on average. Only decks "
-        "with a recorded finish count toward the rarity and the average. If a slice has "
-        'too few placed decks to tell "rare" from "absent", the tool refuses rather than '
-        "guessing. It is a shortlist of the best records among the slice's rare cards, "
-        "not a verified list of cards that overperform: see how settled a gem is, below.",
+        "Everything is measured inside one archetype. Take an archetype's decks that "
+        f"have a recorded finish, rank them, and call the best {GEM_TOP_CUT:.0%} of "
+        "them its best "
+        "decks. A gem is a card that is rare in that archetype (in at least six of its "
+        "decks, but no more than 15% of them) and yet sits in enough of those best "
+        "decks that plain luck would manage it less than one time in a hundred. "
+        "Nothing is compared across archetypes, so a card is never called a gem for "
+        "belonging to an archetype that wins a lot: the question is only whether the "
+        "archetype's own best decks are the ones running it. A card can be a gem in "
+        "two archetypes at once, and that is two separate findings on two sets of "
+        "decks. The graph shows each gem's archetype on one side and, on the other, "
+        f"up to {MAX_GEM_DECKS} of the best decks that run it, which you can open on "
+        "Moxfield. The table counts every deck; the picture draws a few of each, "
+        "because an archetype's best decks nearly all run nearly all of its gems and "
+        "drawing every one of them leaves a knot no deck can be picked out of.",
     ),
     (
         "faq-gems-certainty",
         "Cards",
         'How settled is a "Hidden gem"?',
-        "Much less than a list of names looks. The rule is a hard line drawn through a "
-        "noisy average: a gem rests on a median of six decks across the archetypes the "
-        "tool offers, a third of them on the five that is the minimum, so a card whose "
-        "average sits near the line is admitted or refused on a deck or two of luck. "
-        "The table beside the picture is where that shows. Decks and Pilots are the "
-        "sample the average was taken over, and they can be further apart than they "
-        "look: about one gem in six rests on two pilots or fewer, and a card that one "
-        "strong pilot likes carries their record as much as its own. \"Gem chance\" "
-        "asks the question the rule cannot: given a record this short, and given how "
-        "the archetype around it finishes, how likely is it that the card really "
-        "belongs in the top third? It shrinks a short record toward what the archetype "
-        "does on average, by an amount measured from the data rather than chosen, and "
-        "most gems come back well under a coin flip. Read a high finish with a low "
-        "chance as a card worth trying, not as a card proven good. Nothing here is "
-        "resampled or randomised, so a rebuild of the same graph reports the same "
-        "numbers and a number that moved means the evidence moved.",
+        "Less than a list of names looks. Screening every rare card of every archetype "
+        "means tens of thousands of chances for coincidence, so a bar of "
+        f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: about a "
+        "third of the list, and nothing distinguishes which ones. That is why the "
+        "count is not printed beside the table, where it would raise a question it "
+        "cannot answer. It is a real limit and not a hedge. There is no "
+        "way to check the list against later results either, because a gem that works "
+        "stops being rare, so a card that still looks like a gem a year on is a card "
+        "nobody acted on. Read the table for what a gem rests on: Decks is how rare "
+        "the card is in that archetype, the In top column is how much of it landed in "
+        "the archetype's best decks, and Pilots says whether those decks are as many "
+        "opinions or one pilot's, which matters because a deck's finish follows "
+        "whoever piloted it more than it follows any card. A card carried by one "
+        "pilot is kept and labelled, not hidden. Read a gem as a card worth trying, "
+        "not as a card proven good. Nothing is resampled or randomised, so a rebuild "
+        "of the same graph reports the same numbers, and a number that moved means "
+        "the evidence moved.",
+    ),
+    (
+        "faq-gems-unfiltered",
+        "Cards",
+        "Why can I not filter the hidden gems?",
+        "Because there is nothing left to narrow. The rule is strict enough that the "
+        "whole format produces a couple of dozen gems across a handful of archetypes, "
+        "which fits in one picture, so the tab draws all of them at once instead of "
+        "asking "
+        "you to guess which archetype to look in. It recalculates as decks are added. "
+        "If it ever finds more gems than the picture can hold, it draws the ones with "
+        "the longest odds and the caption counts what is shown.",
     ),
 ]
 
@@ -2358,9 +2366,6 @@ def build_app(artifact: Path) -> gr.Blocks:
     catalogue = ladybug.Connection(db)
     pilots = _distinguish(pilot_catalogue(catalogue))
     cards = _distinguish(card_catalogue(catalogue))
-    # Only the archetypes whose slice can actually answer the gem question; the
-    # rest would be an invitation to a result we cannot stand behind (ADR 0012).
-    archetypes = _distinguish(gem_archetypes(catalogue))
 
     # Key -> display label, for the callbacks that name an entity in a chart title
     # or a note. Both keyed off the full catalogue: since #119 one shared subject
@@ -2368,7 +2373,6 @@ def build_app(artifact: Path) -> gr.Blocks:
     # lookup must cover every entity the dropdown offers, not a per-view subset.
     pilot_labels = {key: label for label, key in pilots}
     card_names = {canon: label for label, canon in cards}
-    archetype_labels = {key: label for label, key in archetypes}
 
     # The trend surface reads the full matrix once (a static, read-only graph), so
     # the manual panel can list the archetypes and each draw just filters it. The
@@ -2742,10 +2746,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         spec = _spec(view, values)
         if spec is None:
             return _PROMPT
-        try:
-            subgraph = run_query(ladybug.Connection(db), spec)
-        except SliceTooSmall as e:
-            return _state_message(f"{e}.")
+        subgraph = run_query(ladybug.Connection(db), spec)
         # A result too big to draw refuses with its own node count and narrowing
         # hints, so it carries no page-type header: a second "N nodes" caption above
         # it would read as if N had been drawn (#110).
@@ -2760,7 +2761,12 @@ def build_app(artifact: Path) -> gr.Blocks:
         filters = _graph_filters(view, values)
         header = _result_header(view, filters, plan.node_count)
         if not subgraph.nodes:
-            return header + _state_message("No matches for these filters.")
+            # The gem view has no filters to blame an empty result on: it is the whole
+            # format, and empty means no card in it cleared the bar.
+            return header + _state_message(
+                "No card in the format clears the bar yet."
+                if view == "meta_gems" else "No matches for these filters."
+            )
         # The gem view states its evidence in a table above the picture (#176). Above,
         # not below it as the race's leaderboard sits under its chart: the graph fills
         # the frame, so a table under it is a screen away, and these numbers are the
@@ -3047,41 +3053,22 @@ def build_app(artifact: Path) -> gr.Blocks:
             )
 
         # Hidden gems is its own top-level tab since #125, promoted out of Meta (v1
-        # §11): entered by archetype, it outputs the cards that over-index in the
-        # archetype's decks against the wider format, the SliceTooSmall refusal
-        # intact (ADR 0012). A navigation move, not a query change: the query id
-        # stays `meta_gems`, so _spec, _graph_filters, and the plot heading are untouched.
+        # §11). Since #184 it is also the app's one control-free view: the rule finds
+        # the format's few genuinely concentrated rare cards, all of them fit in one
+        # picture, and there is nothing left to filter by. So it draws at build time
+        # like Meta's opening chart rather than behind a Draw with no choices in front
+        # of it, and there is no subject line, because the subject is the format.
         with gr.Tab("Hidden gems"):
             gr.Markdown("## Hidden gems")
             gr.Markdown(
-                # Not "under-the-radar cards", which read as a finding the record does
-                # not support: the band is a hard cut on a mean taken from a median of
-                # six decks (#176), so the lede says whose record suggests what.
-                "Rare cards whose record suggests they overperform in an archetype.",
+                # What the rule actually asks, in the reader's words: rare in one
+                # archetype, and crowding that archetype's best decks. Not "cards that
+                # overperform", which the corpus cannot support (ADR 0020).
+                "Cards that are rare in an archetype yet keep turning up in its best "
+                "decks.",
                 elem_classes="t-lede",
             )
-            with gr.Group(elem_classes="control-panel"):
-                gem_archetype, _ = _clearable(
-                    choices=archetypes, label="Archetype", value=None, info=_PICK_ARCHETYPE,
-                )
-                gem_go = gr.Button(DRAW_LABEL, variant="primary")
-            gem_subject = gr.HTML(visible=False)
-            # One card, hidden until a Draw (§14); the dropdown help text guides on open.
-            gem_out = gr.HTML(visible=False, elem_classes="insight-card")
-
-            def draw_gems(a: str):
-                # The archetype is named once above the card (§14); the card title is
-                # the plot type alone ("Hidden gems"). With no archetype the card stays
-                # hidden and the dropdown help text guides.
-                subject = _subject_update("Archetype", archetype_labels[a] if a else None)
-                if not a:
-                    return subject, gr.update(visible=False)
-                return subject, gr.update(value=run_graph("meta_gems", {"gem_archetype": a}), visible=True)
-
-            _draw_with_progress(
-                gem_go, draw_gems, inputs=gem_archetype,
-                outputs=[gem_subject, gem_out],
-            )
+            gr.HTML(run_graph("meta_gems", {}), elem_classes="insight-card")
 
         with gr.Tab("Pilots"):
             gr.Markdown("## Pilots")

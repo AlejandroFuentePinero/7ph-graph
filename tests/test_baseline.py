@@ -38,9 +38,10 @@ from graph7ph.query import (
 from conftest import build_and_open
 
 # The two magnitudes the tolerance sits between, both measured on the real graph
-# (issue #45): engine-to-engine float noise, and how close a gem gets to the band.
+# (issue #45, #184): engine-to-engine float noise, and how close a gem's odds get to
+# the bar admitting it.
 FLOAT_NOISE = 5.6e-17
-GEM_THRESHOLD_MARGIN = 8.6e-4
+GEM_THRESHOLD_MARGIN = 8.3e-4
 
 
 @pytest.fixture(scope="module")
@@ -78,12 +79,12 @@ def test_row_order_is_a_difference_only_for_the_ordered_queries():
     forwards = Subgraph(nodes=nodes, edges=[])
     backwards = Subgraph(nodes=list(reversed(nodes)), edges=[])
 
-    unordered = [Case("gems", HiddenGems())]
+    unordered = [Case("pilot", PilotNeighbourhood("p"))]
     ordered = [Case("usage", CardUsage("x"))]
 
     assert compare(
-        _baseline(unordered, {"gems": forwards}),
-        _baseline(unordered, {"gems": backwards}),
+        _baseline(unordered, {"pilot": forwards}),
+        _baseline(unordered, {"pilot": backwards}),
         unordered,
     ) == []
     assert compare(
@@ -95,12 +96,12 @@ def test_row_order_is_a_difference_only_for_the_ordered_queries():
 
 def test_a_changed_row_is_a_difference_even_for_an_unordered_query():
     # Order-insensitive must not degrade into "any two same-length results match".
-    cases = [Case("gems", HiddenGems())]
+    cases = [Case("pilot", PilotNeighbourhood("p"))]
     before = Subgraph(nodes=[Node("card:x", "X", "Card")], edges=[])
     after = Subgraph(nodes=[Node("card:z", "Z", "Card")], edges=[])
 
     assert compare(
-        _baseline(cases, {"gems": before}), _baseline(cases, {"gems": after}), cases
+        _baseline(cases, {"pilot": before}), _baseline(cases, {"pilot": after}), cases
     ) != []
 
 
@@ -109,12 +110,12 @@ def test_edge_order_follows_the_same_rule_as_node_order():
     forwards = Subgraph(nodes=[], edges=edges)
     backwards = Subgraph(nodes=[], edges=list(reversed(edges)))
 
-    unordered = [Case("gems", HiddenGems())]
+    unordered = [Case("pilot", PilotNeighbourhood("p"))]
     ordered = [Case("usage", CardUsage("x"))]
 
     assert compare(
-        _baseline(unordered, {"gems": forwards}),
-        _baseline(unordered, {"gems": backwards}),
+        _baseline(unordered, {"pilot": forwards}),
+        _baseline(unordered, {"pilot": backwards}),
         unordered,
     ) == []
     assert compare(
@@ -124,9 +125,9 @@ def test_edge_order_follows_the_same_rule_as_node_order():
     ) != []
 
 
-def _gem(mean_norm):
+def _gem(luck):
     return Subgraph(
-        nodes=[Node("card:x", "X", "Card", decks=6, mean_norm=mean_norm)], edges=[]
+        nodes=[Node("card:x:a", "A", "Card", decks=6, gem_luck=luck)], edges=[]
     )
 
 
@@ -142,9 +143,9 @@ def test_float_noise_between_engines_is_not_a_difference():
     ) == []
 
 
-def test_a_real_shift_in_mean_placement_is_a_difference():
-    # The closest any gem sits to the 0.33 band is 8.6e-4, so a shift of that size
-    # is the smallest one that could move a card in or out of the answer.
+def test_a_real_shift_in_a_gems_odds_is_a_difference():
+    # The closest any gem sits to the bar it was admitted on is 8.3e-4, so a shift of
+    # that size is the smallest one that could move a card in or out of the answer.
     cases = [Case("gems", HiddenGems())]
     assert compare(
         _baseline(cases, {"gems": _gem(0.25)}),
@@ -153,10 +154,25 @@ def test_a_real_shift_in_mean_placement_is_a_difference():
     ) != []
 
 
-def test_the_tolerance_sits_between_the_noise_and_the_band_margin():
+def test_a_moved_luck_count_is_a_difference_even_when_every_row_holds():
+    # The gem list prints how many of its own cards are coincidence (#184), and that
+    # number is summed over every card the rule screened and rejected, so it can move
+    # while every drawn row stays put. Ungraded, an oracle that reproduces the picture
+    # perfectly would pass with the caveat under it changed.
+    cases = [Case("gems", HiddenGems())]
+    nodes = [Node("card:x:a", "A", "Card", decks=6, gem_luck=0.001)]
+
+    assert compare(
+        _baseline(cases, {"gems": Subgraph(nodes, [], expected_by_luck=8.45)}),
+        _baseline(cases, {"gems": Subgraph(nodes, [], expected_by_luck=12.7)}),
+        cases,
+    ) != []
+
+
+def test_the_tolerance_sits_between_the_noise_and_the_gem_margin():
     # The tolerance is only safe while it swallows engine noise without being able
-    # to hide a card crossing the gem band. If a future engine's noise grows past
-    # it, or gems crowd the threshold more tightly, this is the assertion that says so.
+    # to hide a card crossing the gem bar. If a future engine's noise grows past it,
+    # or gems crowd the bar more tightly, this is the assertion that says so.
     assert FLOAT_NOISE < TOLERANCE < GEM_THRESHOLD_MARGIN
 
 
@@ -217,10 +233,12 @@ def test_a_captured_subgraph_survives_a_round_trip_through_json():
     subgraph = Subgraph(
         nodes=[
             Node("card:x", "X", "Card", weight=3, group="cooccur", shape="circle",
-                 pin=(300.0, -80.0), decks=6, total_decks=50, mean_norm=0.25),
+                 pin=(300.0, -80.0), decks=6, total_decks=50, pilots=4, top_decks=5,
+                 gem_luck=0.0025),
         ],
         edges=[Edge("card:x", "card:y", "40%", visible=True, decks=2,
                     total_decks=5, events=1)],
+        expected_by_luck=8.45,
     )
     captured = _baseline(cases, {"cooc": subgraph})
 
@@ -293,8 +311,8 @@ def test_the_cases_exercise_every_query_and_the_branches_that_matter():
     # One seed and two, and `drop_lands` both ways.
     assert {s.canon2 is None for s in by_type[CardCooccurrence]} == {True, False}
     assert {s.drop_lands for s in by_type[CardCooccurrence]} == {True, False}
-    # The gem view unfiltered and narrowed to an archetype.
-    assert {s.archetype is None for s in by_type[HiddenGems]} == {True, False}
+    # The gem view takes no parameters since #184, so one case covers it.
+    assert len(by_type[HiddenGems]) == 1
     # Row shape, not just parameters. Parameter variation alone cannot reach NULL
     # unmarshalling: every case could return fully-populated rows and this guard
     # would still pass, so no case would ever ask the engine to hand a NULL back
@@ -562,20 +580,20 @@ def test_float_noise_cannot_reorder_an_unordered_comparison():
     # in the baseline and the other in the capture, so every row after it would be
     # compared against the wrong partner: a phantom failure produced by the very
     # mechanism meant to prevent them.
-    cases = [Case("gems", HiddenGems())]
+    cases = [Case("pilot", PilotNeighbourhood("p"))]
     boundary = 0.1234565  # rounds up or down at 6dp depending on its last bits
 
     def gems(offset):
         return Subgraph(
             nodes=[
-                Node("card:a", "A", "Card", mean_norm=boundary + offset),
-                Node("card:b", "B", "Card", mean_norm=0.9),
+                Node("card:x:a", "A", "Card", gem_luck=boundary + offset),
+                Node("card:x:b", "B", "Card", gem_luck=0.9),
             ],
             edges=[],
         )
 
-    assert compare(_baseline(cases, {"gems": gems(0)}),
-                   _baseline(cases, {"gems": gems(FLOAT_NOISE)}), cases) == []
+    assert compare(_baseline(cases, {"pilot": gems(0)}),
+                   _baseline(cases, {"pilot": gems(FLOAT_NOISE)}), cases) == []
 
 
 def test_a_dropped_row_does_not_drag_every_other_row_into_the_report():
@@ -585,8 +603,8 @@ def test_a_dropped_row_does_not_drag_every_other_row_into_the_report():
     # the one row that actually moved.
     cases = [Case("gems", HiddenGems())]
 
-    def gem(canon, mean_norm):
-        return Node(f"card:{canon}", canon.title(), "Card", decks=6, mean_norm=mean_norm)
+    def gem(canon, luck):
+        return Node(f"card:x:{canon}", canon.title(), "Card", decks=6, gem_luck=luck)
 
     before = Subgraph(nodes=[gem("a", 0.25), gem("b", 0.31), gem("c", 0.2)], edges=[])
     after = Subgraph(
@@ -596,5 +614,5 @@ def test_a_dropped_row_does_not_drag_every_other_row_into_the_report():
     diffs = compare(_baseline(cases, {"gems": before}),
                     _baseline(cases, {"gems": after}), cases)
 
-    assert sum("card:a" in d or "card:b" in d for d in diffs) == 0
-    assert any("card:c" in d for d in diffs)
+    assert sum("card:x:a" in d or "card:x:b" in d for d in diffs) == 0
+    assert any("card:x:c" in d for d in diffs)

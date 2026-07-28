@@ -52,7 +52,15 @@ from graph7ph.app import (
     _subject_line,
     _trend_figure,
 )
-from graph7ph.query import Coverage, Node, Subgraph
+from graph7ph.query import (
+    GEM_TOP_CUT,
+    MAX_GEM_DECKS,
+    MAX_GEM_LUCK,
+    Coverage,
+    Edge,
+    Node,
+    Subgraph,
+)
 from graph7ph.trends import (
     MAJOR_FIELD_SIZE,
     MIN_CAREER_MAJORS,
@@ -281,13 +289,13 @@ def test_a_view_opens_with_dropdown_guidance_not_duplicated_prompt_cards(tmp_pat
     # guidance constants and the results-stack visibility, so a regression that revives
     # the duplicated prompt cards (or drops the dropdown guidance) trips here.
     import gradio as gr
-    from graph7ph.app import _PICK_ARCHETYPE, _PICK_CARD, _PICK_PILOT
+    from graph7ph.app import _PICK_CARD, _PICK_PILOT
 
     demo = _built_demo(tmp_path, snapshot_dir)
 
     infos = {b.info for b in demo.blocks.values()
              if isinstance(b, gr.Dropdown) and b.info}
-    assert {_PICK_PILOT, _PICK_CARD, _PICK_ARCHETYPE} <= infos
+    assert {_PICK_PILOT, _PICK_CARD} <= infos
 
     # No result surface carries the old duplicated prompt text on open.
     surface = " ".join(
@@ -297,17 +305,29 @@ def test_a_view_opens_with_dropdown_guidance_not_duplicated_prompt_cards(tmp_pat
     assert "Pick an entity and filters, then Draw" not in surface
 
 
-def test_hidden_gems_requires_an_archetype():
-    # The gem view is entered by archetype and no longer offers a format-wide default:
-    # with no archetype picked `_spec` returns None (so `run_graph` shows the prompt
-    # rather than drawing), and a chosen archetype builds the query. This guards the
-    # mandatory-archetype behaviour the "(optional)" label used to advertise.
-    from graph7ph.app import _spec
+def test_the_gem_view_takes_no_archetype(tmp_path, snapshot_dir):
+    # Issue #184 removes the archetype dropdown: the tab draws every gem in the format
+    # at once, so there is nothing to pick and nothing to wait for. The spec is
+    # parameterless, no control anywhere in the app asks for a gem archetype, and the
+    # view is a drawn result at build time rather than a prompt.
+    import gradio as gr
+    from graph7ph.app import _spec, build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
     from graph7ph.query import HiddenGems
 
-    assert _spec("meta_gems", {"gem_archetype": ""}) is None
-    assert _spec("meta_gems", {"gem_archetype": None}) is None
-    assert _spec("meta_gems", {"gem_archetype": "ramp"}) == HiddenGems("ramp")
+    assert _spec("meta_gems", {}) == HiddenGems()
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    demo = build_app(artifact)
+
+    guidance = " ".join(b.info for b in demo.blocks.values()
+                        if isinstance(b, gr.Dropdown) and b.info)
+    assert "gem" not in guidance.lower()
+    surface = " ".join(b.value for b in demo.blocks.values()
+                       if isinstance(b, gr.HTML) and isinstance(b.value, str))
+    assert "Hidden gems" in surface  # drawn on open, not behind a Draw
 
 
 def test_every_underlying_query_still_has_a_plot_heading():
@@ -447,108 +467,122 @@ def test_the_subject_is_stated_once_and_escaped():
     assert "A&lt;b&gt;" in escaped
 
 
-def _gems(*cards):
-    """A gem subgraph from ``(canon, decks, pilots, mean_norm, gem_prob)`` tuples."""
-    return Subgraph(
-        nodes=[
-            Node(f"card:{canon}", canon.title(), "Card", decks=decks, pilots=pilots,
-                 mean_norm=mean, gem_prob=prob)
-            for canon, decks, pilots, mean, prob in cards
-        ] + [Node("deck:d1", "p - Storm", "Deck")],
-        edges=[],
-    )
+def _gems(*cards, luck=1.0):
+    """A gem subgraph from ``(archetype, canon, decks, top, pilots, chance)`` tuples."""
+    nodes, edges = [], []
+    for tag, canon, decks, top, pilots, chance in cards:
+        arch, card = f"arch:{tag}", f"card:{tag}:{canon}"
+        if arch not in {n.id for n in nodes}:
+            nodes.append(Node(arch, tag.title(), "Archetype", decks=100))
+        nodes.append(Node(card, canon.title(), "Card", decks=decks, total_decks=100,
+                          top_decks=top, pilots=pilots, gem_luck=chance))
+        edges.append(Edge(arch, card, "IN"))
+    nodes.append(Node("deck:d1", "p - Storm", "Deck"))
+    return Subgraph(nodes=nodes, edges=edges, expected_by_luck=luck)
 
 
-def test_every_gem_states_its_evidence_beside_its_finish():
-    # Issue #176: the band is a hard cut on a mean a median gem takes from six decks,
-    # and the drawn graph shows a reader none of that. Every gem carries what it rests
-    # on (decks, and how many pilots those decks belong to) and how much of its crossing
-    # survives being read as a claim about the card, beside the finish itself. Two gems
-    # on the same finish, one of them one pilot's pet card.
+def test_every_gem_states_the_whole_claim_beside_its_odds():
+    # Issue #184: the picture draws which best decks run which card and carries no
+    # number at all, so the table is where the claim is stated. Each row is the claim
+    # in the order it is built: the card, the archetype every term was measured inside,
+    # how rare it is there, how much of it is in that archetype's best third, how many
+    # pilots those decks belong to, and how often chance alone does that much.
     table = _gem_table(_gems(
-        ("pet", 6, 1, 0.25, 0.0007),
-        ("spread", 6, 6, 0.25, 0.42),
+        ("lands", "port", 21, 13, 10, 0.0039),
+        ("bant", "leyline", 24, 18, 3, 0.00001),
     ))
 
-    # One row per gem; the decks the graph draws are not rows in it.
-    assert table.count("<tr>") == 3  # the header row and one per gem
+    assert table.count("<tr") == 3  # the header row and one per gem
+    # The archetype is named on every row: two gems from two archetypes are two
+    # claims, and the list spans the format now.
+    assert ">Lands<" in table and ">Bant<" in table
+    # The decks the graph draws are not rows in it.
     assert "Storm" not in table
-    # The finish is the app's higher-is-better score, the two counts are counts, and
-    # the chance is a share in the one numeric convention.
-    assert ">0.75<" in table
-    assert ">1<" in table and ">6<" in table
-    assert numfmt.share(0.0007) in table and numfmt.share(0.42) in table
+    assert ">21<" in table and ">13<" in table and ">10<" in table
+    assert numfmt.share(0.0039) in table
+
+    # Grouped by archetype, and within one archetype the longest odds lead: a gem is
+    # a claim about its own archetype, so a flat ranking would invite reading two
+    # archetypes' cards against each other.
+    rows = _gem_table(_gems(
+        ("lands", "port", 21, 13, 10, 0.0039),
+        ("bant", "leyline", 24, 18, 3, 0.00001),
+        ("lands", "vault", 10, 8, 6, 0.0002),
+    ))
+    assert [c for c in ("Leyline", "Vault", "Port") if c in rows] == [
+        "Leyline", "Vault", "Port"
+    ]
+    assert rows.index("Leyline") < rows.index("Vault") < rows.index("Port")
 
 
-def test_a_vanishing_gem_chance_reads_as_below_the_smallest_share_not_as_zero():
-    # 65 of the 283 gems on the built graph sit under 0.005%, which the app's share
-    # convention rounds to a flat "0%". A gem that cleared the band is not impossible,
-    # and printing it as impossible is the same overclaim as printing it as settled,
-    # pointed the other way. Below what the convention can write, it says so.
-    table = _gem_table(_gems(("faint", 5, 2, 0.30, 1.8e-11)))
+def test_alternate_archetypes_are_banded_so_each_block_reads_apart():
+    # The rows are grouped, and a group is only useful if a reader can see where one
+    # archetype's gems stop. Alternate archetypes are shaded whole, so the blocks read
+    # apart without a rule or a hue: every row of one block carries the band, no row of
+    # its neighbours does, and the archetype stays named on each row.
+    table = _gem_table(_gems(
+        ("lands", "port", 21, 13, 10, 0.0039),
+        ("lands", "vault", 10, 8, 6, 0.0002),
+        ("bant", "leyline", 24, 18, 3, 0.00001),
+        ("storm", "ritual", 9, 7, 5, 0.0001),
+    ))
+    rows = re.findall(r"<tr[^>]*>.*?</tr>", table)[1:]  # past the header
+
+    banded = ["band" in row for row in rows]
+    named = [re.findall(r"<td[^>]*>([^<]*)</td>", row)[1] for row in rows]
+    assert named == ["Bant", "Lands", "Lands", "Storm"]
+    assert banded == [False, True, True, False]  # one band per archetype, alternating
+    assert table.count(">Lands<") == 2  # named on each of its rows, not once a block
+
+
+def test_every_class_the_gem_table_emits_is_one_the_stylesheet_draws():
+    # The table is raw markup the app builds, so a class named here and nowhere in the
+    # stylesheet renders as an unstyled browser default table on a dark card: the
+    # grouping would simply not be drawn.
+    table = _gem_table(_gems(
+        ("lands", "port", 21, 13, 10, 0.0039),
+        ("lands", "vault", 10, 8, 6, 0.0002),
+    ))
+    css = theme.build_css()
+
+    classes = set(re.findall(r"class='([^']+)'", table))
+    for name in {c for group in classes for c in group.split()}:
+        assert f".{name}" in css, name
+
+
+def test_a_vanishing_chance_reads_as_below_the_smallest_share_not_as_zero():
+    # The strongest gems on the built graph sit far under 0.005%, which the app's share
+    # convention rounds to a flat "0%". "Chance alone would never do this" is a
+    # different claim from "chance alone does this less often than we can write", and
+    # only the second one is true.
+    table = _gem_table(_gems(("bant", "leyline", 24, 18, 3, 1.8e-11)))
 
     assert ">0%<" not in table
     assert f"&lt;{numfmt.share(0.0001)}" in table
 
     # And only where the convention truly cannot write it: a chance it can write is
-    # written, since an "under" that swallowed writable values would understate them.
-    writable = _gem_table(_gems(("thin", 5, 2, 0.30, 0.00007)))
+    # written, since an "under" that swallowed writable values would overstate them.
+    writable = _gem_table(_gems(("lands", "vault", 10, 8, 6, 0.00007)))
     assert f">{numfmt.share(0.00007)}<" in writable
     assert "&lt;" not in writable
 
 
-def test_a_gem_with_no_statable_chance_reads_as_unstated_not_as_zero():
-    # `gem_prob` is None where the record cannot fit a spread over cards at all, which
-    # is "we cannot say" and not "no chance". Printing it as 0% would be the overclaim
-    # this ticket removes, inverted.
-    table = _gem_table(_gems(("tech", 5, 5, 0.30, None)))
-
-    assert numfmt.share(0) not in table
-    assert "&ndash;" in table
-
-
-def test_the_gem_caption_states_the_sample_the_band_cut_on():
-    # AC (#176): the surface says that membership near the threshold turns on a handful
-    # of decks. The caption carries it with this slice's own sample beside it, since the
-    # median gem rests on six decks and no reader can see that from the picture.
+def test_the_gem_caption_says_what_the_list_is_and_nothing_else():
+    # One clause: how many gems, and the cut they were found in. The false-positive
+    # count the rule carries is real and stays on the page, but not here: it is a
+    # property of the list and of no row, so raising it beside the table asks "which
+    # ones?" at the one place with no room to answer. It lives in the FAQ instead,
+    # inside the answer to that question (`faq-gems-certainty`).
     caption = _gem_caption(_gems(
-        ("pet", 5, 1, 0.25, 0.0007),
-        ("spread", 9, 6, 0.30, 0.42),
-        ("tech", 7, 4, 0.31, 0.10),
+        ("lands", "port", 21, 13, 10, 0.0039),
+        ("bant", "leyline", 24, 18, 3, 0.00001),
+        ("jeskai", "noon", 29, 17, 15, 0.0023),
+        luck=8.45,
     ))
 
     assert "3 gems" in caption
-    # The median of 5, 7 and 9 decks, and of 1, 4 and 6 pilots.
-    assert "7 decks" in caption
-    assert "4 pilots" in caption
-    assert "near the bar" in caption
-
-
-def test_the_faq_says_how_settled_a_hidden_gem_is():
-    # AC (#176), mirroring the race's pair of entries (ADR 0017): one entry states the
-    # rule, a second states how much the rule settles. Without it the FAQ states the cut
-    # exactly and says nothing about the six decks it is usually cut on, which is the
-    # reading that made the tab overclaim.
-    settled = {eid: (cat, q, a) for eid, cat, q, a in _FAQ_ENTRIES}["faq-gems-certainty"]
-    category, question, answer = settled
-
-    assert category == "Cards"
-    assert "settled" in question.lower()
-    # The sample the band cuts on, who it belongs to, and the column that carries it.
-    assert "six decks" in answer
-    assert "pilot" in answer
-    assert "Gem chance" in answer
-
-
-def test_the_caption_claims_firmest_first_only_when_firmness_is_known():
-    # The table falls back to ordering by finish where no gem carries a chance (a record
-    # with no spread to fit), so a caption still promising "the firmest first" would
-    # describe an order the table is not in, over a column of dashes.
-    unstated = _gem_caption(_gems(("a", 5, 2, 0.20, None), ("b", 7, 3, 0.30, None)))
-
-    assert "firmest" not in unstated
-    assert "best finish first" in unstated
-
+    assert f"best {GEM_TOP_CUT:.0%}" in caption
+    assert "chance" not in caption and "8" not in caption
 
 def test_band_over_a_non_crossing_segment_is_one_trapezoid_tinted_by_the_upper_line():
     # a stays above b across the segment, so a single polygon carries a_above True.
@@ -2326,6 +2360,41 @@ def test_the_faq_says_what_each_surfaces_interval_covers_and_what_it_leaves_unse
     assert "coin" in timeline
 
 
+def test_the_faq_states_the_gem_rule_the_luck_in_it_and_why_nothing_is_filtered():
+    # AC (#184). Three entries, because the tab now raises three questions and the old
+    # pair answers none of them: what the rule is now that the performance bar is gone,
+    # how much of the list is coincidence (the honesty requirement the design rests on,
+    # since it has no validation route), and why a tab that used to demand an archetype
+    # now offers nothing to pick.
+    entries = {eid: (cat, q, a) for eid, cat, q, a in _FAQ_ENTRIES}
+
+    _, _, rule = entries["faq-gems"]
+    # Measured inside one archetype, against that archetype's own best decks; the
+    # absolute top-third-of-the-format bar it replaces must not survive in the copy.
+    assert "archetype" in rule
+    assert "top third of the format" not in rule
+    # The cut is named off the constant, never spelled out in prose: the sweep moved it
+    # from a third to a fifth, and copy that restates a swept number drifts silently
+    # the next time it moves.
+    assert f"best {GEM_TOP_CUT:.0%}" in rule
+    assert "third" not in rule
+    # And the picture samples the decks, so the copy that describes the picture says so.
+    assert str(MAX_GEM_DECKS) in rule
+
+    category, question, certainty = entries["faq-gems-certainty"]
+    assert category == "Cards"
+    assert "settled" in question.lower()
+    # The count, and that nothing says which cards it applies to. This is its only
+    # home now that the caption states the list and stops, so it states the bar itself
+    # rather than pointing at a line that no longer carries it.
+    assert "chance" in certainty and "which" in certainty
+    assert "caption" not in certainty
+    assert f"{MAX_GEM_LUCK:.0%}" in certainty
+
+    _, question, unfiltered = entries["faq-gems-unfiltered"]
+    assert "filter" in (question + unfiltered).lower()
+
+
 def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
     # The column that stops the table overclaiming (ADR 0017). A score printed to three
     # decimals over a median eight majors reads as a settled order and is not one, so
@@ -2416,9 +2485,10 @@ def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_pat
         pytest.skip(f"cannot grade the real record: {staleness(artifact)}")
     demo = build_app(artifact)
 
-    tables = [b.value for b in demo.blocks.values()
-              if isinstance(b, gr.HTML) and "leaderboard" in (b.value or "")]
-    (table,) = tables
+    # Found by the race's own column, not by the shared table class: the gem table
+    # wears that class too and is drawn at build time since #184.
+    (table,) = [b.value for b in demo.blocks.values()
+                if isinstance(b, gr.HTML) and "Rank CI" in (b.value or "")]
     # Capped at the display cut, and every drawn line is marked in the table.
     assert table.count("<tr") == _LEADERBOARD_ROWS + 1
     assert table.count("swatch-hue") == _RACE_LINES
