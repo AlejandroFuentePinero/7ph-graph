@@ -14,6 +14,7 @@ a shared string.
 """
 
 import math
+import statistics
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
@@ -28,18 +29,42 @@ Kind = Literal[
 
 # The hidden-gem rule, fixed rather than exposed as controls (ADR 0012): the
 # question "which rare cards overperform?" has one answer, not one per dial. Every
-# one of the four was swept rather than chosen, over 135 combinations scored on
+# one of the four was swept rather than chosen, over 144 combinations scored on
 # genuine finds (found minus what chance alone would find) under the node budget
-# below, and this cell won by a clear margin (ADR 0020).
-MIN_GEM_DECKS = 6  # trust floor: an absolute count, so it holds at any slice size
+# below, and this cell won by a clear margin (ADR 0020). The score is exact rather
+# than simulated, the null being a convolution of hypergeometric tails, so a cell
+# that wins by a tenth of a find wins by a tenth of a find.
+MIN_GEM_DECKS = 5  # trust floor: an absolute count, so it holds at any slice size
 MAX_GEM_SHARE = 0.15  # rarity ceiling: a share, so it means the same in any slice
 GEM_TOP_CUT = 0.20  # the archetype's own best fifth, the cut a gem must crowd
 MAX_GEM_LUCK = 0.010  # how often chance alone may explain that crowding
 
+# How much of a deck's finish is explained by who piloted it, over every ranked deck
+# (one-way random-effects ICC of `placementNorm` grouped by pilot, unbalanced, 4567
+# decks over 1075 pilots). Measured, not chosen, and reported by `scripts/gem_sweep.py`
+# so it is re-read whenever the corpus grows.
+#
+# It is here because the null above counts decks and the claim needs people. A card in
+# seven of an archetype's best decks reads as seven players independently arriving at
+# the same idea, which is evidence; the same seven decks from three players is one
+# player's habit counted several times, which is not. Strong pilots finish high
+# repeatedly and carry every card in the 60 up with them, including the ones doing
+# nothing, so a pet card inherits its pilot's skill as though it were its own.
+#
+# Stratifying by event does not touch this: ADR 0004 puts one deck per pilot per event,
+# so within a stratum every deck is already a different player and the correlation lives
+# entirely across events. It is a second, independent break of the same exchangeability
+# assumption ADR 0020 leans on.
+PILOT_ICC = 0.226
+
+# Held once: `NormalDist` carries no state between calls and the deflation asks it for
+# two quantiles per screened card.
+_NORMAL = statistics.NormalDist()
+
 # The two bounds cross here: below this many ranked decks the ceiling falls under
 # the floor and the rule is empty by construction, because "rare" and "attested
-# by 6 decks" are contradictory in a small slice (6 decks IS a seventh of a
-# 40-deck archetype). That is not a bug to paper over: the slice genuinely cannot
+# by 5 decks" are contradictory in a small slice (5 decks IS a seventh of a
+# 34-deck archetype). That is not a bug to paper over: the slice genuinely cannot
 # support a gem claim, so it is skipped rather than lowering the floor and
 # reporting noise. Rounded UP, never to nearest: the smallest slice admitted must
 # satisfy `MIN_GEM_DECKS <= MAX_GEM_SHARE * MIN_GEM_SLICE`, and rounding down
@@ -55,19 +80,22 @@ MIN_GEM_SLICE = math.ceil(MIN_GEM_DECKS / MAX_GEM_SHARE)
 # cycle; `test_the_gem_node_budget_is_the_render_threshold` holds the two equal.
 MAX_GEM_NODES = 250
 
-# How many of a gem's top-cut decks the picture draws. The screen counts them all;
-# only the drawing is capped, and `top_decks` on the card node stays the true count.
+# There is deliberately no cap on how many of a gem's top-cut decks the picture draws,
+# so what the card node counts and what the canvas shows are the same set and the
+# table's "In top" column can be checked against the picture rather than explained away.
 #
-# The deck layer is where this view collapses, and not for want of tuning: an
-# archetype's best decks nearly all run nearly all of its gems, so their nodes share a
-# neighbourhood, a force layout has nothing to separate them by, and they settle on one
-# another with their labels on top. Measured on the built graph, 64 of the 75 decks
-# drawn had an identical neighbour set to some other deck, and Initiative alone drew 41
-# edges between 6 cards and 10 decks. Drawing five of each gem's best takes that to 42
-# of 55 and 30 edges over 7 decks, which is a picture a reader can pick a deck out of.
-# Five rather than three because a deck two gems share is the one thing here the table
-# cannot say, and the overlaps are what thin out first.
-MAX_GEM_DECKS = 5
+# One was carried until the null was stratified by event, on the grounds that the deck
+# layer collapses: an archetype's best decks nearly all run nearly all of its gems, so
+# their nodes share a neighbourhood, a force layout has nothing to separate them by, and
+# they settle on one another with their labels on top. That collapse is real and the cap
+# was not what fixed it. Measured on the built graph against the current list, a cap of
+# five ties every one of the 27 decks it draws, where drawing all 38 ties 33 of them
+# (87%). Collapsing is a property of how gems overlap inside an archetype rather than of
+# how many decks are drawn, and the capped picture is if anything the worse of the two,
+# so the cap bought 11 fewer nodes and no legibility, against a picture that disagreed
+# with its own table.
+# The node budget above is what guards the canvas, and it now cuts the list of gems
+# rather than the evidence behind each one.
 
 
 # A deck with no recorded placement cannot confirm over- or under-performance,
@@ -114,8 +142,9 @@ class Node:
     # it is rare in (issue #184).
     top_decks: int | None = None
     # How often chance alone would put this many of a card this rare in that cut: the
-    # exact hypergeometric tail the gem was admitted on, riding out as a value rather
-    # than only as the filter that produced it. Low is the claim.
+    # exact tail the gem was admitted on (`_gem_tails`, read inside the events the card
+    # turned up at), riding out as a value rather than only as the filter that produced
+    # it. Low is the claim.
     gem_luck: float | None = None
 
 
@@ -666,44 +695,135 @@ def card_cooccurrence_subgraph(
 # Cached because a format holds far fewer distinct `(total, top, decks)` shapes than it
 # holds cards, and the screen asks for the same shape once per card sharing it.
 @lru_cache(maxsize=None)
-def _hypergeometric_tails(total: int, top: int, decks: int) -> tuple[float, ...]:
-    """``P(at least i land in the cut)`` for every ``i``, for a card in ``decks`` of ``total``.
+def _hypergeometric_pmf(total: int, top: int, decks: int) -> tuple[float, ...]:
+    """``P(exactly i land in the cut)``, drawing ``decks`` of ``total`` that hold ``top``.
 
-    The null the whole rule rests on: a card that does nothing sits in a *random*
-    ``decks`` of its archetype's ``total`` ranked decks, so how many of them land in
-    the archetype's ``top`` cut is hypergeometric. Entry ``i`` is the chance at least
-    ``i`` do, which is what an observed count is read against and, at the other end,
-    how often chance alone clears the threshold.
-
-    Exact, not simulated: integer binomials divided once, so nothing is drawn, there
-    is no seed to hold, and two calls on one artifact agree bit for bit. The whole
-    array costs what a single tail would, which is what makes screening every card of
-    every archetype affordable.
+    One stratum of :func:`_gem_tails`. Exact, not simulated: integer binomials divided
+    once, so nothing is drawn, there is no seed to hold, and two calls on one artifact
+    agree bit for bit.
     """
     base = math.comb(total, decks)
     # `comb` is 0 where a term is impossible (more hits than the cut holds, or more
-    # misses than sit outside it), so the sum needs no bounds of its own.
-    pmf = [math.comb(top, i) * math.comb(total - top, decks - i) / base
-           for i in range(decks + 1)]
-    tails = [0.0] * (decks + 2)
-    for i in range(decks, -1, -1):
-        tails[i] = tails[i + 1] + pmf[i]
-    return tuple(tails[:decks + 1])
+    # misses than sit outside it), so the range needs no bounds of its own.
+    return tuple(math.comb(top, i) * math.comb(total - top, decks - i) / base
+                 for i in range(decks + 1))
 
 
-def _luck_of_clearing(shape: tuple[int, int, int], threshold: float) -> float:
+# One stratum of the null: an event, the archetype's ranked decks played there, how many
+# of those sit in the archetype's cut, and how many of them the card is in.
+Stratum = tuple[int, int, int]
+
+
+@lru_cache(maxsize=None)
+def _gem_tails(strata: tuple[Stratum, ...]) -> tuple[float, ...]:
+    """``P(at least i land in the cut)`` for every ``i``, under the event-stratified null.
+
+    The null the whole rule rests on, and the one thing about it that is not obvious:
+    it is asked **inside each event**, not across the archetype. A card that does
+    nothing sits at the events it sits at, and within each of those it is a random one
+    of that archetype's decks there, so its hits at one event are hypergeometric and
+    the whole is their convolution. Entry ``i`` is the chance at least ``i`` land in
+    the cut, which is what an observed count is read against and, at the other end,
+    how often chance alone clears the bar.
+
+    **Inside the event, because the event decides most of whether a deck is in the
+    cut.** 26 of the 107 events publish only a top cut rather than a field: SSWam
+    records 7 decks against a field of 88, so all 7 score between 0.00 and 0.05 while
+    the ~81 entrants who missed the bracket carry no decklist here at all. That is not
+    a field-size error and the correction ADR 0015 makes does not reach it, the field
+    being right and the record short. Correcting a field in fact *strengthens* the
+    tilt, since recognising a bracket as the top of a 24-player field is recognising
+    those decks as good: Pats Birthday Brawl's mean norm moves 0.375 to 0.114 under
+    Rule B. Measured over the offered archetypes, a deck from such an event lands in
+    its archetype's cut 70% of the time against 18% for a deck from a full-coverage
+    event, so two cards of the same rarity are not exchangeable and an unstratified
+    tail is not the probability it prints.
+
+    That was ADR 0020's one wrong claim, that "the hypergeometric null is exact
+    whatever decks the cut is drawn from". Simulating the unstratified screen under
+    this null puts its true expected-by-luck at 9.3 where it reported 7.0, and 13 of
+    the 20 cards it admitted do not clear the bar once the question is asked inside
+    the event. What it costs is list length rather than evidence: 12 cards at 3.5
+    expected by luck, against 20 at a true 9.3. Charging those 12 for their pilots
+    (:func:`_pilot_deflated`) then takes the shipped list to 7.
+
+    A card whose decks all sit at one event, or in an archetype fielding one deck per
+    event, folds to forced strata and comes back 1.0. That is an answer rather than a
+    failure: there is nothing to compare the card against, so nothing about it is being
+    said.
+
+    ``strata`` arrives canonically sorted, which the cache needs and float addition
+    needs: the convolution is not associative, so an order that moved between calls
+    would move the last digits of a number the FAQ tells a reader to take as settled.
+    """
+    dist = (1.0,)
+    for stratum in strata:
+        pmf = _hypergeometric_pmf(*stratum)
+        folded = [0.0] * (len(dist) + len(pmf) - 1)
+        for i, carried in enumerate(dist):
+            if not carried:
+                continue
+            for j, chance in enumerate(pmf):
+                folded[i + j] += carried * chance
+        dist = tuple(folded)
+    tails = [0.0] * (len(dist) + 1)
+    for i in range(len(dist) - 1, -1, -1):
+        tails[i] = tails[i + 1] + dist[i]
+    return tuple(tails[:len(dist)])
+
+
+def _pilot_deflated(tail: float, decks: int, pilots: int) -> float:
+    """One tail, charged for the pilots behind it rather than the decks.
+
+    The correction is the survey-statistics one: a design effect
+    ``1 + (mean decks per pilot - 1) * PILOT_ICC`` says how many independent results
+    this card's decks are really worth, and the tail is deflated by it. A card whose
+    decks are all different players has a mean of 1, a design effect of 1, and comes
+    back untouched, which is the point: only repetition is charged for.
+
+    The deflation runs on the z scale, the standard Rao-Scott move, because the tail
+    itself has no variance to divide. That is a normal approximation to a discrete
+    tail, so it is honest about direction and size and not about the fourth digit: it
+    is here to stop a card resting on one player's habit, not to price one exactly.
+
+    What it does is pull the statistic **toward the null**, which is the whole content
+    of a reduced effective sample size, so read "deflated" as "moved toward 0.5" and not
+    as "made larger". Below 0.5 the two are the same thing and that is the only region
+    the rule reads: a tail is only ever compared against :data:`MAX_GEM_LUCK`. Above
+    0.5 the tail shrinks instead (0.8 comes back 0.75), which is the same correction
+    applied to a card finishing *under* expectation and is equally right, but it means
+    a caller must not treat this as a monotone one-way inflation over the whole 0-to-1
+    range. Nothing here does; the caller looks for the first tail under a bar of 0.01.
+    """
+    if pilots >= decks:
+        return tail
+    design = 1 + (decks / pilots - 1) * PILOT_ICC
+    z = _NORMAL.inv_cdf(1 - min(max(tail, 1e-15), 1 - 1e-15))
+    return 1 - _NORMAL.cdf(z / math.sqrt(design))
+
+
+def _luck_of_clearing(
+    strata: tuple[Stratum, ...], decks: int, pilots: int, threshold: float
+) -> float:
     """How often chance alone admits a card of this shape at ``threshold``.
 
     Not ``threshold`` itself, and the difference is why the count is summed this way.
-    A card in six decks has only seven possible outcomes, so the smallest tail it can
-    reach may sit well under the bar (six of six in a 20% cut of 200 lands at 0.00005,
-    against a bar of :data:`MAX_GEM_LUCK`) while a card in twenty has finer steps. Each card's own chance of clearing
+    A card in five decks has only six possible outcomes, so the smallest tail it can
+    reach may sit well under the bar (five of five in a 20% cut of 200 lands at 0.00026,
+    against a bar of :data:`MAX_GEM_LUCK`) while a card in twenty has finer steps. Each
+    card's own chance of clearing
     is its first tail at or under the threshold, since the tails fall as the hit count
     rises; ``0.0`` for a card so common that even all of its decks in the cut would
-    not be surprising.
+    not be surprising, and for one whose strata leave it nothing to vary.
+
+    Deflated exactly as the screen deflates, so the count is summed over the bar the
+    screen actually applied rather than the one it would have without pilots.
     """
     return next(
-        (tail for tail in _hypergeometric_tails(*shape) if tail <= threshold), 0.0
+        (deflated
+         for tail in _gem_tails(strata)
+         if (deflated := _pilot_deflated(tail, decks, pilots)) <= threshold),
+        0.0,
     )
 
 
@@ -718,31 +838,43 @@ class _Gem:
     arch_name: str
     total: int  # the archetype's ranked decks, the base its rarity is a share of
     decks: int
-    top: tuple[str, ...]  # its decks in the archetype's top cut, that cut's own order
+    # Its decks in the archetype's top cut, in that cut's own order, so the best of them
+    # is the front of the tuple. This is the whole claim and the whole picture at once:
+    # every one of these is drawn, so `top_decks` on the card node counts exactly the
+    # deck nodes a reader can see hanging off it.
+    top: tuple[str, ...]
     pilots: int
 
-    @property
-    def drawn(self) -> tuple[str, ...]:
-        """The decks the picture shows: the best :data:`MAX_GEM_DECKS` of the claim.
 
-        Split from ``top`` rather than replacing it, because the two answer different
-        questions and only one of them is evidence: ``top`` is what the card did and
-        every number on screen is measured from it, ``drawn`` is how much of that a
-        reader can be shown at once without the deck layer collapsing.
-        """
-        return self.top[:MAX_GEM_DECKS]
+@dataclass(frozen=True)
+class _Slice:
+    """One archetype big enough to ask: its cut, and the strata a card is read against.
+
+    ``cut`` is in its own order, best finish first, so a gem's best decks are a prefix
+    of it and no second reading of the finishes is needed to draw them. ``event`` and
+    ``field`` are what :func:`_gem_tails` needs and nothing else reads: which event each
+    of the archetype's ranked decks was played at, and, per event, how many of the
+    archetype's decks sat there and how many of those are in the cut.
+    """
+
+    name: str
+    total: int
+    cut: tuple[str, ...]
+    event: dict[str, str]  # deck id -> its event
+    field: dict[str, tuple[int, int]]  # event -> (the archetype's decks, of them in cut)
 
 
-def _gem_slices(conn: ladybug.Connection) -> dict[str, tuple[str, int, tuple[str, ...]]]:
-    """Each archetype big enough to ask, as ``(name, ranked decks, its top cut)``.
-
-    The cut is returned in its own order, best finish first, so a gem's best decks are
-    a prefix of it and no second reading of the finishes is needed to draw them.
+def _gem_slices(conn: ladybug.Connection) -> dict[str, _Slice]:
+    """Each archetype big enough to ask, with the cut and strata a gem is scored against.
 
     The cut is the leading :data:`GEM_TOP_CUT` of the archetype's ranked decks by
     finish. Ties are broken on the deck id, so two decks that finished identically can
     land on opposite sides of the cut: arbitrary, and deliberate, since a cut has to
     fall somewhere and only a deterministic rule makes one artifact draw one answer.
+    It is also close to free here: of the 40 slices and 711 cut decks on the built
+    graph, 2 slices have their cut boundary land on a tie at all, 4 decks sharing those
+    two boundary finishes between them, and no gem changes under a randomised
+    tie-break.
     Counted by the **primary** tag alone, the aggregate rule ``CONTEXT.md`` fixes for
     exactly this reason: a deck may carry several weighted archetype tags, so counting
     every one of them sums to about 160% of the record and would put one deck in several
@@ -751,21 +883,33 @@ def _gem_slices(conn: ladybug.Connection) -> dict[str, tuple[str, int, tuple[str
     because below it the rarity ceiling has fallen under the trust floor and the rule
     is empty by construction (ADR 0012). No slice is ever put to a reader now, so this
     is a silent skip rather than the refusal that rule used to raise.
+
+    The event rides along because the null is asked inside it (:func:`_gem_tails`), and
+    it is read here rather than in a query of its own so that the decks the strata are
+    counted over and the decks the cut is drawn from are the same rows.
     """
-    ranked: dict[str, tuple[str, list[tuple[float, str]]]] = {}
-    for tag, name, deck_id, norm in rows(conn.execute(
-        f"""MATCH (d:Deck)-[:HAS_ARCHETYPE {{isPrimary: true}}]->(a:Archetype)
+    ranked: dict[str, tuple[str, list[tuple[float, str]], dict[str, str]]] = {}
+    for tag, name, deck_id, norm, event in rows(conn.execute(
+        f"""MATCH (d:Deck)-[:HAS_ARCHETYPE {{isPrimary: true}}]->(a:Archetype),
+                  (d)-[:PLAYED_AT]->(e:Event)
            WHERE {_RANKED}
-           RETURN a.tag, a.name, d.deckId, d.placementNorm"""
+           RETURN a.tag, a.name, d.deckId, d.placementNorm, e.event"""
     )):
-        ranked.setdefault(tag, (name, []))[1].append((norm, deck_id))
+        held = ranked.setdefault(tag, (name, [], {}))
+        held[1].append((norm, deck_id))
+        held[2][deck_id] = event
     slices = {}
-    for tag, (name, decks) in ranked.items():
+    for tag, (name, decks, event) in ranked.items():
         if len(decks) < MIN_GEM_SLICE:
             continue
         decks.sort()
-        cut = max(1, round(len(decks) * GEM_TOP_CUT))
-        slices[tag] = (name, len(decks), tuple(deck_id for _, deck_id in decks[:cut]))
+        cut = tuple(deck_id for _, deck_id in decks[:max(1, round(len(decks) * GEM_TOP_CUT))])
+        in_cut = set(cut)
+        field: dict[str, tuple[int, int]] = {}
+        for _, deck_id in decks:
+            held, topped = field.get(event[deck_id], (0, 0))
+            field[event[deck_id]] = (held + 1, topped + (deck_id in in_cut))
+        slices[tag] = _Slice(name, len(decks), cut, event, field)
     return slices
 
 
@@ -810,36 +954,55 @@ def _deck_pilots(conn: ladybug.Connection) -> dict[str, str]:
     )))
 
 
+def _strata(slice_: _Slice, deck_ids: set[str]) -> tuple[Stratum, ...]:
+    """One card's shape under the null: a stratum per event it turned up at.
+
+    Sorted, so the tuple is canonical for :func:`_gem_tails`'s cache and for the
+    float determinism its convolution needs. Two cards with the same shape are the
+    same question whichever events they happen to name, so the event itself is not
+    part of the key.
+    """
+    here: dict[str, int] = {}
+    for deck_id in deck_ids:
+        event = slice_.event[deck_id]
+        here[event] = here.get(event, 0) + 1
+    return tuple(sorted(
+        (*slice_.field[event], drawn) for event, drawn in here.items()
+    ))
+
+
 def _screen_gems(
     conn: ladybug.Connection,
-) -> tuple[list[_Gem], list[tuple[int, int, int]]]:
+) -> tuple[list[_Gem], list[tuple[tuple[Stratum, ...], int, int]]]:
     """Every card the rule admits, and the shape of every card it looked at.
 
-    The second return is what makes the first honest. It is one ``(total, top, decks)``
-    per *screened* card, admitted or not, and it is the population the expected-by-luck
-    count is summed over: the cards that failed are most of the evidence about how
-    often this bar is cleared by accident, so a list of survivors alone cannot say how
-    many survivors are accidents.
+    The second return is what makes the first honest. It is one shape per *screened*
+    card, admitted or not, and it is the population the expected-by-luck count is
+    summed over: the cards that failed are most of the evidence about how often this
+    bar is cleared by accident, so a list of survivors alone cannot say how many
+    survivors are accidents. Each carries its deck and pilot counts, since the bar a
+    card was held to depends on both (:func:`_pilot_deflated`).
     """
     slices = _gem_slices(conn)
     candidates = _gem_candidates(conn, set(slices))
     pilots = _deck_pilots(conn)
     found: list[_Gem] = []
-    screened: list[tuple[int, int, int]] = []
+    screened: list[tuple[tuple[Stratum, ...], int, int]] = []
     for (tag, canon), (name, deck_ids) in candidates.items():
-        arch_name, total, cut = slices[tag]
+        slice_ = slices[tag]
         count = len(deck_ids)
-        if count < MIN_GEM_DECKS or count > MAX_GEM_SHARE * total:
+        if count < MIN_GEM_DECKS or count > MAX_GEM_SHARE * slice_.total:
             continue
-        shape = (total, len(cut), count)
-        screened.append(shape)
+        strata = _strata(slice_, deck_ids)
+        pilot_count = len({pilots[deck_id] for deck_id in deck_ids})
+        screened.append((strata, count, pilot_count))
         # Kept in the cut's order, so the best of them is the front of the tuple.
-        top = tuple(deck_id for deck_id in cut if deck_id in deck_ids)
-        luck = _hypergeometric_tails(*shape)[len(top)]
+        top = tuple(deck_id for deck_id in slice_.cut if deck_id in deck_ids)
+        luck = _pilot_deflated(_gem_tails(strata)[len(top)], count, pilot_count)
         if luck <= MAX_GEM_LUCK:
             found.append(_Gem(
-                luck, tag, canon, name, arch_name, total, count, top,
-                len({pilots[deck_id] for deck_id in deck_ids}),
+                luck, tag, canon, name, slice_.name, slice_.total, count, top,
+                pilot_count,
             ))
     # Longest odds first, then archetype and card, so one artifact draws one list and
     # the node budget below cuts from the weakest end.
@@ -851,21 +1014,26 @@ def _fit_to_budget(found: list[_Gem]) -> list[_Gem]:
     """The leading gems that fit within :data:`MAX_GEM_NODES`, in their own order.
 
     A gem costs a card node, its archetype where no stronger gem already brought it,
-    and each of the decks it *draws* not already drawn, so what a gem costs depends on
-    what precedes it. Taken as a prefix and stopped at the first gem that does not fit,
+    and each of its top-cut decks not already drawn, so what a gem costs depends on what
+    precedes it. Taken as a prefix and stopped at the first gem that does not fit,
     rather than packed with whatever still would: the drawn list has to stay "the
     strongest N", or the picture is of a set the reader cannot name.
+
+    This is the only cap on the picture now, and it cuts whole gems rather than the
+    decks behind one, which is the trade worth naming: a shorter list of fully evidenced
+    findings beats a longer list whose deck layer is a sample the reader cannot see the
+    edge of. It does not bind today, at 49 nodes against 250.
     """
     kept: list[_Gem] = []
     archetypes: set[str] = set()
     decks: set[str] = set()
     for gem in found:
-        cost = 1 + (gem.tag not in archetypes) + len(set(gem.drawn) - decks)
+        cost = 1 + (gem.tag not in archetypes) + len(set(gem.top) - decks)
         if len(kept) + len(archetypes) + len(decks) + cost > MAX_GEM_NODES:
             break
         kept.append(gem)
         archetypes.add(gem.tag)
-        decks |= set(gem.drawn)
+        decks |= set(gem.top)
     return kept
 
 
@@ -881,6 +1049,13 @@ def hidden_gems_subgraph(conn: ladybug.Connection) -> Subgraph:
     Nothing is compared across archetypes except the probability bar, which every
     drawn card clears identically.
 
+    That last question is asked one level finer still, **inside each event** the card
+    turned up at (:func:`_gem_tails`), because a quarter of the corpus's events publish
+    only a top cut and a deck from one lands in its archetype's cut 70% of the time
+    against 18% for a deck from a full field. Crowding the cut by having played where
+    only winners were recorded is not the card's doing, and an unstratified tail books
+    it as though it were.
+
     This replaces the absolute performance bar ADR 0012 fixed and #176 qualified,
     because that bar tracked a gem's *archetype* rather than the card: an average card
     in Storm scored 46% before its own record was read, and 39 of the 44 archetypes
@@ -889,12 +1064,12 @@ def hidden_gems_subgraph(conn: ladybug.Connection) -> Subgraph:
 
     Only decks with a recorded finish count, for either bound or the cut: a deck with
     no placement cannot say whether a card over- or under-performed, so it pads
-    nothing. The picture is ``Archetype -> Card <- Deck``, drawing each gem's best
-    :data:`MAX_GEM_DECKS` top-cut decks so every claim on screen can be opened and
-    read. The screen counts every deck; only the drawing is sampled, and a drawn deck
-    is wired to every gem of its archetype it runs, so what is on screen is true of
-    what is on screen. A card that is a gem in two archetypes is two nodes, since those
-    are two findings resting on two sets of decks.
+    nothing. The picture is ``Archetype -> Card <- Deck``, drawing every one of a
+    gem's top-cut decks so each claim on screen can be opened and read, and so the
+    ``In top`` column counts exactly the deck nodes hanging off that card. A drawn deck
+    is wired to every gem of its archetype it runs, so what is on screen is true of what
+    is on screen. A card that is a gem in two archetypes is two nodes, since those are
+    two findings resting on two sets of decks.
 
     The list is cut to :data:`MAX_GEM_NODES` (:func:`_fit_to_budget`) and carries
     ``expected_by_luck``: how many of the drawn cards chance alone would have put
@@ -920,7 +1095,10 @@ def hidden_gems_subgraph(conn: ladybug.Connection) -> Subgraph:
     # digits move between two runs over one artifact. The drift is ~5e-15 and would
     # never trip the oracle's tolerance, which is exactly the problem: the FAQ tells a
     # reader that a number which moved means the evidence moved.
-    expected = sum(sorted(_luck_of_clearing(shape, threshold) for shape in screened))
+    expected = sum(sorted(
+        _luck_of_clearing(shape, decks, pilots, threshold)
+        for shape, decks, pilots in screened
+    ))
 
     nodes: list[Node] = []
     edges: list[Edge] = []
@@ -951,13 +1129,12 @@ def hidden_gems_subgraph(conn: ladybug.Connection) -> Subgraph:
     # forty-character titles overlap into an unreadable mat: the picture's job is to
     # show *which* good decks run a card, and "who, and how well they finished" is that
     # in four words. The title is one click away on Moxfield.
-    # What the cap samples is decks, not edges: a deck is drawn because it is among
-    # some gem's best few, and once drawn it is wired to every gem of its archetype it
-    # runs, including one whose own best few it missed. Otherwise the picture shows a
-    # deck that visibly does not run a card it runs, and the overlaps between gems are
-    # exactly what it is drawn for. This adds no node: every drawn deck is inside its
-    # archetype's cut already, so a gem it runs holds it in `top` by construction.
-    drawn = {deck_id for gem in gems for deck_id in gem.drawn}
+    # A drawn deck is wired to every gem of its archetype it runs, not only to the one
+    # that brought it in. Otherwise the picture shows a deck that visibly does not run a
+    # card it runs, and the overlaps between gems are exactly what it is drawn for. This
+    # adds no node: every drawn deck is inside its archetype's cut already, so a gem it
+    # runs holds it in `top` by construction.
+    drawn = {deck_id for gem in gems for deck_id in gem.top}
     decks = sorted(drawn)
     by_deck: dict[str, str] = {}
     boards: dict[tuple[str, str], set[str]] = {}

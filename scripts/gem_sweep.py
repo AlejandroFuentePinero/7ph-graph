@@ -11,8 +11,10 @@ Every cell is scored on ``found - luck``: how many cards clear the bar, less how
 of them the null itself expects to clear it. Maximising the raw count is what a
 threshold always rewards and is the one thing the rule must not do. A cell qualifies
 only if it draws inside ``MAX_GEM_NODES`` and no more than half its list is luck; the
-half is a floor on being a finding at all, not a target, and the shipped cell sits far
-under it.
+half is a floor on being a finding at all, not a target. The shipped cell clears it by
+little: charging each card for the pilots behind its decks rather than the decks
+(``query.PILOT_ICC``) leaves the winner at 3.3 luck in a list of 7. That is the honest
+size of this finding on this corpus, and no cell in the grid does better.
 
 The null is imported rather than restated, so what is swept is the arithmetic the app
 runs. What is *not* imported is the screen itself: `query` screens at the shipped
@@ -45,12 +47,21 @@ from graph7ph.query import (
     MAX_GEM_NODES,
     MAX_GEM_SHARE,
     MIN_GEM_DECKS,
-    _hypergeometric_tails,
+    _gem_tails,
+    _pilot_deflated,
 )
 from graph7ph.trends import MAJOR_FIELD_SIZE
 
-# The grid. Each axis brackets the shipped value on both sides, so a cell winning at
-# an edge shows up as an edge and can be widened rather than silently taken.
+# The grid. Three of the four axes bracket the shipped value on both sides, so a cell
+# winning at an edge shows up as an edge and can be widened rather than silently taken.
+#
+# `SHARES` is the exception, and deliberately: 0.15 is the top of the axis *and* the
+# shipped value, because it is a definition rather than a measurement. Widening it wins
+# on this script's own score every time (0.20 scores 5.9 genuine against 0.15's 3.7,
+# and 0.30 scores 8.6, with no sign of a peak), and the premise refuses it: a card in
+# 30% of an archetype's decks is a staple, not hidden tech, so a ceiling chosen by the
+# score would be answering a different question (ADR 0020). Read a high-share cell as
+# out of scope rather than as a finding this grid missed.
 TOP_CUTS = (0.10, 0.20, 0.25, 0.33)
 SHARES = (0.05, 0.10, 0.15)
 FLOORS = (5, 6, 8)
@@ -74,31 +85,38 @@ _PRIMARY = "[:HAS_ARCHETYPE {isPrimary: true}]"
 def read_corpus(conn: ladybug.Connection) -> tuple[dict, dict, dict]:
     """The three tables a sweep needs, read once: every cell rescreens the same rows.
 
-    Returns each archetype's ranked decks in cut order, each ranked deck's field size,
-    and every (archetype, card) pair's deck set. Decks are ordered on
+    Returns each archetype's ranked decks in cut order, each ranked deck's field size
+    and event, and every (archetype, card) pair's deck set. Decks are ordered on
     ``(placementNorm, deckId)`` here rather than per cell, since the cut is a prefix of
-    one order and only its depth changes down the grid.
+    one order and only its depth changes down the grid. The event rides along because
+    the null is asked inside it (``query._gem_tails``).
     """
-    norms, by_tag, fields, cards = {}, {}, {}, {}
+    norms, by_tag, fields, events, cards, pilots = {}, {}, {}, {}, {}, {}
     for tag, name, deck, norm in rows(conn.execute(
         f"MATCH (d:Deck)-{_PRIMARY}->(a:Archetype) WHERE {_RANKED} "
         "RETURN a.tag, a.name, d.deckId, d.placementNorm"
     )):
         norms[deck] = norm
         by_tag.setdefault(tag, (name, []))[1].append(deck)
-    for deck, field in rows(conn.execute(
+    for deck, field, event in rows(conn.execute(
         f"MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) WHERE {_RANKED} "
-        "RETURN d.deckId, e.fieldSize"
+        "RETURN d.deckId, e.fieldSize, e.event"
     )):
         fields[deck] = field or 0
+        events[deck] = event
     for tag, canon, deck in rows(conn.execute(
         f"MATCH (a:Archetype)<-{_PRIMARY}-(d:Deck)-[:CONTAINS]->(c:Card) "
         f"WHERE {_RANKED} WITH DISTINCT a, c, d RETURN a.tag, c.canon, d.deckId"
     )):
         cards.setdefault((tag, canon), set()).add(deck)
+    for deck, who in rows(conn.execute(
+        f"MATCH (d:Deck)-[:PILOTED_BY]->(p:Pilot) WHERE {_RANKED} "
+        "RETURN d.deckId, p.pilot"
+    )):
+        pilots[deck] = who
     ordered = {tag: (name, sorted(decks, key=lambda d: (norms[d], d)))
                for tag, (name, decks) in by_tag.items()}
-    return ordered, fields, cards
+    return ordered, fields, events, cards, pilots
 
 
 def screen(corpus, cut, share, floor, luck, majors="off"):
@@ -114,7 +132,7 @@ def screen(corpus, cut, share, floor, luck, majors="off"):
     six decks has seven possible outcomes, so the bar it actually cleared is coarser
     than the bar it was held to, and charging it the threshold understates the luck.
     """
-    ordered, fields, cards = corpus
+    ordered, fields, events, cards, pilots = corpus
     slice_min = math.ceil(floor / share)
     tops = {}
     for tag, (name, decks) in ordered.items():
@@ -126,16 +144,30 @@ def screen(corpus, cut, share, floor, luck, majors="off"):
         if majors == "cut":
             top = {d for d in top if fields[d] > MAJOR_FIELD_SIZE}
         if top:
-            tops[tag] = (name, len(decks), top)
+            # Per event, how many of the archetype's ranked decks sat there and how many
+            # of those are in the cut: the strata the null is convolved over.
+            field_shape = {}
+            for deck in decks:
+                held, topped = field_shape.get(events[deck], (0, 0))
+                field_shape[events[deck]] = (held + 1, topped + (deck in top))
+            tops[tag] = (name, len(decks), top, field_shape)
 
     found, expected, archetypes, drawn, listing = 0, 0.0, set(), set(), []
     for (tag, canon), decks in cards.items():
         if tag not in tops:
             continue
-        name, total, top = tops[tag]
+        name, total, top, field_shape = tops[tag]
         if len(decks) < floor or len(decks) > share * total:
             continue
-        tails = _hypergeometric_tails(total, len(top), len(decks))
+        here = {}
+        for deck in decks:
+            here[events[deck]] = here.get(events[deck], 0) + 1
+        tails = _gem_tails(tuple(sorted(
+            (*field_shape[event], drawn) for event, drawn in here.items()
+        )))
+        # Charged for the pilots behind the decks, exactly as `query` charges.
+        npilots = len({pilots[d] for d in decks})
+        tails = tuple(_pilot_deflated(t, len(decks), npilots) for t in tails)
         hits = decks & top
         if tails[len(hits)] <= luck:
             found += 1
@@ -153,7 +185,7 @@ def main() -> None:
     args = parser.parse_args()
 
     corpus = read_corpus(open_for_reading(args.artifact))
-    ordered, _, cards = corpus
+    ordered, _, _, cards, _ = corpus
     print(f"{len(ordered)} archetypes, {sum(len(d) for _, d in ordered.values())} "
           f"primary-tagged ranked decks, {len(cards)} (archetype, card) pairs in "
           f"{args.artifact}\n")

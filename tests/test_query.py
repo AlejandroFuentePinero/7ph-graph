@@ -7,7 +7,7 @@ from graph7ph.build import build_graph
 from graph7ph.db import open_for_writing, rows
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
-    MAX_GEM_DECKS,
+    MAX_GEM_LUCK,
     MAX_GEM_NODES,
     MAX_GEM_SHARE,
     MIN_GEM_DECKS,
@@ -15,6 +15,8 @@ from graph7ph.query import (
     CardCooccurrence,
     HiddenGems,
     PilotNeighbourhood,
+    _gem_tails,
+    _pilot_deflated,
     card_cooccurrence_subgraph,
     card_usage_subgraph,
     coverage,
@@ -689,11 +691,18 @@ def _slice(tag, n, cards=(), start=0):
     archetype's best finish and ``n - 1`` its worst, so a fixture states where a
     card lands in its own archetype rather than what it averages. Every deck also
     carries a unique pad, which keeps it non-empty without ever reaching the trust
-    floor, and its own pilot and event, so a card's decks are as many pilots.
+    floor, and its own pilot, so a card's decks are as many pilots.
+
+    Every deck sits at the default event, which is what makes these fixtures state a
+    rule rather than an accident of where the decks were played: the null is asked
+    inside the event (``query._gem_tails``), and one event is one stratum, so the odds
+    here are the plain hypergeometric ones a reader can check by hand.
+    ``test_a_card_carried_by_the_events_it_was_played_at_is_not_a_gem`` is the fixture
+    that spreads them out, and it is the only one that needs to.
     """
     decks = [
         {"id": f"{tag}{i}", "tag": tag, "norm": round(i / (n - 1), 4),
-         "pilot": f"{tag}p{i}", "event": f"{tag}E{i}", "m": [f"pad_{tag}{i}"]}
+         "pilot": f"{tag}p{i}", "m": [f"pad_{tag}{i}"]}
         for i in range(start, start + n)
     ]
     for card, positions in dict(cards).items():
@@ -719,6 +728,79 @@ def test_a_gem_is_a_rare_card_that_crowds_its_own_archetype_s_best_decks(
 
     assert "card:x:tech" in _gem_cards(sub)
     assert "card:x:spread" not in _gem_cards(sub)
+
+
+def test_a_card_carried_by_the_events_it_was_played_at_is_not_a_gem(
+    tmp_path, built_graph
+):
+    # 27 of the corpus's 107 events publish only a top cut rather than a field (SSWam
+    # holds 7 decks against 88 players), so every deck the graph has from one is a good
+    # finish by construction and the entrants who missed the bracket leave no trace. A
+    # deck from such an event lands in its archetype's cut 64% of the time against 18%
+    # for a deck from a full field, so a card that merely turned up at them collects
+    # top-cut decks without beating anybody. The archetype-wide tail books that as a
+    # finding; asked inside the event, it is not one.
+    #
+    # `bracket` is such an event: eight of the archetype's decks, and they are its eight
+    # best. `tourist` sits in six of them and nowhere else, so it holds six of the
+    # archetype's twelve best decks and has beaten nothing, every deck of its archetype
+    # at that event being in the cut. `local` is the control: as rare and as
+    # concentrated, at an event that recorded winners and losers alike.
+    decks = _slice("x", 60, {"tourist": range(6), "local": [8, 9, 10, 11, 20, 30]})
+    for position, deck in enumerate(decks):
+        deck["event"] = "bracket" if position < 8 else "field"
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    cards = _gem_cards(hidden_gems_subgraph(conn))
+
+    assert "card:x:local" in cards
+    assert "card:x:tourist" not in cards
+    # And it is the stratification that refuses it, not the bounds or the bar. Read
+    # across the archetype, six of six in a cut of twelve clears the bar by three orders
+    # of magnitude and the tourist is the strongest card in the fixture. Read inside
+    # `bracket`, where all eight of the archetype's decks are in the cut, the same six
+    # decks are the only six it could have been in and the tail is 1.
+    assert _gem_tails(((60, 12, 6),))[6] <= MAX_GEM_LUCK
+    assert _gem_tails(((8, 8, 6),))[6] == pytest.approx(1.0)
+
+
+def test_a_card_the_same_few_pilots_keep_running_is_not_a_gem(tmp_path, built_graph):
+    # The null counts decks; the claim needs people. "This card is in five of the
+    # archetype's twelve best decks" is evidence when five players arrived at it
+    # separately, and is one player's habit counted five times when they did not: a
+    # strong pilot finishes high repeatedly and carries every card in the 60 up with
+    # them, including the ones doing nothing. Stratifying by event cannot see this,
+    # since ADR 0004 puts one deck per pilot per event and the correlation lives
+    # across events.
+    #
+    # The sixty decks are spread over twelve events of five, so the cut of twelve is
+    # exactly one deck per event and every stratum is the same shape. Both cards below
+    # sit in seven decks at seven distinct events with five of them in the cut, so both
+    # reach the same tail of 0.0047 and both would be gems on the decks alone. They
+    # differ only in who was holding them: `crowd` is seven players, `habit` is two.
+    # The repeat has to span events because ADR 0004 gives a pilot one deck per event,
+    # which is also exactly why stratifying by event cannot catch this.
+    decks = _slice("x", 60, {
+        "crowd": [0, 1, 2, 3, 4, 17, 18],
+        "habit": [5, 6, 7, 8, 9, 22, 23],
+    })
+    for position, deck in enumerate(decks):
+        deck["event"] = f"e{position % 12}"
+    for position in (5, 6, 7, 8, 9, 22, 23):
+        decks[position]["pilot"] = "regular" if position % 2 else "friend"
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    cards = _gem_cards(hidden_gems_subgraph(conn))
+
+    assert "card:x:crowd" in cards
+    assert "card:x:habit" not in cards
+    # A card whose decks are all different players is charged nothing, which is the
+    # point: only repetition costs. The same tail on two pilots crosses the bar.
+    assert _gem_tails(((5, 1, 1),) * 7)[5] == pytest.approx(0.004672, rel=1e-3)
+    assert _pilot_deflated(0.004672, 7, 7) == 0.004672
+    assert _pilot_deflated(0.004672, 7, 2) > MAX_GEM_LUCK
 
 
 def test_a_gem_carries_the_whole_claim_as_numbers(tmp_path, built_graph):
@@ -757,23 +839,22 @@ def test_a_gem_is_drawn_between_its_archetype_and_its_best_decks(tmp_path, built
     assert (gem.decks, gem.top_decks) == (8, 7)
     assert [n.id for n in sub.nodes if n.kind == "Archetype"] == ["arch:x"]
     assert ("arch:x", "card:x:tech") in [(e.source, e.target) for e in sub.edges]
-    # Its best few of those seven, never the eighth: what is drawn is a sample of the
-    # cut, and a deck outside the cut is not in the sample to begin with.
+    # All seven of those, never the eighth: the cut is the claim, and a deck outside
+    # it is not evidence for the card however early it ran one.
     assert {e.source for e in sub.edges if e.target == "card:x:tech"} == {
-        "arch:x", *(f"deck:x{i}" for i in range(MAX_GEM_DECKS))
+        "arch:x", *(f"deck:x{i}" for i in range(7))
     }
     assert {n.id for n in sub.nodes if n.kind == "Deck"} == {
-        f"deck:x{i}" for i in range(MAX_GEM_DECKS)
+        f"deck:x{i}" for i in range(7)
     }
 
 
-def test_a_gem_draws_its_best_few_decks_and_counts_all_of_them(tmp_path, built_graph):
-    # Past a handful the deck layer stops being readable: an archetype's best decks
-    # nearly all run nearly all of its gems, so the deck nodes share a neighbourhood
-    # and a force layout has nothing to pull them apart by. They pile up on one spot
-    # and take their labels with them. So the picture draws each gem's best few decks
-    # and the claim keeps its whole count: `top_decks` is what the card really did,
-    # and the drawn decks are a sample of it, the best end first.
+def test_a_gem_draws_every_deck_it_counts(tmp_path, built_graph):
+    # The picture and the table state one number. `top_decks` is what the card did and
+    # every one of those decks is a node, so a reader who counts the decks hanging off
+    # a card gets the column back. A cap here was carried while the list was long
+    # enough to threaten the node budget; the budget cuts whole gems instead, so the
+    # evidence behind a drawn one is never a sample the reader cannot see the edge of.
     decks = _slice("x", 60, {"tech": range(9)})
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
@@ -781,24 +862,21 @@ def test_a_gem_draws_its_best_few_decks_and_counts_all_of_them(tmp_path, built_g
     sub = hidden_gems_subgraph(conn)
 
     gem = next(n for n in sub.nodes if n.id == "card:x:tech")
-    assert (gem.decks, gem.top_decks) == (9, 9)  # counted whole
+    assert (gem.decks, gem.top_decks) == (9, 9)
     assert {n.id for n in sub.nodes if n.kind == "Deck"} == {
-        f"deck:x{i}" for i in range(MAX_GEM_DECKS)
+        f"deck:x{i}" for i in range(9)
     }
 
 
 def test_a_drawn_deck_is_wired_to_every_gem_of_its_archetype_it_runs(
     tmp_path, built_graph
 ):
-    # What is sampled is decks, not edges. Once a deck is on screen, leaving out an
-    # edge to a gem it runs would draw a deck that visibly does not run a card it runs,
-    # and the overlaps between gems are the one thing the picture says that the table
-    # cannot. So a drawn deck is wired to every gem of its archetype it holds, even one
-    # whose own best five it missed. This adds no node: a deck is on screen only
-    # because it leads some gem, and every deck on screen is inside the archetype's cut.
+    # A deck node is one deck, wired to every gem of its archetype it holds. Leaving out
+    # an edge would draw a deck that visibly does not run a card it runs, and the
+    # overlaps between gems are the one thing the picture says that the table cannot.
     #
-    # `lead` sits in the 6th to 11th best decks and `trail` in the best 6, so the deck
-    # they share (the 6th) is drawn for leading `lead` and is `trail`'s sixth best.
+    # `lead` sits in the 6th to 11th best decks and `trail` in the best 6, so they share
+    # the 6th. That deck is one node with an edge to each, not two nodes.
     decks = _slice("x", 60, {"lead": range(5, 11), "trail": range(6)})
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
@@ -806,14 +884,16 @@ def test_a_drawn_deck_is_wired_to_every_gem_of_its_archetype_it_runs(
     sub = hidden_gems_subgraph(conn)
 
     drawn = {n.id for n in sub.nodes if n.kind == "Deck"}
-    assert drawn == {f"deck:x{i}" for i in range(10)}  # x10 leads neither
+    assert drawn == {f"deck:x{i}" for i in range(11)}  # the union, counted once
     assert {e.source for e in sub.edges if e.target == "card:x:lead"} == {
-        "arch:x", *(f"deck:x{i}" for i in range(5, 10))
+        "arch:x", *(f"deck:x{i}" for i in range(5, 11))
     }
-    # Six, not five: the shared deck is already drawn, so hiding its edge would say it
-    # does not run a card it runs.
     assert {e.source for e in sub.edges if e.target == "card:x:trail"} == {
         "arch:x", *(f"deck:x{i}" for i in range(6))
+    }
+    # And the shared deck is the overlap the picture exists to show.
+    assert {e.target for e in sub.edges if e.source == "deck:x5"} == {
+        "card:x:lead", "card:x:trail"
     }
 
 
@@ -840,12 +920,17 @@ def test_a_gem_must_be_rare_in_its_archetype_and_attested_by_enough_of_it(
     tmp_path, built_graph
 ):
     # The two bounds answer different questions, which is why only one is a share
-    # (ADR 0012). `thin` is in 5 of the 60 decks and `staple` in 10, against a floor of
-    # 6 and a ceiling of 15%; both put every one of their decks in the cut, so the odds
+    # (ADR 0012). `thin` is one deck under the floor and `staple` one deck over the
+    # ceiling (15% of 60 is 9); both put every one of their decks in the cut, so the odds
     # alone would admit them well inside the bar. Neither is a gem: one is not
-    # attested, the other is not rare.
+    # attested, the other is not rare. Both are counted off the constants, so a swept
+    # floor moves the fixture with it rather than turning the bound it tests into a
+    # coincidence.
+    ceiling = round(MAX_GEM_SHARE * 60)
     decks = _slice("x", 60, {
-        "thin": range(5), "keeper": range(6), "staple": range(10),
+        "thin": range(MIN_GEM_DECKS - 1),
+        "keeper": range(MIN_GEM_DECKS),
+        "staple": range(ceiling + 1),
     })
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
@@ -946,8 +1031,12 @@ def test_gems_ignore_decks_with_unknown_placement(tmp_path, built_graph):
     # A deck with no recorded finish cannot say whether a card over- or
     # under-performed, so it counts toward neither bound, neither the cut, nor the
     # archetype it is a share of. `tech` clears the floor on its ranked decks alone;
-    # `short` does not reach it by padding with three unranked ones.
-    decks = _slice("x", 60, {"tech": range(6), "short": range(6, 11)}) + [
+    # `short` sits one under it and does not reach it by padding with three unranked
+    # ones.
+    decks = _slice("x", 60, {
+        "tech": range(MIN_GEM_DECKS),
+        "short": range(MIN_GEM_DECKS, 2 * MIN_GEM_DECKS - 1),
+    }) + [
         {"id": f"u{i}", "tag": "x", "norm": None, "pilot": f"up{i}", "event": f"uE{i}",
          "m": ["tech", "short", f"pad_u{i}"]}
         for i in range(3)
@@ -959,7 +1048,9 @@ def test_gems_ignore_decks_with_unknown_placement(tmp_path, built_graph):
 
     assert _gem_cards(sub) == {"card:x:tech"}
     gem = next(n for n in sub.nodes if n.id == "card:x:tech")
-    assert (gem.decks, gem.total_decks) == (6, 60)
+    # The three unranked decks pad neither the card's count nor the archetype it is a
+    # share of, though they run the card and carry the tag.
+    assert (gem.decks, gem.total_decks) == (MIN_GEM_DECKS, 60)
     assert not [n for n in sub.nodes if n.id.startswith("deck:u")]
 
 
@@ -974,8 +1065,8 @@ def test_gems_only_come_from_the_archetypes_big_enough_to_ask(tmp_path, built_gr
     # ORDER BY fail here; only the improbability of hash order landing on label order
     # can, and two archetypes leaves that far too likely.
     decks = ([d for tag in ("wide", "grindy", "combo", "midrange")
-              for d in _slice(tag, 50, {"tech": range(6)})]
-             + _slice("fringe", 39, {"tech": range(6)}))
+              for d in _slice(tag, MIN_GEM_SLICE + 10, {"tech": range(MIN_GEM_DECKS)})]
+             + _slice("fringe", MIN_GEM_SLICE - 1, {"tech": range(MIN_GEM_DECKS)}))
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
 

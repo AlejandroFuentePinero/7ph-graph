@@ -226,3 +226,26 @@ current. It records the shrunk posterior as the answer, and #184 deletes `gem_pr
 own mean rather than the card's record. Shipping it was still right: it makes the live tab
 honest today, and #184 is a redesign rather than a fix. What survives from it is the pilot
 count, the rejection of the bootstrap hold-share, and the two recorded positions.
+
+## 2026-07-28 - The oracle recapture's "own commit" rule survives only at PR level
+
+`docs/development.md` requires a `--force` recapture to land "in its own commit with nothing
+else in the diff, and say in the message which lines are real, or the reordering becomes a
+place a regression can hide (issues #67, #165)". The 2026-07-26 entry above states the same
+thing as "its own ticket with nothing else in the diff".
+
+**This repo squash-merges, so that separation never reaches `main`.** 9 of the last 15 commits
+carry the double `(#N) (#M)` reference a squash leaves. #184 was built to the rule (`0249cef`
+code, `3b5e44c` oracle alone, the message naming which lines were real) and merged as one
+`d86f741` with the 1709-line recapture folded back in beside the code. #176/#185 shows the same
+shape.
+
+The rule's purpose is still served, since a reviewer reads the PR, where both commits exist.
+What is lost is archaeology on `main`: a later bisect or blame cannot isolate the recapture
+from the change that forced it.
+
+The two conventions conflict as written and the choice is the maintainer's, not an agent's.
+Either land recaptures as their own PR, or amend `development.md` to say the separation lives
+at PR level. **Raised with the maintainer on 2026-07-28 and left undecided**, so a future
+session should follow the rule as written (separate commit on the branch) and not re-raise the
+question unprompted.

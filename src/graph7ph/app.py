@@ -36,8 +36,10 @@ from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.query import (
     GEM_TOP_CUT,
-    MAX_GEM_DECKS,
     MAX_GEM_LUCK,
+    MAX_GEM_SHARE,
+    MIN_GEM_DECKS,
+    MIN_GEM_SLICE,
     CardCooccurrence,
     CardUsage,
     Coverage,
@@ -228,7 +230,9 @@ def _gem_table(subgraph: Subgraph) -> str:
     numbers per gem, in the order the claim is built (#184). **Archetype** is where
     every other number was measured, and it leads because nothing here is a
     format-wide statement: a card is rare, and lands well, *inside one archetype*.
-    **Decks** is how rare, against that archetype's own ranked decks. **In top N%** is
+    **Decks running it** is how rare, against that archetype's own ranked decks, and it
+    is named for what it counts because "Decks" beside "In top N%" reads as two
+    unrelated totals rather than a count and its subset. **In top N%** is
     the whole of the evidence: how much of the card sits in the archetype's best decks,
     over the cut :data:`GEM_TOP_CUT` names and this header prints, so the column and
     the constant cannot drift apart. **Pilots** says whether those decks are as many
@@ -277,7 +281,7 @@ def _gem_table(subgraph: Subgraph) -> str:
     body = "".join(row(node, blocks[named[node.id]] % 2 == 1) for node in gems)
     return (
         "<table class='leaderboard'><thead><tr>"
-        "<th>Card</th><th>Archetype</th><th class='score'>Decks</th>"
+        "<th>Card</th><th>Archetype</th><th class='score'>Decks running it</th>"
         f"<th class='score'>In top {GEM_TOP_CUT:.0%}</th>"
         "<th class='score'>Pilots</th><th class='score spread' title='How often chance "
         "alone would put this much of the card in this cut'>By chance</th>"
@@ -286,9 +290,18 @@ def _gem_table(subgraph: Subgraph) -> str:
 
 
 def _gem_caption(subgraph: Subgraph) -> str:
-    """The gem table's caption: how many gems, and the cut they were found in.
+    """The gem table's caption: how many gems, the cut they were found in, and where.
 
-    One clause, and deliberately not two. A list admitted on a probability threshold has
+    The last of those is the archetypes the rule could ask at all. Below
+    :data:`MIN_GEM_SLICE` ranked decks the band is empty by construction, so those
+    archetypes are skipped in the query rather than answered for, and today that is 84
+    of the format's 124. Without the clause a reader whose archetype is absent reads
+    "no gems here" off a page that means "not enough decks to tell", which is the
+    distinction ADR 0012 raised `SliceTooSmall` for and ADR 0020 dropped along with the
+    dropdown. Dropping the refusal removed the user to refuse, not the reason.
+
+    The false-positive count is a different matter, and is deliberately not here. A
+    list admitted on a probability threshold has
     a false-positive count whether or not it is printed, and this rule has no validation
     route behind it (a temporal holdout was built, run, and set aside: gems are transient
     by nature, so a card still looking like one is a card nobody acted on), so that count
@@ -305,7 +318,8 @@ def _gem_caption(subgraph: Subgraph) -> str:
     return (
         f"<div class='t-fieldstat'><span class='pct'>{len(gems)} "
         f"gem{'' if len(gems) == 1 else 's'}</span><span class='sample'> found in the "
-        f"best {GEM_TOP_CUT:.0%} of each archetype's decks</span></div>"
+        f"best {GEM_TOP_CUT:.0%} of each archetype's decks, over the archetypes with "
+        f"{MIN_GEM_SLICE} or more ranked decks</span></div>"
     )
 
 
@@ -724,32 +738,41 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Everything is measured inside one archetype. Take an archetype's decks that "
         f"have a recorded finish, rank them, and call the best {GEM_TOP_CUT:.0%} of "
         "them its best "
-        "decks. A gem is a card that is rare in that archetype (in at least six of its "
-        "decks, but no more than 15% of them) and yet sits in enough of those best "
+        f"decks. A gem is a card that is rare in that archetype (in at least "
+        f"{MIN_GEM_DECKS} of its decks, but no more than {MAX_GEM_SHARE:.0%} of them) "
+        "and yet sits in enough of those best "
         "decks that plain luck would manage it less than one time in a hundred. "
         "Nothing is compared across archetypes, so a card is never called a gem for "
         "belonging to an archetype that wins a lot: the question is only whether the "
         "archetype's own best decks are the ones running it. A card can be a gem in "
         "two archetypes at once, and that is two separate findings on two sets of "
         "decks. The graph shows each gem's archetype on one side and, on the other, "
-        f"up to {MAX_GEM_DECKS} of the best decks that run it, which you can open on "
-        "Moxfield. The table counts every deck; the picture draws a few of each, "
-        "because an archetype's best decks nearly all run nearly all of its gems and "
-        "drawing every one of them leaves a knot no deck can be picked out of.",
+        "every one of the best decks that run it, which you can open on Moxfield, so "
+        "the deck nodes hanging off a card are exactly the number its In top column "
+        "gives. Decks of one archetype sit close together, because its best decks "
+        "nearly all run nearly all of its gems, which is itself the thing to read: a "
+        "deck between two cards is a deck that found both.",
     ),
     (
         "faq-gems-certainty",
         "Cards",
         'How settled is a "Hidden gem"?',
         "Less than a list of names looks. Screening every rare card of every archetype "
-        "means tens of thousands of chances for coincidence, so a bar of "
-        f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: about a "
-        "third of the list, and nothing distinguishes which ones. That is why the "
+        "means more than a thousand chances for coincidence, so a bar of "
+        f"{MAX_GEM_LUCK:.0%} still lets some cards through on luck alone: getting on "
+        "for half the list, and nothing distinguishes which ones. That count no longer "
+        "flatters itself, which is why it is as high as it is. A card's odds used to "
+        "read its decks as that many separate results, when the same pilot is often "
+        "behind several of them and one pilot's decks rise and fall together; every "
+        "card is now charged for the pilots behind its decks rather than the decks, so "
+        "a card seven decks and three pilots deep is scored as the three opinions it "
+        "is. That is why the "
         "count is not printed beside the table, where it would raise a question it "
         "cannot answer. It is a real limit and not a hedge. There is no "
         "way to check the list against later results either, because a gem that works "
         "stops being rare, so a card that still looks like a gem a year on is a card "
-        "nobody acted on. Read the table for what a gem rests on: Decks is how rare "
+        "nobody acted on. Read the table for what a gem rests on: Decks running it is "
+        "how rare "
         "the card is in that archetype, the In top column is how much of it landed in "
         "the archetype's best decks, and Pilots says whether those decks are as many "
         "opinions or one pilot's, which matters because a deck's finish follows "
@@ -764,7 +787,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Cards",
         "Why can I not filter the hidden gems?",
         "Because there is nothing left to narrow. The rule is strict enough that the "
-        "whole format produces a couple of dozen gems across a handful of archetypes, "
+        "whole format produces well under a dozen gems across a handful of archetypes, "
         "which fits in one picture, so the tab draws all of them at once instead of "
         "asking "
         "you to guess which archetype to look in. It recalculates as decks are added. "
