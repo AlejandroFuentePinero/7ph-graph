@@ -423,12 +423,36 @@ and its on-surface methodology blocks.
   result (a subject line above the cards), never echoed in each card title. An
   insight is titled by its **plot type only**: `Neighbourhood`, not
   `Neighbourhood: Brennan C`.
-- **Empty-state guidance lives in the control, not a card.** Before a Draw, the
-  "pick and Draw" invitation rides the subject dropdown's **help text** (its `info`),
-  one place at the control you drive from. This supersedes #113's per-plot empty
-  notes: the results stack is hidden until drawn (§12), so no duplicated prompt cards
-  appear. Post-Draw failure states (a refused pilot, a too-thin pair) still speak in
-  their own card as a one-line note in the interface's voice (composes with #114).
+- **Empty-state guidance lives in the control, not a card.** Before a Draw there
+  are no prompt cards: the results stack is hidden until drawn (§12), and the
+  panel's own label and Draw button are the invitation. This supersedes #113's
+  per-plot empty notes. Post-Draw failure states (a refused pilot, a too-thin pair)
+  still speak in their own card as a one-line note in the interface's voice
+  (composes with #114). Earlier revisions of this section put a "pick and Draw"
+  sentence in the subject dropdown's `info`; #156 removed it under the next rule.
+- **Help text earns its place or is deleted** (#156). A control's `info` exists to
+  change the reader's choice: what the control governs, when a pick is required.
+  It never describes app behaviour ("it draws straight away", "then Draw to see
+  its plots" where a Draw button is right there), and it never restates the label
+  above it. Most controls need none.
+- **One caption, one claim** (#156). The headline stays; the sample tail is at
+  most one qualifier. Anything else that is genuinely load-bearing (how a point is
+  averaged, what a shared-event restriction does) belongs in the FAQ, where this
+  section already sent the methodology blocks. A qualifier the picture already
+  carries (a legend entry, an axis title) is not load-bearing anywhere.
+- **A control's scope is stated once** (#156), on whichever side reads more
+  naturally, never from both. The Archetypes year says "Landscape only"; the
+  timeline's caption says "every year in the data". Neither repeats the other.
+- **Plain English, short and direct** (#156). Every string reads at a glance:
+  ordinary words, one idea per sentence, no jargon the surface has not already
+  earned. The detail lives in the FAQ, expanded just enough to answer the question
+  and no further.
+- **One quantity, one description** (#156). The same measure is named and
+  explained the same way everywhere it appears (control, caption, FAQ), and that
+  explanation matches what the code actually computes. A deck the source gave a
+  placement is a **scored** deck on every surface; an event that published a
+  bracket instead of its standings is defined once, in `faq-finish`, and the
+  answers that depend on it point there rather than re-explaining it.
 - **Measure** stays bounded to ~62ch (§3) so prose does not fragment into short
   lines inside a wide container.
 

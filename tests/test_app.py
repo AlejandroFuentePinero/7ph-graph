@@ -282,21 +282,27 @@ def test_meta_focus_control_sits_above_its_plot_not_below(tmp_path, snapshot_dir
     assert focus_i < cut_plot_i
 
 
-def test_a_view_opens_with_dropdown_guidance_not_duplicated_prompt_cards(tmp_path, snapshot_dir):
-    # AC (#132, §14, user feedback): a view no longer opens as a row of identical
-    # "Pick an entity and filters, then Draw." cards. The guidance moves to the subject
-    # dropdown's help text (`info`), one place at the control you drive from, and the
-    # per-view results stack starts hidden so nothing empty is drawn. Keyed on the
-    # guidance constants and the results-stack visibility, so a regression that revives
-    # the duplicated prompt cards (or drops the dropdown guidance) trips here.
+def test_a_view_opens_with_no_prompt_cards_and_no_pick_and_draw_help_text(tmp_path, snapshot_dir):
+    # AC (#132/#156, §14): a view no longer opens as a row of identical "Pick an entity
+    # and filters, then Draw." cards, and since #156 it does not open with that sentence
+    # on the subject dropdown either. Help text exists to change the reader's choice, and
+    # "pick a pilot, then Draw" only restates the label and the Draw button beside it, so
+    # it is deleted rather than shortened. The per-view results stack starts hidden, so
+    # nothing empty is drawn. The one `info` the app keeps is the Archetypes year's
+    # scope, which is a fact about the panel the control itself cannot give.
     import gradio as gr
-    from graph7ph.app import _PICK_CARD, _PICK_PILOT
+    from graph7ph.app import _YEAR_SCOPE
 
     demo = _built_demo(tmp_path, snapshot_dir)
 
     infos = {b.info for b in demo.blocks.values()
              if isinstance(b, gr.Dropdown) and b.info}
-    assert {_PICK_PILOT, _PICK_CARD} <= infos
+    assert infos == {_YEAR_SCOPE}
+    # No help text anywhere tells the reader to press the button next to it, or
+    # describes what the control does when changed (§14, #156).
+    for info in infos:
+        assert "Draw" not in info
+        assert "draws" not in info
 
     # No result surface carries the old duplicated prompt text on open.
     surface = " ".join(
@@ -447,7 +453,7 @@ def test_the_too_large_state_refuses_in_one_line_through_the_shared_treatment():
     assert "<ul>" not in msg and "<li>" not in msg  # one line, not a bulleted paragraph
     assert "<p>" not in msg          # no multi-paragraph body
     assert "1,234" in msg            # the count, with a thousands separator
-    assert "Cards" in msg            # names the kind flooding the view
+    assert "cards" in msg            # names the kind flooding the view
     assert "250" in msg              # the draw limit
     assert "Draw" in msg             # says what to do
 
@@ -734,16 +740,12 @@ def test_performance_caption_states_the_field_share_and_the_sample():
     # set in the accent span so the eye lands on it; the sample trails in its own span.
     assert "<span class='pct'>76%</span>" in caption
     assert "10 events over 2 scored years" in caption
-    # The two things the picture asserts and cannot support (#175). First, that the
-    # movement between the years means something: it does not, so the caption says the
-    # bars are wide because a few events cannot separate one year from the next, and a
-    # dip is not a slump.
-    assert "90%" in caption
-    assert "not a slump" in caption
-    # Second, that this number is the race's. It is not: this chart counts every event
-    # with a recorded finish and the race counts the biggest events only, and the two
-    # move a contender a median of 10 places of 139 apart.
-    assert "every event with a recorded finish" in caption
+    # One claim and one qualifier, and nothing else (§14, #156): the two readings this
+    # caption used to trail (that the movement between years is noise, and that this
+    # population is not the race's) are the FAQ's now, so the tail holds one clause.
+    assert caption.count("·") == 1
+    assert "not a slump" not in caption
+    assert "race" not in caption
 
 
 def test_a_leading_refused_year_does_not_stretch_the_axis():
@@ -1608,9 +1610,9 @@ def test_landscape_labels_alternate_sides_so_neighbouring_dots_do_not_overprint(
 
 
 def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line():
-    # The surface has to carry three things the dots cannot: which archetypes were
-    # drawn out of how many the year held, how much of a season those dots rest on,
-    # and what crossing the 0.5 line means.
+    # One claim and one sample clause (§14, #156): what beating the 0.5 line means and
+    # how many dots did, then which archetypes were drawn out of how many the year held
+    # and how much of a season they rest on. What an error bar *is* went to the FAQ.
     series = Series(cells=_landscape_cells(
         ("grixis", 30, 0.45), ("zoo", 20, 0.5), ("lands", 20, 0.4),
         ("storm", 10, 0.3), ("oracle", 5, 0.6),
@@ -1626,10 +1628,14 @@ def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line(
     # middle of the field and Zoo (.50) sits exactly on it, so two of the three are
     # above. Both of those two also settle it, their intervals (.42-.48 and .37-.43)
     # clearing the line (#175).
-    assert "2 of 3 above the 0.5 line" in re.sub(r"<[^>]+>", "", caption)
-    assert "2 of them settled" in re.sub(r"<[^>]+>", "", caption)
-    # A finished year makes no in-progress claim.
-    assert "in progress" not in caption
+    sentence = re.sub(r"<[^>]+>", "", caption)
+    assert "2 of 3 beat the middle of the field" in sentence
+    assert "2 by more than their error bar" in sentence
+    # One qualifier: the cut and the season read as one sample clause, and nothing
+    # trails behind them (§14, #156).
+    assert caption.count("·") == 1
+    # A finished year makes no partial-season claim.
+    assert "so far" not in caption
 
 
 def test_the_caption_counts_the_dots_above_the_line_and_says_how_many_settle_it():
@@ -1650,8 +1656,8 @@ def test_the_caption_counts_the_dots_above_the_line_and_says_how_many_settle_it(
     # accent spans and the markup falls between them.
     sentence = re.sub(r"<[^>]+>", "", caption)
 
-    assert "2 of 2 above the 0.5 line" in sentence   # both means beat the field
-    assert "1 of them settled" in sentence           # one of the two is settled
+    assert "2 of 2 beat the middle of the field" in sentence  # both means beat it
+    assert "1 by more than their error bar" in sentence       # one of the two settles it
 
 
 def test_the_landscape_caption_says_when_the_year_is_still_running():
@@ -1663,7 +1669,7 @@ def test_the_landscape_caption_says_when_the_year_is_still_running():
     ))
     caption = _landscape_caption(series, _landscape_top(series, 25), 25, in_progress=True)
 
-    assert "still in progress" in caption
+    assert "2026 so far" in caption
     assert "32 events" in caption
     assert "1,363 decks" in caption
     # The year holds fewer archetypes than the cut, so nothing was cut: the caption
@@ -1695,14 +1701,15 @@ def test_the_timeline_headline_counts_the_events_each_archetype_led():
     )
     caption = _archetype_timeline_caption("Storm", "Lands", series)
 
-    assert "Storm" in caption and "2 of 3" in caption
-    # The restriction is stated as a definition, so the shape change from adding a
-    # second archetype does not read as a glitch.
-    assert "both attended" in caption
-    # The borrowed form breaks here: a point is a mean of a handful of decks, and the
-    # pilot chart's "one real result" wording must never appear.
-    assert "1 to 3" in caption
-    assert "real result" not in caption
+    # The headline names the shared-event denominator itself, so the restriction needs
+    # no clause of its own behind it (§14, #156).
+    assert "Storm" in caption and "2 of 3 shared events" in re.sub(r"<[^>]+>", "", caption)
+    # One qualifier, and it is the span: the year selector sits directly above this
+    # chart and governs the landscape alone, so a reader must be told this is not that
+    # year. How a point is averaged is `faq-archetype-timeline`'s job now.
+    assert caption.count("·") == 1
+    assert "every year in the data" in caption
+    assert "1 to 3" not in caption
 
 
 def test_a_headline_count_a_coin_could_produce_is_printed_with_its_discount():
@@ -1738,20 +1745,23 @@ def test_a_pair_headline_is_gated_against_the_same_coin():
     tie = _archetype_timeline_caption("Storm", "Lands", _timeline_points(
         (1, 0.4, 1, 0.6, 1), (2, 0.6, 1, 0.4, 1),
     ))
-    assert "1 each" in tie
+    assert "each finished better at" in tie and "1" in tie
     assert "coin" not in tie
 
 
-def test_a_solo_timeline_says_a_second_archetype_restricts_it_to_shared_events():
-    # AC (#151): the second archetype is optional, and the caption is where a reader
-    # learns that picking one narrows the view rather than adding to it.
+def test_a_solo_timeline_states_its_span_and_nothing_else():
+    # The year selector sits directly above this chart and governs the landscape alone
+    # (§14, #156: a scope is stated once, and the control says "Landscape only" from the
+    # other side). So the one qualifier the caption keeps is the span. What picking a
+    # second archetype does, and what a point averages, are the FAQ's now.
     series = _timeline_points((1, 0.2, 3), (2, 0.6, 1), (3, 0.4, 2))
     caption = _archetype_timeline_caption("Storm", None, series)
 
-    assert "second archetype" in caption
-    assert "both attended" in caption
-    assert "1 to 3" in caption
-    assert "real result" not in caption
+    assert "Storm beat the middle of the field" in re.sub(r"<[^>]+>", "", caption)
+    assert caption.count("·") == 1
+    assert "every year in the data" in caption
+    assert "second archetype" not in caption
+    assert "1 to 3" not in caption
 
 
 def test_a_solo_timeline_is_one_line_filled_down_to_the_axis():
@@ -2418,31 +2428,27 @@ def test_the_race_hover_reads_a_score_to_the_precision_that_separates_contenders
         assert f"{cell_score:.3f}" in hovered[name]
 
 
-def test_the_race_caption_states_the_cut_the_pool_the_ground_and_what_a_point_is():
-    # The chart cannot say four things for itself: that it draws a few lines out of a
-    # much larger field (so the eight are a cut, not the whole story), what a score is
-    # measured on, what the faint layer behind the lines holds, and what a point counts.
-    # The last is the one most easily read backwards under a running score: a rising line
-    # is a record filling in, not a pilot improving (ADR 0017). Stated in the same
-    # field-standing form the landscape and performance captions use, the reading in
-    # the accent and the sample quiet behind it.
+def test_the_race_caption_states_the_cut_and_what_a_score_is_measured_on():
+    # A headline and one qualifier (§14, #156): that it draws a few lines out of a much
+    # larger field (so the eight are a cut, not the whole story), and what a score is
+    # measured on, which is the chart's strongest assumption and invisible in the
+    # picture. Stated in the same field-standing form the landscape and performance
+    # captions use, the reading in the accent and the sample quiet behind it.
+    #
+    # The two clauses this used to trail are gone because the picture already carries
+    # them: the faint layer is a named legend entry, and what a point counts is the
+    # x-axis title. Both readings still live in `faq-race`.
     series = _race_series(*[
         (f"p{i}", 0.9 - i / 100, 10, _flat(0.7)) for i in range(139)
     ], major_events=21)
     caption = _race_caption(series, drawn=8)
 
     assert "8 of 139" in caption
-    assert "21 major events" in caption
+    assert "21" in caption                           # the majors a score rests on
     assert str(MAJOR_FIELD_SIZE) in caption          # what makes an event a major one
-    assert "every other contender is traced faintly behind them" in caption
-    assert "every major a pilot had played by then" in caption
-    assert "rather than as they improve" in caption
-    # The majors cut is unique to this chart and has to say so (maintainer's call). Every
-    # other plot counts every placed event, so a reader who takes this ranking as "the
-    # app's view of a pilot" will find it disagreeing with the pilot tab: same estimator
-    # over the two populations moves the median contender 10 places of 139, and the
-    # eighth-placed contender here would sit 22nd on an all-events ranking.
-    assert "only chart here that leaves the smaller events out" in caption
+    assert caption.count("·") == 1
+    assert "traced faintly" not in caption
+    assert "improve" not in caption
 
 
 def test_the_leaderboard_lists_the_standings_and_marks_the_plotted_eight():
@@ -2469,8 +2475,8 @@ def test_the_leaderboard_lists_the_standings_and_marks_the_plotted_eight():
 
 
 def test_the_race_faq_says_the_majors_cut_is_unique_to_this_plot():
-    # The race is the only surface in the app that leaves events out; every other one
-    # counts every event with a recorded finish (maintainer's call, #135). That has to be
+    # The race is the only surface in the app that leaves events out for being small;
+    # every other one counts every scored event (maintainer's call, #135). That has to be
     # said where the scoring is explained, because the two populations genuinely
     # disagree: the same estimator over all events moves the median contender 10 places
     # of 139, and 26 of them by more than 20. A reader who takes this ranking as "the
@@ -2479,9 +2485,34 @@ def test_the_race_faq_says_the_majors_cut_is_unique_to_this_plot():
     # the answer, which the FAQ tab's own test deliberately leaves free to be re-edited.
     (answer,) = [a for eid, _, _, a in _FAQ_ENTRIES if eid == "faq-race"]
 
-    assert "only plot in the app that leaves events out" in answer
-    assert "hidden gems" in answer and "performance chart" in answer
+    assert "only chart here that drops events for being small" in answer
     assert "different questions" in answer
+
+
+def test_the_bracket_only_rule_is_defined_once_and_pointed_at():
+    # One quantity, one description (§14, #156). Four charts drop the events that
+    # published a top-eight bracket instead of standings, and each used to explain the
+    # rule in its own words: the landscape called them "events that published only their
+    # top eight", the race spent a paragraph on them, and the pilot performance caption
+    # said the opposite outright ("every event with a recorded finish counts here"),
+    # which stopped being true when #191 dropped them from that mean too. The rule is
+    # defined once, in `faq-finish`, which names every surface that applies it; the rest
+    # point at it rather than re-deriving it.
+    answers = {eid: a for eid, _, _, a in _FAQ_ENTRIES}
+
+    finish = answers["faq-finish"]
+    assert "top eight" in finish
+    for surface in ("landscape", "archetype timeline", "performance chart",
+                    "best player race"):
+        assert surface in finish, surface
+    # And the two that keep those events are named as keeping them, since "every chart"
+    # would be wrong: the head-to-head plots single placements and the gems compare
+    # within one event.
+    assert "head-to-head" in finish and "hidden gems" in finish
+
+    for eid in ("faq-landscape", "faq-archetype-timeline", "faq-performance",
+                "faq-race"):
+        assert "see the finish question above" in answers[eid], eid
 
 
 def test_the_faq_says_what_each_surfaces_interval_covers_and_what_it_leaves_unsettled():
@@ -2500,7 +2531,7 @@ def test_the_faq_says_what_each_surfaces_interval_covers_and_what_it_leaves_unse
 
     landscape = answers["faq-landscape"]
     assert "90%" in landscape
-    assert "crosses" in landscape and "0.5" in landscape
+    assert "cross the 0.5 line" in landscape
 
     timeline = answers["faq-archetype-timeline"]
     assert "coin" in timeline
@@ -2527,6 +2558,9 @@ def test_the_faq_states_the_gem_rule_the_luck_in_it_and_why_nothing_is_filtered(
     # The picture draws every top-cut deck, so the copy promises the reader they can
     # count the deck nodes against the column rather than warning that they cannot.
     assert "every one of the best decks" in rule
+    # One quantity, one name (§14, #156): the cut is "best decks" throughout the prose,
+    # never "top decks" in one sentence and "best decks" in the next.
+    assert "top decks" not in rule
 
     category, question, certainty = entries["faq-gems-certainty"]
     assert category == "Cards"
@@ -2635,7 +2669,8 @@ def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_pat
     # Found by the race's own column, not by the shared table class: the gem table
     # wears that class too and is drawn at build time since #184.
     (table,) = [b.value for b in demo.blocks.values()
-                if isinstance(b, gr.HTML) and "Rank CI" in (b.value or "")]
+                if isinstance(b, gr.HTML) and "<th class='score spread'>Rank CI</th>"
+                in (b.value or "")]
     # Capped at the display cut, and every drawn line is marked in the table.
     assert table.count("<tr") == _LEADERBOARD_ROWS + 1
     assert table.count("swatch-hue") == _RACE_LINES
@@ -2676,8 +2711,9 @@ def test_the_standings_caption_states_what_the_table_actually_holds():
 
     assert _standings_caption(big, rows=5).startswith("top 5 of 12 contenders, best first")
     assert _standings_caption(small, rows=5).startswith("all 3 contenders, best first")
-    assert f"{RACE_INTERVAL:.0%} of the time" in _standings_caption(big, rows=5)
-    assert "resampled" in _standings_caption(big, rows=5)
+    assert f"{RACE_INTERVAL:.0%} of a thousand redraws" in _standings_caption(big, rows=5)
+    # Named exactly as the column header it explains, so the two read as one thing.
+    assert "Rank CI" in _standings_caption(big, rows=5)
 
 
 def test_every_other_contender_is_drawn_behind_the_race_as_one_faded_layer():
