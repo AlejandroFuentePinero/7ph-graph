@@ -28,6 +28,8 @@ from graph7ph.app import (
     _archetype_timeline_figure,
     _chart_heading,
     _embed,
+    _gem_caption,
+    _gem_table,
     _head_to_head_figure,
     _confidence_size,
     _landscape_caption,
@@ -50,7 +52,7 @@ from graph7ph.app import (
     _subject_line,
     _trend_figure,
 )
-from graph7ph.query import Coverage
+from graph7ph.query import Coverage, Node, Subgraph
 from graph7ph.trends import (
     MAJOR_FIELD_SIZE,
     MIN_CAREER_MAJORS,
@@ -443,6 +445,109 @@ def test_the_subject_is_stated_once_and_escaped():
     escaped = _subject_line("Card", "A<b>")
     assert "A<b>" not in escaped
     assert "A&lt;b&gt;" in escaped
+
+
+def _gems(*cards):
+    """A gem subgraph from ``(canon, decks, pilots, mean_norm, gem_prob)`` tuples."""
+    return Subgraph(
+        nodes=[
+            Node(f"card:{canon}", canon.title(), "Card", decks=decks, pilots=pilots,
+                 mean_norm=mean, gem_prob=prob)
+            for canon, decks, pilots, mean, prob in cards
+        ] + [Node("deck:d1", "p - Storm", "Deck")],
+        edges=[],
+    )
+
+
+def test_every_gem_states_its_evidence_beside_its_finish():
+    # Issue #176: the band is a hard cut on a mean a median gem takes from six decks,
+    # and the drawn graph shows a reader none of that. Every gem carries what it rests
+    # on (decks, and how many pilots those decks belong to) and how much of its crossing
+    # survives being read as a claim about the card, beside the finish itself. Two gems
+    # on the same finish, one of them one pilot's pet card.
+    table = _gem_table(_gems(
+        ("pet", 6, 1, 0.25, 0.0007),
+        ("spread", 6, 6, 0.25, 0.42),
+    ))
+
+    # One row per gem; the decks the graph draws are not rows in it.
+    assert table.count("<tr>") == 3  # the header row and one per gem
+    assert "Storm" not in table
+    # The finish is the app's higher-is-better score, the two counts are counts, and
+    # the chance is a share in the one numeric convention.
+    assert ">0.75<" in table
+    assert ">1<" in table and ">6<" in table
+    assert numfmt.share(0.0007) in table and numfmt.share(0.42) in table
+
+
+def test_a_vanishing_gem_chance_reads_as_below_the_smallest_share_not_as_zero():
+    # 65 of the 283 gems on the built graph sit under 0.005%, which the app's share
+    # convention rounds to a flat "0%". A gem that cleared the band is not impossible,
+    # and printing it as impossible is the same overclaim as printing it as settled,
+    # pointed the other way. Below what the convention can write, it says so.
+    table = _gem_table(_gems(("faint", 5, 2, 0.30, 1.8e-11)))
+
+    assert ">0%<" not in table
+    assert f"&lt;{numfmt.share(0.0001)}" in table
+
+    # And only where the convention truly cannot write it: a chance it can write is
+    # written, since an "under" that swallowed writable values would understate them.
+    writable = _gem_table(_gems(("thin", 5, 2, 0.30, 0.00007)))
+    assert f">{numfmt.share(0.00007)}<" in writable
+    assert "&lt;" not in writable
+
+
+def test_a_gem_with_no_statable_chance_reads_as_unstated_not_as_zero():
+    # `gem_prob` is None where the record cannot fit a spread over cards at all, which
+    # is "we cannot say" and not "no chance". Printing it as 0% would be the overclaim
+    # this ticket removes, inverted.
+    table = _gem_table(_gems(("tech", 5, 5, 0.30, None)))
+
+    assert numfmt.share(0) not in table
+    assert "&ndash;" in table
+
+
+def test_the_gem_caption_states_the_sample_the_band_cut_on():
+    # AC (#176): the surface says that membership near the threshold turns on a handful
+    # of decks. The caption carries it with this slice's own sample beside it, since the
+    # median gem rests on six decks and no reader can see that from the picture.
+    caption = _gem_caption(_gems(
+        ("pet", 5, 1, 0.25, 0.0007),
+        ("spread", 9, 6, 0.30, 0.42),
+        ("tech", 7, 4, 0.31, 0.10),
+    ))
+
+    assert "3 gems" in caption
+    # The median of 5, 7 and 9 decks, and of 1, 4 and 6 pilots.
+    assert "7 decks" in caption
+    assert "4 pilots" in caption
+    assert "near the bar" in caption
+
+
+def test_the_faq_says_how_settled_a_hidden_gem_is():
+    # AC (#176), mirroring the race's pair of entries (ADR 0017): one entry states the
+    # rule, a second states how much the rule settles. Without it the FAQ states the cut
+    # exactly and says nothing about the six decks it is usually cut on, which is the
+    # reading that made the tab overclaim.
+    settled = {eid: (cat, q, a) for eid, cat, q, a in _FAQ_ENTRIES}["faq-gems-certainty"]
+    category, question, answer = settled
+
+    assert category == "Cards"
+    assert "settled" in question.lower()
+    # The sample the band cuts on, who it belongs to, and the column that carries it.
+    assert "six decks" in answer
+    assert "pilot" in answer
+    assert "Gem chance" in answer
+
+
+def test_the_caption_claims_firmest_first_only_when_firmness_is_known():
+    # The table falls back to ordering by finish where no gem carries a chance (a record
+    # with no spread to fit), so a caption still promising "the firmest first" would
+    # describe an order the table is not in, over a column of dashes.
+    unstated = _gem_caption(_gems(("a", 5, 2, 0.20, None), ("b", 7, 3, 0.30, None)))
+
+    assert "firmest" not in unstated
+    assert "best finish first" in unstated
 
 
 def test_band_over_a_non_crossing_segment_is_one_trapezoid_tinted_by_the_upper_line():

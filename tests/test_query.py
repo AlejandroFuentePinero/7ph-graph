@@ -727,6 +727,125 @@ def test_hidden_gems_carry_their_rarity_and_placement_as_numbers(tmp_path, built
     assert gem.label == "Gem"
 
 
+def test_hidden_gems_carry_how_many_pilots_are_behind_them(tmp_path, built_graph):
+    # A gem's mean is a mean over decks, and decks are steered by whoever piloted
+    # them: a median 44% of a gem's edge over its slice is explained by its pilots
+    # alone, and 17% of the live gems rest on two pilots or fewer (issue #176). So
+    # "six decks" and "six pilots' six decks" are different evidence, and the count
+    # that tells them apart rides on the gem. `pet` is one pilot's card in six
+    # decks; `spread` is six pilots' card in six decks; both place identically.
+    # One event each, since a pilot registering twice at one event is two entrants
+    # to the build (ADR 0004) and would hand `pet` six pilots by the back door.
+    decks = (
+        [{"id": f"pet{i}", "tag": "x", "norm": 0.1, "pilot": "solo", "event": f"E{i}",
+          "m": ["pet", f"pad_pet{i}"]} for i in range(6)]
+        + [{"id": f"wide{i}", "tag": "x", "norm": 0.1, "pilot": f"p{i}", "event": f"E{i}",
+            "m": ["spread", f"pad_wide{i}"]} for i in range(6)]
+        + _filler("x", 88, 0.5, start=12)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    gems = {n.id: n for n in hidden_gems_subgraph(conn).nodes if n.kind == "Card"}
+
+    assert gems["card:pet"].decks == gems["card:spread"].decks == 6
+    assert gems["card:pet"].pilots == 1
+    assert gems["card:spread"].pilots == 6
+
+
+def _spread_fixture(carrying):
+    """A 100-deck slice whose cards' records genuinely differ, plus ``carrying``.
+
+    The gem chance is fitted from how much one card's finishes bounce against how much
+    cards really differ, so a fixture of identical records cannot exercise it: it has to
+    hold a population with both. Five background cards in 17 decks each, spread across
+    the field and bouncing inside their own record, carry that; each is past the ceiling
+    so none of them is a gem itself.
+    """
+    background = [
+        {"id": f"bg{j}_{i}", "tag": "x", "norm": round(mean + step, 2),
+         "pilot": f"bg{j}_{i}", "event": f"E{j}_{i}", "m": [f"bg{j}", f"pad_bg{j}_{i}"]}
+        for j, mean in enumerate((0.4, 0.5, 0.6, 0.7, 0.8))
+        for i, step in enumerate([-0.1, -0.05, 0.0, 0.05, 0.1] * 3 + [0.0, 0.0])
+    ]
+    return list(carrying) + background
+
+
+def test_a_gems_chance_of_clearing_the_bar_grows_with_the_decks_behind_it(
+    tmp_path, built_graph
+):
+    # The band is a hard cut on a noisy mean, so the same mean is a different claim
+    # from five decks than from ten: the shorter record is pulled further toward what
+    # the slice does on average, which is what stops a lucky handful reading as settled
+    # (issue #176). `few` and `many` place identically, at 0.20 against a slice that
+    # averages far worse; only the evidence behind them differs.
+    finishes = [0.10, 0.15, 0.20, 0.25, 0.30]
+    decks = _spread_fixture(
+        [{"id": f"few{i}", "tag": "x", "norm": n, "pilot": f"few{i}", "event": f"F{i}",
+          "m": ["few", f"pad_few{i}"]} for i, n in enumerate(finishes)]
+        + [{"id": f"many{i}", "tag": "x", "norm": n, "pilot": f"many{i}",
+            "event": f"M{i}", "m": ["many", f"pad_many{i}"]}
+           for i, n in enumerate(finishes * 2)]
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    gems = {n.id: n for n in hidden_gems_subgraph(conn).nodes if n.kind == "Card"}
+
+    # Both are gems on the same mean, so membership cannot tell them apart.
+    assert gems["card:few"].mean_norm == pytest.approx(gems["card:many"].mean_norm)
+    assert gems["card:few"].decks == 5 and gems["card:many"].decks == 10
+    # The chance can, and it is a probability, not a restatement of the cut.
+    assert 0 < gems["card:few"].gem_prob < gems["card:many"].gem_prob < 1
+
+
+def test_a_gems_chance_is_read_against_what_its_own_slice_finishes(tmp_path, built_graph):
+    # The bar is absolute and a slice is not, so five decks of 0.20 mean different things
+    # in different company. A short record is read against what its own archetype
+    # finishes: in one that finishes well, five good decks are the archetype doing what
+    # it does and the card is credibly at that level too; in one that finishes badly,
+    # the same five are far enough from everything around them to read mostly as luck.
+    # Both slices run a card in five decks at the same 0.20; only the company differs.
+    decks = _spread_fixture(
+        [{"id": f"fast{i}", "tag": "fast", "norm": n, "pilot": f"fast{i}",
+          "event": f"A{i}", "m": ["tech", f"pad_fast{i}"]}
+         for i, n in enumerate([0.10, 0.15, 0.20, 0.25, 0.30])]
+        + _filler("fast", 45, 0.3, start=5)
+        + [{"id": f"slow{i}", "tag": "slow", "norm": n, "pilot": f"slow{i}",
+            "event": f"B{i}", "m": ["tech2", f"pad_slow{i}"]}
+           for i, n in enumerate([0.10, 0.15, 0.20, 0.25, 0.30])]
+        + _filler("slow", 45, 0.8, start=5)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    fast = next(n for n in hidden_gems_subgraph(conn, "fast").nodes if n.id == "card:tech")
+    slow = next(n for n in hidden_gems_subgraph(conn, "slow").nodes if n.id == "card:tech2")
+
+    assert fast.decks == slow.decks == 5
+    assert fast.mean_norm == pytest.approx(slow.mean_norm)
+    assert fast.gem_prob > slow.gem_prob
+
+
+def test_a_record_with_no_bounce_in_it_leaves_the_chance_unstated(tmp_path, built_graph):
+    # The fit divides by the within-card spread, so a record where no card's decks
+    # disagree with each other leaves nothing to divide by. That is "this record cannot
+    # say", the same answer as no separable between-card term, and the gem carries no
+    # chance rather than the query failing on the way to the surface. Every card here
+    # finishes identically in every deck that runs it.
+    decks = (
+        _filler("x", 5, 0.2, carrying=["tech"])
+        + _filler("x", 95, 0.5, carrying=["bulk"], start=5)
+    )
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    gem = next(n for n in hidden_gems_subgraph(conn).nodes if n.id == "card:tech")
+
+    assert gem.decks == 5
+    assert gem.gem_prob is None
+
+
 def test_hidden_gems_ceiling_is_a_share_so_rarity_means_the_same_in_any_slice(tmp_path, built_graph):
     # `edge` is in 8 decks, all of them Small. Small has 50 ranked decks, the
     # meta has 200. The same 8 decks read as rare against the meta (ceiling 20)

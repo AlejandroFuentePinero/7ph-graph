@@ -80,6 +80,18 @@ class Node:
     decks: int | None = None
     total_decks: int | None = None
     mean_norm: float | None = None
+    # How many distinct pilots stand behind those decks. A count, not a rate: it says
+    # whether a record is the format's or one pilot's, which the deck count cannot,
+    # since a deck is steered by whoever piloted it and pilot level is the strongest
+    # reliable signal in this data (issue #175). Carried on a gem, where a median 44%
+    # of the edge over the slice is explained by the pilots alone (issue #176).
+    pilots: int | None = None
+    # The chance the thing's true mean really clears the bar it was admitted on, given
+    # how little evidence stands behind it: a probability, where ``mean_norm`` is the
+    # observation the band cut on. Carried by a gem, whose membership is otherwise a
+    # hard cut on a noisy mean and reads as settled when it is not (issue #176).
+    # ``None`` where the record cannot say (:func:`_card_spread`).
+    gem_prob: float | None = None
 
 
 @dataclass(frozen=True)
@@ -617,6 +629,136 @@ def card_cooccurrence_subgraph(
     return Subgraph(nodes=list(nodes.values()), edges=edges)
 
 
+def _card_spread(conn: ladybug.Connection) -> tuple[float, float] | None:
+    """How much a card's finish bounces, and how much cards really differ, as ``(sd, k)``.
+
+    The one fit behind every gem's chance. ``sd`` is the within-card spread: how far one
+    deck's finish lands from the card's own level. ``k`` is the ratio of that to the
+    spread *between* cards, which is how many decks of evidence "this card is average"
+    is worth before a card's own record outweighs it. Both are estimated from the record
+    rather than chosen, by the same one-way random-effects decomposition
+    ``trends._shrinkage`` fits over pilots: pool the within-card variance, take the
+    spread of card means against it, and read the difference as the real spread of
+    cards.
+
+    Fitted over **every** card in the graph, not over the slice's, and deliberately:
+    "how much does one finish bounce, and how much do cards really differ" is a property
+    of the format, and a slice does not hold enough cards to answer it. Measured over
+    the 51 slices the gem view offers, 22 of them fit no separable between-card term at
+    all, which would have left nearly half the tab unable to state a chance (issue
+    #176). On the built graph the global fit is a within-card sd of 0.2994 against a
+    between-card sd of 0.0385, so ``k`` is about 60: a card needs sixty decks before its
+    own record outweighs simply knowing it is a card, and every gem in the band rests on
+    at most 21.
+
+    ``None`` where either term lands at or below zero. A between-card term at zero says
+    cards are no more different from each other than one card's finishes are from
+    themselves; a within-card term at zero says no card's decks disagree with each other
+    at all, which leaves the chance nothing to divide by. Both are "this record cannot
+    say", and the caller carries ``None`` rather than a number the record does not
+    support. Neither is reachable on a record the size of this one, and both are still
+    guarded: the second is a division by zero on the way to the surface, and a graph
+    small enough to reach it is exactly the graph a first build produces.
+
+    Each record is summed in sorted order, because float addition is not associative and
+    Ladybug hands the same rows back in different orders between calls: unsorted, the fit
+    itself would move in the last decimals run to run, and nothing else here is random,
+    so a chance that moved would mean evidence that moved.
+    """
+    records: dict[str, list[float]] = {}
+    for canon, norm in rows(conn.execute(
+        f"""MATCH (d:Deck)-[:CONTAINS]->(c:Card)
+           WHERE {_RANKED}
+           WITH DISTINCT c, d
+           RETURN c.canon, d.placementNorm"""
+    )):
+        records.setdefault(canon, []).append(norm)
+    # A card seen once has no spread of its own, so it joins neither term.
+    kept = [sorted(record) for _, record in sorted(records.items()) if len(record) >= 2]
+    if len(kept) < 2:
+        return None
+    observations = sum(len(record) for record in kept)
+    means = [sum(record) / len(record) for record in kept]
+    mu = sum(sum(record) for record in kept) / observations
+    within = sum(
+        (norm - mean) ** 2 for record, mean in zip(kept, means) for norm in record
+    ) / (observations - len(kept))
+    across = sum(
+        len(record) * (mean - mu) ** 2 for record, mean in zip(kept, means)
+    ) / (len(kept) - 1)
+    # The record length the two mean squares are comparable at; not the average length,
+    # because a long record contributes more to the spread of means than a short one.
+    typical = (
+        observations - sum(len(record) ** 2 for record in kept) / observations
+    ) / (len(kept) - 1)
+    between = (across - within) / typical
+    if within <= 0 or between <= 0:
+        return None
+    return math.sqrt(within), within / between
+
+
+def _gem_chance(
+    mean_norm: float, decks: int, slice_mean: float, spread: tuple[float, float] | None
+) -> float | None:
+    """The chance a card's true mean finish clears :data:`MAX_GEM_MEAN_NORM`.
+
+    The band admits a card on ``mean_norm <= MAX_GEM_MEAN_NORM``, which is a hard cut on
+    an estimate that a median gem takes from six decks. This is the same question asked
+    of the card's *level* rather than of its sample: shrink the observed mean toward
+    what the slice does on average by :func:`_card_spread`'s ``k``, and read off how much
+    of the resulting distribution sits on the good side of the bar.
+
+    Deterministic, and that is the point of the shape. The obvious alternative, the one
+    issue #176 first prescribed, is to resample the card's own decks and report the
+    share of resamples that held the band. Measured over the 283 gems the tab draws,
+    that averages 0.73 against a median chance of 0.0007 here, because it is centred on
+    the very sample whose luck selected the card: it re-confirms the luck instead of
+    discounting it. Nothing is resampled here, so there is no seed to hold and no
+    sampling variation between two calls on one artifact; what does still move is the
+    last bit of an engine ``avg()``, which the shrinkage damps far below the printed
+    resolution.
+
+    Shrinking toward the *slice's* mean rather than the format's is what makes the
+    number readable beside a slice-scoped band: a card in an archetype that finishes
+    well is being asked whether it beats the bar, and the archetype is most of why it
+    might. ``None`` where the record cannot fit a spread at all.
+    """
+    if spread is None:
+        return None
+    within, k = spread
+    level = (decks * mean_norm + k * slice_mean) / (decks + k)
+    sd = within / math.sqrt(decks + k)
+    return 0.5 * (1 + math.erf((MAX_GEM_MEAN_NORM - level) / (sd * math.sqrt(2))))
+
+
+def _gem_pilots(
+    conn: ladybug.Connection,
+    canons: list[str],
+    ranked: str,
+    slice_ids: list[str] | None,
+) -> dict[str, int]:
+    """How many distinct pilots ran each of ``canons``, over the same ranked slice.
+
+    Its own query rather than a column on the band's, because the band aggregates the
+    deck-card pairs down to one row per card and a distinct pilot count cannot be
+    recovered from that row: two decks by one pilot and two by two are the same
+    ``count(d)``. It is handed the caller's own ``ranked`` clause rather than rebuilding
+    one, so the two queries cannot drift into counting different decks: a pilot count
+    over a wider population than the mean would silently describe decks the gem's other
+    numbers do not.
+    """
+    params: dict = {"gems": canons}
+    if slice_ids is not None:
+        params["slice"] = slice_ids
+    return {canon: count for canon, count in rows(conn.execute(
+        f"""MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:CONTAINS]->(c:Card)
+           WHERE c.canon IN $gems AND {ranked}
+           WITH DISTINCT c, p
+           RETURN c.canon, count(p)""",
+        params,
+    ))}
+
+
 def hidden_gems_subgraph(
     conn: ladybug.Connection,
     archetype: str | None = None,
@@ -682,9 +824,22 @@ def hidden_gems_subgraph(
     if not gems:
         return Subgraph(nodes=[], edges=[])
 
+    # What the band cannot say for itself: how many pilots are behind each gem, and how
+    # much of its crossing is the record rather than the draw (issue #176). Both are
+    # measured over the same slice the band was, so a gem's numbers describe one set of
+    # decks; the fit behind the chance is the format's, for the reason `_card_spread`
+    # gives.
+    pilots = _gem_pilots(conn, [canon for canon, *_ in gems], ranked, slice_ids)
+    slice_mean = next(rows(conn.execute(
+        f"MATCH (d:Deck) WHERE {ranked} RETURN avg(d.placementNorm)",
+        {"slice": slice_ids} if slice_ids is not None else {},
+    )))[0]
+    spread = _card_spread(conn)
     nodes: dict[str, Node] = {
         f"card:{canon}": Node(
-            f"card:{canon}", name, "Card", decks=decks, mean_norm=mean_norm
+            f"card:{canon}", name, "Card", decks=decks, mean_norm=mean_norm,
+            pilots=pilots[canon],
+            gem_prob=_gem_chance(mean_norm, decks, slice_mean, spread),
         )
         for canon, name, decks, mean_norm in gems
     }

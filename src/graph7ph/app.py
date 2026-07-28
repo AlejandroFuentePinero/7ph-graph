@@ -10,6 +10,7 @@ tested (Gradio wiring and pyvis HTML are verified by running it).
 """
 
 import html
+import statistics
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -41,8 +42,10 @@ from graph7ph.query import (
     HiddenGems,
     PilotAffinity,
     PilotNeighbourhood,
+    Node,
     QuerySpec,
     SliceTooSmall,
+    Subgraph,
     card_catalogue,
     coverage,
     gem_archetypes,
@@ -193,6 +196,128 @@ def _result_header(plot: str, filters: list[str], node_count: int) -> str:
     return (
         f"<div class='t-result-title'>{html.escape(_PLOT_LABELS[plot])}</div>"
         f"<div class='t-caption'>{html.escape(caption)}</div>"
+    )
+
+
+# The smallest share the app's numeric convention writes: `numfmt.share` carries two
+# decimals of percent, so 0.01% is its last step and everything under half of that reads
+# as a flat "0%". A quarter of the gems on the built graph land there, and a card the
+# band admitted is not impossible, so the table says "under the last step" instead of
+# printing a zero it does not mean.
+_SMALLEST_CHANCE = 0.0001
+
+
+def _gem_chance_label(prob: float | None) -> str:
+    """A gem's chance as the table prints it: a share, an "under", or a dash.
+
+    Three readings the column has to keep apart, which one number cannot: a chance the
+    convention can write, a chance too small for it to write (still not zero), and no
+    chance statable at all (:func:`query._card_spread` found no spread to divide). The
+    last is a dash rather than a zero, since "we cannot say" and "no chance" are
+    different answers and only one of them is a claim.
+
+    The "under" case is decided by asking the convention rather than by comparing against
+    a threshold of its own: the two would have to agree about where `share` starts
+    rounding to nothing, and a threshold set a step out would downgrade chances the
+    convention can in fact write.
+    """
+    if prob is None:
+        return "&ndash;"
+    written = numfmt.share(prob)
+    if written == numfmt.share(0):
+        return f"&lt;{numfmt.share(_SMALLEST_CHANCE)}"
+    return written
+
+
+def _gem_table(subgraph: Subgraph) -> str:
+    """The gems as a table: what each rests on, how it finished, and how firm that is.
+
+    The graph beside it draws which decks run which card and carries no number at all,
+    so before #176 the tab stated a threshold crossing and showed a reader nothing they
+    could discount it with. This is the leaderboard's answer to the same problem (ADR
+    0017): the value, and beside it the column that says how settled the value is.
+
+    Four numbers per gem, in the order a claim is built. **Decks** and **Pilots** are the
+    sample: a median gem across the offered slices rests on six decks, and 17% of them on
+    two pilots or fewer, so "in six decks" and "one pilot's six decks" are the
+    difference between a finding and an attendance record. **Finish** is the mean
+    placement the band cut on, inverted to the app's higher-is-better score (1 a win)
+    like every other finish it prints. **Gem chance** is that cut asked as a question
+    about the card rather than about its sample: how much of the card's shrunk
+    distribution really clears the bar (``query._gem_chance``). It is the one column that
+    can say the list is less certain than it looks, and on the built graph it usually
+    does: 16 of 283 gems reach even a coin flip.
+
+    Ordered by that chance, best first, so the reader meets the gems the record actually
+    supports before the ones it merely admitted; ties fall back to the finish and then
+    the name, so one artifact always draws one table. A gem whose chance cannot be stated
+    sorts last and prints a dash rather than a zero, since "we cannot say" and "no
+    chance" are different answers.
+
+    Card names are free text from the source, so they are escaped.
+    """
+    gems = sorted(
+        (node for node in subgraph.nodes if node.kind == "Card"),
+        key=lambda n: (n.gem_prob is None, -(n.gem_prob or 0), n.mean_norm, n.label),
+    )
+
+    def row(node: Node) -> str:
+        chance = _gem_chance_label(node.gem_prob)
+        return (
+            "<tr>"
+            f"<td>{html.escape(node.label)}</td>"
+            f"<td class='score'>{node.decks}</td>"
+            f"<td class='score'>{node.pilots}</td>"
+            f"<td class='score'>{1 - node.mean_norm:.2f}</td>"
+            f"<td class='score spread'>{chance}</td>"
+            "</tr>"
+        )
+
+    body = "".join(row(node) for node in gems)
+    return (
+        "<table class='leaderboard'><thead><tr>"
+        "<th>Card</th><th class='score'>Decks</th><th class='score'>Pilots</th>"
+        "<th class='score'>Finish</th><th class='score spread'>Gem chance</th>"
+        f"</tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
+def _gem_caption(subgraph: Subgraph) -> str:
+    """The gem table's caption: what the band cut on, and how little that is.
+
+    The tab's lede calls these under-the-radar cards, and the FAQ states the rule
+    exactly; between the two there was nothing to tell a reader that the rule is a hard
+    cut on a handful of decks and that a card near it is admitted or refused on a deck or
+    two (issue #176). This is that sentence, with this slice's own sample in it rather
+    than the format-wide figure, because the reader is looking at one slice and the
+    median gem in it may be thinner than the median gem anywhere.
+
+    The medians are the drawn gems' own, so they move with the archetype, and they are
+    stated as medians rather than as totals for the reason the race states its sample per
+    contender: a total over the whole list hides that most of the list rests on the
+    floor. All app-built numerics off the drawn nodes, no user free text, so it is
+    returned as trusted markup.
+    """
+    gems = [node for node in subgraph.nodes if node.kind == "Card"]
+    # The median proper, which over an even list is the midpoint of the two middles and
+    # not the upper of them: a caption on this tab of all tabs cannot round its own
+    # sample up. Written through `:g` so a whole median prints whole ("6 decks") and a
+    # half one prints as it is ("6.5 decks") rather than as a false integer.
+    decks = statistics.median(node.decks for node in gems)
+    pilots = statistics.median(node.pilots for node in gems)
+    # The table orders by the chance where there is one and falls back to the finish
+    # where there is not, so the caption names whichever order it is actually in: a
+    # promise of "the firmest first" over a column of dashes would be its own small
+    # version of the overclaim this tab is fixing.
+    order = ("the firmest first" if any(node.gem_prob is not None for node in gems)
+             else "best finish first")
+    return (
+        f"<div class='t-fieldstat'><span class='pct'>{len(gems)} "
+        f"gem{'' if len(gems) == 1 else 's'}</span> found, {order}"
+        f"<span class='sample'> · a median one here rests on {decks:g} decks and "
+        f"{pilots:g} pilot{'' if pilots == 1 else 's'} · near the bar the band turns on a "
+        "deck or two, so read the gem chance beside a finish rather than the finish "
+        "alone</span></div>"
     )
 
 
@@ -614,7 +739,29 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "than 10% of them) yet finishes in the slice's top third on average. Only decks "
         "with a recorded finish count toward the rarity and the average. If a slice has "
         'too few placed decks to tell "rare" from "absent", the tool refuses rather than '
-        "guessing.",
+        "guessing. It is a shortlist of the best records among the slice's rare cards, "
+        "not a verified list of cards that overperform: see how settled a gem is, below.",
+    ),
+    (
+        "faq-gems-certainty",
+        "Cards",
+        'How settled is a "Hidden gem"?',
+        "Much less than a list of names looks. The rule is a hard line drawn through a "
+        "noisy average: a gem rests on a median of six decks across the archetypes the "
+        "tool offers, a third of them on the five that is the minimum, so a card whose "
+        "average sits near the line is admitted or refused on a deck or two of luck. "
+        "The table beside the picture is where that shows. Decks and Pilots are the "
+        "sample the average was taken over, and they can be further apart than they "
+        "look: about one gem in six rests on two pilots or fewer, and a card that one "
+        "strong pilot likes carries their record as much as its own. \"Gem chance\" "
+        "asks the question the rule cannot: given a record this short, and given how "
+        "the archetype around it finishes, how likely is it that the card really "
+        "belongs in the top third? It shrinks a short record toward what the archetype "
+        "does on average, by an amount measured from the data rather than chosen, and "
+        "most gems come back well under a coin flip. Read a high finish with a low "
+        "chance as a card worth trying, not as a card proven good. Nothing here is "
+        "resampled or randomised, so a rebuild of the same graph reports the same "
+        "numbers and a number that moved means the evidence moved.",
     ),
 ]
 
@@ -2614,7 +2761,14 @@ def build_app(artifact: Path) -> gr.Blocks:
         header = _result_header(view, filters, plan.node_count)
         if not subgraph.nodes:
             return header + _state_message("No matches for these filters.")
-        return header + _embed(render_subgraph(subgraph))
+        # The gem view states its evidence in a table above the picture (#176). Above,
+        # not below it as the race's leaderboard sits under its chart: the graph fills
+        # the frame, so a table under it is a screen away, and these numbers are the
+        # ones that stop a threshold crossing reading as a settled fact.
+        evidence = (
+            _gem_caption(subgraph) + _gem_table(subgraph) if view == "meta_gems" else ""
+        )
+        return header + evidence + _embed(render_subgraph(subgraph))
 
     with gr.Blocks(
         title="7 Point Highlander Graph",
@@ -2900,7 +3054,10 @@ def build_app(artifact: Path) -> gr.Blocks:
         with gr.Tab("Hidden gems"):
             gr.Markdown("## Hidden gems")
             gr.Markdown(
-                "Under-the-radar cards for an archetype.",
+                # Not "under-the-radar cards", which read as a finding the record does
+                # not support: the band is a hard cut on a mean taken from a median of
+                # six decks (#176), so the lede says whose record suggests what.
+                "Rare cards whose record suggests they overperform in an archetype.",
                 elem_classes="t-lede",
             )
             with gr.Group(elem_classes="control-panel"):
