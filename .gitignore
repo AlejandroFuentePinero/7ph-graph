@@ -33,6 +33,7 @@ reconciliation.json
 
 # Local scratch space, never shared.
 scratch/
+shots/
 
 # Agent config (local, not shared)
 CLAUDE.md

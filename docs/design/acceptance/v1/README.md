@@ -77,6 +77,13 @@ One text was below AA and is fixed on this branch: Gradio's floating "Plot" chip
 footer is (§2 and the chrome cleanup in `../v1-visual-direction.md`), since the card
 it floats over is already titled in the app's own type.
 
+A second pair reads at that same 4.23:1, and it is **not** fixed: the hidden-gems
+leaderboard paints its `td.score.spread` cells in `--text-mute` on the banded row's
+`--surface-2` (4 nodes, `gems-drawn`, both widths). This is the exact pairing §2 rules
+out by name. It arrived with the banded rows in #184 (`d86f741`), after the audit run
+these shots replace, and it reproduces at `main`, so it is not a #172 regression and
+was not fixed here. It has no ticket yet; see `docs/research-log.md`.
+
 What remains below the 4.5:1 line is the meta chart's **faded legend entries**, at
 2.10:1. Those are the `legendonly` lines the emphasis model opens with, and Plotly
 draws a switched-off legend entry at half opacity; a raised one measures 4.57:1.
@@ -87,8 +94,9 @@ covers the entries a reader is most likely to be reading.
 
 ## Findings for sign-off
 
-What the matrix shows that the code did not say. None of these are changed on this
-branch: they are chart and graph decisions for the maintainer, not evidence work.
+What the matrix shows that the code did not say. None of these were changed on the
+branch that captured them: they are chart and graph decisions for the maintainer, not
+evidence work. Where a later ticket has since fixed one, it says so.
 
 1. **No progress feedback on a Draw, at either width.** `pilots-running` is the
    mid-query shot, taken with a second of emulated latency: the control panel, then
@@ -106,13 +114,16 @@ branch: they are chart and graph decisions for the maintainer, not evidence work
    At 390px that is a tall box with a small cluster in the middle whose labels are
    unreadable, and on `cards-cooccurrence` the labels are not drawn at all. #85's own
    criterion is "no fixed 700/760px letterbox".
-4. **Three of the six tabs sit behind Gradio's "..." overflow at phone width**
-   (Hidden gems, Pilots, FAQ). Gradio's own behaviour, visible in every phone shot.
-5. **Two controls still wear Gradio's default palette**, against §2's one-accent
-   commitment. The selected tab's label and underline are Gradio's primary blue
-   `#3b82f6` (measured on all 46 visits), and the radio chips sit on its grey
-   `#52525b`; neither hex is a token. Both clear AA, so this is a visual-system
-   finding, not a contrast one.
+4. **Four of the seven tabs sat behind Gradio's "..." overflow at phone width**
+   (Hidden gems, Pilots, Best player race, FAQ). Gradio's own behaviour, visible in
+   every phone shot taken before #172. Fixed there: the bar scrolls horizontally, so
+   all seven tabs render on the strip at 390px and the overflow menu hides itself.
+5. **Two controls wore Gradio's default palette**, against §2's one-accent
+   commitment. The selected tab's label and underline were Gradio's primary blue
+   `#3b82f6` (measured on all 46 visits), and the radio chips sat on its grey
+   `#52525b`; neither hex is a token. Both cleared AA, so this was a visual-system
+   finding, not a contrast one. Fixed in #172: both vars are bound to tokens in
+   `dark_theme()`, and neither hex is painted anywhere at either width.
 6. **`SliceTooSmall` names the archetype's tag, not its display name** — "academy
    has 62 ranked decks", where the dropdown says "Academy" (`query.py`). Only
    reachable behind `--forced` today, since the dropdown offers no slice that small,

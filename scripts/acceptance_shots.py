@@ -29,7 +29,6 @@ Requires a one-off ``uv run --with playwright python -m playwright install chrom
 
 import argparse
 import json
-import re
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,19 +67,13 @@ def wait(page: Page, ms: int = 700) -> None:
 
 
 def tab(page: Page, name: str) -> None:
-    """Open a tab, through the overflow menu when the width has pushed it there.
+    """Open a tab off the tab bar, at either width.
 
-    Gradio's tab bar keeps only the tabs that fit and moves the rest behind a "..."
-    menu, so at phone width three of the six tabs are only reachable that way."""
-    visible = page.locator("div.tab-container[role=tablist]").get_by_role(
-        "tab", name=name, exact=True)
-    if visible.count():
-        visible.first.click()
-    else:
-        page.locator("span.overflow-menu > button").click()
-        wait(page, 300)
-        page.locator(".overflow-dropdown button").filter(
-            has_text=re.compile(rf"^{re.escape(name)}\s*$")).first.click()
+    One path since #172: the bar scrolls horizontally, so all seven tabs render on
+    the strip at 390px and Gradio's "..." overflow menu (which held four of them
+    there before the fix) hides itself, leaving nothing to fall through to."""
+    page.locator("div.tab-container[role=tablist]").get_by_role(
+        "tab", name=name, exact=True).first.click()
     wait(page, 900)
 
 
@@ -112,13 +105,21 @@ def field(page: Page, label: str):
     Gradio puts the label on a single-select's ``aria-label`` but not on a
     multiselect's, so the fallback goes through the field's own label span. Every
     tab's controls stay in the DOM, so the visible filter is what keeps a selector
-    from matching the same-named control on a hidden tab."""
+    from matching the same-named control on a hidden tab.
+
+    Raises on a label the app no longer carries rather than handing back a locator
+    that matches nothing: #156's copy sweep renamed three of the labels driven here,
+    and the symptom was a 30s Playwright timeout on the click that came next, which
+    names the selector but never the state that was being captured."""
     by_aria = page.locator(f'input[aria-label="{label}"]').locator("visible=true")
     if by_aria.count():
         return by_aria.first
-    return page.locator("div.container, label.container").filter(
+    by_span = page.locator("div.container, label.container").filter(
         has=page.locator(f'span[data-testid="block-info"]:text-is("{label}")')
-    ).locator("input").locator("visible=true").first
+    ).locator("input").locator("visible=true")
+    if not by_span.count():
+        raise SystemExit(f"No visible control labelled {label!r}")
+    return by_span.first
 
 
 def pick(page: Page, label: str, text: str) -> None:
@@ -163,8 +164,15 @@ def click_a_node(page: Page) -> None:
     asked of vis.js and converted to document coordinates, and the click is a real
     one at that point, which is what fires the ``selectNode`` handler the panel
     listens on (a programmatic ``selectNodes`` would not).
+
+    Both locators are filtered to the *visible* iframe, and have to be. Every tab's
+    graph stays in the DOM, so once the gems tab started drawing one of its own on
+    open (#176) the first iframe on the page stopped being the one on screen: the
+    point was read off the visible graph and the click was sent to a hidden one, whose
+    canvas is 0x0, which Playwright waits out as a 30s "element is not visible" rather
+    than reporting a wrong frame.
     """
-    frame = page.frame_locator("iframe").first
+    frame = page.frame_locator("iframe >> visible=true").first
     handle = page.locator("iframe").locator("visible=true").first
     point = handle.element_handle().content_frame().evaluate(
         """() => {
@@ -217,13 +225,13 @@ def recipes() -> list[Shot]:
     def archetypes_head_to_head(page):
         tab(page, "Archetypes")
         pick(page, "Archetype", ARCHETYPE)
-        pick(page, "Second archetype (optional, to compare)", ARCHETYPE_B)
+        pick(page, "Second archetype (optional)", ARCHETYPE_B)
         wait(page, 3500)
 
     def archetypes_refused(page):
         tab(page, "Archetypes")
         pick(page, "Archetype", ARCHETYPE_LONE)
-        pick(page, "Second archetype (optional, to compare)", ARCHETYPE_LONE_B)
+        pick(page, "Second archetype (optional)", ARCHETYPE_LONE_B)
         wait(page, 2500)
 
     def cards_nothing_picked(page):
@@ -241,7 +249,7 @@ def recipes() -> list[Shot]:
         page.locator("ul.options li").locator("visible=true").filter(
             has_text="Co-occurrence").first.click()
         wait(page, 600)
-        pick(page, "Second card (optional, for shared packages)", CARD_B)
+        pick(page, "Second card (optional)", CARD_B)
         draw(page)
 
     def gems(page):
