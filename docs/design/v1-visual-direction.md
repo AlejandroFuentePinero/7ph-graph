@@ -44,6 +44,38 @@ Defined once as CSS custom properties; every surface reads them by role.
 All text roles clear WCAG AA on `--bg`. No hardcoded colour may assume a
 background the app does not control.
 
+_Decided 2026-07-29 (#172): the same applies to the colours the app never wrote
+but ships anyway. Gradio's own `--color-accent` (`#3b82f6`) and
+`--checkbox-label-background-fill` (`#52525b`) painted 50 surfaces the app never
+chose, among them the 2px bar under the selected tab, the largest blue object on
+the page and one the #118 pass could not see, since it walks text nodes and a
+pseudo-element bar is not one. Both are bound to the app's tokens in
+`dark_theme()`, on two points that are decided rather than open:_
+
+- _**Gradio's control accent is `--accent-bright`, not `--accent`**, decided on
+  the measurement and not on the role wording. `--accent` was built and measured:
+  it leaves the picked chip's label at **4.40** on the chip's own composited
+  ground, below AA and the only new failure either candidate produced, where
+  `--accent-bright` gives **7.27** on `--bg` and **5.64** on the chip. It also
+  matches the split this codebase already runs (`--accent` is a fill or an edge,
+  `--accent-bright` is ink on a surface), the call #163 made for the range slider._
+- _**A picked radio or checkbox chip takes the quiet accent square `.clear-btn`
+  already uses**, not a hue of its own. Why the chip needed redesigning at all,
+  since it reads as scope creep otherwise: Gradio's picked chip and unpicked chip
+  were byte-identical (the same `#52525b` fill, the same ink, a 0px border) and
+  the blue dot was the only cue that one was picked, so retiring the blue without
+  the chip treatment would have left the control with no selected state._
+- _**The dot and the tick keep `--accent`**, the one place the control accent above
+  must not reach. Gradio draws both as a hardcoded `#fff` glyph on the selected fill,
+  and white on `--accent-bright` is **2.59**, under the **3:1** WCAG 1.4.11 asks of a
+  non-text control and under the Gradio blue being retired (**3.68**), which is the
+  one way this change could have gone backwards; `--accent` gives **3.32** and passes.
+  Caught in review, same day. Two things generalise. The `--accent` / `--accent-bright`
+  split decides it on its own (a fill, not ink), so the split is load-bearing rather
+  than descriptive. And the #118 pass measures text nodes, so a glyph, a bar, or a
+  border is invisible to it: **when a decision moves a colour that is not text, it is
+  measured by hand or it is not measured.**_
+
 **Measured by the #118 acceptance pass**, which walks every rendered text node
 rather than reading the table above. The ink roles against the three grounds:
 
@@ -60,6 +92,11 @@ caption, label, or tick may be set in `--text-mute` on `--surface-2`**. That is
 the whole reason Gradio's floating "Plot" chip is retired in the chrome cleanup
 below rather than recoloured, and it is the constraint to check before putting
 new text on a well.
+
+The picked chip decided above composites a fourth ground the app never declares
+as a token: `--accent` at 14% over `--surface`, `#38241a`. Measured on it,
+`--accent-bright` is **5.64**, `--accent` **4.40**, `--text-mute` **3.83**. Only
+the first clears AA, which is what settled the chip's ink.
 
 ## 3. Type system
 
@@ -181,6 +218,54 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   eight, hue may continue on `palette.EXTENDED` as a **tracing** cue on faded lines,
   never as direct colour and never as identity. `assign` still refuses a ninth direct
   hue._
+- **The mechanism**, which is the part that was missing and is why the rule above kept
+  being broken. _Decided 2026-07-29 (#172): hue is assigned once over a **stable entity
+  universe** and that map is **filtered** for the series actually drawn. Assigning over
+  the drawn subset re-ranks it, and a re-rank is a repaint. That is exactly what the
+  Meta tab's manual pick panel did: measured, dropping the middle of three picks moved
+  a survivor from `#199e70` to `#d95926`, and re-adding the removed pick did not undo
+  it, leaving the two archetypes permanently swapped._
+- **The universe each chart assigns over** is named at the caller. _Decided 2026-07-29:
+  the Meta trend's is every archetype in **latest-year rank order**, not the dropdown's
+  alphabetical order, because the tracing scale the #117 amendment above allows stays
+  distinct only for its first **32** slots and the widest cut draws 31 lines: rank order
+  is what keeps those 31 inside that prefix. The consequence, accepted: a hand-picked
+  pair no longer draws slots 1 and 2, it draws the hues those two archetypes carry
+  everywhere else, which is the point of the change. It also ends the state where the
+  cut chart and the manual chart painted one archetype two colours on a single scroll
+  (measured, Oracle `#d55181` against `#3987e5`)._
+- **Stability never costs distinctness**, which is the rule that ranks the two when a
+  universe is longer than the scale. _Decided 2026-07-29 (#172), after the first
+  hand-picked trio tried on the running app drew two of its three lines in one hue: the
+  tracing scale is 32 hues and the universe is 126 archetypes, so four of them share
+  every hue, and a filtered universe map is not safe to draw as it stands (Artifact at
+  universe 82 and Breakfast at 114 both took `#25d0d0`). The universe hue is the
+  default and a line moves to the first free hue only where another line on the same
+  chart already holds it. Two lines the same colour is the one thing hue must never do,
+  since the legend can name them and the chart still cannot tell them apart, so it
+  outranks stability where the two conflict. Placed in two passes, and the order is the
+  rule rather than an implementation detail: every line that can hold its own universe
+  hue is given it **first**, and only the collided lines are then placed into what is
+  genuinely left over. Resolving in one walk instead reads "first free hue" against a
+  set that is still being built, so a hue counts as free only until the walk reaches the
+  archetype that owns it, and adding a chip repaints a line already on the chart — the
+  §5 failure this rule exists to close, reintroduced by the fix for it (caught in review,
+  same day). The residue is narrow and is the smaller failure: a **displaced** line has
+  no hue of its own to hold, so it moves as the leftovers change. The cut charts never
+  reach it at all, their 31 lines rank into the distinct first 32 slots and nothing is
+  displaced at any of the three cuts._
+- **The exception**, decided rather than fixed. _Decided 2026-07-29 (#172): the two-line
+  **head-to-head** and **archetype-timeline** charts colour by **position** (slots 1 and
+  2), not by entity, and that is correct. The reason lived only in the code (the comment
+  in `_head_to_head_figure`) and nowhere in this document: two distinct pilot ids can
+  share a display label, so assigning by entity would dedup them onto one slot and
+  collapse the two lines into one. The failure mode this section exists to prevent does
+  not arise there either, since removing one of the two hides the chart rather than
+  repainting a survivor. A later pass must not "fix" this into a bug._
+- Two charts #172 checked and **closed with a reason rather than a change**: the card
+  **adoption** chart's repaint is already dead (#126 capped it at the subject plus one
+  card, so there is no non-tail pick to remove), and the **best player race** chart has
+  no control that varies its entity set at all.
 
 ## 6. Charts
 
@@ -190,7 +275,22 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
 - **Axis / ticks**: muted `#898781`; ticks tabular and thousands-comma'd.
 - **Marks**: keep the ADR-0013 read — thin dashed join (asserts no trend between
   years) + hollow observation markers — with a **2px surface ring** on markers so
-  overlaps do not muddy.
+  overlaps do not muddy. _Amended 2026-07-29 (#172): the surface ring stands in for
+  "hollow" only where the points sit on bare surface. Over a translucent fill it stops
+  being one: measured, the disc interior read (28,25,23) against a band of (32,44,59),
+  a 36/255 channel delta, on 6 of 6 band-facing markers on the pilot rivalry chart, 66
+  of 67 on the archetype pair, and 58 of 74 on the **solo** archetype timeline (whose
+  fill-to-axis has the same defect and which the parked item never mentioned). On those
+  charts the marker fill is now fully transparent and the ring reads against whatever it
+  covers. The scope rule, which is what a later pass needs rather than the change
+  itself: **occlusion is preferred over transparency only where nothing is painted
+  beneath.** That is why the best player race chart keeps the opaque fill (32 of its 36
+  markers overlap, and nothing is drawn under them) and the rivalry charts do not (0 of
+  8 markers overlap on the pilot chart, so the fill was buying nothing there). The cost
+  accepted: on the archetype timeline at phone width 75 of 116 discs overlap, and
+  crossing rings read muddier than occluding ones. Taken because that chart's density is
+  a separately acknowledged problem, and because the two rivalry charts must not drift
+  apart in how the band reads._
 - **Legend / emphasis**:
   - ≤ 4 series: direct end-labels.
   - 5–8 series: legend present, one colour per entity.
@@ -298,6 +398,7 @@ collapse to **two views**, one Draw per view rendering all of that view's plots.
 | **Meta** | meta share over time |
 | **Archetypes** | the metagame landscape: meta share against finish for one year (entered by year) |
 | **Hidden gems** | rare cards crowding their own archetype's best decks (no controls) |
+| **Best player race** | who the best pilots are and how long the record took to say so (#135; no controls) |
 
 - **Two archetype tabs, two reader questions.** Meta and Archetypes (#145) are both
   about archetypes, so each states the question that is its own: Meta answers "who is
@@ -332,11 +433,30 @@ cards when a second is chosen in Co-occurrence, the subject alone otherwise.
 Placement note: *hidden gems* is entered by archetype and outputs cards. It once
 sat under **Meta** (beside meta share) only to keep Meta from being a single-view
 tab, but #125 reversed that trade-off: gems is now its own top-level tab, and Meta
-holds meta share over time alone. The structure is five tabs, **Pilots (2), Cards
-(2), Meta (1: meta share), Archetypes (1: the landscape, #145), Hidden gems (1)**,
-plus the FAQ tab (#133), which carries no plot. The gems view itself is unchanged by
-the move (its query, archetype entry, and the `SliceTooSmall` refusal per ADR 0012
-are intact); only its placement changed.
+holds meta share over time alone. The structure is seven tabs, **Pilots (2), Cards
+(2), Meta (1: meta share), Archetypes (1: the landscape, #145), Hidden gems (1),
+Best player race (1: the field-wide race, #135)**, plus the FAQ tab (#133), which
+carries no plot. The gems view itself is unchanged by the move (its query, archetype
+entry, and the `SliceTooSmall` refusal per ADR 0012 are intact); only its placement
+changed.
+
+_Decided 2026-07-29 (#172): the tab strip **scrolls sideways** on a narrow screen,
+and every one of the seven tabs renders on it. Measured at 390px the seven tabs need
+607px against 326px of container, so Gradio sliced four of them behind a "..."
+overflow menu, and a tab selected from that menu left **no** button on the strip
+carrying `.selected` or `aria-selected` at all: four of seven tabs could not show
+"you are here" on the device the PRD names primary. The strip is the app's top-level
+control, so that is the same defect §12 already fixed one level down when it stopped
+clipping the fourteenth legend entry ("on that chart the legend is the control, so a
+clipped entry is an archetype the reader cannot raise"). Wrapping the strip so all
+seven sit at rest was built, measured and **rejected**: it costs 39px off the top of
+every phone page, permanently, in a ragged three-row block of chrome, and needs a
+media query to keep desktop unchanged. Scrolling costs nothing (measured: the first
+lede sits at the same pixel at every width from 320 to 1440) and needs no breakpoint,
+so an eighth tab adds scroll width rather than a row. This is §6's own legend argument
+on the other axis: put the element where it costs no space at any size. The cost
+accepted: the tabs past the edge need a swipe, with 80% of the next tab cut at that
+edge as the affordance that they are there._
 
 ---
 

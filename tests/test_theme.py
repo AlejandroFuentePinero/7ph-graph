@@ -103,6 +103,21 @@ def test_the_default_gradio_footer_is_retired():
     assert footer and "display: none" in footer.group(1)
 
 
+def test_every_tab_stays_on_the_strip_at_phone_width():
+    # AC (#172): at 390px the seven tabs need 607px against 326px of container, and
+    # Gradio's overflow pass measures the `visually-hidden` mirror of the strip, so a
+    # wrapping mirror is what stops it slicing four tabs into a "..." menu they cannot
+    # be seen selected from. The real strip scrolls instead of wrapping, which is what
+    # keeps the fix free of vertical cost. Both halves are load-bearing: either one on
+    # its own puts tabs back out of reach, so both are held here.
+    css = theme.build_css()
+
+    mirror = re.search(r"\.tab-container\.visually-hidden\s*\{(.*?)\}", css, re.DOTALL)
+    assert mirror and "flex-wrap: wrap" in mirror.group(1)
+    strip = re.search(r'\.tab-container\[role="tablist"\]\s*\{(.*?)\}', css, re.DOTALL)
+    assert strip and "overflow-x: auto" in strip.group(1)
+
+
 def test_the_floating_component_label_over_a_plot_is_retired():
     # AC (#118): the same default furniture the footer rule retires, one level down.
     # Gradio floats a chip reading "Plot" over every `gr.Plot`, naming the component's
@@ -142,3 +157,55 @@ def test_every_token_is_declared_exactly_once_in_root():
     for token in theme.TOKENS:
         declared = re.findall(rf"(?m)^\s*--{re.escape(token)}\s*:", root.group(1))
         assert len(declared) == 1, f"--{token} declared {len(declared)} times, want 1"
+
+
+def test_the_gradio_chrome_the_app_paints_never_falls_back_to_gradios_palette():
+    # AC (#172): the #118 audit walks text nodes, so it never counted the 2px accent bar
+    # under the selected tab, the radio mark or the chip fill, and 50 painted surfaces
+    # across 12 state/width visits were still Gradio's own #3b82f6 or #52525b. They all
+    # traced to a handful of vars left on their defaults. Each one is bound to a token in
+    # `dark_theme` now, and this holds them there: a Gradio var re-chained upstream, or a
+    # kwarg dropped in a future edit, resurfaces the blue in the app rather than here.
+    #
+    # `_get_theme_css` is private, but it is the only view of what actually ships: the
+    # public `to_dict` gives the declared spec, and the whole point of the check is the
+    # resolved chain (`--checkbox-label-background-fill-selected` looked bound and led
+    # back to Gradio's zinc two hops later). The dark block is emitted after the light
+    # one, so the last declaration of each var wins here exactly as it does in the app.
+    css = theme.dark_theme()._get_theme_css()
+    declared = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", css))
+
+    def resolve(name, seen=()):
+        value = declared.get(name, "").strip()
+        ref = re.fullmatch(r"var\((--[\w-]+)\)", value)
+        if ref and ref.group(1) in declared and ref.group(1) not in seen:
+            return resolve(ref.group(1), seen + (name,))
+        return value
+
+    # Every hue Gradio's own three ramps carry, not just the two the audit happened to
+    # photograph: the ramps are declared in this same sheet, so a chain always bottoms
+    # out in a hex and a var-prefix test would never fire. A token that ever matched one
+    # of these would make the check unfalsifiable, so that is asserted rather than hoped.
+    gradio_own = {
+        v.strip().lower() for k, v in declared.items()
+        if re.fullmatch(r"--(primary|secondary|neutral)-\d+", k)
+    }
+    assert not gradio_own & {v.lower() for v in theme.TOKENS.values()}
+    painted = [
+        "--color-accent",
+        "--checkbox-label-background-fill", "--checkbox-label-background-fill-selected",
+        "--checkbox-label-text-color", "--checkbox-label-text-color-selected",
+        "--checkbox-label-border-color", "--checkbox-label-border-color-selected",
+        "--checkbox-background-color", "--checkbox-background-color-selected",
+        "--checkbox-border-color",
+        "--button-secondary-background-fill", "--button-secondary-background-fill-hover",
+        "--button-secondary-border-color",
+        "--button-cancel-background-fill", "--button-cancel-border-color",
+        "--border-color-accent", "--stat-background-fill",
+    ]
+    # A var Gradio renames or stops emitting resolves to "", which matches nothing and
+    # would retire the guard on the very drift it is here to catch, so it fails instead.
+    missing = [name for name in painted if name not in declared]
+    assert not missing, f"no longer emitted by Gradio, so unguarded: {missing}"
+    leaks = {name: resolve(name) for name in painted if resolve(name).lower() in gradio_own}
+    assert not leaks, f"these paint Gradio's palette, not a token: {leaks}"

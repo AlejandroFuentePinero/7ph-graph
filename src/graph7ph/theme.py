@@ -427,6 +427,39 @@ footer {{ display: none !important; }}
    any future component outside one is untouched. */
 .insight-card label.float {{ display: none; }}
 
+/* Every tab reachable at phone width (#172), the same kind of override one more level
+   down. Gradio renders the tab strip twice: a `visually-hidden` mirror it measures, and
+   the real `role="tablist"` it paints. Its overflow pass walks the MIRROR's buttons and
+   slices everything past the container's width into a "..." menu, and the seven tabs
+   need 607px against 326px of container at 390px, so four of them go behind that menu.
+   Worse, when a hidden tab is the selected one, no button on the real strip carries
+   `.selected` or `aria-selected`: four of seven tabs show no "you are here" on the
+   device most of the reading happens on. Letting the mirror wrap leaves the pass with
+   nothing overflowing, so the menu hides itself and all seven render on the real strip.
+
+   The real strip then scrolls sideways rather than wrapping, measured both ways: wrapping
+   the visible strip costs 39px off the top of every phone page for a ragged three-row
+   block of chrome, and needs a media query to keep it off desktop. Scrolling costs
+   nothing at any width (the first `.t-lede` stays at 210.1 on phone and 167.6 on desktop,
+   and at 1440 scrollWidth equals clientWidth at 1216, so no scroll region exists there at
+   all). The hairline moves off Gradio's absolutely-positioned `::after` and onto the
+   strip's own border box, or it would scroll out from under the buttons with them;
+   `--border-color-primary` is bound to `--border` in `dark_theme`, so it is the same pixel.
+
+   Every selector here is (0,4,1) or higher out of necessity, the trap the clearable row
+   documents above: this stylesheet is emitted BEFORE Gradio's bundle and its own tab
+   rules are (0,3,0), so anything at or below that ties and loses on order. None of them
+   names the `svelte-` hash, deliberately, so a Gradio upgrade that rehashes cannot
+   silently drop them. */
+.gradio-container .tabs > .tab-wrapper > .tab-container.visually-hidden {{ flex-wrap: wrap; }}
+.gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] {{
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  border-bottom: 1px solid var(--border);
+}}
+.gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"]::after {{ content: none; }}
+.gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"]::-webkit-scrollbar {{ display: none; }}
+.gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] > button {{ flex: 0 0 auto; }}
+
 /* The app's own credit surface in place of that footer (#115): coverage, the build
    snapshot, and who to reach, set apart from the tabs by a hairline and centred as a
    page footer. The coverage counts read a step up from the caption below them, the
@@ -486,6 +519,70 @@ def dark_theme():
         button_primary_background_fill_hover_dark="var(--accent-bright)",
         button_primary_border_color="var(--accent)", button_primary_border_color_dark="var(--accent)",
         button_primary_text_color="var(--bg)", button_primary_text_color_dark="var(--bg)",
+        # Gradio's own accent (`*primary_500`, #3b82f6) onto the app's on-surface accent.
+        # This one kwarg carries the selected tab's ink, the 2px `::after` bar under it
+        # (the largest blue object on the page, and one the #118 text-node audit never
+        # counted because it is not text), the "..." dots, the radio mark and the checkbox
+        # tick, since `checkbox_background_color_selected` and both accent border colours
+        # default to `*color_accent`. `--accent-bright` rather than `--accent` on
+        # measurement, not taste: `--accent` was built and measured and it drops the
+        # selected chip's label to 4.40 on its own composited ground, a new WCAG AA
+        # failure and the only one either candidate produced, where `--accent-bright`
+        # gives 7.27 on the ground and 5.64 on the chip. It is also how this codebase
+        # already splits the two: `--accent` is a fill or an edge, `--accent-bright` is
+        # ink on a surface (#163 made the same call for the range slider).
+        color_accent="var(--accent-bright)",
+        # The radio/checkbox chip, redesigned in the same change because the accent is
+        # what was holding it up. Gradio chains `..._fill_selected` straight back to
+        # `checkbox_label_background_fill` and takes its border width from the input's,
+        # which is 0px here, so a picked chip and an unpicked one were byte-identical
+        # (all three of Top 25% / Top 50% / Top 75% measured bg rgb(82,82,91), ink
+        # rgb(242,237,230), border 0px) and the blue dot was the only cue that one was
+        # picked: retiring the blue alone would have left the control with no selected
+        # state. So a picked chip takes the quiet accent square `.clear-btn` already
+        # establishes in `build_css` (and `_faq_tag_tints` one hue over) and reads as the
+        # same kind of object, on a hairline-bordered well when it is not picked. Its ink
+        # is the bright accent where `.clear-btn` rests on `--accent`, because `--accent`
+        # measures 4.40 on the chip's tinted ground, under AA, against 5.64 for the bright
+        # one: the same accent, one step up in strength. `--text-mute` is used nowhere
+        # here on purpose (3.83 on the chip, 3.32 on `--surface-2`, which §2 already rules
+        # out).
+        checkbox_label_background_fill="var(--surface)",
+        checkbox_label_background_fill_dark="var(--surface)",
+        checkbox_label_background_fill_hover=_rgba(TOKENS["accent"], 0.08),
+        checkbox_label_background_fill_hover_dark=_rgba(TOKENS["accent"], 0.08),
+        checkbox_label_background_fill_selected=_rgba(TOKENS["accent"], 0.14),
+        checkbox_label_background_fill_selected_dark=_rgba(TOKENS["accent"], 0.14),
+        checkbox_label_border_width="1px", checkbox_label_border_width_dark="1px",
+        checkbox_label_border_color="var(--border)", checkbox_label_border_color_dark="var(--border)",
+        checkbox_label_border_color_selected=_rgba(TOKENS["accent"], 0.55),
+        checkbox_label_border_color_selected_dark=_rgba(TOKENS["accent"], 0.55),
+        checkbox_label_text_color="var(--text-dim)", checkbox_label_text_color_dark="var(--text-dim)",
+        checkbox_label_text_color_selected="var(--accent-bright)",
+        checkbox_label_text_color_selected_dark="var(--accent-bright)",
+        checkbox_background_color="var(--surface-2)", checkbox_background_color_dark="var(--surface-2)",
+        # The one place the accent above must not reach. Gradio draws the picked radio
+        # dot and the checkbox tick as a hardcoded `#fff` glyph on this fill, and white
+        # on `--accent-bright` is 2.59, under the 3:1 WCAG 1.4.11 asks of a non-text
+        # control — worse than the Gradio blue being retired (3.68), which is the one
+        # way this change could have gone backwards. `--accent` gives 3.32 and passes,
+        # and it is the same split the comment above draws: this is a fill, not ink.
+        # The #118 audit walks text nodes, so it cannot see a glyph like this one.
+        checkbox_background_color_selected="var(--accent)",
+        checkbox_background_color_selected_dark="var(--accent)",
+        checkbox_border_color="var(--border)", checkbox_border_color_dark="var(--border)",
+        # The neighbouring zincs, each one component away from being painted: a secondary
+        # or a stop button, an accent border, a stat panel. Bound here rather than left to
+        # be discovered, since `--button-secondary-*` is also what the chip fill chained
+        # to and what `--button-cancel-*` chains to in turn, so the stop button follows
+        # from these three with no kwargs of its own. `stat_background_fill` reads the
+        # primary ramp rather than `*color_accent`, so the accent above does not carry it.
+        button_secondary_background_fill="var(--surface-2)", button_secondary_background_fill_dark="var(--surface-2)",
+        button_secondary_background_fill_hover="var(--surface)", button_secondary_background_fill_hover_dark="var(--surface)",
+        button_secondary_border_color="var(--border)", button_secondary_border_color_dark="var(--border)",
+        button_secondary_text_color="var(--text)", button_secondary_text_color_dark="var(--text)",
+        border_color_accent="var(--accent)", border_color_accent_dark="var(--accent)",
+        stat_background_fill="var(--accent)", stat_background_fill_dark="var(--accent)",
     )
 
 

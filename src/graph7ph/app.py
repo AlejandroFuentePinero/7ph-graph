@@ -993,7 +993,7 @@ def _legend_title(hint: str) -> str:
     )
 
 
-def _observation_marker(colour: str) -> dict:
+def _observation_marker(colour: str, *, over_fill: bool = False) -> dict:
     """A hollow observation marker (ADR 0013) on a 2px surface ring (§6).
 
     The points are the observations, so they read as hollow rings in the series
@@ -1002,8 +1002,22 @@ def _observation_marker(colour: str) -> dict:
     fill occludes the ring beneath it rather than letting the two rings cross into
     mud. The 2px outline is the series colour; the thin dashed join stays the
     caller's line, which only joins the points and asserts no trend between them.
+
+    ``over_fill`` is for the callers that paint something under their points: the
+    opaque fill is only a stand-in for hollow where the points sit on bare surface,
+    and where a translucent band is painted beneath them it stops reading as hollow
+    and punches a hole in the band instead (measured on the rivalry charts: 0 of 6
+    band-facing half-discs matched the band on the pilot head-to-head, 1 of 67 on the
+    archetype one, median channel delta 36, and every marker straddles the band edge
+    by construction since the band's boundary is the line they sit on). Those callers
+    get a fully transparent fill, so the ring reads against what it covers; they lose
+    nothing to the occlusion the opaque fill buys, which is worth zero there (0 of 8
+    markers overlap on the pilot chart at 1440 and at 390). The trade is the same one
+    the faded meta lines make, where the markers are dropped outright because the
+    opaque fill would chop the lines into segments.
     """
-    return dict(size=12, symbol="circle", color=_SURFACE, line=dict(width=2, color=colour))
+    fill = "rgba(0,0,0,0)" if over_fill else _SURFACE
+    return dict(size=12, symbol="circle", color=fill, line=dict(width=2, color=colour))
 
 
 def _interval_bars(
@@ -1254,6 +1268,7 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
 
 def _trend_figure(
     series: Series, tags: list[str], *, start_raised: int = _OPEN_RAISED,
+    universe: list[str] | None = None,
 ) -> pgo.Figure:
     """A line chart of the chosen archetypes' meta share over time.
 
@@ -1280,9 +1295,27 @@ def _trend_figure(
     the years, which is most of what a reader wants the meta chart for. Hue traces
     here, it does not name: the legend and the hover carry identity, and the extended
     scale claims none of the distinguishability the signed eight do. That
-    scale opens on the signed eight in slot order, so an archetype holds its colour
-    across every cut: a narrower cut is a prefix of a wider one, so it never repaints
-    the survivors it shares (the reversal of ADR-0013's colour-by-position).
+    scale opens on the signed eight in slot order.
+
+    ``universe`` is the stable entity set the hues are assigned over, which the drawn
+    tags then only filter: colour follows the archetype, never its rank in this
+    particular draw (§5, the reversal of ADR-0013's colour-by-position). Assigning over
+    the drawn tags instead holds only while the caller's orders nest, which the cut's
+    do (a narrower cut is a prefix of a wider one) and the manual panel's do not: it
+    hands its picks back in pick order, so removing a middle chip slid every later pick
+    up a hue (measured live: dropping Lands from Grixis/Lands/Blue Moon repainted Blue
+    Moon #199e70 -> #d95926, and re-adding Lands did not put it back). One universe
+    across both callers also settles the disagreement between the two charts on the
+    tab, which used to draw the same archetype in two hues on one scroll.
+
+    The cost: a hand-picked pair no longer draws slots 1 and 2, it draws the hues those
+    archetypes carry everywhere else. What the universe must not cost is distinctness,
+    and unfiltered it would: the scale is 32 hues over a 126-archetype universe, so four
+    archetypes share each one, and the first hand-picked trio tried on the running app
+    drew Artifact and Breakfast (universe 82 and 114, 32 apart) in the same
+    ``#25d0d0``. :func:`palette.disambiguate` is what closes that, moving a line only
+    where its hue is already taken on this chart. Left ``None``, the drawn tags are
+    their own universe.
 
     ``tags`` is drawn in the order given, which is the caller's meaningful order: the
     cut passes them strongest-first, the manual panel in pick order.
@@ -1338,7 +1371,7 @@ def _trend_figure(
     # raises exactly one line out of the field. The two layers are added in passes, not
     # per archetype, so every raised line draws above every faded one rather than only
     # above the ones that happen to follow it.
-    hues = palette.extended(drawn)
+    hues = palette.disambiguate(palette.extended(universe or drawn), drawn)
     for tag in drawn:
         # Line only. The observation marker's fill is the *opaque* surface, so a wide
         # cut would tile thirty-one archetypes' worth of discs over each other and chop
@@ -2334,7 +2367,9 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            marker=_observation_marker(colour),
+            # Over the band, so the fill goes transparent and the ring reads against
+            # the tint it sits on rather than cutting a surface-coloured hole in it.
+            marker=_observation_marker(colour, over_fill=True),
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
@@ -2413,7 +2448,10 @@ def _archetype_timeline_figure(
             # keeps the shared ring: it is drawn over the events one *pair of pilots*
             # both attended, and has not crowded. If it ever does, this size belongs in
             # one constant both rivalry charts read, not in two places.
-            marker={**_observation_marker(colour), "size": 9},
+            # Over a fill either way (the band with two archetypes, the tozeroy fill
+            # with one), so the marker's fill goes transparent: solo measured 58 of its
+            # 74 rings sitting on its own fill, none of them reading against it.
+            marker={**_observation_marker(colour, over_fill=True), "size": 9},
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
@@ -2473,6 +2511,17 @@ def build_app(artifact: Path) -> gr.Blocks:
     trend_archetypes = _distinguish(sorted(
         {(c.archetype, c.tag) for c in trend_series.cells}
     ))
+    # The one entity universe both meta charts assign their hues over, so an archetype
+    # keeps its colour whatever else is drawn beside it (§5). In latest-year rank order,
+    # not the dropdown's alphabetical one: the extended scale stays distinct only for
+    # its first 32 slots (§5's #117 amendment) and the widest cut draws 31 lines, so
+    # rank order keeps exactly those 31 inside that prefix, where an alphabetical
+    # universe would scatter them across the cycling 126-entry map and collide hues on
+    # the chart that opens the tab. The 15 archetypes the full cut omits (cells in the
+    # matrix, but no deck in the latest year) follow in the dropdown's own sorted order.
+    trend_universe = list(dict.fromkeys(
+        latest_year_share_cut(trend_series, 1.0) + [tag for _, tag in trend_archetypes]
+    ))
 
     # The year the cut ranks on, read from the data so it follows the graph forward
     # rather than being pinned; named here only to say so in the chart title and the
@@ -2488,7 +2537,10 @@ def build_app(artifact: Path) -> gr.Blocks:
         # Title is the plot type only (§14); the cut is a filter and rides the caption.
         return (
             _chart_heading("Meta share over time", f"{cut_label} of {latest_year} decks"),
-            _trend_figure(trend_series, tags),
+            # Measured a no-op at all three cuts, since a cut is already a prefix of the
+            # universe: passing it says so, rather than leaving that invariant to hold
+            # the colours up by accident.
+            _trend_figure(trend_series, tags, universe=trend_universe),
         )
 
     # Every year the graph holds, newest first: the Archetypes year selector's choices
@@ -2657,8 +2709,11 @@ def build_app(artifact: Path) -> gr.Blocks:
             gr.update(value=_chart_heading("Selected archetypes"), visible=True),
             # Hand-picked, so every pick opens raised rather than the cut's leading
             # few: the reader has already said which lines they want, and opening any
-            # of them faded would ask them to choose the same archetypes twice.
-            gr.update(value=_trend_figure(trend_series, tags, start_raised=len(tags)),
+            # of them faded would ask them to choose the same archetypes twice. The
+            # picks arrive in pick order, so the universe is what keeps a survivor's
+            # colour still when a chip in the middle of the list is removed.
+            gr.update(value=_trend_figure(trend_series, tags, start_raised=len(tags),
+                                          universe=trend_universe),
                       visible=True),
         )
 

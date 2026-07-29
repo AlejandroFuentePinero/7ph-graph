@@ -924,6 +924,78 @@ def test_a_narrower_cut_does_not_repaint_the_archetypes_it_shares_with_a_wider_o
     assert narrower["Control"] == wider["Control"] == palette.CATEGORICAL[1]
 
 
+def test_dropping_a_pick_from_the_middle_does_not_repaint_the_picks_after_it():
+    # AC (§5): the manual panel hands its picks back in pick order, which does not nest
+    # the way the cut's rank order does, so dropping a chip from the middle slid every
+    # later pick up a hue and re-adding it did not undo the swap. Drawn over the stable
+    # universe the hue follows the archetype: the survivor holds its colour, and the
+    # re-added pick returns the whole mapping to what it was before the removal.
+    series = _meta_series(
+        ("aggro", 2024, 0.4), ("control", 2024, 0.3), ("combo", 2024, 0.2),
+    )
+    universe = ["aggro", "control", "combo"]
+
+    def colour_by_archetype(tags):
+        fig = _trend_figure(series, tags, universe=universe)
+        return {t.name: t.marker.line.color for t in fig.data}
+
+    picked = colour_by_archetype(["aggro", "control", "combo"])
+    without_middle = colour_by_archetype(["aggro", "combo"])
+    re_added = colour_by_archetype(["aggro", "combo", "control"])
+
+    assert without_middle["Combo"] == picked["Combo"] == palette.CATEGORICAL[2]
+    assert re_added == picked
+
+
+def test_two_picks_that_share_a_universe_hue_are_still_drawn_apart():
+    # AC (§5): stability never costs distinctness. The tracing scale is 32 hues and the
+    # universe is longer, so archetypes exactly a scale-length apart in it take the same
+    # hue: drawn straight off the filtered map, the first trio tried on the running app
+    # put two of its three lines in one colour. The colliding line moves to the first
+    # free hue instead, and only the colliding one moves.
+    series = _meta_series(("aggro", 2024, 0.4), ("control", 2024, 0.3),
+                          ("combo", 2024, 0.2))
+    # "control" and "combo" sit a full scale apart, so `extended` hands them one hue.
+    universe = ["aggro", "control", *[f"filler{i}" for i in range(len(palette.EXTENDED) - 1)],
+                "combo"]
+    assert palette.extended(universe)["combo"] == palette.extended(universe)["control"]
+
+    def colour_by_archetype(tags):
+        fig = _trend_figure(series, tags, universe=universe)
+        return {t.name: t.marker.line.color for t in fig.data}
+
+    both = colour_by_archetype(["aggro", "control", "combo"])
+    assert len(set(both.values())) == 3, both
+    # The one that holds the shared hue is the one the universe reaches first, so which
+    # of the pair moves does not depend on the order the reader picked them in.
+    assert both["Control"] == palette.EXTENDED[1]
+    assert colour_by_archetype(["aggro", "combo"])["Combo"] == palette.EXTENDED[1]
+
+
+def test_adding_a_pick_does_not_repaint_a_line_already_on_the_chart():
+    # AC (§5): the fix above must not smuggle the failure back in. A displaced line takes
+    # "the first free hue", and in a single walk a hue is free only until the universe
+    # reaches the archetype that owns it, so resolving as we go handed a new chip a hue
+    # belonging to a line already drawn and repainted it. Every line that can hold its own
+    # hue is placed first, and the displaced one takes what is genuinely left over.
+    series = _meta_series(("aggro", 2024, 0.4), ("control", 2024, 0.3),
+                          ("combo", 2024, 0.2))
+    # "combo" collides with "aggro" a scale later; "control" follows it holding EXTENDED[1]
+    # outright, which is the hue a one-pass walk would have given away to "combo".
+    universe = ["aggro", *[f"filler{i}" for i in range(len(palette.EXTENDED) - 1)],
+                "combo", "control"]
+
+    def colour_by_archetype(tags):
+        fig = _trend_figure(series, tags, universe=universe)
+        return {t.name: t.marker.line.color for t in fig.data}
+
+    before = colour_by_archetype(["aggro", "control"])
+    after = colour_by_archetype(["aggro", "control", "combo"])
+
+    assert after["Control"] == before["Control"] == palette.EXTENDED[1]
+    assert len(set(after.values())) == 3, after
+
+
 def _emphasis_layers(fig):
     """A figure's (context, raised) traces, split on which carries a legend entry."""
     return (
@@ -1053,7 +1125,9 @@ def test_the_widest_cut_draws_no_look_alike_pair_and_no_borrowed_wheel():
     # hue and none of the fifteen was traceable. The widest cut the app offers is 31
     # lines, and across it every archetype must hold a hue of its own, all of them from
     # this repo's own scale. Read off the serialised figure, so a borrowed hue that
-    # sneaks into a marker or a legend swatch trips this too.
+    # sneaks into a marker or a legend swatch trips this too. The claim is cut-scoped:
+    # since the meta hues are assigned over the whole 126-archetype universe, a
+    # hand-picked set that reaches past its thirty-second slot can share a hue.
     fig, _ = _wide_meta(31)
     _, raised = _emphasis_layers(fig)
 
@@ -1203,6 +1277,43 @@ def test_observation_markers_carry_a_surface_ring_over_a_thin_dashed_join():
     assert trace.marker.color == theme.TOKENS["surface"]  # the surface ring
     assert trace.marker.line.width == 2  # a 2px outline in the series colour
     assert trace.marker.line.color == palette.CATEGORICAL[0]
+
+
+def test_the_markers_that_sit_on_a_tinted_fill_drop_their_opaque_ring():
+    # AC (#172): the surface fill only reads as hollow over bare surface. The two
+    # rivalry charts paint a tint under their points (the band between two lines, or
+    # one line filled to the axis), and there the fill punched a surface-coloured hole
+    # in it: 0 of 6 band-facing half-discs matched the band on the pilot chart, 1 of 67
+    # on the archetype one, median channel delta 36. Those points go fully transparent
+    # so the ring reads against what it covers. Every chart that paints nothing under
+    # its points keeps the opaque fill and the occlusion it buys.
+    def marker_fills(fig):
+        return {t.marker.color for t in fig.data if "markers" in (t.mode or "")}
+
+    transparent = {"rgba(0,0,0,0)"}
+    assert marker_fills(_head_to_head_figure("Ada L", "Bob C", Series(cells=[
+        _h2h_point("SSWam", datetime(2024, 3, 1), 88),
+        _h2h_point("PBB", datetime(2024, 6, 1), 24),
+    ]))) == transparent
+    assert marker_fills(_archetype_timeline_figure(
+        "Storm", "Lands", _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4)),
+    )) == transparent
+    # Solo too: it fills its one line to the axis, so its points sit on a tint as well.
+    assert marker_fills(_archetype_timeline_figure(
+        "Storm", None, _timeline_points((1, 0.4, 1), (2, 0.6, 2)),
+    )) == transparent
+
+    surface = {theme.TOKENS["surface"]}
+    assert marker_fills(_performance_figure("Ada L", Series(cells=[
+        _performance_cell(2024, 0.4, 3),
+    ]))) == surface
+    assert marker_fills(_landscape_figure(_landscape_cells(
+        ("grixis", 30, 0.45), ("storm", 20, 0.4),
+    ))) == surface
+    assert marker_fills(_race_figure(*_race_figure_args())) == surface
+    assert marker_fills(_adoption_figure([("Sol Ring", Series(cells=[
+        AdoptionCell(year=2024, count=30, share=0.03, year_total=1000),
+    ]))])) == surface
 
 
 def test_the_app_builds_end_to_end_over_a_real_artifact(tmp_path, snapshot_dir):

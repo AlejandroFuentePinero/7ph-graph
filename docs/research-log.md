@@ -277,3 +277,36 @@ something a caption has to carry: a deterministic x-jitter draws a share the arc
 have, and breaking ties on the y axis makes vertical position mean two things. Worth a ticket
 if the collisions bother a reader, but it is a display decision with a caveat attached, not a
 bug.
+
+## 2026-07-29 - The acceptance pass had stopped completing, and a partial run still writes a plausible report
+
+Found while regenerating the evidence for #172. Two things worth keeping.
+
+**A crashed run leaves a report that looks finished.** `report()` in `scripts/acceptance_shots.py`
+globs `contrast*.json` and merges whatever it finds, and `main()` writes `contrast.json` only
+after the last shot. So a main pass that dies partway leaves the previous run's `contrast.json`
+on disk, and the next `--forced` pass rebuilds `contrast.md` from that stale file plus its own
+fresh one. The output is a well-formed table mixing measurements from two different commits,
+with no marker saying so. The tell is a row whose `example` names a state from the pass that
+crashed. If a regenerated `contrast.md` disagrees with what the app plainly renders, suspect
+this before suspecting the app.
+
+**It had been failing for a while, and that hid a live defect.** Three drifts had accumulated,
+each silent: two control labels renamed by #156, and `click_a_node` targeting
+`page.frame_locator("iframe").first` after #176 gave the gems tab a graph that draws on open and
+so became the first iframe in the DOM (the point was read off the visible graph, the click sent
+to a hidden 0x0 canvas, which Playwright reports as a 30s visibility timeout rather than a wrong
+frame). All three are fixed. The consequence was that the tracked `contrast.md` was evidence
+from an older commit.
+
+**What the first complete run since then surfaced:** `#8a8178` on `#24201d` at **4.23** against a
+4.5 floor, 4 nodes, on `gems-drawn`. That is `--text-mute` on `--surface-2`, the one combination
+§2 of the visual direction names as out of bounds ("no caption, label, or tick may be set in
+`--text-mute` on `--surface-2`"). It is painted by `.leaderboard tbody tr.band td { background:
+var(--surface-2); }` in `theme.py`, from #184's grouping of the gem table by archetype: the
+banding lifts every other block onto the well surface and the muted figures in those rows go
+with it. Reproduced identically at HEAD in a throwaway worktree, so it predates #172, which left
+it alone as out of scope.
+
+[handoff] That contrast row is a live §2 violation with no ticket. The fix is a choice between
+lifting those figures off `--text-mute` and taking the band off `--surface-2`; worth an issue.

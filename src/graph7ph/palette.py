@@ -104,11 +104,54 @@ def extended(entities: Iterable[str]) -> dict[str, str]:
     faded, where the job of hue is to keep a line traceable rather than to name it.
 
     Past the thirty-second entity the scale cycles, so two entities can share a hue.
-    Nothing the app draws reaches that: the widest cut is 31 lines. Only a hand-picked
-    set can, and a reader who has named thirty-three archetypes at once is past what
-    hue can carry either way.
+    The cycle is reached: the meta chart assigns over its whole 126-archetype universe
+    once and filters that map for the lines it draws, so an archetype holds its hue
+    whatever else is on the chart (§5). Four archetypes land on each hue at that size,
+    so a filtered map is not safe to draw on its own: pass it through
+    :func:`disambiguate` for the lines actually drawn.
     """
     return {
         e: EXTENDED[i % len(EXTENDED)]
         for i, e in enumerate(dict.fromkeys(entities))
     }
+
+
+def disambiguate(hues: dict[str, str], drawn: Iterable[str]) -> dict[str, str]:
+    """Filter a universe's hue map to ``drawn``, moving any line that would collide.
+
+    Assigning over a stable universe is what stops a survivor repainting when another
+    line leaves (§5), but a universe longer than the scale cycles, and two lines in the
+    same hue is the one thing hue must never do: the legend can name them and the chart
+    still cannot tell them apart. So the universe hue is the default and the exception
+    is narrow, a line whose hue is already taken by another line on this chart moves to
+    the first free hue in scale order.
+
+    Two passes, and the order matters. Every line that can keep its universe hue is
+    given it first, and only then are the collided ones placed into what is left over.
+    Resolving in one walk instead hands a collided line "the first free hue in scale
+    order", which is free only because the line that owns it has not been reached yet,
+    so adding a chip repaints an archetype that was already on the chart — the §5
+    failure this function exists to close, reintroduced by the fix for it.
+
+    Walked in the universe's own order, not the caller's, so which of a colliding pair
+    keeps the hue is a property of the two archetypes rather than of the order a reader
+    happened to pick them in. What survives every change to the drawn set is a line
+    holding its own universe hue. A *displaced* line has no hue of its own to hold, so
+    it moves as the leftovers change; that is the residue of a 32-hue scale over a
+    126-archetype universe, and it is the smaller failure. Measured on the shipped
+    artifact, the widest cut never reaches it at all (its 31 lines rank into the
+    distinct first 32 slots, so nothing is displaced).
+    """
+    wanted = set(drawn)
+    out = {e: h for e, h in hues.items() if e in wanted}
+    taken: set[str] = set()
+    displaced: list[str] = []
+    for entity, hue in out.items():
+        if hue in taken:
+            displaced.append(entity)
+        else:
+            taken.add(hue)
+    spare = (h for h in EXTENDED if h not in taken)
+    for entity in displaced:
+        out[entity] = next(spare, out[entity])
+    return out
