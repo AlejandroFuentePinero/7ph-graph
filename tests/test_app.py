@@ -33,6 +33,7 @@ from graph7ph.app import (
     _gem_table,
     _head_to_head_caption,
     _head_to_head_figure,
+    _imputed_placement_note,
     _confidence_size,
     _landscape_caption,
     _landscape_figure,
@@ -413,6 +414,64 @@ def test_the_filters_are_escaped_into_the_header():
     header = _result_header("card_usage", ["with A<b>"], node_count=3)
     assert "A<b>" not in header
     assert "A&lt;b&gt;" in header
+
+
+def test_the_neighbourhood_explains_a_decided_placement_only_where_one_is_drawn():
+    # Issue #199: a rank this project decided now carries the app's imputed mark, and
+    # the mark alone does not say what it means. One legend line for
+    # the whole picture, and only when the picture actually carries a mark: the
+    # head-to-head's rule (§14), applied to the graph card.
+    def sub(*labels):
+        return Subgraph(
+            nodes=[Node(f"placement:d{i}", lbl, "Placement")
+                   for i, lbl in enumerate(labels)],
+            edges=[],
+        )
+
+    note = _imputed_placement_note(sub("5th", f"12th{numfmt.IMPUTED_MARK}"))
+    assert note is not None and note.startswith(numfmt.IMPUTED_MARK)
+
+    assert _imputed_placement_note(sub("5th", "12th")) is None
+    assert _imputed_placement_note(Subgraph(nodes=[], edges=[])) is None
+
+    # The line lands under the filters and the count as its own caption row, so the
+    # legend never reads as part of what was asked for.
+    header = _result_header("pilot_neighbourhood", ["vs Bob C"], 9, note)
+    assert header.count("t-caption") == 2
+    assert header.index("vs Bob C") < header.index("worked out")
+
+
+def test_a_drawn_neighbourhood_carries_the_decided_mark_and_its_legend(
+    tmp_path, snapshot_dir
+):
+    # AC (#199): the whole path, record to rendered card, through the app's own Draw
+    # rather than the two halves separately: a query that marks the rank and a header
+    # that explains it still leave a reader with nothing if the two are never joined.
+    # The fixture is copied with one deck's source placement removed, which is the real
+    # case (Pats Birthday Brawl numbers nothing though every title opens with a rank),
+    # so "12th" is recovered from the title alone and the card must say so.
+    decks = json.loads((snapshot_dir / "decks.json").read_text())
+    for deck in decks:
+        if deck["deckId"] == "pkUbzmgN3UeqaWdYQYRgRg":
+            deck["placement"] = deck["placementNorm"] = None
+    (tmp_path / "snapshot").mkdir()
+    (tmp_path / "snapshot" / "decks.json").write_text(json.dumps(decks))
+    (tmp_path / "snapshot" / "cards_index.json").write_text(
+        (snapshot_dir / "cards_index.json").read_text()
+    )
+
+    demo = _built_demo(tmp_path / "app", tmp_path / "snapshot")
+    draw = next(dep.fn for dep in demo.fns.values()
+                if getattr(dep.fn, "__name__", "") == "draw_pilot_overview")
+    # The Pilots Draw fans out to three plots; the neighbourhood graph is the third
+    # value back (subject line, results stack, neighbourhood, ...).
+    card = draw("Jordan C")[2]["value"]
+
+    assert f"12th{numfmt.IMPUTED_MARK}" in card    # the rank reads as decided
+    assert "a placement this project worked out" in card  # and the card says what that means
+    # Jordan C's other deck is the source's own 5th, and it stays unmarked, so the mark
+    # separates the two rather than labelling every rank on the card.
+    assert f"5th{numfmt.IMPUTED_MARK}" not in card
 
 
 def test_a_state_message_reads_in_the_app_type_not_an_inline_styled_div():

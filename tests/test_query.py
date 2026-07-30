@@ -3,6 +3,7 @@ from collections import Counter, defaultdict
 
 import pytest
 
+from graph7ph import numfmt
 from graph7ph.build import build_graph
 from graph7ph.db import open_for_writing, rows
 from graph7ph.models import load_snapshot
@@ -99,7 +100,10 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset(), points=None):
     ``decks`` is a list of dicts: ``id``, ``tag`` (archetype, ``None`` for a deck
     the classifier left unclassified), ``norm``
     (placementNorm), and ``m`` / ``s`` (main / side canon lists). Optional
-    ``macro`` and ``event`` keys override the defaults (``control`` / ``E``).
+    ``macro`` and ``event`` keys override the defaults (``control`` / ``E``), and
+    an optional ``name`` overrides the deck title, which is how a test plants a
+    placement only the title records (the recovery is anchored to the title's start,
+    so the default "<pilot> - <id>" shape can never carry one).
     ``canons`` is the card catalogue by name; ``lands`` names those typed as
     ``Lands`` (the rest default to ``Instants``). ``points`` prices the cards that
     cost anything, as ``{canon: (deck cost, companion cost)}``; everything else is
@@ -111,7 +115,7 @@ def _write_snapshot(tmp_path, decks, canons, lands=frozenset(), points=None):
         {
             # Title reads "<pilot> - <deck>" so the recovered display name is the
             # deck's ``pilot`` key, keeping hand-authored pilots distinct.
-            "deckId": d["id"], "name": f"{d.get('pilot', 'p')} - {d['id']}",
+            "deckId": d["id"], "name": d.get("name", f"{d.get('pilot', 'p')} - {d['id']}"),
             "deckName": d["id"],
             "pilot": d.get("pilot", "p"), "event": d.get("event", "E"),
             "eventId": f"evt_{d['id']}", "eventType": "Tournament",
@@ -195,6 +199,32 @@ def test_pilot_subgraph_labels_the_pilot_by_display_name(tmp_path, snapshot_dir,
 
     assert [n.label for n in sub.nodes if n.kind == "Pilot"] == ["Tom S"]
     assert [n.id for n in sub.nodes if n.kind == "Pilot"] == ["pilot:AmberTealViper"]
+
+
+def test_a_placement_the_project_decided_is_marked_apart_from_one_it_was_given(
+    tmp_path, built_graph
+):
+    # Issue #199: the neighbourhood printed every rank the same way, so a placement
+    # read off a deck title looked exactly like one the source counted. d1 is scored
+    # by the source; d2 is not, and its title is the only witness to 3rd, which is
+    # the `title-single` recovery. Only the decided one takes the mark.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "x", "norm": 0.5, "pilot": "p", "m": ["a"]},
+            # A second event, since two decks of one pilot at one event is the
+            # collision that mints a second career (ADR 0010) and would split "p".
+            {"id": "d2", "tag": "x", "norm": None, "pilot": "p", "event": "F",
+             "m": ["a"], "name": "3rd p - Grixis - F"},
+        ],
+        ["a"],
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    sub = pilot_subgraph(conn, "p")
+
+    placements = {n.label for n in sub.nodes if n.kind == "Placement"}
+    assert placements == {"1st", f"3rd{numfmt.IMPUTED_MARK}"}
 
 
 def test_unknown_pilot_yields_empty_subgraph(tmp_path, snapshot_dir, built_graph):

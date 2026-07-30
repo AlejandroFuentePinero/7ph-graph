@@ -21,6 +21,7 @@ from typing import Literal
 
 import ladybug
 
+from graph7ph import numfmt
 from graph7ph.db import rows
 
 Kind = Literal[
@@ -257,7 +258,8 @@ def pilot_subgraph(
     every branch a clean line. Cards are left out on purpose: a pilot's whole card
     pool floods the view without telling this story. A pilot is keyed on the
     upstream id but labelled by display name; a placement is a leaf per deck so
-    shared ranks never collapse decks together.
+    shared ranks never collapse decks together, and one this project decided rather
+    than the source counting it carries the imputed mark.
 
     With ``pilot2`` the view narrows to the head-to-head: only events both pilots
     played are kept, each a neutral node the two reach, with each pilot's own deck
@@ -272,7 +274,7 @@ def pilot_subgraph(
         """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
            WHERE p.pilot IN $keys
            RETURN p.pilot, p.displayName, e.event, d.deckId, d.deckName,
-                  d.placement""",
+                  d.placement, d.placementImputed""",
         {"keys": keys},
     )
     records = list(rows(res))
@@ -290,7 +292,8 @@ def pilot_subgraph(
     edges: list[Edge] = []
     played: set[tuple[str, str]] = set()  # (pilot, event), so a shared event
 
-    for pilot_key, pilot_name, event, deck_id, deck_name, placement in records:
+    for (pilot_key, pilot_name, event, deck_id, deck_name, placement,
+         placement_rule) in records:
         pid = f"pilot:{pilot_key}"
         eid = f"event:{event}"
         did = f"deck:{deck_id}"
@@ -305,8 +308,18 @@ def pilot_subgraph(
         edges.append(Edge(eid, did, "ENTERED"))
         if placement is not None:
             plid = f"placement:{deck_id}"
+            # A rank this project decided rather than one the source counted takes the
+            # app's one imputed mark (issue #199), the same glyph and the same
+            # predicate the head-to-head hover uses (issue #166): a non-null rule
+            # means the value is ours, whether a title carried it or the cohort did.
+            # The rule itself stays queryable rather than drawn, since the reader is
+            # being told the rank is ours, not which pass minted it. ``none`` never
+            # reaches here, as a rule that recovered nothing leaves the placement null
+            # and draws no node at all.
+            mark = numfmt.IMPUTED_MARK if placement_rule is not None else ""
             nodes.setdefault(
-                plid, Node(plid, _ordinal(placement), "Placement", group=owner(pid))
+                plid,
+                Node(plid, _ordinal(placement) + mark, "Placement", group=owner(pid)),
             )
             edges.append(Edge(did, plid, "PLACED"))
 
