@@ -1082,23 +1082,54 @@ canonical = "SolarGreenPanda"
 # rejected below; see the note there.
 
 # Over-merges the audit undid -> record as different people so they stay split.
-# Three of the pairs recorded here were themselves overturned by a later merge on
-# better evidence: Angus and George whole, and Sam L / SamL21, one of the three
-# pairs the Sam over-merge produced (the other two stand). They are retired rather
-# than left sitting under the merge that beat them: a [[reject]] against an
-# already-merged pair fires nothing, and load_curation now refuses one (issue
-# #204). Each reversal is recorded on the merge that survives it.
+# Three of these were overturned by a later merge, and issue #208 re-adjudicated
+# them: Angus and Sam L / SamL21 are restored below, George whole stays retired
+# because the merge that beat it stands. A retired reject is deleted rather than
+# left sitting under the merge that beat it: a [[reject]] against an already-merged
+# pair fires nothing, and load_curation now refuses one (issue #204).
 [[reject]]
 # Ben H 1 != Benjamin H: the 0.97 Taxes list coexists at ANZSS11 under both names
 # with different decks -> Benjamin H is a distinct net-decker, not the same entrant.
 ids = ["NimbleAzureTiger", "RapidIndigoBadger"]
 
 [[reject]]
-# Sam L != SamL5, SamL5 != SamL21: SamL5 and SamL21 sit at one event (ETEAE) with
-# 0.03 overlap = two people, yet both ~0.73 to Sam L, so the overlap is netdeck
-# similarity, not identity. Sam L != SamL21 was recorded here too and is now
-# retired: the SamL21 merge below overturned it.
+# Sam L != SamL5, Sam L != SamL21, SamL5 != SamL21 (issue #208 re-adjudicated all
+# three; the middle pair is restored from under a merge that overturned it). One
+# named pilot and two numbered handles that appear only at ETEAE, an event Sam L has
+# no registration of his own at. SamL5's RW Legends is 0.74 to Sam L's own, SamL21's
+# BUG Reanimator 0.72 to his, and the two handles are 0.03 to each other.
+#
+# The reasoning on both sides of this was wrong, so it is worth recording what does
+# not work. "Both at ETEAE, therefore two people" does not hold: this dictionary
+# merges Zachary M / Zachaery M and James L / JamL9 across a shared ETEAE
+# registration, and one person's two decks at one event overlap 0.07 and 0.25 there,
+# which is what 0.03 looks like. So all three ids being one Sam L is not excluded.
+#
+# Deck overlap does not decide it either. Matched for date gap and colour identity,
+# SamL5 sits at the 95th percentile of different-pilot pairs and SamL21 at the 88th,
+# so if either is Sam L it is SamL5 rather than the SamL21 that was merged; but that
+# is a two-fold likelihood at best, and calibrating overlap against this file's own
+# decisions leaves it no discriminating power: of the 31 pairs rejected before this
+# entry, five sat at or above 0.72 and the top four ran 0.94 to 1.00, while 52% of
+# merged pairs sat below 0.72. A single threshold on overlap classifies the curators'
+# own calls no better than always merging does. Counted as the file stood before this
+# entry on purpose: the two pairs it adds are themselves 0.74 and 0.72, so counting
+# them would be citing this decision as evidence for itself.
+#
+# Note what that leaves standing against these rejects, because it is the real
+# counter-argument: four handle merges on file sit at exactly 0.724 (DanT34, DylB25,
+# MatL119, ThoL36) and SamL5's 0.741 is above all of them, so both candidates clear
+# the bar this file uses elsewhere. What stops them is not the number. It is that
+# there are two of them at the same strength and nothing picks between them.
+#
+# Nor does the shape have a settled treatment: same-event doubles are merged at
+# 0.91, 1.00 and 1.00 (Zachary M, James L, Daniel S) and rejected at 0.97 (Ben H 1
+# above). So wave-1 policy governs. Two names that could reasonably be two people
+# stay separate, and all three ids are held apart until something decides them.
 ids = ["CrimsonBlackFalcon", "WanderingCyanViper"]
+
+[[reject]]
+ids = ["LunarSilverManta", "WanderingCyanViper"]
 
 [[reject]]
 ids = ["CrimsonBlackFalcon", "LunarSilverManta"]
@@ -1107,6 +1138,45 @@ ids = ["CrimsonBlackFalcon", "LunarSilverManta"]
 # Lachlan C != LacC3: LacC3's lone Flood Moon deck is a shared community list (the
 # distinct Lachlan C 1 also overlaps it 0.94), so the archetype match is not identity.
 ids = ["HiddenGreenLynx", "SolarCrimsonLynx"]
+
+[[reject]]
+# Angus M != Angus McC (issue #208, restored from under the merge that overturned
+# it). Both fielded POG2501, Golgari Pox against 8pt Jund Midrange. That merge
+# argued POG2501 was a two-day event so the two never conflicted; it is not one in
+# the sense the argument needs, since 76 of its 77 pilot ids entered exactly one
+# deck and the 12/21/45 spread over three days is a submission ramp.
+#
+# The 0.64 that carried the merge cannot rescue it. Against Jund pairs matched for
+# date gap and colour it is the 80th percentile of DIFFERENT pilots, not the 92nd an
+# all-time baseline suggested: Jund lists drift, so comparing across years
+# understates what strangers score. And Angus M has no signature to match. His own
+# Jund lists within 120 days of each other run a median 0.53, the same as the
+# stranger median, so for this player the overlap says nothing either way.
+#
+# ShinyTealHawk is also already two careers (Angus M 1 Reanimator, Angus M 2 Jund,
+# split on its own double registrations at NHC24 and TMC24), so the merge was adding
+# a third name to a bucket that is not one person.
+ids = ["MistyCyanHeron", "ShinyTealHawk"]
+
+[[reject]]
+# Jonathan P != JonP31, Jonathon P != JonP31 (issue #208). ADR 0005 governs the
+# shape: a handle is first-three-letters plus surname initial, is never structurally
+# certain, and must earn a merge by deck overlap like any other, the ADR's own worked
+# failure being three ids chained at ~0.05. This is that failure. JonP31 scores 0.02
+# against Jonathan P's UR Prowess and 0.06 against Jonathon P's Jund, three unrelated
+# archetypes at three events, and it earns nothing: of the 45 handles this file has
+# merged the floor is KieC3 0.15, then DomS22 0.21 and DarR17 0.39, so 0.06 is under
+# all of them.
+#
+# Uniqueness is not what separates it and should not be read as one, since Dar* R and
+# Dre* M each hold two spellings of one person exactly as Jon* P does. Nor does the
+# deck evidence favour the merge that survives: Jonathan P and Jonathon P are 0.09 to
+# each other, barely over the 0.06 rejected here. That merge stands on the name
+# alone, which is a claim the spelling supports and a numeric handle cannot.
+ids = ["ShinyMaroonRaven", "SolarCrimsonHawk"]
+
+[[reject]]
+ids = ["HiddenCrimsonWolf1D5", "SolarCrimsonHawk"]
 
 
 # Corroborated merges the audit added (deck overlap + shared archetype, disjoint events).
@@ -1182,20 +1252,9 @@ canonical = "LunarMaroonOtter"
 ids = ["MistyGoldWolf", "SwiftBronzeStag"]
 canonical = "MistyGoldWolf"
 
-[[merge]]
-# Angus McC = Angus M (initial->surname "McC" starts with M; both Jund/BRG)
-# canonical 'ShinyTealHawk' = 'Angus M' (29 decks, the busiest)
-# CONTESTED, and the evidence leans the other way (measured under issue #204). This
-# reverses a Pass 9 reject that read the POG2501 co-occurrence as two people, on the
-# ground that POG2501 is a two-day event. It is not one in the sense that argument
-# needs: 76 of its 77 pilot ids registered exactly one deck, so the three-day spread
-# is submission dates, not flights. And the 0.64 that carries the merge is Jund
-# against Jund, which 131 pilots play: it sits at the 92nd percentile of
-# different-pilot Jund pairs (median 0.45, p90 0.63), so it is barely above what two
-# strangers on the same netdeck look like. Kept only because it is the applied
-# decision and undoing it moves decks; re-adjudicate rather than trust this line.
-ids = ["ShinyTealHawk", "MistyCyanHeron"]
-canonical = "ShinyTealHawk"
+# The Angus McC = Angus M merge that sat here is deleted (issue #208). It reversed a
+# Pass 9 reject on the ground that POG2501 was a two-day event, which it is not, and
+# re-adjudication restored that reject above.
 
 # Display pin: majority vote renders the misspelling "Gerad N"; pin the real spelling.
 [[name]]
@@ -1308,10 +1367,12 @@ ids = ["BraveJadeEagle", "AmberVioletWolf"]
 canonical = "BraveJadeEagle"
 
 [[merge]]
-# Jonathan P = Jonathon P (spelling variant, same surname initial) = JonP31 (short
-# form "Jon P" + numeric handle). Three single-deck nodes, no same-day conflict;
-# archetypes differ (Prowess/Jund/Eldrazi) but are one-offs with no signature.
-ids = ["ShinyMaroonRaven", "HiddenCrimsonWolf1D5", "SolarCrimsonHawk"]
+# Jonathan P = Jonathon P ("Jonathon" is a spelling variant of "Jonathan", same
+# surname initial P). Two single-deck nodes at TMC24 and NHC24, no event clash;
+# archetypes differ (Prowess/Jund) but are one-offs with no signature, so the name
+# carries this as it carries Tristan/Tristian G and Troy/Troi H. JonP31 was a third
+# id in this group and is split out by issue #208; see the reject above.
+ids = ["ShinyMaroonRaven", "HiddenCrimsonWolf1D5"]
 canonical = "ShinyMaroonRaven"
 
 [[name]]
@@ -1427,19 +1488,10 @@ canonical = "FrostyTealFox"
 pilot = "FrostyTealFox"
 display_name = "Ryan L-J"
 
-[[merge]]
-# SamL21 = Sam L ("Sam L" + numeric handle 21). No event clash with Sam L, and
-# SamL21's BUG Reanimator matches Sam L's own at 0.72, the 98.8th percentile of
-# different-pilot Reanimator pairs (median 0.30): distinctive, not netdeck noise.
-# ASYMMETRIC, and that is the open question (measured under issue #204). SamL5 is
-# the same shape and was NOT merged: one deck, RW Legends against Sam L's own at
-# 0.74, the 97.7th percentile of Legends pairs, and no event clash with Sam L
-# either. The two handles are provably different people (0.03 at ETEAE), so at most
-# one is Sam L, and the deck evidence does not say which. This reverses a Pass 9
-# reject that answered "neither", which is at least self-consistent. Retired here
-# because the merge is applied and moves decks; the SamL5 rejects stand.
-ids = ["WanderingCyanViper", "LunarSilverManta"]
-canonical = "WanderingCyanViper"
+# The SamL21 = Sam L merge that sat here is deleted (issue #208). It merged one of
+# two identically shaped handles and rejected the other with nothing behind the
+# asymmetry, and what measurement there is points at the other one. The answer is
+# "undecided, so separate"; the three rejects above carry the reasoning.
 
 [[merge]]
 # SteN24 = Steven N ("Ste[ven] N" + numeric handle 24, same surname initial N,

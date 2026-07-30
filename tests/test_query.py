@@ -1354,7 +1354,7 @@ def test_the_luck_count_is_the_same_number_on_every_call(live_graph):
     assert inversions == []
     # The population is asserted too, so a change that stops reaching the nesting
     # case at all cannot pass this by leaving nothing to check.
-    assert sole_parent == 3458
+    assert sole_parent == 3460
 
 
 def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir, built_graph):

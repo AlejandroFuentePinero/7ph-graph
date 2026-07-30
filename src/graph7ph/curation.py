@@ -318,9 +318,9 @@ def _ids(entry: dict, path: Path, kind: str) -> list[str]:
     applied: mutual distinctness is what :func:`_pairs` promises (ADR 0009), so it
     is checked here, where the author is still looking at the entry.
 
-    Rejects nothing on file today: 0 of the 206 merge, reject and split entries in
+    Rejects nothing on file today: 0 of the 208 merge, reject and split entries in
     ``curation/pilots.toml`` repeat an id, and the dictionary loads to an equal
-    ``Curation`` either way (186 merges, 31 rejected pairs).
+    ``Curation`` either way (183 merges, 35 rejected pairs).
     """
     ids = entry.get("ids")
     if not isinstance(ids, list) or len(ids) < 2 or len(set(ids)) != len(ids):
