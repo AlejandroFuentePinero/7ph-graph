@@ -782,7 +782,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Names ending in a number, like \"Dan S 1\" and \"Dan S 2\", are one place a "
         "pilot may not be a single person. The source sometimes files several "
         "entries at one event under one id, which no one person can be, so this "
-        "project separates them into numbered careers. 47 of the 1,083 names offered "
+        "project separates them into numbered careers. 47 of the 1,086 names offered "
         "are one of these, and where one career ends and the next begins is this "
         "project's reading rather than a fact on record. Two numbered names sharing a "
         "stem may or may not be the same person, so a head-to-head between them is not "
@@ -790,7 +790,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "It happens the other way round too: one person can be listed as two names. "
         "Two spellings are joined only when the names recovered from the titles match "
         "outright, so \"Josh V\" and \"Joshua V\" stay apart until a maintainer confirms "
-        "they are one person. 122 of the names offered are currently paired with another "
+        "they are one person. 123 of the names offered are currently paired with another "
         "that may be the same person, which is a question this project has not settled "
         "rather than an answer it got wrong. If you find yourself in here twice, the "
         "email and Discord at the foot of the page are the way to say so.",
