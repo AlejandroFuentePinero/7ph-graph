@@ -182,20 +182,58 @@ _PLOT_LABELS: dict[str, str] = {
 }
 
 
-def _result_header(plot: str, filters: list[str], node_count: int) -> str:
+def _result_header(
+    plot: str, filters: list[str], node_count: int, note: str | None = None
+) -> str:
     """Frame a query result as an insight-card head (§12/§14): the plot type alone as
     the title (the subject is stated once above the cards, §14, not echoed here), the
     filters and how many nodes came back as the caption, so an answer is never left as
     an unlabelled graph. Prepended to the drawn result, the empty state, and the refine
     alert alike, so every post-query state speaks the same way. The filters are display
-    labels (free text), so they are escaped into the markup."""
+    labels (free text), so they are escaped into the markup.
+
+    ``note`` is a second caption line for a legend the drawn picture needs, kept on its
+    own row rather than joined into the first: the filters and the node count describe
+    what was asked, and a legend describes how to read what came back. Only a drawn
+    picture ever carries one, since neither an empty result nor a refused one has a
+    mark to explain."""
     # A drawn result is under the render threshold (250 nodes), so the count needs no
     # thousands separator; the refine alert carries the large counts.
     tail = f"{node_count} node" + ("" if node_count == 1 else "s")
     caption = " · ".join([*filters, tail])
-    return (
+    head = (
         f"<div class='t-result-title'>{html.escape(_PLOT_LABELS[plot])}</div>"
         f"<div class='t-caption'>{html.escape(caption)}</div>"
+    )
+    if note:
+        head += f"<div class='t-caption'>{html.escape(note)}</div>"
+    return head
+
+
+def _imputed_placement_note(subgraph: Subgraph) -> str | None:
+    """The legend for a drawn placement's imputed mark, or ``None`` where none is drawn.
+
+    The graph views' counterpart to :func:`_head_to_head_caption`, and there for the
+    same reason (issue #166): a rank this project decided has to read apart from one
+    the source counted, and the mark alone does not say which it is. Issue #199 is that
+    the neighbourhood was the one surface printing a placement with neither, so 27 of
+    4,591 decks over 26 pilots showed an undisclosed decided rank to anyone clicking
+    through nodes. Twenty-seven, not the 51 decks carrying a rule: the other 24 are
+    ``none``, a rule that recovered nothing, so they hold no placement and draw no node.
+
+    Judged off the drawn labels rather than off the record, so the line appears exactly
+    when a mark is on screen: a legend for an asterisk nobody can see is chrome (§14),
+    and reading the labels is what makes the two agree by construction.
+    """
+    marked = any(
+        node.kind == "Placement" and node.label.endswith(numfmt.IMPUTED_MARK)
+        for node in subgraph.nodes
+    )
+    if not marked:
+        return None
+    return (
+        f"{numfmt.IMPUTED_MARK} a placement this project worked out, "
+        "not one the source recorded"
     )
 
 
@@ -3127,7 +3165,9 @@ def build_app(artifact: Path) -> gr.Blocks:
         # is stated once above the cards (§14), sourced from the view callback. Empty
         # reads 0 nodes.
         filters = _graph_filters(view, values)
-        header = _result_header(view, filters, plan.node_count)
+        header = _result_header(
+            view, filters, plan.node_count, _imputed_placement_note(subgraph)
+        )
         if not subgraph.nodes:
             # The gem view has no filters to blame an empty result on: it is the whole
             # format, and empty means no card in it cleared the bar.
