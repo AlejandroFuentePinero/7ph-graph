@@ -11,7 +11,16 @@
 # uv.lock: a Ladybug release can change the on-disk storage format, and the app has
 # to read an artifact the same version built. gradio matches the version the Space
 # card declares as its SDK.
+#
+# pandas is here for the same reason as plotly, though nothing in the app calls it:
+# `graph7ph.app` imports it at module load to warm it before any request thread
+# runs, which is what stops a figure-building thread from meeting a half-initialised
+# module and painting a red error box over the Trends charts (see the note at the
+# import). gradio happens to pull it in too, but this app's own guard cannot rest on
+# another package's dependency list, and the failure it prevents lands on a cold
+# start, which is every first visit to a sleeping Space (issue #197).
 ladybug==0.18.2
 gradio==5.50.0
 plotly==6.9.0
 pyvis==0.3.2
+pandas==2.3.3

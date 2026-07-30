@@ -17,9 +17,12 @@ Skipped rather than failed where playwright or its browser is missing, the same 
 ``conftest.live_graph`` makes for the artifact: this is a browser harness the ordinary
 suite does not carry, run with::
 
-    uv run --with playwright python -m pytest tests/test_graph_desktop.py
+    uv run python -m pytest tests/test_graph_desktop.py
 
-after a one-off ``uv run --with playwright python -m playwright install chromium``.
+after a one-off ``uv run playwright install chromium``. ``playwright`` itself is an
+ordinary dev dependency and CI installs that browser before it runs the suite, so a
+skip here means this checkout is missing the download, not that the gate is optional
+(issue #197).
 """
 
 import http.server

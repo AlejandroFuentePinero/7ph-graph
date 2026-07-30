@@ -93,6 +93,13 @@ def _drop_suffix(name: str, suffix: str | None) -> str:
 # serializer change cannot silently collapse pilotless decks into one node (F8).
 NULL_PILOT_IDS = frozenset({"", "nan", "none", "null", "n/a"})
 
+# The label for a null-pilot deck whose title yields no name at all. It is a
+# Display Name, so it is read in a dropdown beside real names, and it says the
+# name is missing rather than looking like one: a bare "unknown" there reads as a
+# data fault instead of as the honest absence it is (issue #197). Not a name the
+# vote could ever produce, so it never joins another pilot on a name match.
+UNNAMED_PILOT = "Unnamed pilot"
+
 
 def _is_null_pilot(pilot_id: str) -> bool:
     """Whether an upstream id is a null placeholder, not a real identity."""
@@ -324,12 +331,13 @@ def resolve_pilots(
 
     # Null decks: one synthetic, low-confidence pilot per distinct recovered
     # name. A deck whose title yields no name is keyed on its own deck id, so
-    # untitled decks stay separate rather than collapsing into one bogus node.
+    # untitled decks stay separate rather than collapsing into one bogus node. It
+    # still needs a label, and ``UNNAMED_PILOT`` is the one it takes.
     null_groups: dict[str, tuple[str, list]] = {}
     for deck in (d for g in null.values() for d in g):
         name = _display_name(deck)
         key = f"nan:{name.casefold()}" if name else f"nan:deck:{deck.deck_id}"
-        _, group = null_groups.setdefault(key, (name or "unknown", []))
+        _, group = null_groups.setdefault(key, (name or UNNAMED_PILOT, []))
         group.append(deck)
     for key, (display, group) in null_groups.items():
         null_pilots.append(ResolvedPilot(key, display, low_confidence=True))
@@ -500,8 +508,8 @@ def _join_identical_names(
     kept: list[ResolvedPilot] = []
     groups: dict[str, list[ResolvedPilot]] = {}
     for p in pilots:
-        # An untitled deck yields no name, only the "unknown" placeholder, so it
-        # carries no identity to match on and never joins another.
+        # An untitled deck yields no name, only the ``UNNAMED_PILOT`` placeholder,
+        # so it carries no identity to match on and never joins another.
         if p.pilot.startswith("nan:deck:"):
             kept.append(p)
         else:

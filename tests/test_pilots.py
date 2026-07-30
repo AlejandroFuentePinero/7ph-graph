@@ -12,6 +12,7 @@ import pytest
 
 from graph7ph.curation import Curation, CurationError
 from graph7ph.pilots import (
+    UNNAMED_PILOT,
     display_name_from_title,
     name_relation,
     resolve_pilots,
@@ -297,13 +298,25 @@ def test_null_sentinels_beyond_literal_nan_are_rekeyed_not_collapsed(sentinel):
 
 def test_untitled_null_decks_stay_separate_not_collapsed():
     # Null decks whose title yields no name must not collapse into one bogus
-    # "unknown" node; each stays its own low-confidence pilot.
+    # shared node; each stays its own low-confidence pilot.
     decks = [_deck("d1", "nan", None), _deck("d2", "nan", None)]
 
     res = resolve_pilots(decks)
 
     assert res.deck_pilot["d1"] != res.deck_pilot["d2"]
     assert len(res.report.null_pilots) == 2
+
+
+def test_a_nameless_pilots_label_says_the_name_is_missing():
+    # The label is a Display Name, so it is read in a dropdown beside real names.
+    # A bare "unknown" there reads as a data fault rather than as the honest
+    # absence it is, and a reviewer files it as one (issue #197).
+    res = resolve_pilots([_deck("d1", "nan", None)])
+
+    label = next(p.display_name for p in res.pilots)
+    assert label.casefold() != "unknown"
+    assert label == UNNAMED_PILOT
+    assert "name" in label.casefold()
 
 
 def test_fuzzy_spelling_variants_consolidate_and_are_reported():
