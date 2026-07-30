@@ -81,6 +81,9 @@ class Curation:
     that share a display name but are different people, which keeps the
     identical-name join (ADR 0007) from folding them into one node -- the
     inverse of a ``merge``.
+
+    No pair in ``rejected`` or ``splits`` is one ``merges`` folds together:
+    :func:`_refuse_merged_pair` refuses a dictionary that states both.
     """
 
     merges: dict[str, str]
@@ -123,6 +126,10 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
         raise CurationError(f"{path} is not valid TOML: {exc}") from exc
 
     merges = _merges(raw.get("merge", []), path)
+    rejected = _pairs(raw.get("reject", []), path, "reject")
+    splits = _pairs(raw.get("split", []), path, "split")
+    _refuse_merged_pair(merges, rejected, path, "reject")
+    _refuse_merged_pair(merges, splits, path, "split")
     names = _names(raw.get("name", []), path)
     # A pin is looked up by the canonical bucket id, so pinning a name on an id
     # that merges away can never fire -- an authoring contradiction, not a dead
@@ -135,11 +142,11 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
             )
     return Curation(
         merges=merges,
-        rejected=_pairs(raw.get("reject", []), path, "reject"),
+        rejected=rejected,
         names=names,
         deck_pilots=_deck_map(raw.get("deck_pilot", []), path, "deck_pilot", "pilot"),
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
-        splits=_pairs(raw.get("split", []), path, "split"),
+        splits=splits,
         deck_events=_deck_map(raw.get("deck_event", []), path, "deck_event", "event"),
     )
 
@@ -262,6 +269,39 @@ def _pairs(entries: list[dict], path: Path, kind: str) -> frozenset[frozenset[st
     return frozenset(pairs)
 
 
+def _refuse_merged_pair(
+    merges: dict[str, str], pairs: frozenset[frozenset[str]], path: Path, kind: str
+) -> None:
+    """Refuse a pair a ``[[merge]]`` already folds together.
+
+    A merge states "same person" and a ``[[reject]]`` or ``[[split]]`` states "not
+    the same person", so a pair carrying both says both. No precedence resolves it,
+    and none is needed: ``[[merge]]`` only ever exists for ids whose recovered names
+    differ (all 148 merge groups on file recover different names uncurated, none the
+    same), which is the complement of what the identical-name join (ADR 0007) and its
+    ``[[split]]`` override decide. The two kinds partition the space.
+
+    So the inverse is inert rather than corrective. The merge has already folded the
+    pair, the appended entry moves no deck, and ``dead_entries`` cannot report it
+    either, both ids being live -- a reviewer's correction that looks recorded and
+    fires nothing. Deleting the wrong ``[[merge]]`` is always sufficient, because the
+    join can never re-fuse a pair whose names differ, so the message names that edit.
+
+    Read off the folded group rather than the entry, since two ids chained onto one
+    canonical through separate ``[[merge]]`` blocks are as merged as two named
+    together. Sorted so the first of several contradictions is always the same one.
+    """
+    for a, b in sorted(sorted(pair) for pair in pairs):
+        canonical = merges.get(a, a)
+        if canonical == merges.get(b, b):
+            raise CurationError(
+                f"{path}: [[{kind}]] holds {a!r} and {b!r}, which a [[merge]] "
+                f"already folds onto {canonical!r}; the inverse fires nothing. To "
+                f"undo the merge, edit the [[merge]] entry -- do not append a "
+                f"[[{kind}]] against it"
+            )
+
+
 def _ids(entry: dict, path: Path, kind: str) -> list[str]:
     """The entry's ``ids``: two or more, and mutually distinct.
 
@@ -278,9 +318,9 @@ def _ids(entry: dict, path: Path, kind: str) -> list[str]:
     applied: mutual distinctness is what :func:`_pairs` promises (ADR 0009), so it
     is checked here, where the author is still looking at the entry.
 
-    Rejects nothing on file today: 0 of the 209 merge, reject and split entries in
+    Rejects nothing on file today: 0 of the 206 merge, reject and split entries in
     ``curation/pilots.toml`` repeat an id, and the dictionary loads to an equal
-    ``Curation`` either way (186 merges, 34 rejected pairs).
+    ``Curation`` either way (186 merges, 31 rejected pairs).
     """
     ids = entry.get("ids")
     if not isinstance(ids, list) or len(ids) < 2 or len(set(ids)) != len(ids):
@@ -291,11 +331,25 @@ def _ids(entry: dict, path: Path, kind: str) -> list[str]:
 
 
 def _names(entries: list[dict], path: Path) -> dict[str, str]:
+    """Every pin as pilot id -> display name, at most one pin per id.
+
+    A repeated key would be last-wins, which makes the rendered name a fact about
+    where the two blocks sit in the file rather than about either decision: reversing
+    them renders the other name, and nothing records which was meant. So the repeat
+    is refused with both names in the message, since only the author can say which
+    one supersedes (issue #204).
+    """
     names: dict[str, str] = {}
     for entry in entries:
         pilot, display = entry.get("pilot"), entry.get("display_name")
         if not pilot or not display:
             raise CurationError(f"{path}: a [[name]] entry needs `pilot` and `display_name`")
+        if pilot in names:
+            raise CurationError(
+                f"{path}: [[name]] pins two display names on {pilot!r}, "
+                f"{names[pilot]!r} and {display!r}; file order would decide which "
+                f"renders, so keep the one that supersedes and delete the other"
+            )
         names[pilot] = display
     return names
 

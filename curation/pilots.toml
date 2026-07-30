@@ -977,15 +977,16 @@ ids = ["CleverCrimsonTiger", "CleverMaroonOrca"]
 canonical = "CleverMaroonOrca"
 
 # Pass 6 display-name pins. Measured over the buckets these ids resolve to, the
-# vote is mostly not a loss the pin reverses: 6 of the 8 are dead-even (AarW15 1 /
+# vote is mostly not a loss the pin reverses: 6 of the 7 are dead-even (AarW15 1 /
 # Aaron W 1, ThoL36 1 / Thomas L 1, ThoW15 1 / Thore W 1, ZanD2 1 / Zane D 1,
 # FilK 2 / Filip K 2, Tom 1 / Tom L 1) and the (count, name) tie-break already
 # lands every one of them on the real name, so the pin holds a coin flip rather
-# than overturns a defeat. ShadowTealPanda's vote is the misspelling "Tristian G",
-# not a handle or a bare first name. Only AmberMaroonViper ("Quinci" 2 against
+# than overturns a defeat. Only AmberMaroonViper ("Quinci" 2 against
 # "Quinci C" 1) is a case where the shorter form actually carried more
-# deck-registrations than the real name: 1 of the 8. The pins stay regardless, a
+# deck-registrations than the real name: 1 of the 7. The pins stay regardless, a
 # dead-even tie being one registration away from flipping to the handle.
+# An eighth pin sat here, ShadowTealPanda -> "Tristian G"; see the Pass 9 pin that
+# superseded it.
 [[name]]
 pilot = "SilentBlueOrca"
 display_name = "Aaron W"
@@ -995,9 +996,6 @@ display_name = "Thomas L"
 [[name]]
 pilot = "FlyingGoldFox"
 display_name = "Thore W"
-[[name]]
-pilot = "ShadowTealPanda"
-display_name = "Tristian G"
 [[name]]
 pilot = "CleverMaroonOrca"
 display_name = "Zane D"
@@ -1079,32 +1077,28 @@ canonical = "SolarGreenPanda"
 
 # --- Pass 9: independent adversarial audit (blind re-derivation + skeptic verify).
 # Where the independent review diverged from our applied state, it prevailed.
-# Six over-merges undone (rejected below), corroborated and name-error merges added.
+# Six over-merges undone, corroborated and name-error merges added. Two of the undone
+# ones were later overturned again, along with one pair of a third, and are no longer
+# rejected below; see the note there.
 
 # Over-merges the audit undid -> record as different people so they stay split.
-[[reject]]
-# Angus M != Angus McC: both fielded POG2501 (Pox vs Jund); the 0.64 was netdecked
-# Jund at other events. Same event, different decks = two people.
-ids = ["MistyCyanHeron", "ShinyTealHawk"]
-
-[[reject]]
-# George H != George (bare): 0.56 was netdecked Mono Red at disjoint events; a bare
-# first name with no surname is not enough to fold into George H.
-ids = ["BraveBronzeWolf", "FlyingSilverGecko"]
-
+# Three of the pairs recorded here were themselves overturned by a later merge on
+# better evidence: Angus and George whole, and Sam L / SamL21, one of the three
+# pairs the Sam over-merge produced (the other two stand). They are retired rather
+# than left sitting under the merge that beat them: a [[reject]] against an
+# already-merged pair fires nothing, and load_curation now refuses one (issue
+# #204). Each reversal is recorded on the merge that survives it.
 [[reject]]
 # Ben H 1 != Benjamin H: the 0.97 Taxes list coexists at ANZSS11 under both names
 # with different decks -> Benjamin H is a distinct net-decker, not the same entrant.
 ids = ["NimbleAzureTiger", "RapidIndigoBadger"]
 
 [[reject]]
-# Sam L != SamL5, Sam L != SamL21, SamL5 != SamL21: SamL5 and SamL21 sit at one event
-# (ETEAE) with 0.03 overlap = two people, yet both ~0.73 to Sam L, so the overlap is
-# netdeck similarity, not identity. Keep all three separate.
+# Sam L != SamL5, SamL5 != SamL21: SamL5 and SamL21 sit at one event (ETEAE) with
+# 0.03 overlap = two people, yet both ~0.73 to Sam L, so the overlap is netdeck
+# similarity, not identity. Sam L != SamL21 was recorded here too and is now
+# retired: the SamL21 merge below overturned it.
 ids = ["CrimsonBlackFalcon", "WanderingCyanViper"]
-
-[[reject]]
-ids = ["LunarSilverManta", "WanderingCyanViper"]
 
 [[reject]]
 ids = ["CrimsonBlackFalcon", "LunarSilverManta"]
@@ -1189,9 +1183,17 @@ ids = ["MistyGoldWolf", "SwiftBronzeStag"]
 canonical = "MistyGoldWolf"
 
 [[merge]]
-# Angus McC = Angus M (initial->surname "McC" starts with M; both Jund/BRG;
-# POG2501 co-occurrence is a two-day event, not a same-day conflict)
+# Angus McC = Angus M (initial->surname "McC" starts with M; both Jund/BRG)
 # canonical 'ShinyTealHawk' = 'Angus M' (29 decks, the busiest)
+# CONTESTED, and the evidence leans the other way (measured under issue #204). This
+# reverses a Pass 9 reject that read the POG2501 co-occurrence as two people, on the
+# ground that POG2501 is a two-day event. It is not one in the sense that argument
+# needs: 76 of its 77 pilot ids registered exactly one deck, so the three-day spread
+# is submission dates, not flights. And the 0.64 that carries the merge is Jund
+# against Jund, which 131 pilots play: it sits at the 92nd percentile of
+# different-pilot Jund pairs (median 0.45, p90 0.63), so it is barely above what two
+# strangers on the same netdeck look like. Kept only because it is the applied
+# decision and undoing it moves decks; re-adjudicate rather than trust this line.
 ids = ["ShinyTealHawk", "MistyCyanHeron"]
 canonical = "ShinyTealHawk"
 
@@ -1285,6 +1287,9 @@ canonical = "CleverAmberTiger"
 # bare George = George H (archetype attribution): its lone Mono Red matches George
 # H's red-aggro signature (Mono Red / Mono R / RW Aggro); no same-day conflict.
 # Ruled out George B by same-day co-occurrence at PogMar26 2026-03-07.
+# Reverses the Pass 9 reject of this pair, which held the bare first name too weak
+# to fold in; the archetype attribution above settles it. That reject is retired
+# (issue #204).
 ids = ["FlyingSilverGecko", "BraveBronzeWolf"]
 canonical = "FlyingSilverGecko"
 
@@ -1424,8 +1429,15 @@ display_name = "Ryan L-J"
 
 [[merge]]
 # SamL21 = Sam L ("Sam L" + numeric handle 21). No event clash with Sam L, and
-# SamL21's WUBG control fits Sam L's multicolour-control facet. Distinct from SamL5
-# (SamL21 and SamL5 co-occur at evt_5d62, so SamL5 is a different Sam L).
+# SamL21's BUG Reanimator matches Sam L's own at 0.72, the 98.8th percentile of
+# different-pilot Reanimator pairs (median 0.30): distinctive, not netdeck noise.
+# ASYMMETRIC, and that is the open question (measured under issue #204). SamL5 is
+# the same shape and was NOT merged: one deck, RW Legends against Sam L's own at
+# 0.74, the 97.7th percentile of Legends pairs, and no event clash with Sam L
+# either. The two handles are provably different people (0.03 at ETEAE), so at most
+# one is Sam L, and the deck evidence does not say which. This reverses a Pass 9
+# reject that answered "neither", which is at least self-consistent. Retired here
+# because the merge is applied and moves decks; the SamL5 rejects stand.
 ids = ["WanderingCyanViper", "LunarSilverManta"]
 canonical = "WanderingCyanViper"
 
@@ -1454,6 +1466,12 @@ canonical = "LuckyCyanWhale"
 ids = ["ShadowTealPanda", "ShadowBronzePanda"]
 canonical = "ShadowTealPanda"
 
+# Supersedes the Pass 6 pin of "Tristian G" on this id. That pin changed nothing: the
+# bucket was TriG15 1 / Tristian G 1 and the (count, name) tie-break already landed on
+# "Tristian G". The merge above brings the correct spelling in and makes the vote a
+# three-way tie, where that same tie-break picks the misspelling, so this pin is the
+# load-bearing one. Both stood for a while and last-wins picked this one by file order
+# alone, which is now refused (issue #204).
 [[name]]
 pilot = "ShadowTealPanda"
 display_name = "Tristan G"

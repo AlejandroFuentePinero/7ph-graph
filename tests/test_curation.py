@@ -4,18 +4,26 @@ detection (issue #37, ADR 0005).
 Load-time tests write a tiny TOML to ``tmp_path`` and read it back through
 :func:`load_curation`, the public seam a maintainer's edits pass through.
 Dead-entry tests exercise :func:`dead_entries` directly against hand-built
-id-sets, the seam the build calls with the unioned snapshot ids.
+id-sets, the seam the build calls with the unioned snapshot ids. One test reads
+neither: it loads the checked-in ``curation/pilots.toml``, because the guards are
+only worth what the real dictionary can pass (issue #204).
 """
+
+from pathlib import Path
 
 import pytest
 
 from graph7ph.curation import (
+    CURATION_PATH,
     ArchetypeOverride,
     Curation,
     CurationError,
     dead_entries,
     load_curation,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write(tmp_path, toml: str):
@@ -37,6 +45,64 @@ def test_name_pin_on_non_canonical_merge_member_raises(tmp_path):
         display_name = "Real"
     """)
     with pytest.raises(CurationError):
+        load_curation(path)
+
+
+def test_reject_on_a_merged_pair_raises_and_names_the_remedy(tmp_path):
+    # A merge says "same person" and a reject says "not the same person" about the
+    # one pair. The appended inverse is not an override, it is inert: the merge has
+    # already folded the two ids, so the reject moves no deck and leaves no dead
+    # entry, and a reviewer's correction looks recorded while doing nothing. The
+    # remedy is to edit the [[merge]], so the message has to say so (issue #204).
+    path = _write(tmp_path, """
+        [[merge]]
+        ids = ["A", "B"]
+        canonical = "A"
+
+        [[reject]]
+        ids = ["A", "B"]
+    """)
+    with pytest.raises(CurationError, match=r"edit the \[\[merge\]\]"):
+        load_curation(path)
+
+
+def test_split_on_a_transitively_merged_pair_raises(tmp_path):
+    # The guard reads the folded group, not the entry it was written in. "B" and "C"
+    # never share a [[merge]] block, but both merge onto "A", so the dictionary says
+    # they are one person just as plainly, and a [[split]] against them is just as
+    # inert -- the identical-name join it overrides never sees a pair the merges
+    # already folded.
+    path = _write(tmp_path, """
+        [[merge]]
+        ids = ["A", "B"]
+        canonical = "A"
+
+        [[merge]]
+        ids = ["A", "C"]
+        canonical = "A"
+
+        [[split]]
+        ids = ["B", "C"]
+    """)
+    with pytest.raises(CurationError, match=r"edit the \[\[merge\]\]"):
+        load_curation(path)
+
+
+def test_two_name_pins_on_one_pilot_raise(tmp_path):
+    # `_names` is a dict, so last-wins: with two pins on one id the rendered name is
+    # decided by which block sits lower in the file, not by either decision. Reversing
+    # the blocks renders the other name and nothing anywhere says which was meant, so
+    # the repeat is refused where the author can still see both (issue #204).
+    path = _write(tmp_path, """
+        [[name]]
+        pilot = "A"
+        display_name = "Tristian G"
+
+        [[name]]
+        pilot = "A"
+        display_name = "Tristan G"
+    """)
+    with pytest.raises(CurationError, match="Tristian G"):
         load_curation(path)
 
 
@@ -150,6 +216,23 @@ def test_deck_event_entry_missing_either_half_raises(tmp_path, entry):
     """)
     with pytest.raises(CurationError):
         load_curation(path)
+
+
+def test_the_checked_in_dictionary_holds_no_contradiction():
+    # The guards above are worth nothing if the dictionary they grade cannot pass
+    # them, and the record is the only place the contradictions were real: three
+    # pairs carried a [[reject]] a later [[merge]] had overturned, and one id carried
+    # two [[name]] pins (issue #204). Graded on the checked-in file rather than a
+    # fixture because that is the copy every build reads. Two whole-graph builds
+    # would redden on a contradiction too (`build_graph` loads this file whenever no
+    # curation is passed), but they would report it as a broken build; this says
+    # which file is wrong, in milliseconds.
+    #
+    # Anchored on __file__, not on `load_curation`'s cwd-relative default: that
+    # default returns an *empty* dictionary for a path it cannot see, so run from
+    # anywhere but the repo root it would pass vacuously (the ROOT idiom of
+    # `test_deploy.py` and `test_entrypoint.py`).
+    load_curation(ROOT / CURATION_PATH)
 
 
 def _mixed_curation() -> Curation:

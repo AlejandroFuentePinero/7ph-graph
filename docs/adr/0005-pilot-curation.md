@@ -20,7 +20,7 @@ The first four are this ADR's; the last three were added by later work and are r
 - **deck_archetype**: reclassify one deck whose source title mislabelled its archetype, collapsing it onto the single corrected engine (issue #9).
 - **deck_event**: return one deck to the event it was really played at, for a deck the source stranded at a malformed event. The deck adopts the target cohort's event id, type and claimed field, and its norm is re-scored against the field the build counts (issue #167).
 
-An absent file is not an error: the heuristics alone still build a graph. A malformed file, or one that contradicts itself (a merged group naming two canonical ids), aborts the build.
+An absent file is not an error: the heuristics alone still build a graph. A malformed file, or one that contradicts itself, aborts the build. Four shapes contradict: a merged group naming two canonical ids, a `name` pin on an id that merges away, a pair carrying both a `merge` and a `reject` or `split`, and two `name` pins on one id (the last two added by issue #204, which found four such entries on file). The remedy the second one names is an edit, not an appended inverse: `merge` only ever exists for ids whose recovered names differ, which is the complement of what the identical-name join and its `split` override decide, so deleting a wrong `merge` is always sufficient and no precedence between the kinds is needed.
 
 ## Wave 1: only hard facts merge
 
