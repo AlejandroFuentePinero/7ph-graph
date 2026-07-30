@@ -1832,7 +1832,7 @@ def test_the_timeline_headline_counts_the_events_each_archetype_led():
 def test_a_headline_count_a_coin_could_produce_is_printed_with_its_discount():
     # Each point is the mean of a median of one ranked deck, so under the null each
     # event is a coin flip and the headline count is a sign test nobody ran: over the
-    # 121 archetypes the dropdown offers, 100 of the counts are indistinguishable from a
+    # 121 archetypes the dropdown offers, 102 of the counts are indistinguishable from a
     # fair coin at 90% (#175). "8 of 14" is one of them (a coin produces a split at
     # least that lopsided about 40% of the time), so the count is printed, because it
     # is a fact, and the reading is what gets discounted.
@@ -2739,6 +2739,33 @@ def test_the_quantities_with_no_description_anywhere_got_one():
     # point at it rather than half-stating the proxy twice.
     for eid in ("faq-archetype-timeline", "faq-head-to-head"):
         assert "see the year question above" in answers[eid], eid
+
+
+def test_the_pilot_identity_answer_counts_what_the_graph_holds(live_graph):
+    # The answer quotes two figures about the pilots, and both are prose: nothing else
+    # recomputes them, so a rebuild that moves either leaves the FAQ asserting a number
+    # the app no longer holds. Graded against the real record for that reason.
+    #
+    # The two are opposite failures, and the answer owes a reader both. The numbered
+    # careers are one id the project read as several people; the paired names are
+    # several ids it has not yet read as one person, which is the error a reader is
+    # likeliest to find about themselves (issue #142's review pass said "the one
+    # place", which was only ever true of the first).
+    from graph7ph.db import artifact_path, rows
+
+    answers = {eid: a for eid, _, _, a in _FAQ_ENTRIES}
+    identity = answers["faq-pilot-identity"]
+
+    def count(cypher):
+        return list(rows(live_graph.execute(cypher)))[0][0]
+
+    numbered = count("MATCH (p:Pilot) WHERE p.pilot =~ '.*#[0-9]+' RETURN count(*)")
+    stems = count("MATCH (p:Pilot) WHERE p.displayName =~ '.* 1' RETURN count(*)")
+    assert f"{numbered + stems} of the" in identity
+
+    report = json.loads((artifact_path() / "reconciliation.json").read_text())
+    paired = len({pid for e in report["under_merges"] for pid in e["pilots"]})
+    assert f"{paired} of the names offered" in identity
 
 
 def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
