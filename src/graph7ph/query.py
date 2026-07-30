@@ -85,8 +85,8 @@ MAX_GEM_NODES = 250
 # table's "In top" column can be checked against the picture rather than explained away.
 #
 # One was carried until the null was stratified by event, on the grounds that the deck
-# layer collapses: an archetype's best decks nearly all run nearly all of its gems, so
-# their nodes share a neighbourhood, a force layout has nothing to separate them by, and
+# layer collapses: many of an archetype's best decks run the same one card, so their
+# nodes share a neighbourhood, a force layout has nothing to separate them by, and
 # they settle on one another with their labels on top. That collapse is real and the cap
 # was not what fixed it. Measured on the built graph against the current list, a cap of
 # five ties every one of the 27 decks it draws, where drawing all 38 ties 33 of them

@@ -452,6 +452,17 @@ labels on top. That collapse is real and nothing tuneable fixes it. `avoidOverla
 spring length and gravity can inflate the blob but cannot separate nodes the graph gives
 no reason to separate.
 
+> **Corrected by the #142 review pass (2026-07-30).** The mechanism above is stated too
+> strongly for the list this decision produced, and the FAQ inherited the overstatement
+> until #142 measured it. On the current list 33 of the 38 drawn decks run **exactly
+> one** gem, and three of the four drawn archetypes have only one gem to run, so
+> "nearly all run nearly all of its gems" describes a shape only Lands exhibits (10 of
+> its 15 drawn decks run one of its four). The collapse is real and the conclusion below
+> is unaffected: the decks tie because many of an archetype's best decks run the **same
+> one card**, which shares a neighbourhood just as effectively. `query.py`'s copy of this
+> reasoning and `faq-gems` were both corrected; the reasoning here is left standing as
+> the record of what was argued at the time.
+
 The cap was not what fixed it either, which is why it is gone. Measured against the
 current list, a cap of five drew 27 decks of which **all 27 had an identical neighbour
 set** to some other deck; drawing every top-cut deck draws 38 of which **33 (87%)** do.

@@ -310,3 +310,64 @@ it alone as out of scope.
 
 [handoff] That contrast row is a live §2 violation with no ticket. The fix is a choice between
 lifting those figures off `--text-mute` and taking the band off `--surface-2`; worth an issue.
+
+## 2026-07-30 - The landscape's above-the-line skew is the top-25 cut, not the source
+
+- Raw `placementNorm` is **lower is better** and every chart flips it for display, so the numbers
+  below read the opposite way to the app (`app.py`, `_landscape_caption`: "the flip is the
+  chart's, so above the line reads as a raw norm below 0.5"). Getting this backwards is the easy
+  mistake here.
+- `faq-landscape` and `_landscape_caption` both explained the skew as "a quirk of the source,
+  which records top finishers more completely than the rest of the field". Measured on the built
+  artifact, that cause is an order of magnitude too small. With the 26 `_cut_only_events` dropped,
+  the field's per-deck mean is **0.4927 over 4,386 decks**, 0.0073 off dead centre. Including them
+  it is 0.4767 over 4,567, and the 181 bracket decks average 0.0905, which is what selecting on the
+  answer is worth.
+- The skew is the display cut. The drawn top 25 average **0.4405 / 0.4756 / 0.4764 / 0.4762** raw
+  for 2023-2026, against **0.5408 / 0.5652 / 0.5812 / 0.5613** for the archetypes the cut leaves
+  out. Above-the-line counts among drawn dots are 14, 16, 16 and 19 of 25. The most-played
+  archetypes of a year genuinely finish better than the fringe.
+- The race's shrinkage anchor is a **contender** average, not a field average: `_shrinkage` is
+  fitted over the 137 contenders' records alone and gives mu **0.5729** (k 5.07), against
+  **0.5060** over all 852 pilots' 2,372 finishes at the same 19 majors. ADR 0017 already quoted
+  0.577, so this has been stable. `faq-race` said "pulled toward the field average", which a
+  reader carrying `faq-performance`'s "0.5 is what a random finisher would average" reads about 7
+  points too low.
+- Why it matters: both wrong descriptions told a reader to discount a real signal, and both had
+  been reviewed and copy-edited without being re-measured. The skew claim survived #156's copy cut
+  and #189's change to the axis it describes. Anything of the form "that pattern is an artefact"
+  should carry the measurement that rules the alternative out, or it will outlive the data.
+
+[handoff] Corrected in `faq-landscape-certainty`, `faq-race` and `_landscape_caption`'s docstring.
+The residual 0.0073 is unexplained and probably not worth explaining; it is well inside what 107
+events can resolve.
+
+## 2026-07-30 - Copy that quotes a measured number goes stale in both directions
+
+- The #142 review found four numbers in shipped copy or comments that the growing record had moved,
+  and two of them had **reversed the point they were making**, which is the failure mode a stale
+  number hides.
+- `_RACE_LINES` argued the eight-line cut is no natural break, citing a rank 8-to-9 gap of
+  **0.0007**. It is **0.00332** today, the widest gap in the drawn set (3-to-4 is 0.00052, 1-to-2
+  is 0.00256), so the number now argues the cut *is* a tier. The reason for eight is the palette's
+  named hues, and it does not depend on either reading.
+- `_gem_caption` said each gem turns up "mostly in the best 20%". False for 2 of 7: Aether Gust is
+  in 11 of its 24 ranked decks' top cut (46%) and Pick Your Poison 4 of 17 (24%). Separately, 2 of
+  the 7 (the same two) appear **only** via Side edges, so no "mostly" or "maindeck" claim about the
+  gem list is safe.
+- `_race_caption` read "scored on 19 events only, the ones with a field over 64". **21** events
+  clear that field; 2 published only a bracket. The head-to-head docstring claimed the field sits
+  below the pilots who entered at 10 of 107 events; it is **4**, all of them teams events.
+- Numbers the FAQ now prints, so they are the ones to recheck when the corpus grows: 9 of 107
+  events carry a decided field (8 at the `MIN_CUT_FIELD` floor of 24), 83 of 4,591 decks carry a
+  decided norm and 27 a decided placement, 4 teams events count teams rather than pilots, 47 of
+  1,083 display names are numbered careers, and 2,332 of 4,591 decks carry more than one archetype
+  tag.
+- Why it matters: this corpus is still growing, so a measured figure in prose is a claim with an
+  expiry date. Prefer the structural statement ("the widest gap in the drawn set", "the top fifth
+  of events") and keep the raw figure in the comment that justifies it, where a reader can see it
+  was measured rather than reasoned.
+
+[handoff] The FAQ's gem-cut percentages now interpolate `GEM_TOP_CUT` rather than hardcoding 20%,
+so that one cannot drift. The counts in the fifth bullet are still hardcoded prose and will need a
+pass when the next snapshot lands.

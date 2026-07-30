@@ -49,7 +49,7 @@ A named strategy engine a deck embodies (for example Grixis, Storm, Lands). A de
 _Avoid_: Deck name, tag
 
 **Macro**:
-The broad strategic class of a deck: aggro, midrange, control, tempo, combo, prison, or ramp.
+The broad strategic class of a deck: aggro, midrange, control, tempo, combo, prison, or ramp. No surface prints the word "Macro", so user-facing copy calls it a **broad class** and glosses it with the values ("aggro, control and the like"); the term itself would be jargon on a page written for any visitor, and "strategy" is the reading it must not drift back to (issue #142).
 _Avoid_: Strategy
 
 **Colour**:
