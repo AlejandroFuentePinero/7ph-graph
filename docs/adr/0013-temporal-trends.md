@@ -46,7 +46,7 @@ The agent surface is four functions, one well-posed question each, matching the 
 
 ## Head-to-head dates the registration, not the event (amends ADR 0006)
 
-Head-to-head is drawn as two lines, `placementNorm` on the y-axis (the only quantity comparable across events of different sizes; each point is labelled with the raw finish and field size for readability), a point per shared event, coloured per player, with an optional time-range slice on the x-axis. That x-axis needs a coordinate finer than `Year`, or two events shared in one year collapse onto the same x.
+Head-to-head is drawn as two lines, `placementNorm` on the y-axis (the only quantity comparable across events of different sizes; each point is labelled with the raw finish and field size for readability), drawn inverted to the shared higher-is-better score (1 a win, 0 last) exactly as the pilot-performance chart below is, while the tool returns the raw norm; a point per shared event, coloured per player, with an optional time-range slice on the x-axis. That x-axis needs a coordinate finer than `Year`, or two events shared in one year collapse onto the same x.
 
 ADR 0006 deliberately refused sub-year precision and did not store per-deck `createdAt`, "since per-deck creation would invite exactly the sub-year precision this ADR rejects." This ADR **amends that consequence**: `createdAt` is persisted as a `Deck` property, and the head-to-head axis reads it.
 
@@ -57,6 +57,13 @@ The timeline is drawn on registration dates rather than event dates, but the two
 `Date` is a `Deck` property, not a node. `Year` earns a node because it is a low-cardinality dimension the three group-by trends aggregate over, exactly ADR 0006's "a dimension to traverse and group by, like Macro." A registration date is the opposite: a high-cardinality continuous coordinate, one value per deck, that nothing groups by and the timeline merely reads off the hub. Modelling it as a node would restate ADR 0002's rejected Colour-Identity case and bloat the node table with the sub-year precision 0006 warned against.
 
 ### The field size beside each point is the source's own, recovered by algebra (issue #103)
+
+> **Mechanism superseded by [ADR 0016](0016-placement-provenance-and-minted-norms.md).**
+> The inversion and the `else deck_count` fallback below are deleted: `field_size` is
+> read off the stored `Event.fieldSize`, and after the field correction
+> ([ADR 0015](0015-field-size-correction.md)) that value is the build-corrected field
+> rather than the source's own at the corrected events. The measurements below stand
+> as the evidence that settled #103.
 
 Each point is labelled with a raw finish over a field size, and the code called that field size "the entrant count". Issue #103 measured it and settles what it is. It is the source's own `eventSize`, the denominator the source ranked the finish against. The repo never ingests that field, so the value is recovered rather than read, but the recovery is exact rather than approximate: `placementNorm == (placement - 1) / (eventSize - 1)` holds bit-exactly for 4540 of 4540 source decks carrying both fields, so inverting the norm is the algebraic inverse of a definition and not an estimate of one. The recovered value agrees with the source for 105 of 105 events that can yield it and 4404 of 4404 decks, to a worst residual of 5.7e-14.
 

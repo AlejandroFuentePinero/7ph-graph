@@ -1,5 +1,14 @@
 # Pilot identity: upstream id as key, display name derived
 
+> **Partly superseded.** The split of a colliding id into numbered people stands,
+> but the placement-rank dealing and cross-event pooling below are replaced by
+> threading decks into careers on card-set similarity
+> ([ADR 0010](0010-append-stable-threading.md)). And the Consequences' stance
+> that flagged cases are "never merged automatically" is reversed for identical
+> recovered names, which now join automatically on every build
+> ([ADR 0007](0007-display-name-identity.md)); only non-identical name shapes
+> remain review candidates.
+
 We key each Pilot node on the upstream `pilot` field. Although it is often a pseudonym or handle, it is a stable identity: the same string always refers to the same source record. The real name is recovered from the deck title into a separate Display Name (majority vote per pilot, with fuzzy consolidation of spelling variants).
 
 We deliberately do NOT key pilots on the recovered name. Title names carry typos and spelling drift, which would split one player into several nodes, and they are not unique, which would merge two different players into one.

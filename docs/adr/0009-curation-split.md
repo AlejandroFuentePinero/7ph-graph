@@ -26,6 +26,14 @@ near-duplicate *name candidate* from the review list, a different decision from
 overriding the *identical-name join*, and keeping them distinct keeps each
 decision's audit trail its own.
 
+> **Amended by issue #74.** A `[[reject]]` now also holds in the join: a rejected
+> pair whose display names later converge into one identical-name group stays
+> apart, exactly as a split does, and an under-specified reject in such a group
+> aborts with the same `CurationError` as below. The two kinds still record
+> different judgements (a reviewed merge candidate versus same-name strangers),
+> and a reject bites in the join only if names converge, but overriding the join
+> is no longer split's alone.
+
 ## Where it applies
 
 The join (`_join_identical_names`) now partitions each same-name group with

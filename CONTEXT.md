@@ -7,12 +7,12 @@ A knowledge graph of the Australian 7 Point Highlander (7PH) Magic: The Gatherin
 ### People and events
 
 **Pilot**:
-A player who registered a deck at an event. Identified by a stable id from the upstream source, which may be a pseudonym or handle rather than a readable name.
+A player who registered a deck at an event. Keyed in the graph by a canonical upstream id, which may be a pseudonym or handle rather than a readable name.
 _Avoid_: Player, user, competitor
 _Exception_: the field-wide race says **player**. The "Best player race" tab, its heading, and the FAQ entries about it are a public ranking of named people, read by the community those people are in, where "player" is the word they use for themselves and "pilot" is only the schema's; the plain-English rule that governs user-facing copy (issue #156) wins on that surface (issue #200). The line is the scope of the claim, not the surface: one deck or one entrant is a **pilot** ("every pilot in the race", "the standings rank 137 pilots"), while the field-wide race as a whole is a **player** race. No other surface takes the exception.
 
 **Display Name**:
-The human-readable name for a Pilot, recovered from deck titles. A label only, never used as identity.
+The human-readable name for a Pilot, recovered from deck titles. The primary player identity (ADR 0007): ids that recover an identical name (case-insensitively) are the same person, joined automatically on every build, unless a curated `[[split]]` or `[[reject]]` keeps them apart (ADR 0009). Not the graph key: the node keeps a canonical upstream id.
 _Avoid_: Real name, player name (as a key)
 
 **Event**:
