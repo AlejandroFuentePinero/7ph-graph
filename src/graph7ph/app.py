@@ -851,12 +851,14 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "belongs to (aggro, control and the like). Every dot and every link is measured "
         "in separate events rather than "
         "decks, so a day the pilot entered several variants counts once.\n\n"
-        "A deck that carries more than one archetype is counted under every one of "
-        "them, and about half the decks on record do carry more than one (2,332 of "
-        "4,591). So the counts here can add up to more than the events a pilot has "
-        "played, and a class's own count can be smaller than the archetypes drawn "
-        "under it. Meta share counts each deck once instead, under its main archetype, "
-        "so the two are answering different questions and are not meant to match.",
+        "About half the decks on record carry more than one archetype (2,332 of "
+        "4,591), each weighted, and a deck counts only under its main one. So a "
+        "pilot who played a Grixis deck with a little Storm in it is drawn playing "
+        "Grixis, not both. Counting every tag instead read half the specialists in "
+        "the record as generalists, which is the question this view exists to "
+        "answer. Meta share reads a deck's archetype the same way, so the two "
+        "name archetypes identically; they still count different things (decks "
+        "there, events here), so their numbers are not meant to match.",
     ),
     (
         "faq-race",
@@ -941,9 +943,11 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "adds up to the one above it, and reading down a branch the percentages can "
         "climb as easily as fall.\n\n"
         "An archetype is drawn under whichever class its card-running decks mostly "
-        "sit in. Its share counts every deck tagged with that archetype, not only the "
-        "decks whose main archetype it is, which is the wider of the two counts (see "
-        'the "Archetype affinity" question above).',
+        "sit in. Its share counts the decks whose main archetype it is, the same decks "
+        "meta share counts, so a deck carrying that archetype as a lesser tag beside a "
+        "stronger one is not in either term. Counting every tag instead would describe "
+        "a pool of other engines wearing this archetype's name: Golgari, for one, is "
+        "tagged on 121 decks and is the engine of 8.",
     ),
     (
         "faq-cooccurrence",
