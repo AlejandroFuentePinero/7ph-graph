@@ -347,7 +347,11 @@ def card_usage_subgraph(
     card-running decks sit, so the macro above it always contains decks running the
     card and its tier percent never reads a contradictory zero above an adopted
     archetype; the archetype's shown adoption stays the honest archetype-wide
-    figure. Every archetype the card appears in is drawn, strongest adoption first
+    figure. Counted by the **primary** tag alone, the rule ``CONTEXT.md`` fixes for
+    every archetype figure (ADR 0023): a slice pooling every tag is a mixture of
+    other engines rather than a larger sample of this one, so the denominator, the
+    numerator and the grouping macro all read the decks this archetype is the
+    engine of. Every archetype the card appears in is drawn, strongest adoption first
     at whole-percent resolution, then the larger archetype, so a staple that runs
     everywhere may exceed the render limit and refine rather than draw. Pilot and
     event are left out on purpose: this is a card-level view.
@@ -377,10 +381,10 @@ def card_usage_subgraph(
             {where} RETURN m.name, count(DISTINCT d)""", params
     )))
     arch_total = {tag: (name, total) for tag, name, total in rows(conn.execute(
-        "MATCH (a:Archetype)<-[:HAS_ARCHETYPE]-(d:Deck) RETURN a.tag, a.name, count(DISTINCT d)"
+        "MATCH (a:Archetype)<-[:HAS_ARCHETYPE {isPrimary: true}]-(d:Deck) RETURN a.tag, a.name, count(DISTINCT d)"
     ))}
     arch_run = dict(rows(conn.execute(
-        f"""MATCH (a:Archetype)<-[:HAS_ARCHETYPE]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
+        f"""MATCH (a:Archetype)<-[:HAS_ARCHETYPE {{isPrimary: true}}]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
             {where} RETURN a.tag, count(DISTINCT d)""", params
     )))
     # The macro where each archetype's card-running decks sit, so the grouping
@@ -388,7 +392,7 @@ def card_usage_subgraph(
     # the choice is stable regardless of the query's row order.
     dominant: dict[str, tuple[int, str]] = {}
     for tag, macro, n in rows(conn.execute(
-        f"""MATCH (a:Archetype)<-[:HAS_ARCHETYPE]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
+        f"""MATCH (a:Archetype)<-[:HAS_ARCHETYPE {{isPrimary: true}}]-(d:Deck)-[cont:CONTAINS]->(:Card {{canon: $canon}})
             {where}
             MATCH (d)-[:HAS_MACRO]->(m:`Macro`)
             RETURN a.tag, m.name, count(DISTINCT d)""", params
@@ -1188,14 +1192,16 @@ def pilot_affinity_subgraph(conn: ladybug.Connection, pilot: str) -> Subgraph:
     by the events the pilot played that archetype within that macro. Events
     rather than decks, so entering several variants on a single day counts once
     for showing up. An archetype that a pilot played under two macros is one
-    shared node with an edge from each. The pilot is keyed on the upstream id
-    but labelled by display name.
+    shared node with an edge from each. Counted by the **primary** tag alone
+    (ADR 0023): crediting a pilot with every tag their decks carried read half the
+    specialists in the record as generalists, which is the one thing this view is
+    for. The pilot is keyed on the upstream id but labelled by display name.
     """
     res = conn.execute(
         """MATCH (p:Pilot {pilot: $pilot})
            OPTIONAL MATCH (p)<-[:PILOTED_BY]-(d:Deck)-[:HAS_MACRO]->(m:`Macro`)
            OPTIONAL MATCH (d)-[:PLAYED_AT]->(e:Event)
-           OPTIONAL MATCH (d)-[:HAS_ARCHETYPE]->(a:Archetype)
+           OPTIONAL MATCH (d)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype)
            RETURN p.pilot, p.displayName, m.name, a.tag, a.name, e.event""",
         {"pilot": pilot},
     )

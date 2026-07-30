@@ -409,6 +409,75 @@ def test_card_usage_carries_each_tier_adoption_as_numbers(tmp_path, built_graph)
     assert labels[("macro:aggro", "arch:boros")] == "100%"
 
 
+def test_card_usage_counts_only_the_decks_an_archetype_is_primary_of(tmp_path, built_graph):
+    # An adoption rate names one archetype, so both its terms count that
+    # archetype's own decks and not the decks that merely carry its tag beside a
+    # stronger one (ADR 0023). Both terms are wrong under the wider reading, and
+    # in opposite directions, so a fixture that moved only one of them would let
+    # the other stay wide.
+    #
+    # Storm is the primary of `d1` alone. `d2` and `d3` are Grixis decks carrying
+    # Storm as a secondary at weight 50, well inside the real tail. Storm is
+    # therefore 1 of 1 decks, not 2 of 3: `d2` inflates the numerator by running
+    # the card, `d3` inflates only the denominator by not.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "storm", "norm": 0.0, "m": ["x"]},
+            {"id": "d2", "tag": ["grixis", "storm"], "norm": 0.0, "m": ["x", "pad1"]},
+            {"id": "d3", "tag": ["grixis", "storm"], "norm": 0.0, "m": ["pad2"]},
+            {"id": "d4", "tag": "grixis", "norm": 0.0, "m": ["pad3"]},
+        ],
+        ["x", "pad1", "pad2", "pad3"],
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    sub = card_usage_subgraph(conn, "x")
+
+    counts = {(e.source, e.target): (e.decks, e.total_decks) for e in sub.edges}
+    labels = {(e.source, e.target): e.label for e in sub.edges}
+    # Storm's own single deck runs the card: 1 of 1, not 2 of 3.
+    assert counts[("macro:control", "arch:storm")] == (1, 1)
+    assert labels[("macro:control", "arch:storm")] == "100%"
+    # Grixis is the control: it is the primary of three decks either way, so a
+    # rate that was already reading its own decks does not move.
+    assert counts[("macro:control", "arch:grixis")] == (1, 3)
+    # The macro and meta tiers count decks rather than tags, so neither moves.
+    card = next(n for n in sub.nodes if n.kind == "Card")
+    assert (card.decks, card.total_decks) == (2, 4)
+    assert counts[("card:x", "macro:control")] == (2, 4)
+
+
+def test_card_usage_hangs_an_archetype_under_the_macro_of_its_own_decks(tmp_path, built_graph):
+    # The grouping macro is chosen from the archetype's card-running decks, so it
+    # has to read the same decks the rate above it does (ADR 0023). Leaving this
+    # one query wide while the two rates narrow splits the population inside a
+    # single function, which is the defect rather than a smaller version of it.
+    #
+    # Storm is the primary of `d1` alone, under control. `d2` and `d3` are aggro
+    # Grixis decks carrying Storm as a secondary, and both run the card, so the
+    # wider reading outvotes `d1` two to one and hangs Storm under aggro: a
+    # grouping decided entirely by decks whose engine is Grixis.
+    _write_snapshot(
+        tmp_path,
+        [
+            {"id": "d1", "tag": "storm", "norm": 0.0, "macro": "control", "m": ["x"]},
+            {"id": "d2", "tag": ["grixis", "storm"], "norm": 0.0, "macro": "aggro", "m": ["x", "pad1"]},
+            {"id": "d3", "tag": ["grixis", "storm"], "norm": 0.0, "macro": "aggro", "m": ["x", "pad2"]},
+        ],
+        ["x", "pad1", "pad2"],
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    sub = card_usage_subgraph(conn, "x")
+
+    parents = {e.target: e.source for e in sub.edges if e.target.startswith("arch:")}
+    assert parents == {"arch:storm": "macro:control", "arch:grixis": "macro:aggro"}
+    # Both macros are therefore drawn. Under the wider reading control has no
+    # archetype to hold and never reaches the graph at all.
+    assert {n.id for n in sub.nodes if n.kind == "Macro"} == {"macro:control", "macro:aggro"}
+
+
 def test_card_usage_adoption_falls_when_a_card_is_only_in_some_decks(tmp_path, snapshot_dir, built_graph):
     conn = built_graph(tmp_path, snapshot_dir)
     # A card in both of Jordan's Grixis lists (tempo) but not Tom's Storm: 100%
@@ -1179,18 +1248,17 @@ def test_pilot_affinity_shares_one_archetype_node_across_macros(tmp_path, built_
     assert edges[("macro:aggro", "arch:boros")] == "PLAYS:1"
 
 
-def test_pilot_affinity_macro_edges_over_cover_a_multi_tag_deck(tmp_path, built_graph):
+def test_pilot_affinity_reads_a_multi_tag_deck_as_its_primary_only(tmp_path, built_graph):
     # One deck carrying two archetypes under one macro, the modal shape in the
     # real data (2332 of 4591 decks) and one no other affinity fixture has: every
-    # other one gives a deck a single tag, so the tiers happen to partition and
-    # nothing pins what happens when they do not.
+    # other one gives a deck a single tag, so nothing else pins which of a deck's
+    # tags the affinity view is willing to credit the pilot with.
     #
-    # `d1` is Storm and Grixis at once at E1, `d2` is Storm alone at E2. The macro
-    # is 2 events, and its two outgoing edges are 2 and 1, so the children total 3
-    # against a parent of 2. That is the documented behaviour and not a fault: a
-    # macro's archetypes are a cover, not a partition, because a deck can be
-    # several archetypes at once. The tree drawing is what invites the reader to
-    # add them up, which is why the sum is asserted rather than left implicit.
+    # `d1` is Storm primary and Grixis secondary at E1, `d2` is Storm alone at E2.
+    # Grixis is drawn nowhere: an archetype the pilot was partly committed to on
+    # one deck is not an archetype they play (ADR 0023, ADR 0020). Storm is both
+    # events, so the macro's children sum to the macro rather than over-covering
+    # it, which is what one primary per deck buys.
     _write_snapshot(
         tmp_path,
         [
@@ -1208,11 +1276,17 @@ def test_pilot_affinity_macro_edges_over_cover_a_multi_tag_deck(tmp_path, built_
     children = {
         e.target: e.events for e in sub.edges if e.source == "macro:control"
     }
-    assert children == {"arch:storm": 2, "arch:grixis": 1}
-    assert sum(children.values()) > macro.weight
-    # Each child still nests inside the parent on its own: over-covering is the
-    # sum exceeding the macro, never any single archetype exceeding it.
-    assert max(children.values()) <= macro.weight
+    assert children == {"arch:storm": 2}
+    # The secondary tag reaches neither the edges nor the nodes, so a reader
+    # cannot find Grixis on this pilot at all.
+    assert "arch:grixis" not in {n.id for n in sub.nodes}
+    # The all-tag reading let a macro's children total 1.85x their parent over
+    # 1144 of 1904 real rows (ADR 0014); with one primary per deck that is 0 of
+    # 1907. Not a structural guarantee, since two decks a pilot entered at one
+    # event under one macro can still carry different primaries, but nothing on
+    # this artifact does. The tree drawing invites the reader to add the children
+    # up, so the sum is asserted rather than left implicit.
+    assert sum(children.values()) <= macro.weight
 
 
 def test_pilot_affinity_uses_display_name_and_counts_one_deck(tmp_path, snapshot_dir, built_graph):
@@ -1321,40 +1395,63 @@ def test_the_luck_count_is_the_same_number_on_every_call(live_graph):
     counts = {hidden_gems_subgraph(live_graph).expected_by_luck for _ in range(4)}
 
     assert len(counts) == 1
-    # Macros and archetypes are drawn on one shared radius scale, so an archetype
-    # sitting under a single macro and drawn larger than it would have the picture
-    # asserting that a part is bigger than the whole it belongs to. It cannot
-    # happen while both tiers count distinct events, because the archetype's
-    # events under its only parent are a subset of that parent's: the macro is
-    # sized by every event the pilot played it at, which includes every event they
-    # played this archetype at. Measured over the live graph, the invariant holds
-    # 3458 of 3458 times (the archetype nodes with exactly one incoming macro
-    # edge; the other 367 sit under two or more macros and are legitimately larger
-    # than any one of them).
+
+
+def test_pilot_affinity_draws_the_deck_rows_own_record_and_nests_parts_in_wholes(live_graph):
+    # Two claims over every pilot on the live artifact, checked in one pass
+    # because each needs the same 1086 subgraphs.
     #
-    # Pinned because the invariant rests entirely on the unit. A later change that
-    # sized either tier by decks rather than events would break it silently: an
-    # archetype counted by decks against a macro counted by events inverts the
-    # moment a pilot enters two variants on one day, and nothing would raise.
-    sole_parent = 0
+    # First, the drawing is the record: the parent macros of every archetype node
+    # equal the (pilot, primary archetype, macro) triples read straight off the
+    # deck rows (ADR 0023), with no pilot_affinity_subgraph in the derivation.
+    # The expectation comes from the rows rather than from a count pinned off a
+    # previous run, because a pinned count has to be regraded whenever the
+    # behaviour intentionally changes, and regrading it by running the changed
+    # code turns the guard into a transcript of whatever the code now does. A
+    # query that re-widened to every tag, or emptied, now disagrees with the
+    # graph's own rows rather than with a number nobody can re-derive.
+    #
+    # Second, nesting: an archetype under a single macro is never drawn larger
+    # than it. Both tiers count distinct events, and the archetype's events under
+    # its only parent are a subset of that parent's, so a violation means one
+    # tier changed unit. A later change that sized either tier by decks rather
+    # than events would break it silently: an archetype counted by decks against
+    # a macro counted by events inverts the moment a pilot enters two variants on
+    # one day, and nothing would raise. On this artifact the nesting case is 2349
+    # of the 2543 drawn archetype nodes; the rest sit under two or more macros
+    # and are legitimately larger than any one of them.
+    expected = defaultdict(set)
+    for pilot, tag, macro in rows(live_graph.execute(
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:HAS_MACRO]->(m:`Macro`),
+                 (d)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype)
+           RETURN p.pilot, a.tag, m.name"""
+    )):
+        expected[(pilot, tag)].add(macro)
+    # The nesting case has to exist for the invariant to be checked over
+    # anything: an expectation this derivation left empty would let both claims
+    # pass vacuously.
+    assert any(len(macros) == 1 for macros in expected.values())
+
+    drawn = {}
     inversions = []
     for row in rows(live_graph.execute("MATCH (p:Pilot) RETURN p.pilot")):
         sub = pilot_affinity_subgraph(live_graph, row[0])
         weights = {n.id: n.weight for n in sub.nodes}
-        parents = defaultdict(list)
+        parents = defaultdict(set)
         for edge in sub.edges:
             if edge.source.startswith("macro:"):
-                parents[edge.target].append(edge.source)
+                parents[edge.target].add(edge.source)
         for archetype, macros in parents.items():
+            drawn[(row[0], archetype.removeprefix("arch:"))] = {
+                m.removeprefix("macro:") for m in macros
+            }
             if len(macros) == 1:
-                sole_parent += 1
-                if weights[archetype] > weights[macros[0]]:
-                    inversions.append((row[0], archetype, macros[0]))
+                (macro,) = macros
+                if weights[archetype] > weights[macro]:
+                    inversions.append((row[0], archetype, macro))
 
+    assert drawn == expected
     assert inversions == []
-    # The population is asserted too, so a change that stops reaching the nesting
-    # case at all cannot pass this by leaving nothing to check.
-    assert sole_parent == 3460
 
 
 def test_pilot_affinity_of_unknown_pilot_is_empty(tmp_path, snapshot_dir, built_graph):
