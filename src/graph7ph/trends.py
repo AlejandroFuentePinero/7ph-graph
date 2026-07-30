@@ -794,8 +794,9 @@ def archetype_landscape(conn: ladybug.Connection, year: int) -> Series:
     # Read once and threaded through, as `pilot_performance_over_time` reads it: the
     # mean and the spread it is widthed by both need it.
     skip = _cut_only_events(conn)
-    # The mean and its sample over the scored decks only: a null placementNorm is a
-    # finish the source never scored, so it neither shifts the mean nor pads the deck or
+    # The mean and its sample over the scored decks only: a null placementNorm is a deck
+    # with no finish on record at all, from the source or from this project (ADR 0016),
+    # so it neither shifts the mean nor pads the deck or
     # event count. Nor does a finish at an event that published only its bracket, where
     # a recorded finish is a good one by construction. **Keep `count(DISTINCT e)` last
     # in this projection.** A non-DISTINCT aggregate placed after a DISTINCT count in a

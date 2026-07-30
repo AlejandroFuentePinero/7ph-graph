@@ -178,9 +178,13 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     body = " ".join(b.value for b in demo.blocks.values()
                     if isinstance(b, gr.Markdown) and "faq" in (b.elem_classes or []))
+    # The three graph views joined the list in #142's review pass: each prints a rate
+    # whose denominator appeared on no surface at all. The archetype timeline was already
+    # covered at that point; it is listed here because nothing else pinned its name.
     for metric in ("Meta share over time", "Metagame landscape", "Performance over time",
                    "Head-to-head", "Adoption over time", "Hidden gem",
-                   "Best player race"):
+                   "Best player race", "Finishes over time", "Usage", "Co-occurrence",
+                   "Archetype affinity"):
         assert metric in body, metric
 
 
@@ -693,7 +697,9 @@ def test_a_refused_year_is_captioned_and_a_sat_out_year_is_not():
     }
 
     # 2025 has no cell at all (sat out), so it gets a tick and no caption.
-    assert captions == {(2023, "1 ev, too thin"), (2026, "played, unscored")}
+    # "none counted" rather than "unscored" (#142): a year whose only events published a
+    # bracket was scored by the source, just not at anything this chart's mean can read.
+    assert captions == {(2023, "1 ev, too thin"), (2026, "played, none counted")}
 
 
 def test_every_drawn_year_carries_its_interval_beside_the_point():
@@ -2640,7 +2646,10 @@ def test_the_faq_says_what_each_surfaces_interval_covers_and_what_it_leaves_unse
     assert "shuffling" in performance.lower()
     assert "slump" in performance
 
-    landscape = answers["faq-landscape"]
+    # The landscape's "how settled is it" half is its own sibling entry (#142), the shape
+    # `faq-race-certainty` and `faq-gems-certainty` already had, so `faq-landscape` is
+    # left to say how a dot is placed and the reading of the bars lives next door.
+    landscape = answers["faq-landscape-certainty"]
     assert "90%" in landscape
     assert "cross the 0.5 line" in landscape
 
@@ -2685,6 +2694,51 @@ def test_the_faq_states_the_gem_rule_the_luck_in_it_and_why_nothing_is_filtered(
 
     _, question, unfiltered = entries["faq-gems-unfiltered"]
     assert "filter" in (question + unfiltered).lower()
+
+
+def test_the_two_answers_the_review_pass_found_wrong_state_what_was_measured():
+    # #142 found two answers that were not thin but wrong, so both are pinned on the
+    # claim rather than the phrasing around it.
+    #
+    # The landscape blamed its above-the-line skew on the source ("a quirk of the source,
+    # which records top finishers more completely than the rest of the field"). Measured
+    # on the artifact: the drawn top 25 average 0.4405 / 0.4756 / 0.4764 / 0.4762 raw for
+    # 2023-2026 against 0.5408 / 0.5652 / 0.5812 / 0.5613 for the archetypes the cut
+    # leaves out, and the whole field sits 0.007 off the middle once `_cut_only_events` is
+    # dropped. So the skew is a property of the display cut, and the old wording told a
+    # reader to discount a real signal as a data artefact.
+    #
+    # And the gem odds described the per-pilot count ADR 0020 measured and rejected,
+    # which overstated the app's own rigour: the code ships a proportional discount
+    # (`query.PILOT_ICC`), charging seven decks by three pilots as about five and a half
+    # independent results rather than three.
+    answers = {eid: a for eid, _, _, a in _FAQ_ENTRIES}
+    corpus = " ".join(answers.values())
+
+    assert "quirk of the source" not in corpus
+    certainty = answers["faq-landscape-certainty"]
+    assert "most-played" in certainty and "the cut leaves out" in certainty
+
+    gems = answers["faq-gems-certainty"]
+    assert "three pieces of evidence" not in gems
+    assert "five and a half" in gems
+
+
+def test_the_quantities_with_no_description_anywhere_got_one():
+    # The coverage half of #142. Four quantities were on a surface and in no answer: the
+    # year every axis reads, the rates on the two card graph views and on the archetype
+    # affinity map, and that the race score is nearly blind to winning, which ADR 0017
+    # assigned to the FAQ outright ("the metric stands and the FAQ carries the caveat").
+    # Pilot identity and the gem board question were the same shape: on the surface,
+    # nowhere in the corpus.
+    answers = {eid: a for eid, _, _, a in _FAQ_ENTRIES}
+    assert {"faq-year", "faq-usage", "faq-cooccurrence", "faq-affinity",
+            "faq-race-winning", "faq-pilot-identity", "faq-gems-board"} <= set(answers)
+
+    # The year is a shared primitive like the finish, so the two entries with a date axis
+    # point at it rather than half-stating the proxy twice.
+    for eid in ("faq-archetype-timeline", "faq-head-to-head"):
+        assert "see the year question above" in answers[eid], eid
 
 
 def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
