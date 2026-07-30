@@ -1,6 +1,6 @@
 # Graph model: facts as edges, analytics as query tools
 
-The stored graph is a rich dimensional spine. Nodes are Pilot, Event, Deck, Card, Archetype, Macro, Colour, and CardType. Edges exist only for irreducible facts: who piloted what, where a deck was played, deck-to-card membership (with quantity and board), and a card's colours and type. Colour is modelled as the five atomic colours so a multicolour card links to each, which lets a card reach every deck of a given colour identity.
+The stored graph is a rich dimensional spine. Nodes are Pilot, Event, Deck, Card, Archetype, Macro, Colour, and CardType. Edges exist only for irreducible facts: who piloted what, where a deck was played, deck-to-card membership (with board; the format is singleton, so there is no quantity to store), and a card's colours and type. Colour is modelled as the five atomic colours so a multicolour card links to each, which lets a card reach every deck of a given colour identity.
 
 Derived relationships (card co-occurrence, hidden gems, pilot archetype affinity, pilot networks) are deliberately NOT materialised as edges. They are computed on demand as a growing library of parameterized Cypher query functions, which also become the future RAG's tools.
 
