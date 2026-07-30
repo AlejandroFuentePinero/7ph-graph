@@ -9,7 +9,8 @@ its Moxfield page.
 pyvis's own generated graph internals (its node/edge JS, its layout) are deliberately
 not asserted, per the PRD testing plan. What this module *injects onto* that document
 is: the tests hold the shared-palette node colours, the on-screen colour key, the dark
-ground, the structured details panel, and the fit-and-label settle (:data:`_SETTLE`),
+ground, the structured details panel, the count hover on a visible rate edge (#211),
+and the fit-and-label settle (:data:`_SETTLE`),
 since those are this module's contribution and the visual-direction contract (§7) they
 answer to.
 
@@ -27,6 +28,7 @@ import re
 
 from pyvis.network import Network
 
+from graph7ph.numfmt import count_of
 from graph7ph.palette import CATEGORICAL, assign
 from graph7ph.query import Node, Subgraph
 from graph7ph.serve import VIS_CSS_URL, VIS_JS_URL
@@ -190,6 +192,12 @@ def render_subgraph(subgraph: Subgraph) -> str:
         tint = {"color": palette[player] if player is not None else TOKENS["border"]}
         # A visible label is drawn on the edge; otherwise it is a hover tooltip.
         text = {"label": edge.label} if edge.visible else {"title": edge.label}
+        # A drawn rate is a percent with its base out of sight, and the base is what
+        # says how far one deck moves it: the usage tier keeps every archetype slice
+        # rather than flooring the thin ones (#211), so a visible rate edge hovers
+        # its own counts, in the one sample-size form the charts already use.
+        if edge.visible and edge.total_decks is not None:
+            text["title"] = count_of(edge.decks, edge.total_decks, "decks")
         net.add_edge(edge.source, edge.target, **text, **tint)
 
     # A fully pinned graph (the two-seed co-occurrence layout) has nothing for

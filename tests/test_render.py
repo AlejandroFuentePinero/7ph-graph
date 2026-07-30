@@ -160,6 +160,50 @@ def test_details_panel_has_field_labels_and_the_moxfield_affordance():
     assert "Open on Moxfield" in html  # as a link affordance, not a raw url
 
 
+def test_a_visible_rate_edge_hovers_its_own_counts():
+    # #211: the usage archetype tier keeps every slice, however thin, because an
+    # adoption rate is exact at any denominator; what the reader must not be denied
+    # is the denominator itself. A drawn "100%" over 1 deck and one over 386 are
+    # identical pixels, so a visible rate edge carries its counts as the hover, in
+    # the one sample-size form (numfmt.count_of), the way the trend chart's hover
+    # carries each cell's n (ADR 0013, #145 amendment).
+    sub = Subgraph(
+        nodes=[
+            Node("card:troll", "Troll of Khazad-dûm", "Card"),
+            Node("macro:midrange", "midrange", "Macro"),
+            Node("arch:golgari", "Golgari", "Archetype"),
+        ],
+        edges=[
+            Edge("card:troll", "macro:midrange", "12%", visible=True, decks=120, total_decks=1000),
+            Edge("macro:midrange", "arch:golgari", "88%", visible=True, decks=7, total_decks=8),
+        ],
+    )
+    html = render_subgraph(sub)
+    drawn = json.loads(re.search(r"edges = new vis\.DataSet\((\[.*?\])\)", html, re.S).group(1))
+    by_target = {edge["to"]: edge for edge in drawn}
+    assert by_target["arch:golgari"]["label"] == "88%"  # the drawn percent is untouched
+    assert by_target["arch:golgari"]["title"] == "7 / 8 decks"
+    assert by_target["macro:midrange"]["title"] == "120 / 1,000 decks"
+
+
+def test_the_count_hover_rides_only_a_visible_edge_with_a_ratio_behind_it():
+    # The hover rides only where both halves hold. An invisible edge's label is
+    # already its hover (a co-occurrence percent), so its counts stay numbers for
+    # a consumer, and a visible edge with no ratio behind it has nothing to add.
+    sub = Subgraph(
+        nodes=[Node("card:a", "Sol Ring", "Card"), Node("card:b", "Mana Crypt", "Card")],
+        edges=[
+            Edge("card:a", "card:b", "34%", decks=12, total_decks=35),
+            Edge("card:b", "card:a", "OWNS", visible=True),
+        ],
+    )
+    html = render_subgraph(sub)
+    drawn = json.loads(re.search(r"edges = new vis\.DataSet\((\[.*?\])\)", html, re.S).group(1))
+    invisible, visible = drawn
+    assert invisible["title"] == "34%" and "label" not in invisible
+    assert visible["label"] == "OWNS" and "title" not in visible
+
+
 def test_the_settle_ships_in_the_document_with_its_substitutions_resolved():
     # The fit-and-label settle (#178) runs only on a real browser, which CI does not
     # carry (tests/test_graph_desktop.py skips without playwright), so this holds the
