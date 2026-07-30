@@ -1122,10 +1122,15 @@ ids = ["NimbleAzureTiger", "RapidIndigoBadger"]
 # the bar this file uses elsewhere. What stops them is not the number. It is that
 # there are two of them at the same strength and nothing picks between them.
 #
-# Nor does the shape have a settled treatment: same-event doubles are merged at
-# 0.91, 1.00 and 1.00 (Zachary M, James L, Daniel S) and rejected at 0.97 (Ben H 1
-# above). So wave-1 policy governs. Two names that could reasonably be two people
-# stay separate, and all three ids are held apart until something decides them.
+# The shape itself is settled, and an earlier draft of this note had that wrong. ADR
+# 0005 says a single shared event is not enough on its own to separate, one person
+# being able to play two flights under two spellings, which is exactly why Zachary M,
+# James L and Daniel S merge across one at 0.91, 1.00 and 1.00. It separates only on a
+# weak name link with netdecked overlap, and these two handles overlap 0.03, so
+# nothing proposes their merge for the separator to refuse. The rule therefore decides
+# none of this either way and wave-1 policy governs: two names that could reasonably
+# be two people stay separate, and all three ids are held apart until something
+# decides them.
 ids = ["CrimsonBlackFalcon", "WanderingCyanViper"]
 
 [[reject]]
