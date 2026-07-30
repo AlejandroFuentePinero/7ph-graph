@@ -5,8 +5,9 @@ Thin glue over the tested query, decision, and render seams. The controls pick a
 entity and filters and build a ``QuerySpec`` (:mod:`graph7ph.query`); the spec
 drives the shared spine via ``run_query``; the returned subgraph passes through
 ``assess`` (:mod:`graph7ph.explore`), which either clears it to render or, when it
-would flood the view, refines instead of truncating. The app itself is not unit
-tested (Gradio wiring and pyvis HTML are verified by running it).
+would flood the view, refines instead of truncating. The app's own pure seams are
+tested in ``tests/test_app.py`` (the captions, the states, and the tab tree a built
+``Blocks`` holds); only the live wiring is verified by running it.
 """
 
 import html

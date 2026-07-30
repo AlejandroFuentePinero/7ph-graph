@@ -33,7 +33,15 @@ CI secret store later): it is never read by the app and never deployed with it.
 
 ```sh
 uv run pytest
+uv run playwright install chromium   # once, for the browser suite below
 ```
+
+`tests/test_graph_desktop.py` measures what the graph document actually paints at
+desktop width, on a real Chromium, and holds the three regressions ADR 0018 names.
+`playwright` is an ordinary dev dependency, but the browser it drives is a download
+rather than a wheel, so `uv sync` cannot bring it. Until that install has run, the
+suite skips itself and says so; CI runs the same install before `pytest`, so the
+gate holds there whether or not a given checkout has one (issue #197).
 
 ## No-regression gate
 

@@ -11,4 +11,8 @@ jobs:
         with:
           python-version: "3.12.12"
       - run: uv sync --frozen
+      # The browser tests/test_graph_desktop.py measures on. It is a download
+      # rather than a wheel, so `uv sync` cannot bring it, and without it that
+      # suite skips itself and #178's acceptance goes ungraded (issue #197).
+      - run: uv run playwright install --with-deps chromium
       - run: uv run pytest

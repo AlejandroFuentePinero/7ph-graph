@@ -30,6 +30,11 @@ dependencies = [
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",
     "requests>=2.32,<3",
+    # Imported by `graph7ph.app` at module load, not called anywhere: it warms the
+    # module before a request thread can meet it half-initialised (see the note at
+    # that import). gradio pulls it in as well, but a guard this app relies on is
+    # this app's dependency to declare (issue #197).
+    "pandas>=2,<3",
 ]
 
 [project.scripts]
@@ -43,8 +48,16 @@ build-backend = "hatchling.build"
 packages = ["src/graph7ph"]
 
 [dependency-groups]
+# playwright drives `tests/test_graph_desktop.py`, which measures what the graph
+# document actually paints at desktop width and holds the three regressions ADR
+# 0018 names. It is in the ordinary dev group rather than left to a `--with`
+# invocation because a gate nobody runs is not a gate: without it the suite skipped
+# in CI and on every checkout, so #178's acceptance and those regressions went
+# ungraded (issue #197). The browser itself is a separate download, which CI
+# installs and `docs/development.md` tells a contributor to.
 dev = [
     "pytest>=8,<9",
+    "playwright>=1.49,<2",
 ]
 
 [tool.pytest.ini_options]
