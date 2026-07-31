@@ -1290,6 +1290,29 @@ def _bound_symbols(values) -> list[str]:
     return [_BOUND_SYMBOL if is_bound else "circle" for _, is_bound in values]
 
 
+def _swatch_pin(name: str, group: str, colour: str, marker: dict) -> pgo.Scatter:
+    """A data-less trace that pins a series' legend swatch to the ring (issue #216).
+
+    The legend swatch copies ``marker.symbol[0]`` straight off the trace (the bundled
+    plotly.min.js legend code reads the array's first element), so a series whose
+    chronologically first point is bounded took the caret as its swatch, presenting
+    the whole line as "no finish published" when only one point is. The caller hides
+    that trace's own legend entry and adds this one in its place: the same name, line
+    and ring, a scalar symbol the swatch cannot misread, and no data to draw.
+    ``group`` ties the two traces into one legend item so clicking the swatch still
+    toggles the drawn line; it is the side's slot rather than its display label,
+    because two distinct entities can share a label, and a label-keyed group would
+    toggle both sides at once.
+    """
+    return pgo.Scatter(
+        x=[None], y=[None], name=name, legendgroup=group,
+        mode="lines+markers",
+        line=dict(width=1, dash="dash", color=colour),
+        marker=marker,
+        hoverinfo="skip",
+    )
+
+
 def _bounded_readout(norm, is_bound: bool, tail: str = "", *, imputed: bool = False) -> list:
     """One point's hover pair: the score, and whatever the chart states beside it.
 
@@ -2757,8 +2780,15 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
                             total_imputed=cell.field_imputed is not None),
         ]
 
-    for name, colour, side, drawn in ((name_a, colour_a, side_a, drawn_a),
-                                      (name_b, colour_b, side_b, drawn_b)):
+    for group, name, colour, side, drawn in (("a", name_a, colour_a, side_a, drawn_a),
+                                             ("b", name_b, colour_b, side_b, drawn_b)):
+        # Over the band, so the fill goes transparent and the ring reads against
+        # the tint it sits on rather than cutting a surface-coloured hole in it.
+        ring = _observation_marker(colour, over_fill=True)
+        symbols = _bound_symbols(drawn)
+        # A first-point bound would become the legend swatch; the pin below carries
+        # the legend entry in that case (:func:`_swatch_pin`, issue #216).
+        pinned = symbols[0] == _BOUND_SYMBOL
         fig.add_trace(pgo.Scatter(
             x=[c.date for c in cells],
             # The finish inverted to a score (1 a win), matching the performance
@@ -2767,18 +2797,19 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
             y=[flip(norm) for norm, _ in drawn],
             customdata=[label(c, side, d) for c, d in zip(cells, drawn)],
             name=name,
+            legendgroup=group if pinned else None,
+            showlegend=not pinned,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            # Over the band, so the fill goes transparent and the ring reads against
-            # the tint it sits on rather than cutting a surface-coloured hole in it.
-            marker={**_observation_marker(colour, over_fill=True),
-                    "symbol": _bound_symbols(drawn)},
+            marker={**ring, "symbol": symbols},
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
         ))
+        if pinned:
+            fig.add_trace(_swatch_pin(name, group, colour, ring))
     # The date axis, its range slider and label, the 0-1 score and its 0.5 reference,
     # and the legend strip: the chrome this shares with the archetype timeline. The
     # finish's sense rides the readout (score() -> "0.62 (1 = 1st)"), stated once, so
@@ -2838,10 +2869,25 @@ def _archetype_timeline_figure(
             colour_a, colour_b,
         ))
 
-    sides = [(name_a, colour_a, drawn_a, [c.decks_a for c in cells])]
+    sides = [("a", name_a, colour_a, drawn_a, [c.decks_a for c in cells])]
     if name_b is not None:
-        sides.append((name_b, colour_b, drawn_b, [c.decks_b for c in cells]))
-    for name, colour, values, deck_counts in sides:
+        sides.append(("b", name_b, colour_b, drawn_b, [c.decks_b for c in cells]))
+    for group, name, colour, values, deck_counts in sides:
+        # Smaller than the shared observation ring: two common archetypes share most
+        # of the corpus (Grixis and Lands, 59 of its 107 events), and at that spacing
+        # the default 12px rings overlap into a band that buries the lines they sit
+        # on. The pilot head-to-head is the same form through the same styler and
+        # keeps the shared ring: it is drawn over the events one *pair of pilots*
+        # both attended, and has not crowded. If it ever does, this size belongs in
+        # one constant both rivalry charts read, not in two places.
+        # Over a fill either way (the band with two archetypes, the tozeroy fill
+        # with one), so the marker's fill goes transparent: solo measured 58 of its
+        # 74 rings sitting on its own fill, none of them reading against it.
+        ring = {**_observation_marker(colour, over_fill=True), "size": 9}
+        symbols = _bound_symbols(values)
+        # A first-point bound would become the legend swatch; the pin below carries
+        # the legend entry in that case (:func:`_swatch_pin`, issue #216).
+        pinned = symbols[0] == _BOUND_SYMBOL
         fig.add_trace(pgo.Scatter(
             x=[c.date for c in cells],
             y=[flip(norm) for norm, _ in values],
@@ -2857,26 +2903,19 @@ def _archetype_timeline_figure(
                         for (norm, is_bound), decks, cell
                         in zip(values, deck_counts, cells)],
             name=name,
+            legendgroup=group if pinned else None,
+            showlegend=not pinned,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            # Smaller than the shared observation ring: two common archetypes share most
-            # of the corpus (Grixis and Lands, 59 of its 107 events), and at that spacing
-            # the default 12px rings overlap into a band that buries the lines they sit
-            # on. The pilot head-to-head is the same form through the same styler and
-            # keeps the shared ring: it is drawn over the events one *pair of pilots*
-            # both attended, and has not crowded. If it ever does, this size belongs in
-            # one constant both rivalry charts read, not in two places.
-            # Over a fill either way (the band with two archetypes, the tozeroy fill
-            # with one), so the marker's fill goes transparent: solo measured 58 of its
-            # 74 rings sitting on its own fill, none of them reading against it.
-            marker={**_observation_marker(colour, over_fill=True), "size": 9,
-                    "symbol": _bound_symbols(values)},
+            marker={**ring, "symbol": symbols},
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
         ))
+        if pinned:
+            fig.add_trace(_swatch_pin(name, group, colour, ring))
     # The same date axis, range slider, 0-1 score, 0.5 reference and legend strip the
     # head-to-head carries, from the one place both read it, which is what holds the
     # two to matching styling as either is edited (issue #151).
