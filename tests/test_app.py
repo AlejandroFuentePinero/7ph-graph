@@ -2093,6 +2093,45 @@ def test_the_bound_caret_is_drawn_by_the_hollow_mechanism_the_rings_use():
         assert drawn.marker.line.width == 2
 
 
+def test_a_bounded_first_point_keeps_the_ring_on_the_legend_swatch():
+    # Issue #216: the legend swatch copies `marker.symbol[0]`, so a pair whose first
+    # shared event bounds one side captioned that whole line as "no finish published"
+    # when only one point is. The drawn trace keeps its per-point symbols but cedes
+    # its legend entry to a data-less pin whose scalar circle the swatch cannot
+    # misread, grouped with the drawn trace so one legend item still toggles both.
+    timeline = _timeline_points(
+        (1, None, 0, 0.3, 1), (2, 0.2, 3, 0.4, 2), bounds={1: 0.7},
+    )
+    h2h = Series(cells=[
+        _h2h_point("E1", datetime(2024, 3, 1), 12, placement_a=None, norm_a=None,
+                   placement_imputed_a="none", norm_imputed_a="none", bound_a=9 / 11),
+        _h2h_point("E2", datetime(2024, 6, 1), 12),
+    ])
+    for fig in (_archetype_timeline_figure("Storm", "Lands", timeline),
+                _head_to_head_figure("Ada L", "Bob C", h2h)):
+        drawn = next(t for t in fig.data
+                     if t.fill != "toself" and _BOUND_SYMBOL in list(t.marker.symbol or []))
+        assert drawn.marker.symbol[0] == _BOUND_SYMBOL
+        assert drawn.showlegend is False
+
+        pin = next(t for t in fig.data if t.name == drawn.name and t is not drawn)
+        assert pin.marker.symbol == "circle"
+        assert pin.showlegend is not False
+        assert list(pin.x) == [None] and list(pin.y) == [None]
+        # The swatch it draws must look like the line it stands for.
+        assert pin.marker.size == drawn.marker.size
+        assert pin.line.color == drawn.line.color
+        # One legend item, not two: clicking it toggles the pin and the line together.
+        assert pin.legendgroup == drawn.legendgroup
+        assert drawn.legendgroup is not None
+
+        # The scored side is untouched: its first symbol is the ring the swatch
+        # copies correctly, so it keeps its own legend entry and gains no pin.
+        others = [t for t in fig.data
+                  if t.fill != "toself" and t is not drawn and t is not pin]
+        assert len(others) == 1 and others[0].showlegend is not False
+
+
 def test_a_bounded_point_never_outranks_the_side_that_was_actually_scored():
     # The guarantee that makes the bound safe to draw (ADR 0024): it is the first slot
     # below the last one the event published, so a mean over published finishes can
