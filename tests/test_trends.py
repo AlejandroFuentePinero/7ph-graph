@@ -658,6 +658,22 @@ def _publish_only_a_bracket(snapshot: Path, event: str) -> None:
     (snapshot / "decks.json").write_text(json.dumps(decks))
 
 
+def _declare_teams(snapshot: Path, event: str, teams: int) -> None:
+    """Restate ``event`` as a Teams event whose field is ``teams`` team slots.
+
+    Teammates share one placement slot and ``eventSize`` counts teams rather than
+    decks (TMCTeams25 declares 39 against 117 decks), so the declared field stands:
+    the build corrects ``Tournament`` alone, by whitelist (issue #140). The decks
+    keep the placements and norms the fixture stated, which it computes against the
+    team-denominated field.
+    """
+    decks = json.loads((snapshot / "decks.json").read_text())
+    for deck in decks:
+        if deck["event"] == event:
+            deck["eventType"], deck["eventSize"] = "Teams", teams
+    (snapshot / "decks.json").write_text(json.dumps(decks))
+
+
 def test_a_year_scores_only_the_events_that_published_a_field_not_a_bracket(
     tmp_path, built_graph
 ):
@@ -1656,6 +1672,83 @@ def test_an_event_that_published_too_little_bounds_nothing_and_keeps_its_break(
     assert [c.event for c in archetype_timeline(conn, "storm", "jund").cells] == [
         "E1", "E3",
     ]
+
+
+def test_a_teams_event_measures_its_coverage_in_slots_and_not_in_decks(
+    tmp_path, built_graph
+):
+    # Issue #215. At a Teams event teammates share one placement slot and the field
+    # counts teams, so N ranked decks reach roughly N/3 slots. A field of 24 teams
+    # publishing its top 5 slots as 15 decks has 5/24 of its field on record, a
+    # bracket, yet counted in decks it clears the coverage gate (15 >= 12) and mints
+    # a bound of 15/23, claiming 16th of 24 at best where the record allows 6th.
+    # Measured in slots it is cut-only: no bound, and the event leaves the timeline.
+    root = tmp_path / "teams"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        # The Teams event: slots 1..5, three teammates apiece, plus storm unscored.
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", None, None),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 1 / 23, 2),
+        *(
+            (f"e2-x{i}", "lands", "E2", "2025-05-01T00:00:00+00:00",
+             (slot - 1) / 23, slot)
+            for i, slot in enumerate([1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5])
+        ),
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", 0.0, 1),
+        ("e3-j1", "jund", "E3", "2025-07-01T00:00:00+00:00", 1 / 11, 2),
+    ]
+    snapshot = _write_timeline_snapshot(root, decks)
+    _declare_teams(snapshot, "E2", teams=24)
+    conn = built_graph(root, snapshot)
+
+    assert "E2" in _cut_only_events(conn)
+    assert _tail_bounds(conn, _cut_only_events(conn)).get("E2") is None
+    assert [c.event for c in archetype_timeline(conn, "storm", "jund").cells] == [
+        "E1", "E3",
+    ]
+
+
+def test_the_bound_at_a_teams_event_counts_the_slots_its_decks_share(
+    tmp_path, built_graph
+):
+    # Issue #215's other half. A Teams event that did publish enough of its field
+    # still deserves a bound, and in slot units: 8 teams publishing slots 1..5 as
+    # 15 decks covers 5/8 of the field, and a deck it never scored finished 6th of
+    # 8 at best. Counted in decks the tail floor lands at 15, past the field's
+    # last slot, and the event silently bounds nothing where ADR 0024 says it must.
+    root = tmp_path / "teamsbound"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.0, 1),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 1 / 11, 2),
+        # The Teams event: slots 1..5, three teammates apiece, plus storm unscored.
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", None, None),
+        ("e3-j1", "jund", "E3", "2025-07-01T00:00:00+00:00", 1 / 7, 2),
+        *(
+            (f"e3-x{i}", "lands", "E3", "2025-07-01T00:00:00+00:00",
+             (slot - 1) / 7, slot)
+            for i, slot in enumerate([1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5])
+        ),
+    ]
+    snapshot = _write_timeline_snapshot(root, decks)
+    _declare_teams(snapshot, "E3", teams=8)
+    conn = built_graph(root, snapshot)
+
+    # Derived from the record, not read back off the code: the last team slot E3
+    # published is 5th, so the first it did not is 6th, and 6th of 8 is
+    # (6 - 1) / (8 - 1). Five slots of eight is enough field to count from.
+    assert "E3" not in _cut_only_events(conn)
+    assert _tail_bounds(conn, _cut_only_events(conn))["E3"] == pytest.approx(5 / 7)
+
+    # And the pair chart draws storm's side at it, against jund's real finish.
+    (*_, e3) = archetype_timeline(conn, "storm", "jund").cells
+    assert e3.mean_norm_a is None
+    assert e3.bound_a == pytest.approx(5 / 7)
+    assert e3.mean_norm_b == pytest.approx(1 / 7)
 
 
 def test_the_timeline_draws_no_point_at_an_event_that_published_only_a_bracket(
