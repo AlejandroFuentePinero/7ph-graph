@@ -987,7 +987,9 @@ def _tail_bounds(conn: ladybug.Connection, skip: list[str]) -> dict[str, float]:
     Which slot that is takes **two** floors, because neither alone is one. The worst
     label on a deck this corpus holds is a slot the event certainly published, so the
     tail starts no earlier. The number of scored decks it holds is also a slot the event
-    certainly reached, since that many decks were placed. Neither dominates:
+    certainly reached, since that many decks were placed; at a Teams event, where
+    teammates share a slot and the field counts teams, that count is of distinct labels
+    instead (issue #215). Neither dominates:
 
     - a tie compresses labels, so sixteen scored decks can carry a worst label of 13
       (ADR 0014 records a band at its best end), and counting off the label alone would
@@ -1012,13 +1014,19 @@ def _tail_bounds(conn: ladybug.Connection, skip: list[str]) -> dict[str, float]:
     # One scan for all four figures. `max` skips nulls, and a placement never sits
     # beside a null norm in this graph (issue #162), so the worst label needs no
     # filter of its own.
+    team_slots = _teams_slots(conn)
     for event, field, decks, ranked, last in rows(conn.execute(
         "MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) "
         "RETURN e.event, e.fieldSize, count(d), count(d.placementNorm), max(d.placement)"
     )):
         if event in skipped or ranked == decks or field is None or field < 2:
             continue
-        slot = max(last or 0, ranked)
+        # The second floor's unit is slots, and at a Teams event a slot holds a
+        # whole team, so the count there is of distinct labels rather than the
+        # decks that share them three to one (issue #215). Labels undercount slots
+        # where teams tie, which errs toward the top of the axis, the direction
+        # this whole function already errs in.
+        slot = max(last or 0, team_slots.get(event, ranked))
         if slot < 1 or slot >= field:
             continue
         bounds[event] = slot / (field - 1)
@@ -1322,7 +1330,10 @@ def _cut_only_events(conn: ladybug.Connection) -> list[str]:
     that reads a *level* off a finish rather than discounted, there being no way to
     infer how many bad finishes were withheld. That is the race and the performance
     chart for a pilot's level (ADR 0021), and the landscape's finish axis, the archetype
-    timeline and the catalogue over it for an archetype's (ADR 0022).
+    timeline and the catalogue over it for an archetype's (ADR 0022). Coverage is
+    measured in the field's own unit: decks at a Tournament, distinct placement slots at
+    a Teams event, whose ``fieldSize`` counts teams that share a slot three decks at a
+    time (issue #215).
 
     Returned sorted, as a list rather than a set, because it is passed straight to a
     query as a parameter and a set has no stable order to bind.
@@ -1335,14 +1346,39 @@ def _cut_only_events(conn: ladybug.Connection) -> list[str]:
     source shipped, a bracket's included, because those decks were genuinely played and
     the bias there is 0.14pp at worst (ADR 0022).
     """
+    team_slots = _teams_slots(conn)
     return sorted(
         event
         for event, field, ranked in rows(conn.execute(
             "MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) WHERE d.placementNorm IS NOT NULL "
             "RETURN e.event, e.fieldSize, count(d)"
         ))
-        if field is not None and ranked < field * MIN_FIELD_COVERAGE
+        if field is not None
+        # The ratio's units must agree: `fieldSize` counts teams at a Teams event
+        # (issue #140), so what is held against it is slots, not the decks that
+        # share them three to one (issue #215). Distinct labels undercount slots
+        # where teams tie, which errs toward dropping, the direction ADR 0022
+        # already leans.
+        and team_slots.get(event, ranked) < field * MIN_FIELD_COVERAGE
     )
+
+
+def _teams_slots(conn: ladybug.Connection) -> dict[str, int]:
+    """Each Teams event's count of distinct published placement labels.
+
+    The slot unit :func:`_cut_only_events` and :func:`_tail_bounds` count in at a
+    Teams event, where teammates share one label and ``fieldSize`` counts teams
+    (issue #215). Absent events fall back to their ranked-deck count, which at a
+    Tournament is the same quantity one deck at a time. It is a query of its own
+    because Ladybug nulls a ``max`` wherever a DISTINCT aggregate precedes it in
+    the RETURN list, so riding along in :func:`_tail_bounds`'s scan would keep
+    the other floor only by leaning on the column order of a bug.
+    """
+    return dict(rows(conn.execute(
+        "MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) "
+        "WHERE e.eventType = 'Teams' AND d.placement IS NOT NULL "
+        "RETURN e.event, count(DISTINCT d.placement)"
+    )))
 
 
 def _within_pilot_sd(conn: ladybug.Connection, skip: list[str]) -> float | None:

@@ -371,3 +371,15 @@ events can resolve.
 [handoff] The FAQ's gem-cut percentages now interpolate `GEM_TOP_CUT` rather than hardcoding 20%,
 so that one cannot drift. The counts in the fifth bullet are still hardcoded prose and will need a
 pass when the next snapshot lands.
+
+## 2026-07-31 — Ladybug silently nulls `max` after a DISTINCT aggregate
+
+- In one RETURN list, any aggregate that follows a `count(DISTINCT ...)` comes back null:
+  `RETURN count(DISTINCT d.placement), max(d.placement)` yields a null max, while the reversed
+  order returns both correctly (reproduced twice on ladybug 0.18.2, on a fixture and on GGWAD).
+  No error is raised; the query just returns wrong data.
+- Why it matters: `count(DISTINCT ...)` already appears throughout `query.py`, so any future edit
+  appending a `max`/`min`/`sum` after one silently corrupts that column, and only a test that
+  happens to pin the value will notice. Until the upstream bug is gone, keep mixed-aggregate
+  queries ordered DISTINCT-last, or split them (`_teams_slots` in trends.py is the precedent:
+  issue #215's fix runs the DISTINCT count as its own query rather than lean on column order).
