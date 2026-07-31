@@ -1,6 +1,7 @@
 import json
 import math
 import re
+from dataclasses import replace
 from datetime import datetime
 
 import plotly.colors as pc
@@ -25,6 +26,8 @@ from graph7ph.app import (
     _adoption_figure,
     _adoption_caption,
     _adoption_cards,
+    _BOUND_LEGEND,
+    _BOUND_SYMBOL,
     _archetype_timeline_caption,
     _archetype_timeline_figure,
     _chart_heading,
@@ -915,6 +918,15 @@ def _h2h_provenance_series() -> Series:
     ])
 
 
+def _caption_lines(caption: str | None) -> list[str]:
+    """The caption's legends, one per rendered line.
+
+    Reads the divs rather than the joined string, because whether the legends land on
+    separate lines is the thing under test: HTML collapses the whitespace between them.
+    """
+    return re.findall(r"<div class='t-caption'>(.*?)</div>", caption or "")
+
+
 def test_head_to_head_hover_marks_the_numbers_the_project_decided():
     # AC (#166): a value the project decided renders identically to a counted one, so
     # the hover asserts a domain rule as a measurement. The mark lands on each decided
@@ -934,7 +946,8 @@ def test_head_to_head_caption_explains_the_mark_only_where_one_is_drawn():
     # One legend line for the whole plot, and only when the plot actually carries a
     # mark: a caption explaining an asterisk nobody can see is chrome (§14).
     caption = _head_to_head_caption(_h2h_provenance_series())
-    assert caption is not None and caption.startswith(numfmt.IMPUTED_MARK)
+    assert caption is not None
+    assert re.sub(r"<[^>]+>", "", caption).startswith(numfmt.IMPUTED_MARK)
 
     clean = Series(cells=[_h2h_point("SSWam", datetime(2024, 6, 1), 88)])
     assert _head_to_head_caption(clean) is None
@@ -1854,14 +1867,22 @@ def test_the_landscape_caption_says_when_the_year_is_still_running():
     assert "top 25" not in caption
 
 
-def _timeline_points(*rows):
-    """Timeline points from ``(day, mean_a, decks_a[, mean_b, decks_b])`` in one month."""
+def _timeline_points(*rows, bounds=None):
+    """Timeline points from ``(day, mean_a, decks_a[, mean_b, decks_b])`` in one month.
+
+    ``bounds`` maps a day to the tail bound its event carries (ADR 0024), applied to
+    whichever side has no mean there, which is where the tool puts it.
+    """
+    bounds = bounds or {}
     return Series(cells=[
         ArchetypeTimelinePoint(
             event=f"E{row[0]}", date=datetime(2025, 3, row[0]),
             mean_norm_a=row[1], decks_a=row[2],
             mean_norm_b=row[3] if len(row) > 3 else None,
             decks_b=row[4] if len(row) > 4 else 0,
+            bound_a=bounds.get(row[0]) if row[1] is None else None,
+            bound_b=(bounds.get(row[0])
+                     if len(row) > 3 and row[3] is None else None),
         )
         for row in rows
     ])
@@ -1962,8 +1983,9 @@ def test_a_solo_timeline_is_one_line_filled_down_to_the_axis():
     # lines. Uniform rings, one size for every point (#151's sized markers, reverted),
     # and smaller than the shared ring, which overlaps into a band at this plot's density.
     assert trace.marker.size == 9 < _observation_marker("#000")["size"]
-    assert "decks" in trace.hovertemplate
-    assert list(trace.customdata[0]) == [numfmt.score(0.8), 3]
+    # The count rides customdata rather than the template, so a bounded point can say
+    # what it is instead of printing "0 decks" (ADR 0024).
+    assert list(trace.customdata[0]) == [numfmt.score(0.8), "3 decks"]
 
 
 def test_a_pair_draws_both_lines_with_the_band_shaded_toward_whoever_leads():
@@ -1991,11 +2013,377 @@ def test_a_pair_draws_both_lines_with_the_band_shaded_toward_whoever_leads():
     # AC: the hover gives the deck count per side, so a point resting on one deck is
     # readable as such on the side it is thin on.
     assert [list(t.customdata[0]) for t in lines] == [
-        [numfmt.score(0.8), 3], [numfmt.score(0.6), 2],
+        [numfmt.score(0.8), "3 decks"], [numfmt.score(0.6), "2 decks"],
     ]
     # ... and only in the hover: both lines draw uniform rings, so the eye follows the
     # lines and the band rather than a field of differently sized markers.
     assert [t.marker.size for t in lines] == [9, 9]
+
+
+def test_a_side_with_no_finish_draws_at_its_bound_so_the_line_and_band_carry_through():
+    # ADR 0024. At E2 the source scored none of Storm's decks, but it published down
+    # far enough to bound the tail: Storm finished no better than 0.7 (a score of 0.3),
+    # so the point is drawn there rather than left as a hole the line breaks over.
+    series = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), (3, 0.1, 2, 0.5, 1),
+        bounds={2: 0.7},
+    )
+    fig = _archetype_timeline_figure("Storm", "Lands", series)
+    lines = [t for t in fig.data if t.fill != "toself"]
+    storm, lands = lines
+
+    # The line runs through all three points rather than breaking at the middle one.
+    assert list(storm.y) == [pytest.approx(0.8), pytest.approx(0.3), pytest.approx(0.9)]
+    assert None not in list(storm.y)
+
+    # The band spans the bounded point too, so the gap reads across the whole run. At
+    # the bound it is the smallest gap the record allows: Storm is at or below it.
+    bands = [t for t in fig.data if t.fill == "toself"]
+    assert any(pytest.approx(0.3) in [v for v in t.y if v is not None] for t in bands)
+
+    # The bounded point is a caret, not a ring, so it never reads as an observation.
+    assert list(storm.marker.symbol) == ["circle", _BOUND_SYMBOL, "circle"]
+    # The side that was scored is untouched: rings throughout, and its own value.
+    assert list(lands.marker.symbol) == ["circle"] * 3
+    assert list(lands.y) == [pytest.approx(0.6), pytest.approx(0.7), pytest.approx(0.5)]
+
+    # The hover states the inequality in the readout itself, and says what sits where
+    # a deck count would: a bounded point rests on no scored deck to count.
+    assert list(storm.customdata[1]) == [f"≤ {numfmt.score(0.3)}", "no finish published"]
+    assert list(storm.customdata[0]) == [numfmt.score(0.8), "3 decks"]
+
+
+def test_the_bound_caret_is_drawn_by_the_hollow_mechanism_the_rings_use():
+    # Regression: the caret shipped as `triangle-down-open`, and rendered nothing. An
+    # `-open` symbol draws no fill and strokes itself in `marker.color`, ignoring
+    # `marker.line`; both rivalry charts set `marker.color` fully transparent so their
+    # rings read hollow over the band, so the caret stroked in transparent. The point
+    # had a y, the line joined through it, and there was no mark on screen, which is
+    # invisible to every assertion about y and symbol.
+    #
+    # The invariant is the pairing, not the glyph: a symbol that takes its stroke from
+    # the fill cannot sit on a transparent fill. Asserted on both charts, since both
+    # set that fill and both read the one constant.
+    timeline = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), bounds={2: 0.7},
+    )
+    h2h = Series(cells=[
+        _h2h_point("E1", datetime(2024, 3, 1), 12, placement_a=1, norm_a=0.0,
+                   placement_b=2, norm_b=1 / 11),
+        HeadToHeadPoint(event="E2", date=datetime(2024, 6, 1), field_size=12,
+                        field_imputed=None,
+                        placement_a=None, norm_a=None,
+                        placement_b=3, norm_b=2 / 11,
+                        placement_imputed_a="none", norm_imputed_a="none",
+                        placement_imputed_b=None, norm_imputed_b=None,
+                        bound_a=9 / 11, bound_b=None),
+    ])
+    figures = (
+        _archetype_timeline_figure("Storm", "Lands", timeline),
+        _head_to_head_figure("Ada L", "Bob C", h2h),
+    )
+    for fig in figures:
+        drawn = next(t for t in fig.data
+                     if t.fill != "toself" and _BOUND_SYMBOL in list(t.marker.symbol or []))
+        # The fill really is transparent, so the pairing below is the live case rather
+        # than a rule about a configuration nothing uses.
+        assert drawn.marker.color == "rgba(0,0,0,0)"
+        assert not any(str(s).endswith("-open") for s in drawn.marker.symbol)
+        # What the caret is actually outlined by, the same 2px the rings carry.
+        assert drawn.marker.line.width == 2
+
+
+def test_a_bounded_point_never_outranks_the_side_that_was_actually_scored():
+    # The guarantee that makes the bound safe to draw (ADR 0024): it is the first slot
+    # below the last one the event published, so a mean over published finishes can
+    # never sit below it. Drawn at its best case, the bounded side still loses, so the
+    # band can understate the gap and can never point the wrong way.
+    series = _timeline_points((1, 0.1, 1, 0.2, 1), (2, None, 0, 0.5, 1), bounds={2: 0.7})
+    fig = _archetype_timeline_figure("Storm", "Lands", series)
+    storm, lands = [t for t in fig.data if t.fill != "toself"]
+
+    assert storm.y[1] < lands.y[1]
+
+
+def test_a_point_nothing_bounds_still_breaks_the_line():
+    # ADR 0024's gate, at the drawing end. A bracket bounds its unscored decks only by
+    # "not the winner", so the tool hands the point no bound and the line keeps ADR
+    # 0013's break rather than drawing a value nothing supports.
+    series = _timeline_points((1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), (3, 0.1, 2, 0.5, 1))
+    fig = _archetype_timeline_figure("Storm", "Lands", series)
+    storm = next(t for t in fig.data if t.name == "Storm")
+
+    assert list(storm.y) == [pytest.approx(0.8), None, pytest.approx(0.9)]
+    assert list(storm.marker.symbol) == ["circle"] * 3
+
+
+def test_a_shared_event_neither_side_was_scored_at_bounds_neither():
+    # Two sides drawn at one bound would assert a tie the record does not hold: their
+    # two decks have distinct real finishes somewhere in one interval, and which is
+    # better is exactly what is missing. So both keep the break.
+    series = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, None, 0), (3, 0.1, 2, 0.5, 1), bounds={2: 0.7},
+    )
+    fig = _archetype_timeline_figure("Storm", "Lands", series)
+    storm, lands = [t for t in fig.data if t.fill != "toself"]
+
+    assert storm.y[1] is None and lands.y[1] is None
+
+
+def test_a_solo_timeline_keeps_its_break_rather_than_bounding_the_gap():
+    # Out of scope by decision (ADR 0024): the guarantee above is about a comparison,
+    # and a solo line has none to get wrong. The picker's count already states the
+    # evidence behind the line, so the attendance stays a break.
+    series = _timeline_points((1, 0.2, 3), (2, None, 0), (3, 0.1, 2), bounds={2: 0.7})
+    (trace,) = _archetype_timeline_figure("Storm", None, series).data
+
+    assert list(trace.y) == [pytest.approx(0.8), None, pytest.approx(0.9)]
+    # The bound is carried on the a side here and simply has no counterpart to be drawn
+    # against, so no caret reaches the plot and the caption owes no legend. It offered
+    # one on 12 of the 121 real solo timelines while the phantom b side took a bound too.
+    assert not any(sym != "circle" for sym in trace.marker.symbol)
+    assert _BOUND_LEGEND not in _archetype_timeline_caption("Storm", None, series)
+
+
+def test_the_timeline_caption_explains_the_caret_only_where_one_is_drawn():
+    # The rule `_head_to_head_caption` follows for the asterisk: a legend line only
+    # where the plot carries the mark it explains (§14).
+    bounded = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), (3, 0.1, 2, 0.5, 1), bounds={2: 0.7},
+    )
+    assert _BOUND_LEGEND in _archetype_timeline_caption("Storm", "Lands", bounded)
+
+    # A bound the figure does not draw summons no legend: at E2 neither side was
+    # scored, so no caret reaches the plot.
+    undrawn = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, None, 0), (3, 0.1, 2, 0.5, 1), bounds={2: 0.7},
+    )
+    assert _BOUND_LEGEND not in _archetype_timeline_caption("Storm", "Lands", undrawn)
+
+    clean = _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.1, 2, 0.5, 1))
+    assert _BOUND_LEGEND not in _archetype_timeline_caption("Storm", "Lands", clean)
+
+
+def test_the_bounded_meeting_is_counted_to_the_side_that_was_scored():
+    # The headline counts what the record settles, so it counts the bounded meeting and
+    # awards it to the scored side. ADR 0024 shipped without this and the caption then
+    # argued with the plot beside it: three points drawn, "of 2 shared events" printed.
+    #
+    # Storm has no mean at E2 and is bounded at 0.7; Lands scored 0.3 there, and 0.3 is
+    # better than any finish that event can have left Storm, so Lands took the meeting.
+    series = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), (3, 0.1, 2, 0.5, 1), bounds={2: 0.7},
+    )
+    caption = re.sub(r"<[^>]+>", "", _archetype_timeline_caption("Storm", "Lands", series))
+    fig = _archetype_timeline_figure("Storm", "Lands", series)
+    storm = next(t for t in fig.data if t.name == "Storm")
+
+    # Storm leads E1 and E3, Lands takes E2: 2 of 3, not 2 of 2.
+    assert "Storm finished better at 2 of 3 shared events" in caption
+    # And the denominator is now exactly what the chart draws, which is the property
+    # that was broken rather than the number: every drawn comparison is counted.
+    assert len([y for y in storm.y if y is not None]) == 3
+
+
+def test_a_meeting_neither_side_was_scored_at_is_drawn_by_nobody_and_counted_by_nobody():
+    # The other half of the same rule. A bound settles a meeting only against a side
+    # that has a finish; with neither scored there is no comparison to count and the
+    # chart breaks over it, so the denominator drops it exactly as the plot does.
+    series = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, None, 0), (3, 0.1, 2, 0.5, 1), bounds={2: 0.7},
+    )
+    caption = re.sub(r"<[^>]+>", "", _archetype_timeline_caption("Storm", "Lands", series))
+
+    assert "of 2 shared events" in caption
+
+
+def test_the_coin_gate_reads_the_denominator_the_headline_prints():
+    # The gate and the headline stand on one count, the settled meetings. Five straight
+    # wins clear the coin over 5 trials (|5 - 2.5| - 0.5 = 2.0 > 1.645*sqrt(5)/2 = 1.84)
+    # and fail it over 6 (1.5 against 2.01), so a gate that counted the unsettled
+    # break-point at E4 would re-hedge this certified lead.
+    series = _timeline_points(
+        (1, 0.1, 1, 0.4, 1), (2, 0.1, 1, 0.4, 1), (3, 0.1, 1, 0.4, 1),
+        (4, None, 0, None, 0),
+        (5, 0.1, 1, 0.4, 1), (6, 0.1, 1, 0.4, 1),
+    )
+    caption = re.sub(r"<[^>]+>", "", _archetype_timeline_caption("Storm", "Lands", series))
+
+    assert "Storm finished better at 5 of 5 shared events" in caption
+    assert "a split a coin could produce" not in caption
+
+
+def test_a_pilot_with_no_finish_at_a_bounded_meeting_draws_at_the_bound():
+    # The same rule on the pilot chart, off the same helper, so the two rivalry charts
+    # cannot drift apart in when a line breaks (ADR 0024).
+    series = Series(cells=[
+        _h2h_point("E1", datetime(2024, 3, 1), 12, placement_a=1, norm_a=0.0,
+                   placement_b=2, norm_b=1 / 11),
+        HeadToHeadPoint(event="E2", date=datetime(2024, 6, 1), field_size=12,
+                        field_imputed=None,
+                        placement_a=None, norm_a=None,
+                        placement_b=3, norm_b=2 / 11,
+                        placement_imputed_a="none", norm_imputed_a="none",
+                        placement_imputed_b=None, norm_imputed_b=None,
+                        bound_a=9 / 11, bound_b=None),
+    ])
+    fig = _head_to_head_figure("Ada L", "Bob C", series)
+    ada = next(t for t in fig.data if t.name == "Ada L")
+
+    assert list(ada.y) == [pytest.approx(1.0), pytest.approx(2 / 11)]
+    assert list(ada.marker.symbol) == ["circle", _BOUND_SYMBOL]
+    assert list(ada.customdata[1]) == [f"≤ {numfmt.score(2 / 11)}", "no finish published"]
+    # And the caption owes the caret its line, beside nothing else here: no number on
+    # this series is one the project decided.
+    assert _caption_lines(_head_to_head_caption(series)) == [_BOUND_LEGEND]
+
+
+def test_a_bound_off_a_decided_field_is_marked_like_every_other_decided_number():
+    # A bound is `last published slot / (fieldSize - 1)`, so where the field is the
+    # project's the bound is too. GGWAD's 28 is Rule A's, which is why the scored side
+    # of that meeting hovers "9 / 28*" — and the bounded side hovered a bare "≤ 0.41"
+    # directly beneath a legend saying marked numbers are ours (ADR 0016, issue #166).
+    #
+    # Not the ADR 0024 distinction returning: ▽ and ≤ say "this is a bound", and * says
+    # where the number inside it came from. Different claims, both earned here.
+    decided = Series(cells=[
+        _h2h_point("E1", datetime(2024, 3, 1), 12, placement_a=1, norm_a=0.0,
+                   placement_b=2, norm_b=1 / 11),
+        HeadToHeadPoint(event="E2", date=datetime(2024, 6, 1), field_size=12,
+                        field_imputed="A",
+                        placement_a=None, norm_a=None,
+                        placement_b=3, norm_b=2 / 11,
+                        placement_imputed_a="none", norm_imputed_a="none",
+                        placement_imputed_b=None, norm_imputed_b=None,
+                        bound_a=9 / 11, bound_b=None),
+    ])
+    ada = next(t for t in _head_to_head_figure("Ada L", "Bob C", decided).data
+               if t.name == "Ada L")
+
+    assert list(ada.customdata[1]) == [
+        f"≤ {numfmt.score(2 / 11, imputed=True)}", "no finish published",
+    ]
+    assert numfmt.IMPUTED_MARK in ada.customdata[1][0]
+
+    # And a field the source counted leaves the bound unmarked: the mark tracks the
+    # field's provenance, not the mere fact of being a bound.
+    counted = Series(cells=[
+        decided.cells[0],
+        replace(decided.cells[1], field_imputed=None),
+    ])
+    bare = next(t for t in _head_to_head_figure("Ada L", "Bob C", counted).data
+                if t.name == "Ada L")
+
+    assert numfmt.IMPUTED_MARK not in bare.customdata[1][0]
+
+
+def test_an_archetype_bound_off_a_decided_field_is_marked_too():
+    # The same provenance rule on the archetype chart, which shipped without it: every
+    # archetype caret is drawn off GGWAD, whose 28 is Rule A's, so a bare "≤ 0.41"
+    # there made the same false claim the pilot chart just stopped making.
+    series = _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), bounds={2: 0.7},
+    )
+    decided = Series(cells=[series.cells[0],
+                            replace(series.cells[1], field_imputed="A")])
+    storm = next(t for t in _archetype_timeline_figure("Storm", "Lands", decided).data
+                 if t.name == "Storm")
+
+    assert list(storm.customdata[1]) == [
+        f"≤ {numfmt.score(0.3, imputed=True)}", "no finish published",
+    ]
+
+    # And a field the source counted leaves the bound bare, as on the pilot chart.
+    bare = next(t for t in _archetype_timeline_figure("Storm", "Lands", series).data
+                if t.name == "Storm")
+    assert numfmt.IMPUTED_MARK not in bare.customdata[1][0]
+
+
+def test_the_two_head_to_head_legends_stand_on_their_own_lines():
+    # Regression: the caption joined its legends with two spaces into one escaped div,
+    # and HTML collapses that to a single space, so the asterisk's sentence ran straight
+    # into the caret's and the pair read as one legend about the asterisk. Reported on
+    # Sophie P vs Brandon O, whose 06 Dec 2024 meeting carries both marks at once.
+    #
+    # Asserted as whole lines rather than substrings: "the legend is in the caption
+    # somewhere" is exactly what was true while the bug was on screen.
+    series = Series(cells=[
+        _h2h_point("PBB", datetime(2024, 3, 1), 24, field_imputed="B"),
+        HeadToHeadPoint(event="GGWAD", date=datetime(2024, 6, 1), field_size=28,
+                        field_imputed=None,
+                        placement_a=None, norm_a=None,
+                        placement_b=3, norm_b=2 / 27,
+                        placement_imputed_a="none", norm_imputed_a="none",
+                        placement_imputed_b=None, norm_imputed_b=None,
+                        bound_a=16 / 27, bound_b=None),
+    ])
+    lines = _caption_lines(_head_to_head_caption(series))
+
+    assert len(lines) == 2
+    assert lines[0].startswith(numfmt.IMPUTED_MARK)
+    assert lines[1] == _BOUND_LEGEND
+
+
+def test_the_head_to_head_caption_reaches_the_page_as_markup_not_text(tmp_path, snapshot_dir):
+    # The other half of the legends fix. `_head_to_head_caption` returns real divs, and
+    # they render as lines only if the call site hands them to `_chart_heading` as
+    # `caption_html`; passed positionally they are escaped, and the page shows literal
+    # "<div class='t-caption'>" text over the plot while every unit test above stays
+    # green. So this drives the built app's own handler, over a snapshot holding a
+    # bounded meeting, and asserts on the value the page is handed.
+    import shutil
+
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    snap = tmp_path / "snap"
+    shutil.copytree(snapshot_dir, snap)
+    decks = json.loads((snap / "decks.json").read_text())
+    template = decks[0]
+
+    def entry(deck_id, title, pilot, event, size, placement, created):
+        return {**template, "deckId": deck_id, "name": title, "deckName": "Storm",
+                "pilot": pilot, "event": event, "eventId": f"evt_{event.lower()}",
+                "placement": placement,
+                "placementNorm": None if placement is None
+                else (placement - 1) / (size - 1),
+                "eventSize": size, "createdAt": created}
+
+    # TestOpen: both scored. TestCut: a field of 12 that published slots 1..8 (0.67
+    # coverage, so not cut by ADR 0022, and exactly `_cover_fields`' 0.6 target so it
+    # pads no deep-end filler that would push the last published slot to the field's
+    # end and erase the bound), with Bob attending unscored: his finish is bounded at
+    # slot 8 and the chart owes the caret its legend. A field this size is also one
+    # Rule B leaves alone, where a toy field of 5 was floored to 24 and cut.
+    decks += [
+        entry("d-ann-1", "1st Ann Q - Storm - TestOpen", "AnnQPilotX",
+              "TestOpen", 12, 1, "2025-03-01T10:00:00+00:00"),
+        entry("d-bob-1", "2nd Bob R - Storm - TestOpen", "BobRPilotX",
+              "TestOpen", 12, 2, "2025-03-01T11:00:00+00:00"),
+        entry("d-ann-2", "1st Ann Q - Storm - TestCut", "AnnQPilotX",
+              "TestCut", 12, 1, "2025-04-01T10:00:00+00:00"),
+        *[entry(f"d-fil-{p}", f"{p}th Fil{p} TestCut - Storm - TestCut",
+                f"Fil{p}TestCutPilot", "TestCut", 12, p,
+                f"2025-04-01T1{p}:00:00+00:00")
+          for p in range(2, 9)],
+        entry("d-bob-2", "Bob R - Storm - TestCut", "BobRPilotX",
+              "TestCut", 12, None, "2025-04-01T10:30:00+00:00"),
+    ]
+    _write_covered(snap, decks)
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snap), artifact)
+    demo = build_app(artifact)
+
+    handler = next(f.fn for f in demo.fns.values()
+                   if getattr(f.fn, "__name__", "") == "draw_head_to_head_view")
+    _subject, _stack, _nb, heading, plot, note, _card = handler(
+        "AnnQPilotX", "BobRPilotX")
+
+    assert heading["visible"] and plot["visible"] and not note["visible"]
+    assert "<div class='t-caption'>" in heading["value"]
+    assert _BOUND_LEGEND in heading["value"]
+    assert "&lt;div" not in heading["value"]
 
 
 def _tab_blocks(demo, label):
