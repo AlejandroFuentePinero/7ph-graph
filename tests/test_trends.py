@@ -12,15 +12,14 @@ from graph7ph.trends import (
     MIN_RACE_CONTENDERS,
     MIN_SCORED_MAJORS,
     RACE_POINTS,
-    best_player_race,
     ArchetypeLandscape,
     ArchetypeTimeline,
-    BestPlayerRace,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     MetaShareOverTime,
     NotEnoughHistory,
     PilotPerformanceOverTime,
+    PlayerLeaderboard,
     Series,
     SeriesCell,
     _interval,
@@ -36,6 +35,7 @@ from graph7ph.trends import (
     meta_share_over_time,
     pilot_performance_over_time,
     pilots_with_history,
+    player_leaderboard,
     run_series,
 )
 
@@ -1636,7 +1636,7 @@ def test_the_catalogue_counts_the_events_the_timeline_can_actually_draw(
     assert refusal.value.found == 1
 
 
-# The best-player race (#135). Its fixtures declare their own field sizes rather than
+# The player leaderboard (#135). Its fixtures declare their own field sizes rather than
 # taking `_FIELD_SIZE`, because the whole tool turns on which events are majors. Both
 # sit just past the boundary they are there to cross, since `_cover_fields` has to fill
 # every one of these seats with a deck and a hundred-seat major would dominate the
@@ -1745,7 +1745,7 @@ def test_the_race_ranks_the_pilots_who_clear_both_gates_on_their_majors_alone(
     # rather than a hall of fame. ``rookie`` misses the first gate, ``veteran`` the
     # second, and ``grinder`` never played a major at all.
     conn = _race_graph(tmp_path, built_graph)
-    series = best_player_race(conn)
+    series = player_leaderboard(conn)
 
     assert {c.pilot for c in series.cells} == {"ace", "solid"}
     # The majors count is the score's own sample, so ``ace``'s two locals are no part
@@ -1778,7 +1778,7 @@ def test_a_major_that_published_only_its_bracket_is_worth_no_finish(
     _publish_only_a_bracket(snapshot, "M8")
     conn = built_graph(root, snapshot)
 
-    series = best_player_race(conn)
+    series = player_leaderboard(conn)
 
     # M8 is still a major by field size and still the newest event in the graph, so it
     # goes on anchoring the sample dates. It is simply not one the race scores.
@@ -1832,7 +1832,7 @@ def test_a_thin_record_is_shrunk_toward_the_field_and_can_lose_to_a_thicker_one(
     records = {"streak": streak, "steady": steady}
     records |= {f"pack{i}": [0.9, 0.1, 0.7, 0.3, 0.6, 0.4] for i in range(4)}
     conn = _scored_race_graph(tmp_path, built_graph, records)
-    scores = {c.pilot: c.score for c in best_player_race(conn).cells}
+    scores = {c.pilot: c.score for c in player_leaderboard(conn).cells}
 
     raw_streak = sum(streak) / len(streak)
     raw_steady = sum(steady) / len(steady)
@@ -1863,7 +1863,7 @@ def test_the_sample_dates_step_back_from_the_newest_event_and_floor_a_thin_start
     conn = _scored_race_graph(tmp_path, built_graph, _race_field(
         late=[0.9, 0.9, 0.9, 0.9, 0.9],
     ))
-    cells = [c for c in best_player_race(conn).cells if c.pilot == "late"]
+    cells = [c for c in player_leaderboard(conn).cells if c.pilot == "late"]
 
     assert len(cells) == RACE_POINTS
     assert [c.as_of for c in cells] == [
@@ -1895,7 +1895,7 @@ def test_a_two_major_start_does_not_draw_the_sharpest_point_on_the_chart(
         late={4: 1.0, 5: 0.8, 6: 0.95, 7: 0.85, 8: 0.9},
     ))
     fourth = {
-        c.pilot: c for c in best_player_race(conn).cells
+        c.pilot: c for c in player_leaderboard(conn).cells
         if c.as_of == datetime(2025, 12, 1)
     }
 
@@ -1920,7 +1920,7 @@ def test_the_rank_is_recomputed_at_each_date_over_whoever_had_a_record_by_then(
                  11: 0.95, 12: 0.9},
         late=[0.75, 0.8, 0.75, 0.7, 0.75],
     ))
-    cells = best_player_race(conn).cells
+    cells = player_leaderboard(conn).cells
     early = {c.pilot: c for c in cells if c.as_of == datetime(2024, 12, 1)}
     newest = {c.pilot: c for c in cells if c.as_of == datetime(2026, 6, 1)}
 
@@ -1948,7 +1948,7 @@ def test_the_last_point_of_every_line_is_that_pilots_career_score(
         second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
         late=[0.9, 0.9, 0.9, 0.9, 0.9],
     ))
-    cells = best_player_race(conn).cells
+    cells = player_leaderboard(conn).cells
     newest = max(c.as_of for c in cells)
     final = {c.pilot: c for c in cells if c.as_of == newest}
 
@@ -1970,7 +1970,7 @@ def test_the_career_rank_carries_the_interval_the_evidence_actually_supports(
         best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
         worst=[0.1, 0.05, 0.1, 0.15, 0.1, 0.05, 0.1, 0.15, 0.1, 0.05, 0.1, 0.15],
     ))
-    cells = {c.pilot: c for c in best_player_race(conn).cells}
+    cells = {c.pilot: c for c in player_leaderboard(conn).cells}
     field = len(cells)
 
     # The bounds bracket the rank they qualify, for everyone.
@@ -2006,7 +2006,7 @@ def test_the_whole_race_is_the_same_on_every_run_of_the_same_graph(
         second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
         late=[0.9, 0.9, 0.9, 0.9, 0.9],
     ))
-    assert best_player_race(conn).cells == best_player_race(conn).cells
+    assert player_leaderboard(conn).cells == player_leaderboard(conn).cells
 
 
 def test_a_field_of_one_is_not_a_race_and_is_refused_by_name(tmp_path, built_graph):
@@ -2020,7 +2020,7 @@ def test_a_field_of_one_is_not_a_race_and_is_refused_by_name(tmp_path, built_gra
         "rookie": [0.5, 0.5],  # two majors: never a contender
     })
     with pytest.raises(NotEnoughHistory) as refusal:
-        best_player_race(conn)
+        player_leaderboard(conn)
     assert refusal.value.found == 1
 
     # A graph whose events are all locals has no contenders at all, and says so with
@@ -2033,7 +2033,7 @@ def test_a_field_of_one_is_not_a_race_and_is_refused_by_name(tmp_path, built_gra
         [("grinder", f"L{i}", 0.2) for i in range(1, 13)],
     )
     with pytest.raises(NotEnoughHistory) as refusal:
-        best_player_race(built_graph(root, locals_only))
+        player_leaderboard(built_graph(root, locals_only))
     assert refusal.value.found == 0
 
 
@@ -2053,7 +2053,7 @@ def test_a_field_the_data_cannot_separate_scores_everyone_at_the_field_average(
         "steady": [0.6, 0.65, 0.6, 0.55, 0.6],
     }
     conn = _scored_race_graph(tmp_path, built_graph, records)
-    cells = best_player_race(conn).cells
+    cells = player_leaderboard(conn).cells
 
     finishes = [f for record in records.values()
                 for f in (record.values() if isinstance(record, dict) else record)]
@@ -2066,15 +2066,15 @@ def test_a_field_the_data_cannot_separate_scores_everyone_at_the_field_average(
     }
 
 
-def test_run_series_routes_the_best_player_race_through_its_own_seam(
+def test_run_series_routes_the_player_leaderboard_through_its_own_seam(
     tmp_path, built_graph
 ):
     conn = _scored_race_graph(tmp_path, built_graph, _race_field())
-    series = run_series(conn, BestPlayerRace())
+    series = run_series(conn, PlayerLeaderboard())
     assert isinstance(series, Series)
     # The race takes no argument: it is one question about the whole field, the way
     # the meta-share matrix is one question about the whole meta.
-    assert series.cells == best_player_race(conn).cells
+    assert series.cells == player_leaderboard(conn).cells
 
 
 def test_the_race_comes_back_in_standing_order_with_each_career_oldest_first(
@@ -2089,7 +2089,7 @@ def test_the_race_comes_back_in_standing_order_with_each_career_oldest_first(
         best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
         second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
     ))
-    cells = best_player_race(conn).cells
+    cells = player_leaderboard(conn).cells
 
     assert [c.pilot for c in cells[:RACE_POINTS]] == ["best"] * RACE_POINTS
     assert [c.pilot for c in cells[RACE_POINTS:2 * RACE_POINTS]] == ["second"] * RACE_POINTS
@@ -2106,7 +2106,7 @@ def test_the_race_over_the_real_record_ends_where_the_leaderboard_starts(live_gr
     # cannot be crossed by a contender the cut left out. The career gate then guarantees
     # the point clears the per-date floor, so no line stops short of the edge.
     assert MIN_CAREER_MAJORS >= MIN_SCORED_MAJORS
-    series = best_player_race(live_graph)
+    series = player_leaderboard(live_graph)
     newest = max(c.as_of for c in series.cells)
     final = [c for c in series.cells if c.as_of == newest]
 
@@ -2139,7 +2139,7 @@ def test_the_career_standing_rides_on_the_cell_and_a_tie_shares_its_place(
         best=[1.0, 0.95, 1.0, 0.9, 0.95, 1.0, 0.9, 0.95, 1.0, 0.95, 0.9, 1.0],
         second=[0.8, 0.75, 0.85, 0.8, 0.75, 0.8, 0.85, 0.75, 0.8, 0.85, 0.8, 0.75],
     ))
-    standings = {c.pilot: c.rank for c in best_player_race(conn).cells}
+    standings = {c.pilot: c.rank for c in player_leaderboard(conn).cells}
 
     assert standings["best"] == 1
     assert standings["second"] == 2
@@ -2174,7 +2174,7 @@ def test_an_event_with_no_field_size_is_no_major_rather_than_a_crash(
     conn = built_graph(root, snapshot)
 
     # The sizeless event is simply not a major: the pool is the other eleven.
-    assert {c.major_events for c in best_player_race(conn).cells} == {11}
+    assert {c.major_events for c in player_leaderboard(conn).cells} == {11}
 
 
 def test_an_as_of_rank_carries_the_contenders_it_was_taken_over(tmp_path, built_graph):
@@ -2189,7 +2189,7 @@ def test_an_as_of_rank_carries_the_contenders_it_was_taken_over(tmp_path, built_
                  11: 0.95, 12: 0.9},
         late=[0.75, 0.8, 0.75, 0.7, 0.75],
     ))
-    cells = best_player_race(conn).cells
+    cells = player_leaderboard(conn).cells
     early = [c for c in cells if c.as_of == datetime(2024, 12, 1)]
     newest = [c for c in cells if c.as_of == datetime(2026, 6, 1)]
 

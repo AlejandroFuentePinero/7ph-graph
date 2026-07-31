@@ -264,7 +264,7 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   repainting a survivor. A later pass must not "fix" this into a bug._
 - Two charts #172 checked and **closed with a reason rather than a change**: the card
   **adoption** chart's repaint is already dead (#126 capped it at the subject plus one
-  card, so there is no non-tail pick to remove), and the **best player race** chart has
+  card, so there is no non-tail pick to remove), and the **player leaderboard** chart has
   no control that varies its entity set at all.
 
 ## 6. Charts
@@ -284,7 +284,7 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   charts the marker fill is now fully transparent and the ring reads against whatever it
   covers. The scope rule, which is what a later pass needs rather than the change
   itself: **occlusion is preferred over transparency only where nothing is painted
-  beneath.** That is why the best player race chart keeps the opaque fill (32 of its 36
+  beneath.** That is why the player leaderboard chart keeps the opaque fill (32 of its 36
   markers overlap, and nothing is drawn under them) and the rivalry charts do not (0 of
   8 markers overlap on the pilot chart, so the fill was buying nothing there). The cost
   accepted: on the archetype timeline at phone width 75 of 116 discs overlap, and
@@ -398,7 +398,7 @@ collapse to **two views**, one Draw per view rendering all of that view's plots.
 | **Meta** | meta share over time |
 | **Archetypes** | the metagame landscape: meta share against finish for one year (entered by year) |
 | **Hidden gems** | rare cards crowding their own archetype's best decks (no controls) |
-| **Best player race** | who the best pilots are and how long the record took to say so (#135; no controls) |
+| **Player leaderboard** | who the leading pilots are and how long the record took to say so (#135; no controls) |
 
 - **Two archetype tabs, two reader questions.** Meta and Archetypes (#145) are both
   about archetypes, so each states the question that is its own: Meta answers "who is
@@ -435,7 +435,7 @@ sat under **Meta** (beside meta share) only to keep Meta from being a single-vie
 tab, but #125 reversed that trade-off: gems is now its own top-level tab, and Meta
 holds meta share over time alone. The structure is seven tabs, **Pilots (2), Cards
 (2), Meta (1: meta share), Archetypes (1: the landscape, #145), Hidden gems (1),
-Best player race (1: the field-wide race, #135)**, plus the FAQ tab (#133), which
+Player leaderboard (1: the field-wide board, #135)**, plus the FAQ tab (#133), which
 carries no plot. The gems view itself is unchanged by the move (its query, archetype
 entry, and the `SliceTooSmall` refusal per ADR 0012 are intact); only its placement
 changed.

@@ -115,7 +115,7 @@ evidence work. Where a later ticket has since fixed one, it says so.
    unreadable, and on `cards-cooccurrence` the labels are not drawn at all. #85's own
    criterion is "no fixed 700/760px letterbox".
 4. **Four of the seven tabs sat behind Gradio's "..." overflow at phone width**
-   (Hidden gems, Pilots, Best player race, FAQ). Gradio's own behaviour, visible in
+   (Hidden gems, Pilots, Player leaderboard, FAQ). Gradio's own behaviour, visible in
    every phone shot taken before #172. Fixed there: the bar scrolls horizontally, so
    all seven tabs render on the strip at 390px and the overflow menu hides itself.
 5. **Two controls wore Gradio's default palette**, against §2's one-accent

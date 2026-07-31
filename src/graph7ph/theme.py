@@ -270,7 +270,7 @@ def build_css() -> str:
    subtitle should not change colour with which of the two a plot happens to use. */
 .insight-card .t-caption, .insight-card .t-fieldstat {{ color: var(--accent-bright); }}
 
-/* The best-player race's standings, the one table the app draws (#135). It sits inside
+/* The player leaderboard's standings, the one table the app draws (#135). It sits inside
    an insight card, so it carries no surface or border of its own: the rules between rows
    are the card's own hairline token and the header is set in the control-label role, so
    the table reads as part of the card rather than as an embedded spreadsheet. Figures are
