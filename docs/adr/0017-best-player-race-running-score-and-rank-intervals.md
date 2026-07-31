@@ -1,5 +1,14 @@
 # The best-player race plots a running score, and every rank carries its interval
 
+> **Renamed. The surface below ships as the "Player leaderboard" tab, and the tool as
+> `player_leaderboard()`.** "Best" asserted exactly what the bootstrap in this ADR
+> refused: 4.9 of the top 8 survive a resample and rank 7's honest interval runs 1 to
+> 40, so a title claiming the board names the best pilots outran its own evidence.
+> `CONTEXT.md`'s Pilot entry owns the live wording; the code keeps its race vocabulary
+> (`RaceCell`, `RACE_*`, `_race_*`) for the running-score trajectory this ADR decides,
+> which is why "the race" reads on below. Nothing here about the quantity, the interval
+> or the populations changed.
+
 > **Amended by [ADR 0021](0021-a-pilots-level-is-read-only-from-events-that-published-a-field.md).**
 > Two of the 21 majors counted below published a top-8 bracket rather than standings, so
 > the only finishes on record at them are good ones and attending could only help. The

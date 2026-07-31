@@ -103,7 +103,7 @@ MIN_LANDSCAPE_ARCHETYPES = 3
 
 
 # The field size above which an event is a **major**, and with
-# :data:`MIN_FIELD_COVERAGE` one of the two things the best-player race requires before
+# :data:`MIN_FIELD_COVERAGE` one of the two things the player leaderboard requires before
 # it scores an event at all (issue #135). Over 64 is 21 of the 107 events on the current
 # artifact, 19.6%, near enough the top fifth by size (two of the 21 published a bracket
 # rather than a field, so 19 are scored); the field-size deciles run 3, 15, 22, 24,
@@ -541,7 +541,7 @@ class ArchetypeTimelinePoint:
 
 @dataclass(frozen=True)
 class RaceCell:
-    """One contender at one sample date of the best-player race: what was known by then.
+    """One contender at one sample date of the player leaderboard: what was known by then.
 
     The race's row is a ``(pilot, date)`` pair, so a contender holds one cell per sample
     point and the whole field's trajectory is one table. ``pilot`` is the pilot key; the
@@ -653,8 +653,8 @@ class HeadToHeadTimeline:
 
 
 @dataclass(frozen=True)
-class BestPlayerRace:
-    """Spec for :func:`best_player_race`; takes no argument (the whole field)."""
+class PlayerLeaderboard:
+    """Spec for :func:`player_leaderboard`; takes no argument (the whole field)."""
 
 
 @dataclass(frozen=True)
@@ -679,7 +679,7 @@ class ArchetypeTimeline:
 
 SeriesSpec = (
     MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
-    | HeadToHeadTimeline | ArchetypeLandscape | ArchetypeTimeline | BestPlayerRace
+    | HeadToHeadTimeline | ArchetypeLandscape | ArchetypeTimeline | PlayerLeaderboard
 )
 
 
@@ -972,11 +972,22 @@ def archetype_timeline(
     its ranked decks there, left raw (0 a win) as the rest of the module leaves it, the
     decks that mean rests on beside it, and the event's registration date as the x
     (:class:`ArchetypeTimelinePoint`). With two, the points are restricted to the events
-    **both** attended and each carries both sides, so every drawn point has a
-    counterpart to compare and the band between the two lines is continuous. That
-    restriction visibly reshapes the first archetype's line (Grixis attended 74 events
-    and Jund 61, but they shared 55), which is why the surface states it rather than
-    leaving the shift to be read as a glitch.
+    **both** attended and each carries both sides. That restriction visibly reshapes the
+    first archetype's line (Grixis attended 74 events and Jund 61, but they shared 55),
+    which is why the surface states it rather than leaving the shift to be read as a
+    glitch.
+
+    **Attending both is not being scored at both, so a drawn point can still be
+    one-sided.** An event that published part of its field can rank one archetype's
+    decks and none of the other's, and that point is drawn with a break on the
+    unscored side, exactly as the solo line breaks (:class:`ArchetypeTimelinePoint`,
+    :func:`archetypes_with_history`). Measured over the 4,888 pairs this surface will
+    draw, 84 of them (1.7%) hold such a point, and every one of the 84 traces to the
+    single event that published a thinned standings rather than a bracket
+    (``GGWAD``, 16 finishes of 28, kept by :data:`MIN_FIELD_COVERAGE`). On those pairs
+    the headline's denominator sits one below the marks on the axis, since it counts
+    :func:`comparable_points` and the axis carries the attendance: ``breachbond`` and
+    ``jund`` draw 18 points under "11 of 17 shared events".
 
     An event that published a bracket rather than a field is worth no point on either
     line (:func:`_cut_only_events`, ADR 0022). A point here is a mean over the decks of
@@ -1454,7 +1465,7 @@ def _major_finishes(
     # on one graph can hand these rows back in different orders, and every consumer here
     # sums a record (the shrinkage, the score, each running point), so an unsorted record
     # makes the same graph score fractionally differently run to run. Sorting once here
-    # is what lets `best_player_race` promise the same numbers twice.
+    # is what lets `player_leaderboard` promise the same numbers twice.
     return (
         {pilot: sorted(record) for pilot, record in sorted(finishes.items())},
         len(majors),
@@ -1595,8 +1606,8 @@ def _rank_intervals(records: dict[str, list[float]]) -> dict[str, tuple[int, int
     }
 
 
-def best_player_race(conn: ladybug.Connection) -> Series:
-    """The field's best pilots, traced by what their record said as it came in.
+def player_leaderboard(conn: ladybug.Connection) -> Series:
+    """The field's leading pilots, traced by what their record said as it came in.
 
     One cell per contender per sample date (:class:`RaceCell`), the whole field and the
     whole span: which of them the chart draws as lines and how many the leaderboard
@@ -1766,8 +1777,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return archetype_landscape(conn, year)
         case ArchetypeTimeline(a, b):
             return archetype_timeline(conn, a, b)
-        case BestPlayerRace():
-            return best_player_race(conn)
+        case PlayerLeaderboard():
+            return player_leaderboard(conn)
         case _:
             raise TypeError(f"unknown series spec: {spec!r}")
 

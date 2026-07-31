@@ -124,7 +124,7 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
     # real result rather than an empty canvas, and no single pilot is anointed a default.
     assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Best player race", "FAQ"]
+                    "Player leaderboard", "FAQ"]
     # Gems still has its own tab; Meta holds meta share alone. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
@@ -160,7 +160,7 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
     assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Best player race", "FAQ"]
+                    "Player leaderboard", "FAQ"]
 
     box_ids = {b.elem_id for b in demo.blocks.values()
                if isinstance(b, gr.Group) and (b.elem_id or "").startswith("faq-")}
@@ -184,7 +184,7 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
     # covered at that point; it is listed here because nothing else pinned its name.
     for metric in ("Meta share over time", "Metagame landscape", "Performance over time",
                    "Head-to-head", "Adoption over time", "Hidden gem",
-                   "Best player race", "Finishes over time", "Usage", "Co-occurrence",
+                   "Player leaderboard", "Finishes over time", "Usage", "Co-occurrence",
                    "Archetype affinity"):
         assert metric in body, metric
 
@@ -214,7 +214,7 @@ def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
     # to copy edits while a dropped tab heading trips here rather than only in the browser.
     headings = [m for m in _markdown_values(_built_demo(tmp_path, snapshot_dir))
                 if m.lstrip().startswith("## ")]
-    # Six subject tabs (the best-player race joins them, #135) plus the FAQ tab (#133),
+    # Six subject tabs (the player leaderboard joins them, #135) plus the FAQ tab (#133),
     # each led by its own h2 section heading.
     assert len(headings) == 7
 
@@ -253,7 +253,7 @@ def test_tab_intros_are_a_single_sentence(tmp_path, snapshot_dir):
               if isinstance(b, gr.Markdown) and b.value
               and "t-lede" in (b.elem_classes or [])]
 
-    # One per tab: Meta, Archetypes, Cards, Hidden gems, Pilots, Best player race, FAQ.
+    # One per tab: Meta, Archetypes, Cards, Hidden gems, Pilots, Player leaderboard, FAQ.
     assert len(intros) == 7
     for intro in intros:
         assert intro.rstrip().endswith("."), intro
@@ -807,10 +807,10 @@ def test_performance_caption_states_the_field_share_and_the_sample():
     assert "10 events over 2 scored years" in caption
     # One claim and one qualifier, and nothing else (§14, #156): the two readings this
     # caption used to trail (that the movement between years is noise, and that this
-    # population is not the race's) are the FAQ's now, so the tail holds one clause.
+    # population is not the leaderboard's) are the FAQ's now, so the tail holds one clause.
     assert caption.count("·") == 1
     assert "not a slump" not in caption
-    assert "race" not in caption
+    assert "leaderboard" not in caption
 
 
 def test_a_leading_refused_year_does_not_stretch_the_axis():
@@ -2124,7 +2124,7 @@ def test_the_archetypes_tab_follows_meta_as_one_view_drawn_on_open(tmp_path, sna
     demo = _landscape_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
     assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Best player race", "FAQ"]
+                    "Player leaderboard", "FAQ"]
 
     inside = _tab_blocks(demo, "Archetypes")
     # Only the clear buttons on the archetype pickers, never a Draw.
@@ -2679,7 +2679,7 @@ def test_the_bracket_only_rule_is_defined_once_and_pointed_at():
     finish = answers["faq-finish"]
     assert "top eight" in finish
     for surface in ("landscape", "archetype timeline", "performance chart",
-                    "best player race"):
+                    "player leaderboard"):
         assert surface in finish, surface
     # And the two that keep those events are named as keeping them, since "every chart"
     # would be wrong: the head-to-head plots single placements and the gems compare
@@ -2881,14 +2881,14 @@ def test_the_race_is_its_own_tab_after_pilots_drawn_on_open(tmp_path, snapshot_d
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
     assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Best player race", "FAQ"]
+                    "Player leaderboard", "FAQ"]
 
     # The fixture graph holds three decks at one small event, so nobody is a contender
     # and the tab draws the refusal rather than an empty chart or a crash. Refused with
     # the count it found, in the app's own voice.
     notes = [b.value for b in demo.blocks.values()
              if isinstance(b, gr.Markdown) and b.value and "major events" in b.value]
-    assert notes == ["No pilot has enough major events to race here yet."]
+    assert notes == ["No pilot has enough major events to rank here yet."]
 
 
 def _race_figure_args():

@@ -60,7 +60,6 @@ from graph7ph.render import render_subgraph
 from graph7ph.trends import (
     ArchetypeLandscape,
     ArchetypeTimeline,
-    BestPlayerRace,
     CardAdoptionOverTime,
     HeadToHeadTimeline,
     LandscapeCell,
@@ -69,6 +68,7 @@ from graph7ph.trends import (
     MAJOR_FIELD_SIZE,
     PerformanceCell,
     PilotPerformanceOverTime,
+    PlayerLeaderboard,
     RACE_INTERVAL,
     RaceCell,
     Series,
@@ -669,7 +669,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "misleadingly high: 0.97, against 0.51 at an event that published its whole "
         "field. Every chart that averages finishes leaves those events out: the "
         "metagame landscape's vertical axis, the archetype timeline, a pilot's "
-        "performance chart, and the best player race. Two charts keep them. The pilot "
+        "performance chart, and the player leaderboard. Two charts keep them. The pilot "
         "head-to-head plots single placements rather than averages, so there is nothing "
         "to distort; hidden gems asks its question inside one event at a time, "
         "comparing a card's decks only against the other decks of that same archetype "
@@ -767,7 +767,11 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "headline says the count could be luck.\n\n"
         "Picking a second archetype narrows the chart to the events both attended, and "
         "the headline counts how many of those each finished ahead at, hedged the same "
-        "way.\n\n"
+        "way. It counts only the events both were scored at, which can be one fewer "
+        "than the points on the chart. One event published just 16 of its 28 finishes, "
+        "so an archetype can have been there with nothing of its own on record: its "
+        "line breaks over that date while the other archetype still shows a point. 84 "
+        "of the 4,888 pairs the chart will draw carry one of these.\n\n"
         "The chart spans every year in the data; the year selector above it changes "
         "the landscape only. If two archetypes were scored together at fewer than two "
         "events, the chart says so instead of drawing.",
@@ -806,9 +810,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         'The headline "finishes ahead of X% of the field" is the average across all '
         "scored years, weighted by events, so a busy year counts for more. It counts "
         "every event that published full standings (see the finish question above); "
-        "the best player race counts only the biggest ones. The two measure different "
-        "things, and typically put a pilot about 10 places apart in the best player "
-        "race standings, which rank 137 pilots.\n\n"
+        "the player leaderboard counts only the biggest ones. The two measure "
+        "different things, and typically put a pilot about 10 places apart in the "
+        "player leaderboard standings, which rank 137 pilots.\n\n"
         "Each year carries an error bar: the 90% range that year's average could "
         "reasonably sit in (see the finish question above). The bars are wide and they "
         "overlap, because a typical year rests on just three events. "
@@ -825,11 +829,14 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "It plots the two pilots' finishes at the events they both entered, on the date "
         "the event's first deck was registered (see the year question above). Each "
         "point is one real placement, not an average, so the top-eight-only events the "
-        "averaging charts drop (see the finish question above) are safe to keep here. At "
-        "those events only the cut is on record, so a meeting where one pilot made it "
-        "and the other did not is missing from the chart rather than drawn as a gap. A "
-        "pair needs at least two shared events, otherwise there is no trajectory to "
-        "draw and the tool says so.\n\n"
+        "averaging charts drop (see the finish question above) are safe to keep here. "
+        "Where only one of the two is on record at a meeting, the meeting keeps its "
+        "place on the date axis and the pilot with no finish there gets no point, so "
+        "their line breaks over it while the other pilot's point still stands. That "
+        "happens at 224 of the 39,929 pairs the chart will draw, almost always at the "
+        "one event that published 16 of its 28 finishes rather than at a top-eight-only "
+        "event. A pair needs at least two shared events, otherwise there is no "
+        "trajectory to draw and the tool says so.\n\n"
         "A point's hover reads like 3 / 24: the placement, then the field it was ranked "
         "against. That second number is the field, not a headcount, and at a teams event "
         "it counts teams (see the finish question above). Placements can be shared, by a "
@@ -863,22 +870,22 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
     (
         "faq-race",
         "Pilots",
-        'How is the "Best player race" scored?',
+        'How is the "Player leaderboard" scored?',
         "Only the biggest events count: fields over 64, about the top fifth of all "
-        "events, so every pilot in the race is measured on the same kind of event. "
+        "events, so every pilot here is measured on the same kind of event. "
         "This is the only chart here that drops events for being small, so a pilot's "
         "standing here and their record elsewhere answer different questions and will "
         "not always agree (see the performance question above). Top-eight-only events "
         "are dropped too (see the finish question above).\n\n"
         "A pilot's score is the average of their finishes at those events, nudged "
-        "toward the average score of everyone in the race when little evidence stands "
-        "behind it. That average sits well above the middle of the field, since "
-        "everyone in the race cleared a bar to get here. A pilot with five such events "
+        "toward the average score of everyone on the leaderboard when little evidence "
+        "stands behind it. That average sits well above the middle of the field, since "
+        "everyone here cleared a bar to get on it. A pilot with five such events "
         "is scored about half on their own record and half on everyone's; one with "
         "fifteen is scored mostly on their own. That stops one good weekend from "
         "outranking a long, strong record.\n\n"
-        "To be in the race a pilot needs five of these events, two of them in the "
-        "last year, so the race is who is playing now.\n\n"
+        "To be on the leaderboard a pilot needs five of these events, two of them in "
+        "the last year, so the leaderboard is who is playing now.\n\n"
         "Each point on a line is that pilot's score over everything they had played "
         "by that date, and a date they reached with fewer than two of these events is "
         "left blank, so a line can begin partway across the chart. A climbing line is "
@@ -903,7 +910,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
     (
         "faq-race-certainty",
         "Pilots",
-        'How settled is the "Best player race" order?',
+        'How settled is the "Player leaderboard" order?',
         "Less settled than three-decimal scores suggest. These are the biggest "
         "events, so there are only a couple of dozen of them, and a typical contender "
         "has played eight. That is not enough to separate pilots whose scores differ "
@@ -911,10 +918,10 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         'The standings put a number on that. The "Rank CI" column (CI is short for '
         "confidence interval, which is a range rather than a single number) is built by "
         "re-picking each pilot's own results at random, repeats allowed, rescoring the "
-        "whole race, and doing that a thousand times over. The column is the band of "
-        "places a pilot landed in across 900 of those thousand runs. Near the top the "
-        "bands are wide and overlap heavily, so read the leading group as a group, not "
-        "as a 1-2-3.",
+        "whole leaderboard, and doing that a thousand times over. The column is the "
+        "band of places a pilot landed in across 900 of those thousand runs. Near the "
+        "top the bands are wide and overlap heavily, so read the leading group as a "
+        "group, not as a 1-2-3.",
     ),
     (
         "faq-adoption",
@@ -1139,7 +1146,7 @@ def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
 
 # How many pilots the race draws as lines, and how many the leaderboard beside it
 # lists. Both are display cuts the tool never sees, the same division of labour as
-# `_LANDSCAPE_TOP_N`: `best_player_race` returns every contender's whole trajectory and
+# `_LANDSCAPE_TOP_N`: `player_leaderboard` returns every contender's whole trajectory and
 # these pick what is drawn and what is tabled.
 #
 # Eight lines because eight is where the shared palette's *named* hues stop
@@ -1999,7 +2006,7 @@ def _race_figure(
     context: list[list[RaceCell]],
     names: dict[str, str],
 ) -> pgo.Figure:
-    """The best-player race: the leading contenders traced by what their record said.
+    """The leaderboard's chart: the leading contenders traced by what their record said.
 
     One line per contender in the trend-chart grammar the rest of the app draws in: a
     thin dashed join that only connects observations and asserts nothing between them,
@@ -3097,7 +3104,7 @@ def build_app(artifact: Path) -> gr.Blocks:
     # rather than behind a callback: one query at startup, and the tab below is the four
     # values it produced. Exactly one of the figure and the note is ever set.
     try:
-        race = run_series(catalogue, BestPlayerRace())
+        race = run_series(catalogue, PlayerLeaderboard())
     except NotEnoughHistory as e:
         race_heading = race_fig = race_table = race_standings = None
         # One short line in the app's voice (#114, §14), phrased from the count the
@@ -3107,12 +3114,12 @@ def build_app(artifact: Path) -> gr.Blocks:
             "No pilot has" if not e.found
             else f"Only {e.found} pilot has" if e.found == 1
             else f"Only {e.found} pilots have"
-        ) + " enough major events to race here yet."
+        ) + " enough major events to rank here yet."
     else:
         trajectories = _race_trajectories(race)
         drawn = trajectories[:_RACE_LINES]
         race_heading = _chart_heading(
-            "The race", caption_html=_race_caption(race, drawn=len(drawn)),
+            "Score over time", caption_html=_race_caption(race, drawn=len(drawn)),
         )
         race_fig = _race_figure(drawn, trajectories[_RACE_LINES:], pilot_labels)
         race_table = _leaderboard_html(
@@ -3623,18 +3630,18 @@ def build_app(artifact: Path) -> gr.Blocks:
             )
 
         # The race sits after Pilots and asks the question that tab cannot: not how one
-        # pilot did, but who the best of them were and when (#135). It is field-wide, so
+        # pilot did, but who the leading pilots were and when (#135). It is field-wide, so
         # it takes the Archetypes tab's shape rather than the Pilots one: no subject
         # picker, no Draw, and nothing to click on the chart. Everything on it is fixed
         # at build time, so unlike the landscape it needs no callbacks at all.
-        with gr.Tab("Best player race") as race_tab:
-            gr.Markdown("## Best player race")
+        with gr.Tab("Player leaderboard") as race_tab:
+            gr.Markdown("## Player leaderboard")
             # Held inside the 62ch reading measure (`theme.MEASURE_CH`) so it sits on
             # one row: the longer first draft wrapped, and the measure is repo-wide.
             # It used to promise "how they rose and fell", which the chart could not
             # deliver: that movement measured as noise (ADR 0017).
             gr.Markdown(
-                "Who the best pilots are, and how long the record took to say so.",
+                "Who the leading pilots are, and how long the record took to say so.",
                 elem_classes="t-lede",
             )
             with gr.Group(elem_classes="insight-card"):

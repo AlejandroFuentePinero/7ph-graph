@@ -2,7 +2,7 @@
 
 Two of the 21 majors in the graph never published standings. `SSWam` holds 7 finishes against a field of 88 and `ANZSS10` holds 8 against 81, and neither records a finish deeper than 5th. What is on record at both is a top-8 bracket; the rest of the field registered and vanished.
 
-That makes attendance itself worth points. Cut, and the record gains a near-perfect finish; bust, and there is nothing to gain a bad one from, because the source never wrote the row. The best-player race and the pilot performance chart both average those finishes into a claim about how good a pilot is, and both now refuse to.
+That makes attendance itself worth points. Cut, and the record gains a near-perfect finish; bust, and there is nothing to gain a bad one from, because the source never wrote the row. The player leaderboard and the pilot performance chart both average those finishes into a claim about how good a pilot is, and both now refuse to.
 
 ## What a cut-only finish is worth
 
