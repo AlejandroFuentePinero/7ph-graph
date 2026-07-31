@@ -6,6 +6,9 @@ from pathlib import Path
 import pytest
 
 from graph7ph.build import MIN_CUT_FIELD
+# The fixture titles a deck the way the app renders a placement, so it reads the app's
+# own ordinal rather than keeping a second copy that can drift from it.
+from graph7ph.query import _ordinal
 from graph7ph.db import rows
 from graph7ph.trends import (
     MIN_CAREER_MAJORS,
@@ -22,10 +25,13 @@ from graph7ph.trends import (
     PlayerLeaderboard,
     Series,
     SeriesCell,
+    _cut_only_events,
     _interval,
     _pooled_sd,
+    _tail_bounds,
     archetype_landscape,
     archetype_timeline,
+    comparable_points,
     archetypes_with_history,
     beats_a_coin,
     card_adoption_over_time,
@@ -959,14 +965,19 @@ def test_head_to_head_field_size_is_the_events_own_field_not_its_deck_count(
         ("ez-ann", "ann", "EZ", "2025-03-01T00:00:00+00:00", 1, None),
         ("ez-bob", "bob", "EZ", "2025-03-01T00:00:00+00:00", None, None),
         ("ez-f1", "ezf1", "EZ", "2025-03-02T00:00:00+00:00", None, None),
-        # A second shared event, so the pair clears MIN_SHARED_EVENTS and the
-        # timeline is returned rather than refused.
+        # Two more shared events, both scored on both sides, so the pair clears
+        # MIN_SHARED_EVENTS on comparisons rather than on attendance: EZ ranked only
+        # its winner, which bounds nothing (it is a bracket), so that meeting settles
+        # nothing and is not one of the two the floor asks for.
         ("e1-ann", "ann", "E1", "2025-05-01T00:00:00+00:00", 1, 0.0),
         ("e1-bob", "bob", "E1", "2025-05-01T00:00:00+00:00", 4, 0.75),
         ("e1-f1", "e1f1", "E1", "2025-05-02T00:00:00+00:00", 5, 1.0),
+        ("e2-ann", "ann", "E2", "2025-06-01T00:00:00+00:00", 1, 0.0),
+        ("e2-bob", "bob", "E2", "2025-06-01T00:00:00+00:00", 3, 0.5),
+        ("e2-f1", "e2f1", "E2", "2025-06-02T00:00:00+00:00", 5, 1.0),
     ]
     conn = built_graph(tmp_path, _write_h2h_snapshot(
-        tmp_path, decks, field_sizes={"EZ": 24, "E1": 5}))
+        tmp_path, decks, field_sizes={"EZ": 24, "E1": 5, "E2": 5}))
 
     by_event = {c.event: c for c in head_to_head_timeline(conn, "ann", "bob").cells}
 
@@ -1382,6 +1393,14 @@ def _write_timeline_snapshot(
     (:func:`_cover_fields`), for the reason :func:`_write_landscape_snapshot` gives:
     the timeline draws no point at an event that published only a bracket (ADR 0022),
     so an uncovered fixture would describe a chart with nothing on it.
+
+    A row may carry a sixth member, its **placement**, where the fixture is asserting on
+    something that reads one. The default is the 1st every ranked deck here has always
+    declared, which no surface read until the tail bound did (ADR 0024): a bound counts
+    off the last published slot, so a fixture whose every finish claims 1st describes an
+    event that could not exist and bounds its tail at a near-win. Fixtures that assert
+    on a bound state a placement their norm agrees with, exactly as ADR 0022 had these
+    fixtures declare a field their deck count could fill.
     """
     snap = root / "snap"
     snap.mkdir()
@@ -1392,15 +1411,17 @@ def _write_timeline_snapshot(
             # title opens with no placement and neither does the deck: the build mints
             # a norm from any placement it can see, so a placement beside a null norm
             # is no longer an unranked deck anywhere in the record (issue #162).
-            "name": (f"1st {deck_id} - {archetype} - {event}" if norm is not None
-                     else f"{deck_id} - {archetype} - {event}"),
+            # The title states the same placement the record does, so the build's own
+            # title reader cannot disagree with the column beside it.
+            "name": (f"{_ordinal(placement)} {deck_id} - {archetype} - {event}"
+                     if norm is not None else f"{deck_id} - {archetype} - {event}"),
             "deckName": archetype.title(),
             "pilot": f"pilot-{deck_id}",
             "event": event,
             "eventId": f"evt_{event}",
             "eventType": "Tournament",
             "eventSize": _COVERED_FIELD,
-            "placement": 1 if norm is not None else None,
+            "placement": placement if norm is not None else None,
             "placementNorm": norm,
             "createdAt": created_at,
             "colour": "colour:U",
@@ -1410,7 +1431,9 @@ def _write_timeline_snapshot(
             "primaryTag": f"engine:{archetype}",
             "primaryTagWeights": {f"engine:{archetype}": 100},
         }
-        for deck_id, archetype, event, created_at, norm in decks
+        for deck_id, archetype, event, created_at, norm, placement in (
+            (*row, 1)[:6] for row in decks
+        )
     ]
     deck_records = _cover_fields(deck_records)
     (snap / "decks.json").write_text(json.dumps(deck_records))
@@ -1498,6 +1521,143 @@ def test_a_second_archetype_restricts_the_timeline_to_the_events_both_attended(
     assert points[-1].date == datetime(2025, 9, 1, 0, 0)
 
 
+def test_a_shared_event_that_scored_one_side_bounds_the_other_rather_than_leaving_a_hole(
+    tmp_path, built_graph
+):
+    # ADR 0024. An event that published part of its field leaves the decks it left out
+    # in the slots below the last published one, so their finish is not unknown, it is
+    # bounded. E4 publishes down to 9th of a field of 12, so Storm, scored at none of
+    # it, finished 10th at best.
+    root = tmp_path / "bounded"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.0, 1),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 1 / 11, 2),
+        ("e4-s1", "storm", "E4", "2025-09-01T00:00:00+00:00", None, None),
+        ("e4-j1", "jund", "E4", "2025-09-01T00:00:00+00:00", 2 / 11, 3),
+        # The worst finish E4 published, and so the slot the bound counts off from.
+        ("e4-x1", "lands", "E4", "2025-09-01T00:00:00+00:00", 8 / 11, 9),
+    ]
+    conn = built_graph(root, _write_timeline_snapshot(root, decks))
+
+    (*_, e4) = archetype_timeline(conn, "storm", "jund").cells
+
+    # Derived from the record, not read back off the code: the last slot E4 published
+    # is 9th, so the first it did not is 10th, and 10th of 12 is (10 - 1) / (12 - 1).
+    assert e4.mean_norm_a is None
+    assert e4.bound_a == pytest.approx(9 / 11)
+
+    # The side that was scored takes no bound: it has a finish, and a bound beside it
+    # would be a second answer to a question already answered.
+    assert e4.mean_norm_b == pytest.approx(2 / 11)
+    assert e4.bound_b is None
+
+    # The bound is worse than every finish the event published, which is what makes it
+    # safe to draw: it is the first slot below the last published one, so a mean over
+    # published finishes can never sit below it and the bounded side always loses.
+    assert e4.bound_a > 8 / 11 > e4.mean_norm_b
+
+
+def test_the_bound_counts_slots_filled_rather_than_the_worst_label_when_the_tail_ties(
+    tmp_path, built_graph
+):
+    # A tie band is recorded at its best end (ADR 0014), so the worst label an event
+    # published can name a slot well above the last one it filled. E2 places eight decks
+    # and its last four share 5th, so they fill slots 5 to 8 and the tail starts at 9th.
+    # Counting off the label alone would bound at 6th and draw every unpublished deck
+    # three slots better than the record allows, which is the direction that can show
+    # the wrong winner. The count of placed decks is the second floor, binding here.
+    root = tmp_path / "tied"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", None, None),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 0.0, 1),
+        ("e2-x1", "lands", "E2", "2025-05-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-x2", "lands", "E2", "2025-05-01T00:00:00+00:00", 2 / 11, 3),
+        ("e2-x3", "lands", "E2", "2025-05-01T00:00:00+00:00", 3 / 11, 4),
+        # The tail, four decks deep on one label: 5th, 5th, 5th, 5th fills 5, 6, 7, 8.
+        ("e2-x4", "lands", "E2", "2025-05-01T00:00:00+00:00", 4 / 11, 5),
+        ("e2-x5", "lands", "E2", "2025-05-01T00:00:00+00:00", 4 / 11, 5),
+        ("e2-x6", "lands", "E2", "2025-05-01T00:00:00+00:00", 4 / 11, 5),
+        ("e2-x7", "lands", "E2", "2025-05-01T00:00:00+00:00", 4 / 11, 5),
+    ]
+    conn = built_graph(root, _write_timeline_snapshot(root, decks))
+
+    # Derived from the record: eight decks are placed, so the first slot none of them
+    # holds is the 9th, and 9th of 12 is (9 - 1) / (12 - 1). The worst label is 5, which
+    # counted alone would have said (6 - 1) / 11.
+    assert _tail_bounds(conn, _cut_only_events(conn))["E2"] == pytest.approx(8 / 11)
+    assert _tail_bounds(conn, _cut_only_events(conn))["E2"] > 5 / 11
+
+
+def test_a_solo_timeline_carries_no_bound_for_the_side_it_does_not_have(
+    tmp_path, built_graph
+):
+    # ADR 0024 keeps the solo line out of scope, and this is where that holds. On a solo
+    # series `mean_b` is None at every point because there is no second archetype, not
+    # because a side went unscored, so bounding "the side with no mean" put a bound on
+    # every point of every solo line. No figure draws it (there is no b trace), but
+    # `_has_bounded_point` still read it, and 12 of the 121 solo timelines offered the
+    # caret's legend under a plot carrying no caret.
+    root = tmp_path / "solo"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 2 / 11, 3),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 3 / 11, 4),
+        # The event that bounds: storm attended and was never scored at it.
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", None, None),
+        ("e3-j1", "jund", "E3", "2025-07-01T00:00:00+00:00", 2 / 11, 3),
+        ("e3-x1", "lands", "E3", "2025-07-01T00:00:00+00:00", 8 / 11, 9),
+    ]
+    conn = built_graph(root, _write_timeline_snapshot(root, decks))
+
+    solo = archetype_timeline(conn, "storm").cells
+
+    # The event really does bound: asked as a pair, storm's missing finish takes one.
+    (*_, paired_e3) = archetype_timeline(conn, "storm", "jund").cells
+    assert paired_e3.bound_a == pytest.approx(9 / 11)
+    # Alone, the b side takes none: it is not a side, so "the side with no mean" must
+    # not reach it. The a side keeps its own bound, which is carried and simply never
+    # drawn, since a caret needs a counterpart to be compared against.
+    assert [p.bound_b for p in solo] == [None] * len(solo)
+    assert solo[-1].event == "E3" and solo[-1].mean_norm_a is None
+
+
+def test_an_event_that_published_too_little_bounds_nothing_and_keeps_its_break(
+    tmp_path, built_graph
+):
+    # ADR 0024's gate. A bracket publishes so little that the bound stops meaning
+    # anything: an event that published one placement of 12 bounds its unscored decks
+    # only by "not the winner", which would draw them near the top of the axis. The
+    # cut is the one `_cut_only_events` already makes, so a bracket yields no bound.
+    root = tmp_path / "gated"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 2 / 11, 3),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", 3 / 11, 4),
+        ("e3-s1", "storm", "E3", "2025-07-01T00:00:00+00:00", 0.0, 1),
+        ("e3-j1", "jund", "E3", "2025-07-01T00:00:00+00:00", 1 / 11, 2),
+    ]
+    snapshot = _write_timeline_snapshot(root, decks)
+    _publish_only_a_bracket(snapshot, "E2")
+    conn = built_graph(root, snapshot)
+
+    assert _tail_bounds(conn, _cut_only_events(conn)).get("E2") is None
+    # And the whole event still leaves the timeline, as ADR 0022 has it: a bound is not
+    # a way back in for an event whose published finishes are the ones that cut.
+    assert [c.event for c in archetype_timeline(conn, "storm", "jund").cells] == [
+        "E1", "E3",
+    ]
+
+
 def test_the_timeline_draws_no_point_at_an_event_that_published_only_a_bracket(
     tmp_path, built_graph
 ):
@@ -1535,16 +1695,23 @@ def test_an_archetype_scored_at_one_event_is_refused_rather_than_drawn_as_a_dot(
     assert "Lands" in str(refusal.value) or "lands" in str(refusal.value)
 
 
-def test_a_pair_is_refused_on_the_events_they_can_be_compared_at(tmp_path, built_graph):
-    # The pair floor counts the events **both** were ranked at, not the ones both
-    # attended: here they turn up together twice, but at E2 the source scored nothing
-    # of Jund's, so there is one comparison and one gap. Counting the attendance would
-    # clear the floor on a chart holding a single drawable point.
+def test_a_pair_is_refused_on_the_meetings_the_record_settles(tmp_path, built_graph):
+    # The pair floor counts the meetings the record settles, not the ones both attended:
+    # here they turn up together twice, but at E2 the source scored neither of them, so
+    # nothing bounds one against the other and the chart breaks over it. One comparison,
+    # one gap, and a refusal. Counting the attendance would clear the floor on a chart
+    # holding a single drawable point.
+    #
+    # A meeting where **one** side is scored does settle, and counts: see
+    # `test_a_bounded_meeting_counts_toward_the_floor_that_admits_it`.
     decks = [
         ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.1),
         ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 0.5),
-        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 0.6),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", None),
         ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", None),
+        # Storm alone still clears its own floor, so the refusal below is a fact about
+        # the pair rather than about Storm having too little history of its own.
+        ("e5-s1", "storm", "E5", "2025-09-01T00:00:00+00:00", 0.3),
         # ``lands`` never turns up beside either of them, so a pair with it never met.
         ("e3-l1", "lands", "E3", "2025-07-01T00:00:00+00:00", 0.2),
         ("e4-l1", "lands", "E4", "2025-08-01T00:00:00+00:00", 0.4),
@@ -1561,8 +1728,69 @@ def test_a_pair_is_refused_on_the_events_they_can_be_compared_at(tmp_path, built
         archetype_timeline(conn, "storm", "lands")
     assert never_met.value.found == 0
 
-    # Each on its own still draws: the restriction is a property of the pair.
-    assert len(archetype_timeline(conn, "storm").cells) == 2
+    # Each on its own still draws: the restriction is a property of the pair. Storm's
+    # three cells are its three attendances, the middle one the break at E2.
+    assert len(archetype_timeline(conn, "storm").cells) == 3
+
+
+def test_the_pilot_floor_counts_comparisons_rather_than_attendances(
+    tmp_path, built_graph
+):
+    # The same rule on the pilot chart, and it used to differ. `MIN_SHARED_EVENTS`
+    # counted events both pilots entered, on the reasoning that a pilot brings one deck
+    # so a shared event is a comparison by construction. A pilot can turn up and go
+    # unscored, so it is not: EZ ranked only its winner, which is a bracket and bounds
+    # nothing, so Ann and Bob share two events and can be compared at one. That is a dot
+    # with a gap beside it, which is the shape this floor exists to refuse.
+    decks = [
+        ("ez-ann", "ann", "EZ", "2025-03-01T00:00:00+00:00", 1, None),
+        ("ez-bob", "bob", "EZ", "2025-03-01T00:00:00+00:00", None, None),
+        ("ez-f1", "ezf1", "EZ", "2025-03-02T00:00:00+00:00", None, None),
+        ("e1-ann", "ann", "E1", "2025-05-01T00:00:00+00:00", 1, 0.0),
+        ("e1-bob", "bob", "E1", "2025-05-01T00:00:00+00:00", 4, 0.75),
+        ("e1-f1", "e1f1", "E1", "2025-05-02T00:00:00+00:00", 5, 1.0),
+    ]
+    conn = built_graph(tmp_path, _write_h2h_snapshot(
+        tmp_path, decks, field_sizes={"EZ": 24, "E1": 5}))
+
+    with pytest.raises(NotEnoughHistory) as refused:
+        head_to_head_timeline(conn, "ann", "bob")
+
+    # The count it names is the comparisons, not the attendances, so the message and the
+    # rule that produced it cannot disagree (issue #101).
+    assert refused.value.found == 1
+    assert "compared at 1 event(s)" in str(refused.value)
+
+
+def test_a_bounded_meeting_counts_toward_the_floor_that_admits_it(tmp_path, built_graph):
+    # The floor and the headline read one definition, so moving the headline onto what
+    # the record settles moves the floor with it. Storm and Jund are scored together
+    # only at E1; at E2 Jund went unscored and E2 published enough to bound its tail, so
+    # the record settles that meeting too and the pair has the two it needs.
+    #
+    # This is the case `test_a_pair_is_refused_on_the_meetings_the_record_settles` used
+    # to refuse, and refusing it was the same defect as the headline's: a meeting drawn
+    # as a comparison was not counted as one.
+    root = tmp_path / "settled"
+    root.mkdir()
+    decks = [
+        ("e1-s1", "storm", "E1", "2025-03-01T00:00:00+00:00", 0.0, 1),
+        ("e1-j1", "jund", "E1", "2025-03-01T00:00:00+00:00", 1 / 11, 2),
+        ("e2-s1", "storm", "E2", "2025-05-01T00:00:00+00:00", 2 / 11, 3),
+        ("e2-j1", "jund", "E2", "2025-05-01T00:00:00+00:00", None, None),
+        ("e2-x1", "lands", "E2", "2025-05-01T00:00:00+00:00", 8 / 11, 9),
+    ]
+    conn = built_graph(root, _write_timeline_snapshot(root, decks))
+
+    cells = archetype_timeline(conn, "storm", "jund").cells
+    settled = comparable_points(cells, paired=True)
+
+    assert [c.event for c in settled] == ["E1", "E2"]
+    # E2 is settled by the bound rather than by a finish: Jund has no mean there, and
+    # Storm's 3rd is better than anything that event can have left Jund.
+    e2 = settled[-1]
+    assert e2.mean_norm_b is None and e2.bound_b is not None
+    assert e2.mean_norm_a < e2.bound_b
 
 
 def test_an_archetype_compared_against_itself_is_refused(tmp_path, built_graph):

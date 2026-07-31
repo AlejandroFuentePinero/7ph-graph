@@ -767,11 +767,15 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "headline says the count could be luck.\n\n"
         "Picking a second archetype narrows the chart to the events both attended, and "
         "the headline counts how many of those each finished ahead at, hedged the same "
-        "way. It counts only the events both were scored at, which can be one fewer "
-        "than the points on the chart. One event published just 16 of its 28 finishes, "
-        "so an archetype can have been there with nothing of its own on record: its "
-        "line breaks over that date while the other archetype still shows a point. 84 "
-        "of the 4,888 pairs the chart will draw carry one of these.\n\n"
+        "way. It counts every meeting the record settles, which is every point you can "
+        "see: one event published just 16 of its 28 finishes, so an archetype can have "
+        "been there with nothing of its own on record. Its decks finished below every "
+        "one that event did publish, so the point is drawn at the best it could have "
+        "been and marked with a ▽, meaning the real finish is that or worse, and the "
+        "other archetype is counted the winner of that meeting. 72 of the 4,891 pairs "
+        "the chart will draw carry one. Where neither archetype was scored there is "
+        "nothing to compare, so that meeting is neither drawn nor counted and both "
+        "lines break over the date instead.\n\n"
         "The chart spans every year in the data; the year selector above it changes "
         "the landscape only. If two archetypes were scored together at fewer than two "
         "events, the chart says so instead of drawing.",
@@ -830,13 +834,18 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "the event's first deck was registered (see the year question above). Each "
         "point is one real placement, not an average, so the top-eight-only events the "
         "averaging charts drop (see the finish question above) are safe to keep here. "
-        "Where only one of the two is on record at a meeting, the meeting keeps its "
-        "place on the date axis and the pilot with no finish there gets no point, so "
-        "their line breaks over it while the other pilot's point still stands. That "
-        "happens at 224 of the 39,929 pairs the chart will draw, almost always at the "
-        "one event that published 16 of its 28 finishes rather than at a top-eight-only "
-        "event. A pair needs at least two shared events, otherwise there is no "
-        "trajectory to draw and the tool says so.\n\n"
+        "Where only one of the two is on record at a meeting, what happens depends on "
+        "how much of that event was published. At the one event that published 16 of "
+        "its 28 finishes, the missing pilot finished below all 16, so their point is "
+        "drawn at the best it could have been and marked with a ▽. At a top-eight-only "
+        "event the same reasoning gives an answer too weak to draw: a cut that published "
+        "a handful of finishes puts the missing pilot below only those few, which is most "
+        "of the field and says almost nothing, so the line breaks over the meeting "
+        "instead. Of the 214 pairs "
+        "affected out of the 39,919 the chart will draw, 161 are drawn and 53 keep the "
+        "break. A pair needs at least two meetings the record can compare them at, "
+        "otherwise there is no trajectory to draw and the tool says so: turning up to "
+        "the same event is not enough if the source scored neither of them there.\n\n"
         "A point's hover reads like 3 / 24: the placement, then the field it was ranked "
         "against. That second number is the field, not a headcount, and at a teams event "
         "it counts teams (see the finish question above). Placements can be shared, by a "
@@ -1254,6 +1263,57 @@ def _legend_title(hint: str) -> str:
     return (
         f'Archetype<br><span style="color:{palette.CATEGORICAL[0]}">{hint}</span>'
     )
+
+
+# The glyph a bounded point takes, and the line under the plot that says what it means.
+# Not `numfmt.IMPUTED_MARK`: the asterisk means "a number this project worked out in
+# place of one the source did not record" (ADR 0016), and a bound is a different claim,
+# an inequality rather than a value. Marking both with `*` would blur a distinction that
+# ADR spent a provenance column per value establishing, so the bound carries its own
+# glyph and its own line (ADR 0024).
+#
+# The plain `triangle-down`, never the `-open` variant, and that is load-bearing rather
+# than a preference. An `-open` symbol draws no fill and strokes itself in
+# `marker.color`, ignoring `marker.line` entirely; both rivalry charts set
+# `marker.color` fully transparent so their rings read hollow over the band
+# (:func:`_observation_marker`, ``over_fill=True``), so an open caret strokes in
+# transparent and renders nothing at all. The plain symbol takes its outline from
+# `marker.line` exactly as the rings beside it do, which is what makes it hollow here.
+_BOUND_SYMBOL = "triangle-down"
+_BOUND_LEGEND = (
+    "▽ no finish published, so the point is drawn at the best it could have been"
+)
+
+
+def _bound_symbols(values) -> list[str]:
+    """One marker symbol per point: a ring for a finish, a caret for a bound."""
+    return [_BOUND_SYMBOL if is_bound else "circle" for _, is_bound in values]
+
+
+def _bounded_readout(norm, is_bound: bool, tail: str = "", *, imputed: bool = False) -> list:
+    """One point's hover pair: the score, and whatever the chart states beside it.
+
+    A bounded point reads ``≤ 0.41 (1 = 1st)``, the inequality in the readout itself
+    rather than in a footnote a reader has to carry back up to the mark, and its ``tail``
+    is replaced: the deck count or the field ratio that sits there describes a finish on
+    record, and a bounded point has none. A point the line breaks over gets nulls, which
+    render no hover at all.
+
+    ``imputed`` marks the bound's own number, and it is not the ADR 0024 distinction
+    coming back. That decision was that ``*`` must not be the glyph for *being* a bound,
+    since an inequality and a decided value are different claims; the ▽ and the ≤ carry
+    that one. This is the orthogonal question of where the number inside the inequality
+    came from, and it is the same question ``*`` answers everywhere else. A bound is
+    ``published count / (fieldSize - 1)``, so it is the project's arithmetic exactly
+    when the field size is: at ``GGWAD`` the 28 is Rule A's, which is why the scored
+    side of that meeting already hovers ``9 / 28*``. Leaving the bound beside it bare
+    said the source published it.
+    """
+    if norm is None:
+        return [None, None]
+    if is_bound:
+        return [f"≤ {numfmt.score(1 - norm, imputed=imputed)}", "no finish published"]
+    return [numfmt.score(1 - norm), tail]
 
 
 def _observation_marker(colour: str, *, over_fill: bool = False) -> dict:
@@ -2402,8 +2462,15 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
         if not beats_a_coin(led, len(comparable)):
             headline += hedge
     else:
-        wins_a = sum(1 for c in comparable if c.mean_norm_a < c.mean_norm_b)
-        wins_b = sum(1 for c in comparable if c.mean_norm_b < c.mean_norm_a)
+        # Compared at the values the chart plots, not at the raw means, so the headline
+        # counts a bounded meeting to the side that was scored there. That is what the
+        # record says (a bound is worse than every finish its event published, ADR
+        # 0024), and it is what the reader is looking at. `comparable_points` admits a
+        # point only where both sides draw, so neither value here is ever None.
+        drawn = [(a_side[0], b_side[0])
+                 for a_side, b_side in (c.drawn() for c in comparable)]
+        wins_a = sum(1 for norm_a, norm_b in drawn if norm_a < norm_b)
+        wins_b = sum(1 for norm_a, norm_b in drawn if norm_b < norm_a)
         leader, led = (a, wins_a) if wins_a >= wins_b else (b, wins_b)
         # A tie is a real answer, and naming one side the leader of a draw would not
         # be, so the two counts are stated instead. It asserts no leader, so there is
@@ -2419,10 +2486,17 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
                         "shared events")
             if not beats_a_coin(led, len(comparable)):
                 headline += hedge
-    return (
+    caption = (
         f"<div class='t-fieldstat'>{headline}"
         f"<span class='sample'> · {span}</span></div>"
     )
+    # The bound's legend, on its own muted line rather than as a second qualifier inside
+    # the headline (§14 allows the headline one, and the span is it). Drawn only where a
+    # caret is actually on the plot, which is the rule `_head_to_head_caption` follows
+    # for the asterisk, so a legend never stands over a plot with nothing to explain.
+    if _has_bounded_point(series.cells):
+        caption += f"<div class='t-caption'>{html.escape(_BOUND_LEGEND)}</div>"
+    return caption
 
 
 def _between_line_polys(points):
@@ -2522,12 +2596,12 @@ def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
 
 
 def _head_to_head_caption(series: Series) -> str | None:
-    """The legend for the hover's imputed mark, or ``None`` where none is drawn.
+    """The legends for the plot's marks, as markup, or ``None`` where none is drawn.
 
     Every decided value the graph holds carries the rule that decided it, and until
     issue #166 no surface read one: the hover at Pats Birthday Brawl said "3 / 24"
     where 24 is Rule B's floor, a domain rule nobody counted, in the same shape
-    SSWam uses for its counted 88. The mark makes the two different; this one line
+    SSWam uses for its counted 88. The mark makes the two different; one line
     says what it means, once for the plot rather than once per point (§14).
 
     Only drawn where a mark is, judged over the whole series. A point the line breaks
@@ -2543,6 +2617,13 @@ def _head_to_head_caption(series: Series) -> str | None:
     Deliberately says the number is ours rather than which pass produced it: a reader
     needs to know they are looking at the project's arithmetic, and "Rule B" answers
     a question only the record can hold.
+
+    Returned as trusted markup for :func:`_chart_heading`'s ``caption_html``, one
+    ``t-caption`` div per legend, because the two are separate claims and have to read
+    as separate lines. Joined into one escaped string they collapsed to a single
+    run-on line in HTML, where the asterisk's sentence ran straight into the caret's
+    and read as though it explained both. The legends are app constants with no
+    free text in them, and each is escaped anyway.
     """
     marked = any(
         norm is not None
@@ -2554,9 +2635,38 @@ def _head_to_head_caption(series: Series) -> str | None:
             (c.norm_b, c.norm_imputed_b, c.placement_imputed_b),
         )
     )
-    if not marked:
-        return None
-    return f"{numfmt.IMPUTED_MARK} a number this project worked out, not one the source recorded"
+    lines = []
+    if marked:
+        lines.append(
+            f"{numfmt.IMPUTED_MARK} a number this project worked out, "
+            "not one the source recorded"
+        )
+    # The bound's own line, on the same terms: drawn only where a caret is on screen,
+    # and separate from the asterisk's because the two mark different claims (ADR 0024).
+    if _has_bounded_point(series.cells):
+        lines.append(_BOUND_LEGEND)
+    # One div per legend, which is the shape the archetype timeline already gives the
+    # bound, so the two rivalry charts present the same mark the same way (issue #151).
+    return "".join(
+        f"<div class='t-caption'>{html.escape(line)}</div>" for line in lines
+    ) or None
+
+
+def _has_bounded_point(cells) -> bool:
+    """Whether any point on this series is drawn at a bound, so its legend line is owed.
+
+    Asks the cell what it draws rather than testing ``bound_a is not None`` directly, so
+    the legend can never claim a caret the figure did not draw: a bound is carried on a
+    cell whenever the event allows one, and drawn only where the other side has a
+    finish. Both rivalry cells answer ``drawn()``, so this needs to know neither which
+    chart it is serving nor what its fields are called.
+
+    It took a ``sides`` callback for as long as it re-derived the answer, and that was a
+    seam things drifted through: the caption pulled four raw values off a cell and
+    re-applied the rule with no idea whether the figure had drawn a b side at all, which
+    is how 12 solo timelines came to offer a legend for a caret nobody could see.
+    """
+    return any(is_bound for c in cells for _, is_bound in c.drawn())
 
 
 def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure:
@@ -2579,8 +2689,10 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     the number of pilots who entered at those 4. The points are the data; the thin dashed line only joins them and
     asserts no direction. A translucent band fills between the two lines, tinted with
     the colour of whichever pilot is above, so the size and direction of the gap read
-    at a glance; it breaks over any event one pilot did not score and splits at a
-    crossing. A dotted line at 0.5 marks a random finisher's expected
+    at a glance; it splits at a crossing, carries through a meeting one pilot has no
+    finish at where the event published enough to bound it (:func:`drawn_finish`, ADR
+    0024), and breaks where nothing bounds it, which at this chart's bracket meetings is
+    most of them. A dotted line at 0.5 marks a random finisher's expected
     score, as on the performance chart. A range slider aligned under the x-axis is the
     time-range filter: its own trace preview is suppressed (it mirrored the lines and
     read as a bug), leaving a plain tinted band, labelled, that drags to slice the
@@ -2597,11 +2709,20 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
 
     # The band between the two lines, added first so the markers and the dashed joins
     # draw on top. The score inverts the finish (1 a win), a null left null so the band
-    # breaks over an event a pilot did not score (ADR 0013).
+    # breaks over a meeting nothing bounds (ADR 0013).
     def flip(norm):
         return None if norm is None else 1 - norm
+
+    # Where one pilot has no finish on record and the event published enough of its
+    # field to bound the tail, they draw at the best they could have finished rather
+    # than as a hole (ADR 0024). Most of this chart's unscored meetings are at brackets,
+    # which bound nothing, so a break is still a common answer here.
+    drawn_a = [c.drawn()[0] for c in cells]
+    drawn_b = [c.drawn()[1] for c in cells]
     fig.add_traces(_band_traces(
-        [(c.date, flip(c.norm_a), flip(c.norm_b)) for c in cells], colour_a, colour_b,
+        [(c.date, flip(na), flip(nb))
+         for c, (na, _), (nb, _) in zip(cells, drawn_a, drawn_b)],
+        colour_a, colour_b,
     ))
 
     # The two traces differ only in which half of each point they read, so a side is
@@ -2612,16 +2733,23 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     def side_b(c):
         return c.placement_b, c.norm_b, c.placement_imputed_b, c.norm_imputed_b
 
-    def label(cell, side):
+    def label(cell, side, drawn):
         """One point's hover pair: the score, and the finish over the field it was
         ranked against, with each of the three numbers marked where the project
         decided it rather than the source supplying it (issue #166). Marked one by
         one because they are decided one by one: a placement read off a deck title
         can sit against a field the source counted, and a minted norm against a
-        field Rule B floored."""
+        field Rule B floored.
+
+        A bounded point has no placement and no field ratio to state, so it takes the
+        shared bounded readout instead (ADR 0024). Its one number is still marked on the
+        same terms as the three here: the bound divides by the field, so it is the
+        project's wherever the field is."""
         placement, norm, placement_rule, norm_rule = side(cell)
-        if norm is None:
-            return [None, None]
+        drawn_norm, is_bound = drawn
+        if is_bound or norm is None:
+            return _bounded_readout(drawn_norm, is_bound,
+                                    imputed=cell.field_imputed is not None)
         return [
             numfmt.score(1 - norm, imputed=norm_rule is not None),
             numfmt.count_of(placement, cell.field_size,
@@ -2629,20 +2757,22 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
                             total_imputed=cell.field_imputed is not None),
         ]
 
-    for name, colour, side in ((name_a, colour_a, side_a), (name_b, colour_b, side_b)):
+    for name, colour, side, drawn in ((name_a, colour_a, side_a, drawn_a),
+                                      (name_b, colour_b, side_b, drawn_b)):
         fig.add_trace(pgo.Scatter(
             x=[c.date for c in cells],
             # The finish inverted to a score (1 a win), matching the performance
-            # chart. A null norm is a finish the source never scored: a gap the line
-            # breaks across rather than a fabricated point.
-            y=[flip(norm) for _, norm, _, _ in (side(c) for c in cells)],
-            customdata=[label(c, side) for c in cells],
+            # chart. A null norm the record cannot bound is a gap the line breaks
+            # across rather than a fabricated point.
+            y=[flip(norm) for norm, _ in drawn],
+            customdata=[label(c, side, d) for c, d in zip(cells, drawn)],
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
             # Over the band, so the fill goes transparent and the ring reads against
             # the tint it sits on rather than cutting a surface-coloured hole in it.
-            marker=_observation_marker(colour, over_fill=True),
+            marker={**_observation_marker(colour, over_fill=True),
+                    "symbol": _bound_symbols(drawn)},
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
@@ -2667,9 +2797,12 @@ def _archetype_timeline_figure(
     data, the thin dashed line only joins them, a dotted 0.5 marks the middle of the
     field, and a range slider under the axis slices the dates client-side. With two
     archetypes the band between the lines is tinted toward whoever is ahead, built by
-    the same :func:`_between_line_polys` geometry and breaking over any event one
-    side was not scored at. With one it is a single line filled to the axis, which is
-    the same read against the axis rather than against a rival.
+    the same :func:`_between_line_polys` geometry. It carries through an event one side
+    was not scored at where the record bounds that side's finish, the bound being the
+    smallest gap the record allows (:func:`drawn_finish`, ADR 0024), and breaks where
+    nothing bounds it. With one archetype it is a single line filled to the axis, which
+    is the same read against the axis rather than against a rival, and it keeps ADR
+    0013's break outright.
 
     What differs from the pilot chart is what a point rests on. A pilot brings one deck
     to an event, so its point is one real result; an archetype brings several, so this
@@ -2688,29 +2821,41 @@ def _archetype_timeline_figure(
     def flip(norm):
         return None if norm is None else 1 - norm
 
+    # Each side's plotted finish: its own mean, or the best it could have finished at an
+    # event that scored none of its decks (ADR 0024). Solo passes no second side, so
+    # `drawn_finish` never reaches for a bound and the line keeps ADR 0013's break.
+    drawn_a = [c.drawn()[0] for c in cells]
+    drawn_b = [c.drawn()[1] for c in cells]
+
     # The band first, so the markers and the dashed joins draw over it. Solo has no
-    # second line to fill against, and fills to the axis on its own trace below.
+    # second line to fill against, and fills to the axis on its own trace below. Drawn
+    # off the bounded values, so the band spans a bounded point rather than breaking
+    # over it: at the bound the gap it shows is the smallest the record allows.
     if name_b is not None:
         fig.add_traces(_band_traces(
-            [(c.date, flip(c.mean_norm_a), flip(c.mean_norm_b)) for c in cells],
+            [(c.date, flip(na), flip(nb))
+             for c, (na, _), (nb, _) in zip(cells, drawn_a, drawn_b)],
             colour_a, colour_b,
         ))
 
-    sides = [(name_a, colour_a, [(c.mean_norm_a, c.decks_a) for c in cells])]
+    sides = [(name_a, colour_a, drawn_a, [c.decks_a for c in cells])]
     if name_b is not None:
-        sides.append((name_b, colour_b, [(c.mean_norm_b, c.decks_b) for c in cells]))
-    for name, colour, values in sides:
+        sides.append((name_b, colour_b, drawn_b, [c.decks_b for c in cells]))
+    for name, colour, values, deck_counts in sides:
         fig.add_trace(pgo.Scatter(
             x=[c.date for c in cells],
-            y=[flip(mean) for mean, _ in values],
+            y=[flip(norm) for norm, _ in values],
             # Filled to the axis only when the archetype is alone: with two lines the
             # filled region is the gap between them, and a second fill under each
             # would bury it.
             fill="tozeroy" if name_b is None else None,
             fillcolor=_rgba(colour, 0.18),
-            customdata=[[numfmt.score(1 - mean), decks] if mean is not None
-                        else [None, decks]
-                        for mean, decks in values],
+            # The deck count rides the hover on a real mean; a bounded point has no
+            # scored deck to count, so it says what it is instead of printing "0 decks".
+            customdata=[_bounded_readout(norm, is_bound, f"{decks} decks",
+                                         imputed=cell.field_imputed is not None)
+                        for (norm, is_bound), decks, cell
+                        in zip(values, deck_counts, cells)],
             name=name,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
@@ -2724,11 +2869,12 @@ def _archetype_timeline_figure(
             # Over a fill either way (the band with two archetypes, the tozeroy fill
             # with one), so the marker's fill goes transparent: solo measured 58 of its
             # 74 rings sitting on its own fill, none of them reading against it.
-            marker={**_observation_marker(colour, over_fill=True), "size": 9},
+            marker={**_observation_marker(colour, over_fill=True), "size": 9,
+                    "symbol": _bound_symbols(values)},
             cliponaxis=False,
             hovertemplate=(
                 f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
-                "%{customdata[1]} decks<extra></extra>"
+                "%{customdata[1]}<extra></extra>"
             ),
         ))
     # The same date axis, range slider, 0-1 score, 0.5 reference and legend strip the
@@ -3093,7 +3239,8 @@ def build_app(artifact: Path) -> gr.Blocks:
         return (
             gr.update(
                 value=_chart_heading(
-                    "Head-to-head timeline", _head_to_head_caption(series)),
+                    "Head-to-head timeline",
+                    caption_html=_head_to_head_caption(series)),
                 visible=True,
             ),
             gr.update(value=fig, visible=True),

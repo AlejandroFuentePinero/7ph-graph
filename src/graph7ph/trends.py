@@ -50,26 +50,34 @@ MIN_PILOT_YEAR_EVENTS = 2
 # two places (the tool and its dropdown catalogue) and must not drift between them.
 MIN_QUALIFYING_YEARS = 2
 
-# A pilot pair needs this many shared events or it is a dot, not a timeline, so the
-# head-to-head tool returns nothing rather than a lone point (ADR 0013). Each point
-# is one real registration, so there is no within-point floor; the floor is on the
+# A pilot pair needs this many **comparable** meetings or it is a dot, not a timeline,
+# so the head-to-head tool returns nothing rather than a lone point (ADR 0013). Each
+# point is one real registration, so there is no within-point floor; the floor is on the
 # pair, not the event. Two, the same reason as MIN_QUALIFYING_YEARS: one point is not
 # a trajectory.
+#
+# It counted **attended** events until the corpus contradicted the reason for that: "a
+# pilot brings one deck to an event, so a shared event is a comparison by construction"
+# is false, since a pilot can turn up and never be scored. 10 pairs shared two events,
+# could be compared at one, and drew a rivalry over time holding one comparison and a
+# gap. A meeting the record settles counts, which includes one side's bound against the
+# other's finish (`comparable_points`, ADR 0024); a meeting neither pilot was scored at
+# does not, and that is the one the chart breaks over.
 MIN_SHARED_EVENTS = 2
 
 # The fewest scored events an archetype timeline needs: for one archetype the events
-# it was ranked at, for a pair the events both were ranked at. Two, the same reason as
+# it was ranked at, for a pair the meetings the record settles. Two, the same reason as
 # MIN_QUALIFYING_YEARS and MIN_SHARED_EVENTS: one point is not a trajectory, and with
 # two archetypes a lone shared event is a comparison, not a rivalry over time.
 #
-# The floor counts **comparable** events rather than attended ones, which is where it
-# parts from MIN_SHARED_EVENTS beside it. A pilot brings one deck to an event, so a
-# shared event is a comparison by construction; an archetype's point is a mean over
-# whichever of its decks the source scored, so a shared event can hold nothing to
-# compare on one side, and counting those would clear the floor on a chart with a
-# single drawable point and a gap. Refusal is a common path here, not an edge case:
-# over the 105 archetypes with 5-plus ranked events, the median pair of 5460 shares
-# just 4 events, 9% share none and 21% share one or fewer.
+# Both pair floors now count the same thing through `comparable_points`, and the note
+# above says why they ever differed. What the count must exclude is a meeting nothing
+# can compare across: an archetype's point is a mean over whichever of its decks the
+# source scored, so a shared event can hold nothing on one side, and counting those
+# would clear the floor on a chart with a single drawable point and a gap. Refusal is a
+# common path here, not an edge case: over the 105 archetypes with 5-plus ranked events,
+# the median pair of 5460 shares just 4 events, 9% share none and 21% share one or
+# fewer.
 #
 # The same constant gates the selector catalogue (:func:`archetypes_with_history`), so
 # a single archetype offered on the surface always draws; a pair cannot be precomputed
@@ -489,6 +497,14 @@ class HeadToHeadPoint:
     that state draws nothing: 24 decks carry neither placement nor norm, and no deck
     in the record carries a norm without a placement. So a drawn label's placement
     and norm rules are either null or a real rule, never ``none``.
+
+    ``bound_a`` is the best norm pilot ``a`` could hold at this event where the source
+    scored them at none of it and the event published enough of its field to bound the
+    tail (:func:`_tail_bounds`, ADR 0024), ``None`` wherever a real norm stands or the
+    event bounds nothing. It is an inequality: the true finish is at or below it. Most
+    of this chart's unscored meetings are at brackets, which bound nothing worth
+    drawing, so a break is still a common answer here where it is the rare one on the
+    archetype timeline.
     """
 
     event: str
@@ -503,6 +519,20 @@ class HeadToHeadPoint:
     norm_imputed_a: str | None
     placement_imputed_b: str | None
     norm_imputed_b: str | None
+    bound_a: float | None = None
+    bound_b: float | None = None
+
+    def drawn(self) -> tuple[tuple[float | None, bool], tuple[float | None, bool]]:
+        """This point as a chart draws it: ``((a, a_is_bound), (b, b_is_bound))``.
+
+        The one place anything asks what stands on the plot at this event, so the
+        figure, the legend under it and the count in its headline cannot answer that
+        three ways (:func:`drawn_finish`, ADR 0024). ``None`` on a side is a break in
+        that line, and a side is bounded only where the other has a finish, so the two
+        answers are not independent and must not be derived apart.
+        """
+        return (drawn_finish(self.norm_a, self.norm_b, self.bound_a),
+                drawn_finish(self.norm_b, self.norm_a, self.bound_b))
 
 
 @dataclass(frozen=True)
@@ -520,8 +550,10 @@ class ArchetypeTimelinePoint:
 
     A deck the source never scored is left out of the mean, so an event an archetype
     attended with nothing ranked comes back ``mean_norm`` ``None`` on ``decks`` zero:
-    the attendance is a fact, the finish is not known, and the line breaks over it
-    rather than fabricating a point (ADR 0013).
+    the attendance is a fact and the finish is not known, so nothing is fabricated in
+    its place (ADR 0013). Where the event published enough of its field the finish is
+    not unknown but **bounded**, and ``bound_a`` below carries that (ADR 0024); where it
+    did not, the line still breaks over the point.
 
     ``date`` is the event's registration date, the earliest ``createdAt`` across its
     whole field, the same per-event proxy :class:`HeadToHeadPoint` carries. It is
@@ -529,6 +561,17 @@ class ArchetypeTimelinePoint:
     does, one deck being one point): an event is not a single date, 21 of 107 spread
     over more than a day and one over 12, and both sides of a shared event have to
     sit at the same x or the band between them is drawn against a lie.
+
+    ``bound_a`` is the best ``placementNorm`` side ``a`` could hold at this event where
+    it was scored at none of it and the event published enough of its field to bound
+    the tail (:func:`_tail_bounds`, ADR 0024), and ``None`` wherever the side carries a
+    real mean or the event bounds nothing. It is an inequality, not a value: the true
+    finish is at or below it, meaning at or worse. ``bound_b`` is the second side's.
+
+    ``field_imputed`` is the event's ``fieldImputed`` rule, null where the source's own
+    field count stands (ADR 0016). Only a drawn bound's hover reads it: a bound divides
+    by the field, so its number is the project's exactly when the field size is, and it
+    is marked on the same terms as the pilot chart marks its own (issue #166).
     """
 
     event: str
@@ -537,6 +580,24 @@ class ArchetypeTimelinePoint:
     decks_a: int
     mean_norm_b: float | None
     decks_b: int
+    bound_a: float | None = None
+    bound_b: float | None = None
+    field_imputed: str | None = None
+
+    def drawn(self) -> tuple[tuple[float | None, bool], tuple[float | None, bool]]:
+        """This point as a chart draws it, the same contract :class:`HeadToHeadPoint`
+        gives: ``((a, a_is_bound), (b, b_is_bound))``.
+
+        Both rivalry cells answer this question identically so their readers do not have
+        to know which one they hold, which is what lets the figure, the caption and
+        :func:`comparable_points` share one rule across both charts.
+
+        A solo series has no b side, and gets ``(None, False)`` for it rather than a
+        bound, since ``archetype_timeline`` sets no ``bound_b`` where no second
+        archetype was asked for (ADR 0024).
+        """
+        return (drawn_finish(self.mean_norm_a, self.mean_norm_b, self.bound_a),
+                drawn_finish(self.mean_norm_b, self.mean_norm_a, self.bound_b))
 
 
 @dataclass(frozen=True)
@@ -904,26 +965,133 @@ def _archetype_events(
     return attended, scored
 
 
-def comparable_points(
-    cells: list[ArchetypeTimelinePoint], paired: bool
-) -> list[ArchetypeTimelinePoint]:
-    """The timeline points that carry a finish on every side the reading needs.
+def _tail_bounds(conn: ladybug.Connection, skip: list[str]) -> dict[str, float]:
+    """Each event's tail bound: the best ``placementNorm`` a deck it never scored can hold.
+
+    An event that published part of its field leaves the decks it left out in the slots
+    below the last published one, so such a deck's finish is not unknown, it is bounded.
+    ``GGWAD`` published 16 slots of 28, so a deck it left out finished 17th at best,
+    and the bound is that slot's norm, ``last published slot / (fieldSize - 1)``.
+    The rivalry charts draw it in place of a hole (ADR 0024).
+
+    ``skip`` is the bracket list, and it **gates** this rather than filtering it: a
+    bracket publishes so little that the bound stops meaning anything, ``Area52IQ``
+    having published one placement of 24 so that its bound is 0.043, a near-win. Those
+    events yield no bound and keep their break. What survives is exactly the events that
+    published at least :data:`MIN_FIELD_COVERAGE` of their field, which is the cut
+    :func:`_cut_only_events` already makes, and it is passed in rather than re-derived
+    so the two can never name different sets. The quantity is the same one either way:
+    how much of a field has to be on record before anything can be read off what is
+    missing from it.
+
+    Which slot that is takes **two** floors, because neither alone is one. The worst
+    label on a deck this corpus holds is a slot the event certainly published, so the
+    tail starts no earlier. The number of scored decks it holds is also a slot the event
+    certainly reached, since that many decks were placed. Neither dominates:
+
+    - a tie compresses labels, so sixteen scored decks can carry a worst label of 13
+      (ADR 0014 records a band at its best end), and counting off the label alone would
+      put the tail three slots high;
+    - the corpus holds a subset of most fields (63 of 107 events, ``Area52IQ`` holding
+      7 decks of 24), so the count alone falls short of a label already in hand.
+
+    ``GGWAD`` published ``1,2,3,3,5,5,5,5,9..16`` and both floors give 16, which is why
+    the two readings were indistinguishable there. The further of the two is taken, and
+    it is still only a floor: an event may have published past every deck we hold, so
+    the bound errs toward the top of the axis and understates how far down the tail
+    begins. That is the direction ADR 0024 wants, since it can only understate a gap.
+
+    An event yields no bound where nothing is unpublished, where no published placement
+    can be counted from, or where the published slots already reach the field's last,
+    since none of those bound anything. Returned per draw and stored nowhere: this is an
+    inequality, not a measurement, and a norm minted onto the deck would enter every
+    mean in the app (ADR 0024, ADR 0016).
+    """
+    skipped = set(skip)
+    bounds = {}
+    # One scan for all four figures. `max` skips nulls, and a placement never sits
+    # beside a null norm in this graph (issue #162), so the worst label needs no
+    # filter of its own.
+    for event, field, decks, ranked, last in rows(conn.execute(
+        "MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) "
+        "RETURN e.event, e.fieldSize, count(d), count(d.placementNorm), max(d.placement)"
+    )):
+        if event in skipped or ranked == decks or field is None or field < 2:
+            continue
+        slot = max(last or 0, ranked)
+        if slot < 1 or slot >= field:
+            continue
+        bounds[event] = slot / (field - 1)
+    return bounds
+
+
+def drawn_finish(own, other, bound):
+    """One side's plotted finish at a shared event, and whether it is a bound.
+
+    The rule both rivalry charts read, so the pilot chart and the archetype timeline
+    cannot drift apart in when a line breaks (the reason ``_band_traces`` and
+    ``_style_rivalry_chart`` are shared in the app). Returns ``(norm, is_bound)`` with
+    the raw norm, the caller flipping it to a score as it does its own values.
+
+    A side with a finish on record draws it. A side with none draws the best it could
+    have finished (ADR 0024) on two conditions: the **other** side has a finish, so the
+    point is a comparison rather than a lone mark, and the event published enough of its
+    field to bound the tail at all, which is what ``bound`` being set already says. Fail
+    either and it draws nothing and the line breaks over it, which is ADR 0013's
+    original answer and still the right one where nothing bounds the gap.
+
+    Both sides unscored draws neither, since two sides at one bound would assert a tie
+    the record does not hold: the two decks have distinct real finishes somewhere in one
+    interval, and which of them is better is exactly what is missing.
+
+    It lives here rather than in the app for the reason :func:`beats_a_coin` does: what
+    is drawn and what is counted have to be the same rule, and :func:`comparable_points`
+    below now reads it. It was in the app while the two were allowed to disagree.
+    """
+    if own is not None:
+        return own, False
+    if other is not None and bound is not None:
+        return bound, True
+    return None, False
+
+
+def comparable_points(cells: list, paired: bool) -> list:
+    """The rivalry points the record settles: every point the pair chart draws.
+
+    Takes either cell, since both answer :meth:`drawn`, and both rivalry charts floor on
+    the count it returns. The pilot chart floored on attendance until the corpus showed
+    the two are not the same thing.
 
     An archetype's point is a mean over whichever of its decks the source scored, so a
-    point can be an attendance with no value on one side or the other. Those are drawn
-    (the line breaks over them) but cannot be counted: they are neither a position on
-    the axis nor, for a pair, a comparison. ``paired`` says whether the second side is
-    part of the reading.
+    point can be an attendance with no value on one side or the other. ``paired`` says
+    whether the second side is part of the reading.
+
+    **A meeting is settled where the record says which side finished better, which is
+    not the same as both sides carrying a number.** Where one side went unscored at an
+    event that published enough to bound its tail, the bound settles it: ADR 0024's
+    guarantee is that a bound is worse than every finish its event published, so the
+    scored side's mean cannot sit below it and that side won the meeting. The count is
+    therefore taken over :func:`drawn_finish` rather than over the raw means, which
+    makes it exactly the set of points the chart draws a comparison at. Only a meeting
+    neither side was scored at stays out, and that is the one the chart breaks over.
+
+    That equivalence is the point. The headline used to count the doubly-scored
+    meetings alone while the chart drew the bounded one beside them, so a caption could
+    read "6 of 6 shared events" over a plot showing seven, and `artifact` versus
+    `breachbond` printed a certified sweep of a rivalry the record has at 6-1 of 7.
+
+    ``paired=False`` is unchanged and counts the events the archetype was scored at. A
+    solo line draws no bound at all (ADR 0024 keeps it out of scope), so there is no
+    settled-but-unscored point for it to count.
 
     One definition, two readers, which is why it is a function rather than a
     comprehension in each: :func:`archetype_timeline` floors on this count
     (:data:`MIN_ARCHETYPE_EVENTS`) and the app's headline states a win count out of it,
     so a drift between them would print a denominator the refusal does not use.
     """
-    return [
-        c for c in cells
-        if c.mean_norm_a is not None and (not paired or c.mean_norm_b is not None)
-    ]
+    if not paired:
+        return [c for c in cells if c.mean_norm_a is not None]
+    return [c for c in cells if all(norm is not None for norm, _ in c.drawn())]
 
 
 def beats_a_coin(led: int, of: int) -> bool:
@@ -979,15 +1147,18 @@ def archetype_timeline(
 
     **Attending both is not being scored at both, so a drawn point can still be
     one-sided.** An event that published part of its field can rank one archetype's
-    decks and none of the other's, and that point is drawn with a break on the
-    unscored side, exactly as the solo line breaks (:class:`ArchetypeTimelinePoint`,
-    :func:`archetypes_with_history`). Measured over the 4,888 pairs this surface will
-    draw, 84 of them (1.7%) hold such a point, and every one of the 84 traces to the
-    single event that published a thinned standings rather than a bracket
-    (``GGWAD``, 16 finishes of 28, kept by :data:`MIN_FIELD_COVERAGE`). On those pairs
-    the headline's denominator sits one below the marks on the axis, since it counts
-    :func:`comparable_points` and the axis carries the attendance: ``breachbond`` and
-    ``jund`` draw 18 points under "11 of 17 shared events".
+    decks and none of the other's. Measured over the 4,891 pairs this surface will
+    draw, 87 of them (1.8%) hold such a point, and every one traces to the single event
+    that published a thinned standings rather than a bracket (``GGWAD``, 16 finishes of
+    28, kept by :data:`MIN_FIELD_COVERAGE`). The unscored side of 72 of them carries a
+    :func:`_tail_bounds` bound and is drawn at it (ADR 0024); the other 15 are the pairs
+    among the six archetypes ``GGWAD`` scored none of, where neither side has a value
+    and both lines break.
+
+    The headline counts those bounded meetings to the scored side, so the denominator is
+    the marks on the axis rather than one below them: ``breachbond`` and ``jund`` draw 18
+    points under "11 of 18 shared events". It shipped counting doubly-scored meetings
+    alone, which put a caption over a plot it disagreed with (:func:`comparable_points`).
 
     An event that published a bracket rather than a field is worth no point on either
     line (:func:`_cut_only_events`, ADR 0022). A point here is a mean over the decks of
@@ -1009,20 +1180,40 @@ def archetype_timeline(
     attended_a, scored_a = _archetype_events(conn, a, skip)
     attended_b, scored_b = _archetype_events(conn, b, skip) if b else (None, {})
     events = attended_a if attended_b is None else attended_a & attended_b
+    # Carried on every point, so the pair chart can draw a bounded side instead of a
+    # hole (ADR 0024). It changes no value and enters no mean; what it does enter is
+    # the settled count: a bounded meeting is drawn, so `comparable_points` below
+    # counts it, and the headline, the coin gate and the floor all read that count.
+    bounds = _tail_bounds(conn, skip)
+    # The bound's own provenance, read only at a drawn caret's hover: a bound divides
+    # by the field, so its number is the project's exactly when the field size is.
+    field_rules = dict(rows(conn.execute(
+        "MATCH (e:Event) RETURN e.event, e.fieldImputed")))
     points = []
     for event in sorted(events, key=lambda e: (dates[e], e)):
         mean_a, decks_a = scored_a.get(event, (None, 0))
         mean_b, decks_b = scored_b.get(event, (None, 0))
+        bound = bounds.get(event)
         points.append(ArchetypeTimelinePoint(
             event=event, date=dates[event],
             mean_norm_a=mean_a, decks_a=decks_a,
             mean_norm_b=mean_b, decks_b=decks_b,
+            bound_a=bound if mean_a is None else None,
+            # A solo timeline has no b side to bound, and ``mean_b`` is None at every
+            # event precisely because there is no second archetype rather than because
+            # one went unscored. Bounding it anyway put a bound on every point of every
+            # solo line, which no figure draws (the b trace does not exist) and which
+            # `_has_bounded_point` still read, so 12 of the 121 solo timelines offered a
+            # legend for a caret that was never on screen. ADR 0024 keeps the solo line
+            # out of scope; this is where that holds.
+            bound_b=bound if b is not None and mean_b is None else None,
+            field_imputed=field_rules.get(event),
         ))
     # The floor is on the points that can be compared, not on the events attended
     # (see :data:`MIN_ARCHETYPE_EVENTS`).
     comparable = comparable_points(points, paired=b is not None)
     if len(comparable) < MIN_ARCHETYPE_EVENTS:
-        subject = f"{a} and {b} were both ranked at" if b else f"{a} was ranked at"
+        subject = f"{a} and {b} can be compared at" if b else f"{a} was ranked at"
         raise NotEnoughHistory(
             f"{subject} {len(comparable)} event(s); a timeline needs "
             f"{MIN_ARCHETYPE_EVENTS}",
@@ -1323,6 +1514,11 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
     """
     if a == b:
         raise ValueError(f"{a} has no rivalry with themselves; pick two pilots")
+    # This chart keeps the bracket events (ADR 0022), which is where most of its
+    # unscored meetings are, and a bracket bounds nothing worth drawing. So the gate
+    # inside `_tail_bounds` does real work here that it does not on the archetype
+    # timeline, where the brackets are gone before the bounds are asked for.
+    bounds = _tail_bounds(conn, _cut_only_events(conn))
     points = sorted(
         (
             HeadToHeadPoint(
@@ -1338,6 +1534,8 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
                 norm_imputed_a=norm_imputed_a,
                 placement_imputed_b=placement_imputed_b,
                 norm_imputed_b=norm_imputed_b,
+                bound_a=bounds.get(event) if norm_a is None else None,
+                bound_b=bounds.get(event) if norm_b is None else None,
             )
             for (event, date, field_size, field_imputed,
                  placement_a, norm_a, placement_imputed_a, norm_imputed_a,
@@ -1370,11 +1568,19 @@ def head_to_head_timeline(conn: ladybug.Connection, a: str, b: str) -> Series:
         ),
         key=lambda p: p.date,
     )
-    if len(points) < MIN_SHARED_EVENTS:
+    # The floor counts the meetings the record settles, the same count the archetype
+    # timeline floors on and the same one its headline states. Attendance was the count
+    # here for as long as "a pilot's shared event is a comparison by construction" was
+    # believed, and the corpus says otherwise: a pilot can turn up and go unscored, so 10
+    # pairs shared two events, could be compared at one, and drew a "rivalry over time"
+    # holding a single comparison and a gap, which is the shape this floor exists to
+    # refuse (:data:`MIN_SHARED_EVENTS`).
+    comparable = comparable_points(points, paired=True)
+    if len(comparable) < MIN_SHARED_EVENTS:
         raise NotEnoughHistory(
-            f"{a} and {b} share {len(points)} event(s); "
+            f"{a} and {b} can be compared at {len(comparable)} event(s); "
             f"a rivalry to trace over time needs {MIN_SHARED_EVENTS}",
-            found=len(points),
+            found=len(comparable),
         )
     return Series(cells=points)
 
