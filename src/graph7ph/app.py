@@ -135,6 +135,21 @@ def _picker(tab: dict[str, str]) -> list[tuple[str, str]]:
 CLEAR_LABEL = "Clear"
 
 
+# Gradio serialises a dropdown's choices three more times as API schema (`api_info`,
+# `api_info_as_input`, `api_info_as_output`), so the card list's 4,995 values travel
+# four times per control: 316 KB of the Card dropdown's 537 KB, and 0.79 MB of the
+# 1.73 MB config once both card and both pilot controls are counted. The app retires
+# the "Use via API" footer (`theme`), so nothing reads that schema. `skip_api` drops
+# those keys and only those: `props.choices` still ships, so the control renders,
+# clears, and fires its handlers exactly as before. The cost is that these controls
+# stop appearing in `view_api`, which nothing here calls.
+#
+# The flag is a read-only property on `Component`, and subclassing to override it would
+# make Gradio's metaclass write a `.pyi` beside this module on every import (the Space
+# included), so it is rebound once here to read a per-instance opt-in instead.
+gr.Dropdown.skip_api = property(lambda self: getattr(self, "_skip_api", False))
+
+
 def _clearable(*, visible: bool = True, **kwargs) -> tuple[gr.Dropdown, gr.Row]:
     """A subject or filter dropdown with a clear (×) glyph on its right edge.
 
@@ -158,10 +173,15 @@ def _clearable(*, visible: bool = True, **kwargs) -> tuple[gr.Dropdown, gr.Row]:
     Returns the dropdown and the row holding the pair. ``visible`` applies to the
     row, and a caller that shows or hides the control (the view pickers do) must
     toggle that row: hiding the dropdown alone would strand its glyph.
+
+    These are the controls that name *data*, so they are also the ones carrying the
+    long choice lists, and they opt out of the API schema the config would otherwise
+    repeat three times over each list (see ``skip_api`` above).
     """
     empty = [] if kwargs.get("multiselect") else None
     with gr.Row(elem_classes="clearable", equal_height=False, visible=visible) as row:
         dropdown = gr.Dropdown(**kwargs)
+        dropdown._skip_api = True
         clear = gr.Button(CLEAR_LABEL, elem_classes="clear-btn")
     clear.click(lambda: gr.update(value=empty), outputs=dropdown)
     return dropdown, row
@@ -3396,7 +3416,11 @@ def build_app(artifact: Path) -> gr.Blocks:
         return header + evidence + _embed(render_subgraph(subgraph))
 
     with gr.Blocks(
-        title="7 Point Highlander Graph",
+        # The tab is the one place the name is read at a glance and truncated hard, so
+        # it takes the short form while the page heading and the share card keep the
+        # full one. A tab strip shows a few characters: "7PH Graph" survives that,
+        # "7 Point Highlander Graph" arrives as "7 Point High...".
+        title="7PH Graph",
         theme=theme.dark_theme(),
         css=theme.build_css(),
         js=theme.FORCE_DARK_JS,

@@ -2669,6 +2669,45 @@ def test_each_archetype_picker_has_a_clear_button_that_names_itself(tmp_path, sn
     assert ".clear-btn::before" in theme.build_css()
 
 
+def test_the_subject_controls_ship_their_choices_without_the_api_schema(tmp_path, snapshot_dir):
+    # Gradio writes a dropdown's whole choice list into the config three more times as
+    # API schema, so the real card list's 4,995 values travel four times over: 316 KB of
+    # one control, and 46% of the entire config across the four subject pickers. The app
+    # retires the "Use via API" footer, so nothing reads it. The subject controls opt out.
+    #
+    # What must survive is everything the reader touches, so both halves are held here:
+    # the schema is gone, and the choices the control renders from are byte-for-byte the
+    # ones the component holds. A dropped `choices` would shrink the config far more and
+    # would pass a size check, which is why this asserts the list rather than the bytes.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    config = demo.get_config_file()
+    by_id = {c["id"]: c for c in config["components"]}
+    drops = [b for b in demo.blocks.values() if isinstance(b, gr.Dropdown)]
+
+    quiet = [b for b in drops if b.skip_api]
+    documented = [b for b in drops if not b.skip_api]
+    # The opt-out is the narrow one it claims to be: the data pickers, not every dropdown.
+    # Were it a blanket switch, or were it silently off, one of these would be empty.
+    assert quiet and documented
+
+    for b in quiet:
+        entry = by_id[b._id]
+        assert not [k for k in entry if k.startswith("api_info")], b.label
+        assert "example_inputs" not in entry, b.label
+        assert entry["props"]["choices"] == b.choices, b.label
+
+    for b in documented:
+        assert "api_info" in by_id[b._id], b.label
+
+    # And each quieted control is still wired to its handlers: dropping a component from
+    # the API surface must not drop it from the app.
+    wired = {i for d in config["dependencies"] for i in [*d["inputs"], *d["outputs"]]}
+    for b in quiet:
+        assert b._id in wired, b.label
+
+
 def _timeline_demo(tmp_path, snapshot_dir):
     """A built app whose graph holds archetypes the timeline can and cannot compare.
 
