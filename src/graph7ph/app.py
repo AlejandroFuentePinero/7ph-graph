@@ -610,10 +610,27 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     ]
 
 
+# What a chart opens raised when its caller has no reason to say: the narrowest cut's
+# raise, which is the fewest that still makes a cold start a chart with a reading in it
+# rather than a field of context nobody has clicked yet. The Meta cut scales past this
+# (`_CUTS`), and the manual panel raises every line it was handed.
+_OPEN_RAISED = 3
+
 # The latest-year cumulative-share cut, as labelled radio choices (ADR 0013). The
 # cut is display legibility only: the tool always returns the full matrix, and this
 # picks which of the 126 archetypes are drawn as lines, default 50%.
-_CUTS: dict[str, float] = {"Top 25%": 0.25, "Top 50%": 0.5, "Top 75%": 0.75}
+#
+# Each cut carries how many of its leading lines open raised, because the two cannot be
+# set apart: a cut that draws 5 lines and one that draws 31 were both opening on the
+# same 3, so the widest cut opened as three raised lines against a field of twenty-eight
+# faded ones and read as the same chart as the narrowest. The raise scales with the
+# field it has to be read against. They live in one mapping rather than two keyed by the
+# same labels, so a cut cannot be added with a share and no raise.
+_CUTS: dict[str, tuple[float, int]] = {
+    "Top 25%": (0.25, 3),
+    "Top 50%": (0.50, 5),
+    "Top 75%": (0.75, 7),
+}
 _DEFAULT_CUT = "Top 50%"
 
 # The FAQ tab (#133): the how-it-is-calculated notes #132 strips off the plots, homed
@@ -1245,12 +1262,6 @@ _RACE_CONTEXT_ALPHA = 0.16
 # enough of its hue to be traced across the years. Settled by eye on the real cuts.
 _CONTEXT_ALPHA = 0.20
 
-# How many lines a cut opens already raised. The cut hands its tags over strongest
-# first, so these are the year's leading archetypes: enough that a cold start is a
-# chart with a reading in it rather than a field of context the reader has to click
-# before it says anything, and few enough that the raise still reads as a raise.
-_OPEN_RAISED = 3
-
 
 def _legend_title(hint: str) -> str:
     """The emphasis legend's title: its name, then how to work it.
@@ -1667,8 +1678,8 @@ def _trend_figure(
     cut passes them strongest-first, the manual panel in pick order.
 
     ``start_raised`` is how many of the leading lines open raised. A cut opens on its
-    strongest few (:data:`_OPEN_RAISED`), so a cold start is a chart with a reading in
-    it and the rest of the field behind them. A hand-picked set opens with every line
+    strongest few, scaled to how many it draws (:data:`_CUTS`), so a cold start is a
+    chart with a reading in it and the rest of the field behind them. A hand-picked set opens with every line
     raised, since each was named by the reader and a leading-few rule would make them
     choose the same archetypes twice. Either way the click goes both directions, on the
     same two layers, and a faded line stays on the canvas rather than leaving it.
@@ -2991,14 +3002,17 @@ def build_app(artifact: Path) -> gr.Blocks:
         # The title is a page heading above the plot now (§6), returned beside the
         # figure. The cut's tags stay in rank order (strongest first) so a narrower
         # cut is a prefix of a wider one and the survivors keep their colour (§5).
-        tags = latest_year_share_cut(trend_series, _CUTS[cut_label])
+        share, raised = _CUTS[cut_label]
+        tags = latest_year_share_cut(trend_series, share)
         # Title is the plot type only (§14); the cut is a filter and rides the caption.
         return (
             _chart_heading("Meta share over time", f"{cut_label} of {latest_year} decks"),
             # Measured a no-op at all three cuts, since a cut is already a prefix of the
             # universe: passing it says so, rather than leaving that invariant to hold
             # the colours up by accident.
-            _trend_figure(trend_series, tags, universe=trend_universe),
+            _trend_figure(
+                trend_series, tags, start_raised=raised, universe=trend_universe,
+            ),
         )
 
     # Every year the graph holds, newest first: the Archetypes year selector's choices
