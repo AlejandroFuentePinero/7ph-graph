@@ -1,3 +1,4 @@
+import base64
 import re
 
 from graph7ph import theme
@@ -140,6 +141,16 @@ def test_the_head_carries_a_real_favicon_and_social_preview():
     assert icon and "data:image/svg+xml" in icon.group(0)  # our own mark, self-hosted
 
     assert re.search(r"property=['\"]og:title['\"]", head)
+
+    # And the same mark exists as a file, because the head alone does not reach the
+    # browser in time on the Space: Gradio renders the shell there with its own
+    # /favicon.ico link already in it, and answers that route from favicon_path. A mark
+    # that lives only in the head is the one the Space wore Gradio's logo over.
+    icon = theme.favicon_file()
+    svg = icon.read_text()
+    assert icon.suffix == ".svg"
+    assert svg.count("<circle") == 3 and svg.count("<line") == 3  # the graph, not pips
+    assert base64.b64encode(svg.encode()).decode() in head  # one mark, two carriers
     assert re.search(r"property=['\"]og:description['\"]", head)
     assert re.search(r"name=['\"]twitter:card['\"]", head)
     # The preview names the tool, not "Gradio": the title carries the app's own name.

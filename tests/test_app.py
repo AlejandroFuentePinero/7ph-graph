@@ -13,6 +13,7 @@ from graph7ph.app import (
     DRAWING_LABEL,
     DRAW_LABEL,
     _CARDS_TAB,
+    _CUTS,
     _FAQ_ENTRIES,
     LEADERBOARD_SCORE_PLACES,
     _LANDSCAPE_HEIGHT,
@@ -1153,6 +1154,27 @@ def test_the_cut_opens_on_its_leading_archetypes_not_on_a_blank_field():
 
     assert open_on == [t.title() for t in tags[:3]]  # the strongest three, in rank order
     assert all(t.visible == "legendonly" for t in raised[3:])  # the field stays behind
+
+
+def test_a_wider_cut_opens_more_lines_raised_than_a_narrower_one():
+    # AC (user review): the three cuts differed only in how many faded lines sat behind
+    # the same three raised ones, so at a glance they read as one chart. The raise now
+    # scales with the field it has to be read against: a cut drawing 31 lines cannot
+    # open on the same three as one drawing 5. The nesting is the other half of it, and
+    # is what keeps a hue on its archetype (§5): widening the cut may only add raised
+    # lines, never reshuffle the ones already up.
+    triples = [(f"arch{i}", 2024, 0.05) for i in range(35)]
+    tags = [t for t, _, _ in triples]
+    series = _meta_series(*triples)
+
+    opens = []
+    for _share, raised in _CUTS.values():
+        _, layer = _emphasis_layers(_trend_figure(series, tags, start_raised=raised))
+        opens.append([t.name for t in layer if t.visible is True])
+
+    assert [len(o) for o in opens] == [3, 5, 7]
+    for narrower, wider in zip(opens, opens[1:]):
+        assert wider[:len(narrower)] == narrower
 
 
 def test_hand_picked_archetypes_all_open_raised():

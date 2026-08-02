@@ -329,8 +329,12 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   finalised in the graph child issue.)
 - **Grouped views** (head-to-head, co-occurrence): tint by group using slots
   1–3, the trio that stays distinct under adjacency.
-- **Edges**: hairline on `--border`; tinted to the group in grouped views,
-  neutral otherwise. Labelled quantities stay on the edge.
+- **Edges**: hairline on `--text-dim`; tinted to the group in grouped views,
+  neutral otherwise. Labelled quantities stay on the edge. The neutral hairline
+  was `--border` until it was measured against the ground it is drawn on rather
+  than the page ground: 1.36:1 on `--surface`, a line inferred from the gap
+  between two nodes rather than seen. `--text-dim` is 7.80:1, well past the 3:1
+  WCAG asks of a graphical object that carries meaning, which an edge does here.
 - **Height**: responsive, replacing the fixed 760/700px; details panel visible
   without scrolling.
 - **Details panel**: field labels and hierarchy, the Moxfield link as an

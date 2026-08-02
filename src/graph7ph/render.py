@@ -187,9 +187,14 @@ def render_subgraph(subgraph: Subgraph) -> str:
         # end. The two players never share an edge (only the neutral event), so
         # source-or-target is unambiguous.
         player = group_by_id.get(edge.source) or group_by_id.get(edge.target)
-        # §7: an edge is a hairline on `--border` when neutral, the group's tint
-        # in a grouped view, so neither reads as the vis.js default grey slab line.
-        tint = {"color": palette[player] if player is not None else TOKENS["border"]}
+        # §7: an edge is a hairline on `--text-dim` when neutral, the group's tint in a
+        # grouped view, so neither reads as the vis.js default grey slab line. The
+        # neutral hairline sat on `--border` until it was measured against the ground it
+        # is actually drawn on: `--border` is 1.36:1 on `--surface`, which is a line you
+        # infer from the gap between two nodes rather than see. `--text-dim` is 7.80:1,
+        # well past the 3:1 WCAG asks of a graphical object that carries meaning, which
+        # an edge here does: it is the relation the whole view exists to show.
+        tint = {"color": palette[player] if player is not None else TOKENS["text-dim"]}
         # A visible label is drawn on the edge; otherwise it is a hover tooltip.
         text = {"label": edge.label} if edge.visible else {"title": edge.label}
         # A drawn rate is a percent with its base out of sight, and the base is what

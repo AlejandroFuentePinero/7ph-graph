@@ -4,7 +4,7 @@ A knowledge graph of the Australian 7 Point Highlander (7PH) Magic: The Gatherin
 metagame. It links events, pilots, decks, and cards down to card attributes, for
 exploration and analytics.
 
-**[Try the live explorer →](https://huggingface.co/spaces/Alejandrofupi/7ph-graph)**
+**[Try the live explorer →](https://www.7phgraph.com)**
 
 ## What it does
 
