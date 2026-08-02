@@ -6,8 +6,8 @@ the pipeline: it loads the promoted graph at startup and never fetches or builds
 from `GRAPH7PH_DB` (default `data/graph`), so pointing that at another path moves
 the build's output and the app's input together.
 
-Live at
-[huggingface.co/spaces/Alejandrofupi/7ph-graph](https://huggingface.co/spaces/Alejandrofupi/7ph-graph).
+Live at [www.7phgraph.com](https://www.7phgraph.com), which is the Space
+`Alejandrofupi/7ph-graph` reached through a custom domain.
 
 ## Hugging Face Space
 
@@ -16,6 +16,23 @@ hardware is free, but the Hub answers 402 to putting a Gradio app on it without
 PRO. Free ZeroGPU hardware is not a way around that, because its runtime kills
 any app that registers no `@spaces.GPU` function, and this one has no GPU work to
 do. Colab is the free alternative, below.
+
+### Visibility and the custom domain
+
+The Space is **protected** rather than public: the Hub keeps the repository
+private while the running app stays reachable. That is what the deploy needs,
+because the bundle it ships carries the built graph and the ingestion reports,
+and a public Space offers all of it for download from its Files tab. Protected
+visibility is a PRO feature like the custom domain, so both are covered by the
+subscription the Space already requires.
+
+The address to publish is [www.7phgraph.com](https://www.7phgraph.com), a CNAME
+to `hf.space` entered under the Space's Custom Domain setting. It has to be a
+subdomain: the Hub confirms the domain by resolving a CNAME at the exact name
+submitted, and an apex cannot carry one. Note that the Space's own
+`alejandrofupi-7ph-graph.hf.space` address also keeps serving the app under
+protected visibility, with no setting to disable it, so the custom domain is the
+URL to hand out rather than the only one that answers.
 
 Create the Space once by hand at
 [huggingface.co/new-space](https://huggingface.co/new-space) (Gradio SDK, CPU

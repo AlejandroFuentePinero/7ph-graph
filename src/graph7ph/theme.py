@@ -136,7 +136,7 @@ def build_css() -> str:
 
     Prepends the two ``@font-face`` faces (§3), defines the tokens once in ``:root``,
     and reads them by role for the eight-role type system (§3), the insight-card and
-    control-panel surfaces (§12/§13), and the 7-pip signature (§15). The heading roles
+    control-panel surfaces (§12/§13), and the graph mark (§15). The heading roles
     land on the page's own markdown; the control label lands on Gradio's field title
     (its ``block-info`` span); the rest are utility classes. The reading measure bounds
     prose to ``MEASURE_CH``. A quiet quality floor (reduced motion, visible focus) rides
@@ -588,36 +588,45 @@ def dark_theme():
 
 # The share surface (issue #115). Fixed copy, so the preview a link unfurls reads as
 # something the project chose rather than Gradio's default furniture. The URL is the
-# canonical Space link the README points people to.
+# custom domain the README points people to, not the Space it runs on: the Space is
+# protected, so its Hub page answers only to its owner and would unfurl as nothing.
 _APP_TITLE = "7 Point Highlander Graph"
 _APP_DESCRIPTION = (
     "An interactive knowledge graph of the Australian 7 Point Highlander metagame: "
     "events, pilots, decks, and cards, for exploration and analytics."
 )
-_APP_URL = "https://huggingface.co/spaces/Alejandrofupi/7ph-graph"
+_APP_URL = "https://www.7phgraph.com"
 
-# The 7-pip mark: seven accent dots (a hexagon around a centre) on the ground, one dot
-# per point of a 7-point deck, so the favicon is the app's own signature (§15) rather
-# than Gradio's. Drawn from the tokens, so an accent change carries into the icon.
-_PIPS = [(16, 16), (24.5, 16), (20.25, 8.64), (11.75, 8.64),
-         (7.5, 16), (11.75, 23.36), (20.25, 23.36)]
+# The graph mark: three nodes joined in a triad, which is the least a node-link diagram
+# can be and still read as one, so the favicon says what the app is. It replaces the
+# 7-pip mark, which §15 had already dropped from the page for reading as an ambiguous
+# "dot dot dot"; the same ambiguity was worse at icon size, where seven dots blur into a
+# smudge while three nodes and three edges still resolve at 16px. Drawn from the tokens,
+# so an accent change carries into the icon.
+_NODES = [(16, 7.5), (23.5, 21), (8.5, 21)]
 
 
 def _favicon_data_uri() -> str:
-    """The 7-pip mark as a base64 ``image/svg+xml`` data URI.
+    """The graph mark as a base64 ``image/svg+xml`` data URI.
 
     Self-hosted like the fonts: the whole icon travels in the head, so the Space
     serves no external favicon request and needs no static-file route (which the
     SSR proxy would complicate, see ``serve.py``).
     """
-    dots = "".join(
-        f"<circle cx='{x}' cy='{y}' r='2.7' fill='{TOKENS['accent-bright']}'/>"
-        for x, y in _PIPS
+    accent = TOKENS["accent-bright"]
+    # Edges first, so the nodes cap their ends rather than the strokes crossing them.
+    edges = "".join(
+        f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='{accent}' "
+        f"stroke-width='1.5' stroke-opacity='0.75' stroke-linecap='round'/>"
+        for (x1, y1), (x2, y2) in zip(_NODES, _NODES[1:] + _NODES[:1])
+    )
+    nodes = "".join(
+        f"<circle cx='{x}' cy='{y}' r='3.2' fill='{accent}'/>" for x, y in _NODES
     )
     svg = (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
         f"<rect width='32' height='32' rx='7' fill='{TOKENS['bg']}'/>"
-        f"{dots}</svg>"
+        f"{edges}{nodes}</svg>"
     )
     b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{b64}"
@@ -627,7 +636,7 @@ def build_head() -> str:
     """The HTML injected into ``<head>`` at the ``gr.Blocks`` level (issue #115).
 
     Replaces the default Gradio furniture on a shared link with the app's own: a real
-    favicon (the 7-pip mark) and the Open Graph / Twitter card a preview unfurls from.
+    favicon (the graph mark) and the Open Graph / Twitter card a preview unfurls from.
     No preview image yet (deferred): a ``summary`` card carries the title and
     description, which is the honest card to declare until a real image is authored.
     """
@@ -646,12 +655,25 @@ def build_head() -> str:
 
 # Retires the browser light/dark inheritance: force the ``__theme=dark`` query param
 # once on load, so Gradio applies its dark component rules and never the light ones.
+#
+# The param is how Gradio is told, but it is not something a visitor should have to
+# read or copy: a shared link carrying ``?__theme=dark`` advertises the workaround
+# instead of the app. So once the reload has landed and Gradio has taken the theme from
+# the URL, the param is dropped from the address bar with ``replaceState``, which
+# rewrites history without navigating. The drop is deferred a frame so it cannot race
+# Gradio's own read of the query string. A later reload starts clean, re-adds the param,
+# and strips it again, which is the same single redirect this already cost.
 FORCE_DARK_JS = """
 () => {
   const url = new URL(window.location);
   if (url.searchParams.get('__theme') !== 'dark') {
     url.searchParams.set('__theme', 'dark');
     window.location.replace(url.href);
+  } else {
+    requestAnimationFrame(() => {
+      url.searchParams.delete('__theme');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    });
   }
 }
 """
