@@ -14,6 +14,7 @@ so a token edited to an illegible value fails a test rather than a reader.
 
 import base64
 import html
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -606,13 +607,8 @@ _APP_URL = "https://www.7phgraph.com"
 _NODES = [(16, 7.5), (23.5, 21), (8.5, 21)]
 
 
-def _favicon_data_uri() -> str:
-    """The graph mark as a base64 ``image/svg+xml`` data URI.
-
-    Self-hosted like the fonts: the whole icon travels in the head, so the Space
-    serves no external favicon request and needs no static-file route (which the
-    SSR proxy would complicate, see ``serve.py``).
-    """
+def _favicon_svg() -> str:
+    """The graph mark as SVG source."""
     accent = TOKENS["accent-bright"]
     # Edges first, so the nodes cap their ends rather than the strokes crossing them.
     edges = "".join(
@@ -623,13 +619,40 @@ def _favicon_data_uri() -> str:
     nodes = "".join(
         f"<circle cx='{x}' cy='{y}' r='3.2' fill='{accent}'/>" for x, y in _NODES
     )
-    svg = (
+    return (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
         f"<rect width='32' height='32' rx='7' fill='{TOKENS['bg']}'/>"
         f"{edges}{nodes}</svg>"
     )
-    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def _favicon_data_uri() -> str:
+    """The graph mark as a base64 ``image/svg+xml`` data URI.
+
+    Self-hosted like the fonts: the whole icon travels in the head, so the Space
+    serves no external favicon request and needs no static-file route (which the
+    SSR proxy would complicate, see ``serve.py``).
+    """
+    b64 = base64.b64encode(_favicon_svg().encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{b64}"
+
+
+def favicon_file() -> Path:
+    """The graph mark on disk, for ``Blocks.launch(favicon_path=...)``.
+
+    The ``<link rel="icon">`` in the head is not enough by itself, and on the Space it
+    does nothing at all. Gradio renders the page shell server-side there, with its own
+    ``<link rel="icon" href="/favicon.ico">`` already in it, while the head this app
+    injects arrives afterwards from the config, by which point the browser has taken
+    the first one and does not go back. So the icon has to be what ``/favicon.ico``
+    itself answers with, and ``favicon_path`` is what sets that: ``gradio.routes``
+    serves that route from this file, falling back to Gradio's own logo when it is
+    unset, which is the logo the Space wore. Written out at launch rather than shipped
+    as a checked-in file, so the mark stays derived from the tokens.
+    """
+    path = Path(tempfile.gettempdir()) / "graph7ph-icon.svg"
+    path.write_text(_favicon_svg(), encoding="utf-8")
+    return path
 
 
 def build_head() -> str:
