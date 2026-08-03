@@ -420,6 +420,28 @@ _MAINTAINER = "Alejandro de la Fuente"
 _CONTACT_EMAIL = "alejandrofuentepinero@gmail.com"
 _CONTACT_DISCORD = "alejandrofp92"
 
+# The standing offer to be taken off the graph, written once and shown wherever a
+# person is named. Two tabs name people to their face: Pilots picks one out by name,
+# and the player leaderboard ranks them, so both carry the note in full above their
+# controls rather than a link to it. Hidden gems labels its decks by pilot too, and
+# the footer's one-line version covers that tab and every other.
+#
+# The tone is the point, not the legal position: nobody registered a deck expecting a
+# graph, so the note refuses to ask for a reason and refuses to treat wanting off as
+# odd. It promises what a rebuild can actually deliver, which is that identifiable
+# records go, and never that a decklist is unpublished: the source is public and not
+# this project's to take down.
+_PRIVACY_HEADING = "About the names on this graph"
+_PRIVACY_NOTE = (
+    "Every name here comes from a public decklist. Still, seeing your own results "
+    "plotted on someone else's graph is a different thing from posting a list. Some "
+    "people like it, some don't, and I don't think either reaction needs "
+    "justifying.\n\n"
+    f"Want off? Message me on Discord ({_CONTACT_DISCORD}) or email "
+    f"[{_CONTACT_EMAIL}](mailto:{_CONTACT_EMAIL}). I'll pull your identifiable "
+    "records in the next update, no reason needed."
+)
+
 
 def _last_updated(built_iso: str | None) -> str:
     """The artifact's build date as a last-updated line, or that it is unknown.
@@ -440,13 +462,20 @@ def _last_updated(built_iso: str | None) -> str:
 
 def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
     """The coverage and contact surface (issue #115): how much of the metagame the
-    graph holds, when it was last updated, and who to reach about it.
+    graph holds, when it was last updated, who to reach about it, and that anyone
+    named on it can ask to be taken off.
 
     The coverage row uses the one numeric convention (§4): each count
     thousands-comma'd and set in tabular figures so the digits align, the years as a
     span (a single year where the graph is one year deep). Every value is an
     app-generated count or a fixed contact string, so nothing here is user free text
     to escape.
+
+    The opt-out line rides here because this surface is under every tab: Pilots and the
+    player leaderboard state the offer in full (``_PRIVACY_NOTE``), and this is what
+    carries it on the tabs that name people in passing, Hidden gems above all. It sits
+    directly under the contact it depends on, since "just ask" is only an offer beside
+    the address to ask at.
     """
     years = (
         str(cov.first_year) if cov.first_year == cov.last_year
@@ -469,6 +498,8 @@ def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
         "<div class='provenance'>"
         f"<div class='coverage tabular'>{row}</div>"
         f"<div class='t-caption'>{contact}</div>"
+        "<div class='t-caption'>Would rather not be named on this graph? "
+        "Just ask, no reason needed.</div>"
         "</div>"
     )
 
@@ -839,6 +870,16 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "that may be the same person, which is a question this project has not settled "
         "rather than an answer it got wrong. If you find yourself in here twice, the "
         "email and Discord at the foot of the page are the way to say so.",
+    ),
+    (
+        # The same note the two people-naming tabs carry, reachable from the one tab a
+        # reader goes to with a question rather than a subject. Phrased as a question
+        # here because every other box is, and the answer is `_PRIVACY_NOTE` itself: a
+        # second wording of the offer would be a second promise to keep in step.
+        "faq-privacy",
+        "Pilots",
+        "Can I have my name taken off this graph?",
+        _PRIVACY_NOTE,
     ),
     (
         "faq-performance",
@@ -3719,6 +3760,11 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "Explore any pilot's decks, rivalries, and placements over time.",
                 elem_classes="t-lede",
             )
+            # Above the picker, not below the plots: this is the tab where a reader
+            # types a name in, and the person whose name it is should meet the offer
+            # before the graph rather than after it.
+            with gr.Group(elem_classes="insight-card privacy-note"):
+                gr.Markdown(f"### {_PRIVACY_HEADING}\n\n{_PRIVACY_NOTE}")
             pilots_default = next(iter(_PILOTS_TAB))
             po_default = pilots_default == "pilot_overview"
             h2h_default = pilots_default == "pilot_head_to_head"
@@ -3868,6 +3914,11 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "Who the leading pilots are, and how long the record took to say so.",
                 elem_classes="t-lede",
             )
+            # Above the chart and the standings both, since this is the one surface that
+            # ranks named people against each other, and the reader it is written for is
+            # whoever finds themselves on it.
+            with gr.Group(elem_classes="insight-card privacy-note"):
+                gr.Markdown(f"### {_PRIVACY_HEADING}\n\n{_PRIVACY_NOTE}")
             with gr.Group(elem_classes="insight-card"):
                 gr.HTML(value=race_heading, visible=race_heading is not None,
                         padding=False)
