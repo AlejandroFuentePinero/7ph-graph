@@ -44,6 +44,8 @@ from graph7ph.app import (
     _landscape_top,
     _observation_marker,
     _PILOTS_TAB,
+    _PRIVACY_HEADING,
+    _PRIVACY_NOTE,
     _between_line_polys,
     _performance_caption,
     _performance_figure,
@@ -1554,6 +1556,27 @@ def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snap
 
     assert "121" in surface  # the fixture's distinct card count
     assert "alejandrofuentepinero@gmail.com" in surface
+
+
+def test_anyone_named_on_the_graph_is_offered_a_way_off_it(tmp_path, snapshot_dir):
+    # The two tabs that name people to their face state the offer in full: Pilots picks
+    # one person out by name, and the player leaderboard ranks them against each other.
+    # Counted, so a note dropped from one of them or pasted onto all seven trips here.
+    surface = _all_surface_text(_built_demo(tmp_path, snapshot_dir))
+    notes = [text for text in surface if _PRIVACY_HEADING in text]
+    assert len(notes) == 2
+    for note in notes:
+        assert _PRIVACY_NOTE in note
+
+    # Every other tab is covered by the footer, which sits under all of them: Hidden
+    # gems labels its decks by pilot, so the offer must reach a reader who never opens
+    # the two tabs above.
+    assert any("Just ask, no reason needed" in text for text in surface)
+
+    # And the FAQ answers it with that same text rather than a second wording, so there
+    # is one promise on the page and not three that can drift apart.
+    (answer,) = [a for eid, _, _, a in _FAQ_ENTRIES if eid == "faq-privacy"]
+    assert answer == _PRIVACY_NOTE
 
 
 def _landscape_cells(*rows, year=2026, total=100, year_events=10, half=0.1):

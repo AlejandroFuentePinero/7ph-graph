@@ -224,8 +224,12 @@ def build_css() -> str:
    this again without asking: capping the card put one narrow column down the left of a
    wide screen with the rest empty, and flowing the cards into as many measure-wide
    columns as fit broke the one-question-per-row reading order. The layout is the
-   decision; #85's criterion 4 is answered against it, not the other way round. */
-.faq-card p, .faq-card li {{ max-width: none; }}
+   decision; #85's criterion 4 is answered against it, not the other way round.
+
+   The privacy note on Pilots and the player leaderboard joins the rule at the
+   maintainer's call: it is the same shape, a handful of sentences in a full-width card,
+   and measure-bound it read as the same narrow column against the same empty right. */
+.faq-card p, .faq-card li, .privacy-note p {{ max-width: none; }}
 /* The question is the box's own heading and the reader's entry point into it, so it
    takes the accent: eight boxes at a glance are scanned by their questions. */
 .faq h3 {{ color: var(--accent-bright); }}

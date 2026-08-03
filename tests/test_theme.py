@@ -83,12 +83,16 @@ def test_every_prose_role_takes_the_reading_measure_and_the_faq_is_the_exception
     prose = re.search(r"\.prose p, \.prose li, \.t-lede, \.t-body\s*\{(.*?)\}", css, re.DOTALL)
     assert prose and f"max-width: {theme.MEASURE_CH}ch" in prose.group(1)
 
-    # The FAQ is the one deliberate exception, held here so it reads as a decision rather
-    # than an oversight: the maintainer wants full-width boxes one question per row, and
-    # a measure-bound paragraph inside a wide box was rejected twice (2026-07-26). The
-    # answers therefore run the width of their box, which on a wide monitor is longer
-    # than the measure. Criterion 4 is answered against that layout, not the reverse.
-    assert re.search(r"\.faq-card p, \.faq-card li\s*\{[^}]*max-width: none", css)
+    # The full-width note boxes are the deliberate exceptions, held here so they read as
+    # a decision rather than an oversight: the maintainer wants full-width boxes one
+    # question per row, and a measure-bound paragraph inside a wide box was rejected
+    # twice (2026-07-26). Their prose therefore runs the width of its box, which on a
+    # wide monitor is longer than the measure. Criterion 4 is answered against that
+    # layout, not the reverse. The FAQ answers were the first; the privacy note on
+    # Pilots and the player leaderboard is the same shape and took the same call.
+    assert re.search(
+        r"\.faq-card p, \.faq-card li, \.privacy-note p\s*\{[^}]*max-width: none", css
+    )
     # And no bound has crept back onto the card or a grid onto its container, either of
     # which would quietly undo the layout that was asked for.
     assert not re.search(r"\.faq-card\s*\{", css)
