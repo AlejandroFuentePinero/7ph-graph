@@ -4,20 +4,34 @@ Gradio ships a Brotli middleware but gates it on a file extension in the request
 path (``BrotliMiddleware._is_compressible_file_type`` returns ``False`` when the
 path has no dot), so it only ever compresses static assets. Gradio's own
 endpoints carry no extension and are served uncompressed. The config is the
-heavy one: it carries the whole widget tree, which holds three copies of the
-~5000-card catalogue, so a visitor pays 1.99 MB of it before the first paint on
-every load, and the deployed Space is fronted by a proxy that adds no
-compression of its own (issue #93). Compressed it is 116 KB.
+heavy one: it carries the whole widget tree, including the ~5000-card catalogue,
+so a visitor pays 912 KB of it before the first paint on every load, and the
+deployed Space is fronted by a proxy that adds no compression of its own
+(issue #93). Compressed it is 198 KB.
 
-Brotli specifically, not gzip: the three catalogue copies sit far apart in the
-payload, and only the larger window spans the distance to spot them as repeats
-(gzip manages about 3x on this, Brotli 17x).
+Brotli specifically, not gzip: gzip manages 3.2x on this payload and Brotli 4.6x,
+which is 90 KB a visit. The gap used to be far wider. The catalogue once shipped
+three times over, the copies sat far apart, and only Brotli's larger window
+spanned the distance to spot them as repeats (3x against 17x). Shipping it once
+(#220) took that redundancy away and most of the ratio with it, but Brotli still
+wins by enough to keep.
 
-The page shell is in the rule too, but it earns its keep only off the Space. The
-Space runs Gradio in SSR mode, which serves a ~23 KB root through a route that
-never reaches this middleware; measure there and the entry looks dead. It is not:
-with SSR off, as ``graph7ph app`` runs locally, the root embeds that same widget
-tree and is 4.03 MB.
+The page shell is in the rule too, and only reaches it off the Space. The Space
+runs Gradio in SSR mode, which serves the root through a routing middleware that
+sits outside this one, so measure there and the entry looks dead. It is not dead
+locally: with SSR off, as ``graph7ph app`` runs, the root embeds that same widget
+tree and is 972 KB, or 202 KB compressed.
+
+That leaves the Space serving a 292 KB root uncompressed, and neither way of
+reaching it is worth taking. Mounting the app
+under an outer one to get this middleware outside Gradio's routing does compress
+it (292 KB to 106 KB) and breaks the page: the server-rendered HTML points at its
+bundles under ``/_app/immutable/``, a path the mount does not route to the Node
+server, so every one 404s and the browser is left with a shell it cannot boot.
+Turning SSR off on the Space is no better, because the document is a minority of
+the load either way (~1.6 MB, mostly Gradio's own JavaScript, already compressed)
+and giving up the ready-made HTML pushes first content from 0.34 s to 0.70 s on a
+5 Mbps link. Leaving the Space's root uncompressed is the best of the three.
 
 The event stream deliberately stays out. It is a chunked ``text/event-stream``,
 and compressing it risks buffering the incremental updates it exists to deliver,
