@@ -56,6 +56,19 @@ _FIELD_SIZE = 500
 # the 8 that would read as a top-8 cut and trip the build's Rule B.
 _COVERED_FIELD = 12
 
+def _shared_win(field_size: int) -> str:
+    """The rank-1 tie band every bulk fixture deck here opens its title with.
+
+    These writers park whole cohorts at rank 1 because no trend surface reads a
+    placement off them, but a cohort of exclusive "1st" titles is exactly the
+    impossible bracket the build's sole-winner guard (``TwoWinners``) exists to
+    refuse. So the shared rank is declared as what it is: one tie band as wide
+    as the event's own declared field, which seats any cohort the field can
+    hold. Its best end still reads as rank 1, agreeing with the ``placement: 1``
+    column beside it.
+    """
+    return f"1st/{field_size}th"
+
 
 def _cell(tag, year, n):
     """A cell with an arbitrary but consistent share/year_total, for cut tests."""
@@ -87,7 +100,7 @@ def _write_snapshot(
         tag = f"engine:{archetype}"
         deck_records.append({
             "deckId": deck_id,
-            "name": f"1st Someone - {archetype} - {event}",
+            "name": f"{_shared_win(_FIELD_SIZE)} Someone - {archetype} - {event}",
             "deckName": archetype.title(),
             "pilot": f"pilot-{deck_id}",
             "event": event,
@@ -359,7 +372,7 @@ def _write_adoption_snapshot(
     deck_records = [
         {
             "deckId": deck_id,
-            "name": f"1st Player {deck_id} - Deck - {event}",
+            "name": f"{_shared_win(_FIELD_SIZE)} Player {deck_id} - Deck - {event}",
             "deckName": "Deck",
             "pilot": f"pilot-{deck_id}",
             "event": event,
@@ -563,7 +576,7 @@ def _cover_fields(deck_records: list[dict]) -> list[dict]:
         for i in range(math.ceil(template["eventSize"] * 0.6) - ranked):
             padded.append({**template,
                            "deckId": f"filler-{event}-{i}",
-                           "name": f"1st filler-{event}-{i} - Deck - {event}",
+                           "name": f"{_shared_win(template['eventSize'])} filler-{event}-{i} - Deck - {event}",
                            "pilot": f"filler-{event}-{i}",
                            "placement": 1,
                            "placementNorm": 0.5,
@@ -598,7 +611,7 @@ def _write_performance_snapshot(
             # title opens with no placement and neither does the deck: the build mints
             # a norm from any placement it can see, so a placement beside a null norm
             # is no longer an unranked deck anywhere in the record (issue #162).
-            "name": (f"1st {pilot} - Deck - {event}" if norm is not None
+            "name": (f"{_shared_win(_COVERED_FIELD)} {pilot} - Deck - {event}" if norm is not None
                      else f"{pilot} - Deck - {event}"),
             "deckName": "Deck",
             "pilot": pilot,
@@ -653,7 +666,7 @@ def _publish_only_a_bracket(snapshot: Path, event: str) -> None:
     decks = json.loads((snapshot / "decks.json").read_text())
     for deck in decks:
         if deck["event"] == event and deck["deckId"].startswith("filler-"):
-            deck["name"] = deck["name"].removeprefix("1st ")
+            deck["name"] = deck["name"].removeprefix(f"{_shared_win(deck['eventSize'])} ")
             deck["placement"], deck["placementNorm"] = None, None
     (snapshot / "decks.json").write_text(json.dumps(decks))
 
@@ -912,25 +925,26 @@ def _write_h2h_snapshot(
 def _h2h_graph(root, built_graph):
     """A built graph where ``ann`` and ``bob`` share three events, plus fillers.
 
-    E1 (registered 2025-03) is a full 5-deck field, placements 1..5 with norms
-    ``(place-1)/4``, so its field and its deck count both read 5. ``ann`` finishes
-    1st (norm 0.0), ``bob`` 4th (norm 0.75). EM (registered 2025-05) is a 3-deck
-    field the pair also both entered. E2 (registered 2025-07, last) is a
-    **top-cut** field: 20 real entrants but only four decks recorded, norms
-    ``(place-1)/19``, so its field is 20 while the decks-at-event count is 4.
-    ``ann`` finishes 2nd, ``bob`` 5th. E2 is what holds the tool to reading the
-    event's own field rather than counting decks. ``ann`` also played a lone EA
-    that ``bob`` did not, so it is never a shared event.
+    E1 (registered 2025-03) holds 5 decks, placements 1..5 with norms
+    ``(place-1)/8`` against its claimed field of 9 (above 8, so Rule B leaves it
+    alone; ADR 0015 amended). ``ann`` finishes 1st (norm 0.0), ``bob`` 4th (norm
+    0.375). EM (registered 2025-05) is a 3-deck field of 9 the pair also both
+    entered. E2 (registered 2025-07, last) is a **top-cut** field: 20 real
+    entrants but only four decks recorded, norms ``(place-1)/19``, so its field
+    is 20 while the decks-at-event count is 4. ``ann`` finishes 2nd, ``bob``
+    5th. E2 is what holds the tool to reading the event's own field rather than
+    counting decks. ``ann`` also played a lone EA that ``bob`` did not, so it is
+    never a shared event.
     """
     decks = [
         ("e1-ann", "ann", "E1", "2025-03-01T00:00:00+00:00", 1, 0.0),
-        ("e1-bob", "bob", "E1", "2025-03-01T09:00:00+00:00", 4, 0.75),
-        ("e1-f1", "e1f1", "E1", "2025-03-02T00:00:00+00:00", 2, 0.25),
-        ("e1-f2", "e1f2", "E1", "2025-03-02T00:00:00+00:00", 3, 0.5),
-        ("e1-f3", "e1f3", "E1", "2025-03-02T00:00:00+00:00", 5, 1.0),
-        ("em-ann", "ann", "EM", "2025-05-01T00:00:00+00:00", 3, 1.0),
+        ("e1-bob", "bob", "E1", "2025-03-01T09:00:00+00:00", 4, 0.375),
+        ("e1-f1", "e1f1", "E1", "2025-03-02T00:00:00+00:00", 2, 0.125),
+        ("e1-f2", "e1f2", "E1", "2025-03-02T00:00:00+00:00", 3, 0.25),
+        ("e1-f3", "e1f3", "E1", "2025-03-02T00:00:00+00:00", 5, 0.5),
+        ("em-ann", "ann", "EM", "2025-05-01T00:00:00+00:00", 3, 0.25),
         ("em-bob", "bob", "EM", "2025-05-01T00:00:00+00:00", 1, 0.0),
-        ("em-f1", "emf1", "EM", "2025-05-02T00:00:00+00:00", 2, 0.5),
+        ("em-f1", "emf1", "EM", "2025-05-02T00:00:00+00:00", 2, 0.125),
         ("e2-ann", "ann", "E2", "2025-07-01T00:00:00+00:00", 2, 1 / 19),
         ("e2-bob", "bob", "E2", "2025-07-01T00:00:00+00:00", 5, 4 / 19),
         ("e2-f1", "e2f1", "E2", "2025-07-02T00:00:00+00:00", 1, 0.0),
@@ -938,7 +952,7 @@ def _h2h_graph(root, built_graph):
         ("ea-ann", "ann", "EA", "2025-09-01T00:00:00+00:00", 1, 0.0),
     ]
     return built_graph(root, _write_h2h_snapshot(
-        root, decks, field_sizes={"E1": 5, "EM": 3, "E2": 20}))
+        root, decks, field_sizes={"E1": 9, "EM": 9, "E2": 20}))
 
 
 def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
@@ -955,10 +969,10 @@ def test_head_to_head_returns_one_row_per_shared_event_with_both_pilots(
     # Each row carries both pilots' raw placement and norm and the event's field
     # size, so the chart can label a point with the finish while plotting the norm.
     e1 = by_event["E1"]
-    assert e1.field_size == 5
+    assert e1.field_size == 9
     assert e1.date == datetime(2025, 3, 1, 0, 0)  # min createdAt across the field
     assert (e1.placement_a, e1.norm_a) == (1, pytest.approx(0.0))
-    assert (e1.placement_b, e1.norm_b) == (4, pytest.approx(0.75))
+    assert (e1.placement_b, e1.norm_b) == (4, pytest.approx(0.375))
 
     # The top-cut event: 4 decks recorded against a 20-entrant field, so field_size
     # reads the event's own field (20), not the deck count (4).
@@ -1175,7 +1189,7 @@ def _write_landscape_snapshot(
             # title opens with no placement and neither does the deck: the build mints
             # a norm from any placement it can see, so a placement beside a null norm
             # is no longer an unranked deck anywhere in the record (issue #162).
-            "name": (f"1st {deck_id} - {archetype} - {event}" if norm is not None
+            "name": (f"{_shared_win(_COVERED_FIELD)} {deck_id} - {archetype} - {event}" if norm is not None
                      else f"{deck_id} - {archetype} - {event}"),
             "deckName": archetype.title(),
             "pilot": f"pilot-{deck_id}",
@@ -1411,12 +1425,13 @@ def _write_timeline_snapshot(
     so an uncovered fixture would describe a chart with nothing on it.
 
     A row may carry a sixth member, its **placement**, where the fixture is asserting on
-    something that reads one. The default is the 1st every ranked deck here has always
-    declared, which no surface read until the tail bound did (ADR 0024): a bound counts
-    off the last published slot, so a fixture whose every finish claims 1st describes an
-    event that could not exist and bounds its tail at a near-win. Fixtures that assert
-    on a bound state a placement their norm agrees with, exactly as ADR 0022 had these
-    fixtures declare a field their deck count could fill.
+    something that reads one. The default is the shared rank-1 band every bulk fixture
+    here declares (:func:`_shared_win`), which no surface read until the tail bound did (ADR
+    0024): a bound counts off the last published slot, so a fixture whose every finish
+    claims an exclusive 1st describes an event that could not exist and bounds its tail
+    at a near-win; the build's sole-winner guard now refuses that shape outright.
+    Fixtures that assert on a bound state a placement their norm agrees with, exactly as
+    ADR 0022 had these fixtures declare a field their deck count could fill.
     """
     snap = root / "snap"
     snap.mkdir()
@@ -1429,7 +1444,9 @@ def _write_timeline_snapshot(
             # is no longer an unranked deck anywhere in the record (issue #162).
             # The title states the same placement the record does, so the build's own
             # title reader cannot disagree with the column beside it.
-            "name": (f"{_ordinal(placement)} {deck_id} - {archetype} - {event}"
+            "name": ((f"{_shared_win(_COVERED_FIELD)} {deck_id} - {archetype} - {event}"
+                      if placement == 1
+                      else f"{_ordinal(placement)} {deck_id} - {archetype} - {event}")
                      if norm is not None else f"{deck_id} - {archetype} - {event}"),
             "deckName": archetype.title(),
             "pilot": f"pilot-{deck_id}",
@@ -1993,7 +2010,7 @@ def _write_race_snapshot(
         date, field = events[event]
         deck_records.append({
             "deckId": f"{pilot}-{event}",
-            "name": f"1st {pilot} - Deck - {event}",
+            "name": f"{_shared_win(field)} {pilot} - Deck - {event}",
             "deckName": "Deck",
             "pilot": pilot,
             "event": event,

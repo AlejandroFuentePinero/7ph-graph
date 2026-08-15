@@ -18,7 +18,9 @@ from pydantic import BaseModel
 
 from graph7ph.curation import Curation, CurationError, load_curation
 from graph7ph.db import open_for_writing, remove_artifact, rows
-from graph7ph.models import COLOURS, Card, Containment, Deck, Snapshot
+from graph7ph.models import (
+    COLOURS, Card, Containment, Deck, Snapshot, tier_width_from_title,
+)
 from graph7ph.pilots import PilotResolution, resolve_pilots
 from graph7ph.provenance import stamp
 
@@ -93,6 +95,22 @@ class YearStraddle(ValueError):
     Raised before anything is written, so the live graph is untouched. The CLI
     reports it as an abort rather than a crash, alongside ``SchemaError``: both
     mean the snapshot cannot honestly be built (ADR 0003, ADR 0006).
+    """
+
+
+class TwoWinners(ValueError):
+    """A Tournament seats more rank-1 decks than its own titles can tie.
+
+    One Tournament has one winner's tier: a final ties at worst across the band
+    its titles declare ("1st/2nd" seats two, "01st-4th" four), so the rank-1
+    group can never outgrow the widest band among its own titles. The one way
+    the corpus has produced such a group is upstream merging two events under
+    one name (2026-08: a July event was folded into S&CWADJune, doubling its
+    bracket), which every per-record guard waves through, because the foreign
+    decks arrive under new ids the gate has nothing to compare against. Raised
+    before anything is written, like :class:`YearStraddle`: a merged event
+    cannot honestly be built, and the fix is refiling the foreign decks in the
+    snapshot, not building around them.
     """
 
 
@@ -183,6 +201,9 @@ def build_graph(
     years = _event_years(snapshot.decks)
     if pilots.dropped_decks:
         snapshot = _without_decks(snapshot, pilots.dropped_decks)
+    # Below the drop for the same reason as the field count: a duplicate
+    # registration of the winner is one winner, not two events merged.
+    _check_sole_winner(snapshot.decks)
     # After the drop as well as after the resolution: a duplicate registration is
     # not a second attendee, and Rule A fires on a count of attendees exceeding
     # the claimed field, so counting the dropped registrations would correct a
@@ -420,6 +441,40 @@ def _without_decks(snapshot: Snapshot, dropped: frozenset[str]) -> Snapshot:
     )
 
 
+def _check_sole_winner(decks: list[Deck]) -> None:
+    """Abort when a Tournament's rank-1 group outgrows the tier its titles seat.
+
+    The one guard that sees an upstream event merge (see :class:`TwoWinners`):
+    the foreign decks carry new ids, so the ingest gate has nothing to compare
+    them against, and every field the merge rewrites on the absorbed decks it
+    rewrites wholesale, which per-record checks read as ordinary restatement. A
+    second winner is the merge's unfakeable residue: every Tournament crowns
+    one, so the merged event holds two. Rank 1 only, deliberately: deep swiss
+    standings can tie for real (LPMPerth seats two source-scored 25ths), but a
+    final ties only across a declared band, and even two merged split finals
+    ("1st/2nd" twice) put four decks in a band of two. A group any of whose
+    titles caps nothing (a "Top N" cut, a placeholder rank) stays uncapped and
+    is left alone. Runs after the duplicate-registration drop, so a twice-filed
+    winner cannot fire it. Fires on 0 of the 112 events held when the merged
+    event is refiled, and on nothing else in three snapshots of history.
+    """
+    winners: dict[str, list[Deck]] = {}
+    for deck in decks:
+        if deck.event_type == "Tournament" and deck.placement == 1:
+            winners.setdefault(deck.event, []).append(deck)
+    for event, group in sorted(winners.items()):
+        widths = [tier_width_from_title(d.name) for d in group]
+        if None in widths or len(group) <= max(widths):
+            continue
+        titles = ", ".join(repr(d.name) for d in sorted(group, key=lambda d: d.name))
+        raise TwoWinners(
+            f"{event} seats {len(group)} decks at rank 1 but its titles declare a "
+            f"tier of at most {max(widths)}: {titles}. Two winners mean two events "
+            f"merged under one name upstream; refile the foreign decks in the "
+            f"snapshot before building."
+        )
+
+
 def _event_years(decks: list[Deck]) -> dict[str, int]:
     """Each event's year, derived from the ``createdAt`` of its decks.
 
@@ -492,14 +547,15 @@ def corrected_field(
     is refuted", never "the new number is measured".
 
     **Rule B is domain knowledge.** Per the repo owner, 7PH runs no 8-player
-    events, so an ``eventSize`` of 8 or less is a top-8 cut reported as a field.
-    The ``max_placement < event_size`` guard anchors it in evidence, though only
-    partly: an event somebody finished last in has its small field corroborated
-    by its own standings, and MazeIQ and Pats Birthday Brawl show a deepest
-    finish of 5th against a claimed 8, the bracket signature. It is satisfied
-    vacuously at DeckaDiceIQ, where the winner is the only finish recorded at
-    all, so nothing there corroborates or contradicts the 6 the source claims and
-    the domain rule decides it alone.
+    events, so an ``eventSize`` of 8 or less is a top-8 cut reported as a field,
+    unconditionally. The rule once carried a ``max_placement < event_size``
+    guard, on the reading that an event somebody finished last in had its small
+    field corroborated by its own standings. FSNS refuted that reading (ADR
+    0015, amended): its recorded 3rd against a claimed 3 is a partial podium
+    report, the normal shape of these small uploads, and per the repo owner it
+    was an event of at least the floor. A recorded last place is therefore not
+    evidence about a claimed field this small, and the domain rule decides
+    every one of them.
 
     **Rule C is defensive only.** A null ``eventSize`` has never been observed.
 
@@ -523,7 +579,7 @@ def corrected_field(
         return max(pilots, max_placement, MIN_CUT_FIELD), "C"
     if pilots > event_size or max_placement > event_size:
         return max(pilots, max_placement, MIN_CUT_FIELD), "A"
-    if event_size <= 8 and max_placement < event_size:
+    if event_size <= 8:
         return max(pilots, MIN_CUT_FIELD), "B"
     return event_size, None
 

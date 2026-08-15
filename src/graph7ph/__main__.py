@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
-from graph7ph.build import YearStraddle, reconciliation_path
+from graph7ph.build import TwoWinners, YearStraddle, reconciliation_path
 from graph7ph.curation import CurationError
 from graph7ph.db import (
     NotABundle,
@@ -41,7 +41,7 @@ def _build(args: argparse.Namespace) -> None:
     # resolves it, so the flag is a required action rather than a notice.
     try:
         report, counts = ingest(args.snapshots, args.db)
-    except (SchemaError, YearStraddle, NotABundle, CurationError) as exc:
+    except (SchemaError, YearStraddle, TwoWinners, NotABundle, CurationError) as exc:
         raise SystemExit(f"Build aborted, live graph untouched: {exc}")
 
     print(f"Built {args.db} ({report.status}):")
@@ -55,8 +55,15 @@ def _build(args: argparse.Namespace) -> None:
           f"card_colour={counts.card_colour} has_type={counts.has_type} "
           f"in_year={counts.in_year}")
     if report.flags:
-        print(f"  {len(report.flags)} record(s) flagged for review "
-              f"(dropped ids or changed facts): {ingest_report_path(args.db)}")
+        # A flag is a pinned historical fact awaiting a human, not a notice, so
+        # it gets a banner a scrolling build log cannot bury.
+        bar = "!" * 74
+        print(f"  {bar}\n"
+              f"  !! REVIEW REQUIRED: {len(report.flags)} record(s) flagged "
+              f"(dropped ids or changed facts).\n"
+              f"  !! Each is pinned at its first-seen value until resolved: "
+              f"{ingest_report_path(args.db)}\n"
+              f"  {bar}")
 
     recon = json.loads(reconciliation_path(args.db).read_text())
     dupes, joined, candidates, curated, multi, splits, unexplained = (

@@ -9,6 +9,7 @@ from graph7ph.models import (
     colours_from_mana_cost,
     load_snapshot,
     resolve_cut_placements,
+    tier_width_from_title,
 )
 
 
@@ -187,6 +188,28 @@ def test_lone_top_cut_is_first():
              for i in range(4)]
     resolve_cut_placements(decks)
     assert [d.placement for d in decks] == [1, 1, 1, 1]
+
+
+@pytest.mark.parametrize(
+    ("title", "width"),
+    [
+        # An exclusive rank seats one; a declared band seats its span. The pair
+        # of grammars below ("1st" and zero-padded "01st") is exactly how the
+        # 2026-08 S&CWADJune merge betrayed itself: two exclusive winners.
+        ("1st Chifley C - Grixis - S&CWADJune", 1),
+        ("01st Brennan C - Storm - S&CWADJune", 1),
+        ("3rd/4th Liam W - Golgari Lands - S&CWADJune", 2),
+        ("05th-8th Rick P - Grixis - S&CWADJune", 4),
+        ("001st-4th Markovic - Storm - SydneyShowdown", 4),
+        # A "Top N" cut bounds a depth, not a tier, and a placeholder or absent
+        # token declares nothing: all three leave their group uncapped.
+        ("Top 8 Ben H - Jeskai Tempo - CanBrawl2", None),
+        ("??st Andrew V - Mox Jund - CFWAT25", None),
+        ("Darcy - Mono R - Area52IQ", None),
+    ],
+)
+def test_tier_width_read_off_the_title(title, width):
+    assert tier_width_from_title(title) == width
 
 
 def test_out_of_range_card_id_raises_a_clear_error(tmp_path):

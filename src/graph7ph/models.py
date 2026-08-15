@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 Board = Literal["Main", "Side"]
@@ -107,6 +107,29 @@ def placement_from_title(title: str | None) -> tuple[int | None, str | None]:
 # was, not where inside it the deck finished.
 _TOP_CUT = re.compile(r"^\s*\*?\s*-?\s*top\s*(\d+)", re.IGNORECASE)
 
+
+def tier_width_from_title(title: str | None) -> int | None:
+    """How many decks the tier a title declares can seat, or None if it caps nothing.
+
+    "1st" seats one, "3rd/4th" two, "05th-8th" four. A "Top N" cut bounds a
+    depth rather than a tier, and a placeholder rank (``??st``) or a title with
+    no token declares nothing, so all three return None and leave any group they
+    sit in uncapped. This is the capacity side of the same grammar
+    :func:`placement_from_title` reads a rank from: two decks may share a rank
+    only because their titles declare a tier wide enough to seat them both,
+    which is what lets ``build._check_sole_winner`` tell a split final from two
+    events merged under one name.
+    """
+    if _TOP_CUT.match(title or ""):
+        return None
+    token = PLACEMENT_TOKEN.match(title or "")
+    if not token:
+        return None
+    low, high = token.group(1), token.group(2)
+    if high is not None and low.isdigit() and high.isdigit():
+        return abs(int(high) - int(low)) + 1
+    return 1 if low.isdigit() else None
+
 # The five Magic colours, in canonical WUBRG order.
 COLOURS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 
@@ -170,6 +193,22 @@ class Deck(_Raw):
     pilot: str
     event: str
     event_id: str | None = None
+
+    @field_validator("pilot", "event", "deck_name", mode="before")
+    @classmethod
+    def _null_to_nan(cls, v: object) -> object:
+        """Parse a JSON null pilot, event or deckName to the ``"nan"`` sentinel.
+
+        The source's serializer has spelled a lost value both ways: the
+        snapshots held before 2026-08 stringify it to ``"nan"``, the ones after
+        ship a real null. Both mean the same absence, and everything downstream
+        already handles the string form (``pilots.NULL_PILOT_IDS``, the
+        ``[[deck_event]]`` curation), so a null takes the same spelling. That
+        also keeps the union gate quiet: pilot and event sit in the immutable
+        projection (``ingest._deck_hash``), and a serializer change is not a
+        change of fact.
+        """
+        return "nan" if v is None else v
     event_type: str
     placement: int | None = None
     placement_norm: float | None = None

@@ -8,3 +8,7 @@ Ingestion is a full rebuild, but our store is the system of record, not a mirror
 
 - The project is permanently non-commercial for as long as it uses Moxfield data.
 - 7phstats lags the upstream Moxfield account by roughly a week for the newest events. Accepted for v1; a Moxfield leading-edge fetch is a later option if day-one freshness becomes a requirement.
+
+## Amended 2026-08-16: createdAt is an immutable fact
+
+The immutable projection now also holds `createdAt`. It was classed volatile until an upstream event merge restamped a whole event's dates in silence and reached the deployed graph (the S&CWADJune incident); ADR 0025 records the incident and the second guard it added.
