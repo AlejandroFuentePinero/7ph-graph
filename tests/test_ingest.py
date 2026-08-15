@@ -198,6 +198,23 @@ def test_gate_sequence_over_a_clean_sequence_promotes():
     assert {d.deck_id for d in result.snapshot.decks} == {"d1", "d2"}
 
 
+def test_a_restamped_created_at_flags_and_pins_the_first_seen_date():
+    # The 2026-08 S&CWADJune merge restamped 8 decks' createdAt a month forward
+    # in one fetch, and the gate waved it through because the date was classed
+    # volatile. A registration date is a historical fact (it years, orders and
+    # plots everything downstream), so a restamp flags and the union keeps the
+    # date we first fetched until a human resolves it.
+    s0 = snap(decks=[deck("d1", created_at="2026-06-27T00:00:00+00:00")])
+    s1 = snap(decks=[deck("d1", created_at="2026-07-25T00:00:00+00:00")])
+
+    result = gate_sequence([s0, s1])
+
+    assert result.status == "flag"
+    assert result.report.flags == [Flag("changed", "deck", "d1")]
+    pinned = one(result.snapshot.decks, "d1")
+    assert pinned.created_at.isoformat() == "2026-06-27T00:00:00+00:00"
+
+
 def test_changed_volatile_field_is_silent_and_takes_the_latest_value():
     # Points move between points versions: volatile, not a historical fact.
     prior = snap(cards=[card("island", points=0)])

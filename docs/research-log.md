@@ -383,3 +383,55 @@ pass when the next snapshot lands.
   happens to pin the value will notice. Until the upstream bug is gone, keep mixed-aggregate
   queries ordered DISTINCT-last, or split them (`_teams_slots` in trends.py is the precedent:
   issue #215's fix runs the DISTINCT count as its own query rather than lean on column order).
+
+## 2026-08-16 - Upstream serializer now ships real nulls where it used to ship the string "nan"
+
+- The 2026-08-15 fetch spells a lost value as JSON null where every earlier snapshot stringified
+  it to "nan": pilot (26 decks), event (1 deck, the [[deck_event]]-curated one), deckName (4
+  decks). Confirmed by diffing the raw files deck by deck: exactly those three fields moved, on
+  exactly the decks that already carried "nan", and no other field went null that was not already
+  nullable. The 26 null pilots, the null event, and the 4 null deckNames are the same records as
+  before; nothing was lost upstream.
+- `Deck.pilot`/`event`/`deckName` were required strings, so `load_checked` aborted the build on
+  the new snapshot before any of the downstream null handling (`pilots.NULL_PILOT_IDS`, the
+  curation) could see it. Fixed with a before-validator on the model that parses null back to the
+  "nan" sentinel: that is the spelling the accumulated union already holds, and pilot and event
+  sit in the immutable projection (`ingest._deck_hash`), so any other spelling would have raised
+  27 spurious "changed" flags for a serializer change that changed no fact. The rebuilt graph
+  promoted with zero gate flags.
+- Why it matters: the sentinel set's own comment predicted this ("a serializer change cannot
+  silently collapse pilotless decks"), but the prediction only covered string spellings; a typed
+  null was the one shape the model itself refused. If another required string field goes null in
+  a future fetch (eventType, colour, macro, primaryTag are the remaining candidates), the build
+  will abort the same way, and the same question applies: is the old spelling in the union a
+  sentinel string the field's consumers already handle?
+
+## 2026-08-16 - Upstream merged a July event into S&CWADJune, and the gate promoted it clean
+
+- The 2026-08-15 fetch filed 8 foreign decks (a late-July Win-a-Dual, field 24, zero-padded
+  titles like "01st"/"05th-8th", updatedAt 2026-07-26) under S&CWADJune's name and event id,
+  restamped the 8 original June decks' createdAt from 2026-06-27 to 2026-07-25, restated the
+  event's size from 37 to 24, and recomputed the June norms against the wrong field. Deployed
+  effects before it was caught: a doubled bracket (two 1sts, two 2nds), phantom careers
+  Brennan C 2 and Chifley C 2 out of the ADR 0004 same-event split, June finishes inflated,
+  June dates moved a month. Verified as the data end, not ours: `fetch.py` stores the bytes
+  verbatim, all 16 decks share one eventId in the raw file, and the live site's events.json
+  still shows the merged event.
+- Why nothing fired: the foreign decks carried fresh ids the gate never compares, and every
+  field rewritten on the absorbed decks (createdAt, eventSize, placementNorm) was volatile
+  under ADR 0003. The `_deck_hash` docstring had predicted exactly this shape ("a whole event
+  restamped together... re-years every one of its decks in silence") and carried createdAt's
+  classification as an open question. The incident answered it.
+- Fix, at the source: the 8 foreign decks refiled in the 2026-08-15 snapshot under S&CWADJuly
+  (their real event, field 24 per the repo owner, eventId nulled since upstream mints none),
+  the 8 June records restored verbatim from the 2026-07-18 snapshot (field 37, June dates).
+  Rebuilt clean: 112 events, 1,136 pilots, Brennan C and Chifley C single careers again, zero
+  gate flags, zero norm-arithmetic violations at either event.
+- Shields (ADR 0025): createdAt joined the immutable hash (a restamp now flags, pins at
+  first-seen, and prints a REVIEW REQUIRED banner; fires on exactly the 8 June decks across
+  all history, nothing else), and the build aborts on a Tournament whose rank-1 group outgrows
+  the tie band its own titles declare (`TwoWinners`; over the whole corpus it fires on the
+  merged S&CWADJune alone, sparing split finals, Top-N cuts, Teams, and LPMPerth's real pair
+  of 25ths). While upstream stays merged, every future fetch will flag those 16 decks and pin
+  them at the corrected values; the standing action is to report the merge to 7phstats, not to
+  resolve the pin.

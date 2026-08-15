@@ -105,12 +105,12 @@ def _hash(projection: object) -> str:
 def _deck_hash(deck: Deck, conts: list[Containment]) -> str:
     """Hash a deck's immutable projection: its historical facts (ADR 0003).
 
-    Pilot, event, placement and decklist are historical, so a rewrite of any of
-    them is flagged. Everything else the model carries takes the latest value in
-    silence, and the list is worth spelling out rather than closing with an
-    "everything else": name, deckName, eventId, eventType, eventSize,
-    placementNorm, colour, macro, engineTags, engineTagLabels, primaryTag,
-    primaryTagWeights and createdAt. (deckId is the key the two sides are
+    Pilot, event, placement, createdAt and decklist are historical, so a rewrite
+    of any of them is flagged. Everything else the model carries takes the latest
+    value in silence, and the list is worth spelling out rather than closing with
+    an "everything else": name, deckName, eventId, eventType, eventSize,
+    placementNorm, colour, macro, engineTags, engineTagLabels, primaryTag and
+    primaryTagWeights. (deckId is the key the two sides are
     compared across, so it cannot move without reading as a drop plus an
     addition.) That silence is
     what ADR 0003 asks for on fields the source is entitled to restate: between
@@ -125,26 +125,27 @@ def _deck_hash(deck: Deck, conts: list[Containment]) -> str:
     entitled to restate them; the correction re-derives every build, so a fixed
     source stops the rules firing rather than freezing what they once decided.
 
-    ``createdAt`` sits on that side knowingly, not by classification. It is the
-    sole input to the Year dimension and to :class:`build.YearStraddle` (ADR
-    0006), the sole x-coordinate of the head-to-head timeline (ADR 0013), and
-    the sole ordering anchor of career threading in :mod:`graph7ph.pilots`, so a
-    rewrite of it moves drawn values while this gate stays quiet.
-    ``YearStraddle`` is its partial guard, and only partial: one deck restamped
-    across a New Year makes its event's year-set a pair and aborts the build,
-    but a whole event restamped together keeps that set a singleton and re-years
-    every one of its decks in silence, and a move inside one year is invisible
-    to every guard we have while still moving the timeline and the career order.
-    Nothing has moved yet: createdAt differs for 0 of the 4553 decks the two
-    snapshots share, and 6 of 107 events sit within a week of a New Year (issue
-    #103). Whether a corrected registration date is a fact to accept or a change
-    to review is an open question; this records which of the two the code
-    answers today.
+    ``createdAt`` sat on the volatile side until 2026-08, with an earlier
+    version of this docstring recording as an open question whether a corrected
+    registration date is a fact to accept or a change to review. The question
+    got answered: the source merged a second event into S&CWADJune, restamping
+    all 8 original decks' createdAt a month forward in one fetch, and this gate
+    waved it through, because every rewritten field was volatile. createdAt is
+    the sole input to the Year dimension (ADR 0006), the sole x-coordinate of
+    the head-to-head timeline (ADR 0013), and the sole ordering anchor of career
+    threading in :mod:`graph7ph.pilots`, and :class:`build.YearStraddle` guards
+    it only against a lone deck restamped across a New Year, not a whole event
+    restamped together or any move inside one year. So it is an immutable fact
+    now: a restamp flags, and :func:`_retain_old` pins the deck at the date we
+    first knew. The cost is that a genuinely corrected date also flags and waits
+    for a human, which history prices at zero: across every snapshot pair held,
+    the only createdAt rewrites ever fetched are those 8.
     """
     return _hash({
         "pilot": deck.pilot,
         "event": deck.event,
         "placement": deck.placement,
+        "createdAt": deck.created_at.isoformat(),
         "decklist": sorted((c.canon, c.board) for c in conts),
     })
 

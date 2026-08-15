@@ -7,6 +7,8 @@ import pytest
 
 from graph7ph.build import (
     MIN_CUT_FIELD,
+    TwoWinners,
+    _check_sole_winner,
     build_graph,
     corrected_field,
     graph_counts,
@@ -14,7 +16,7 @@ from graph7ph.build import (
 )
 from graph7ph.curation import ArchetypeOverride, Curation, CurationError
 from graph7ph.db import database_path, open_database, open_for_reading, rows
-from graph7ph.models import load_snapshot
+from graph7ph.models import Deck, load_snapshot
 
 
 def _scalar(conn, query, params=None):
@@ -319,6 +321,68 @@ def test_event_straddling_two_calendar_years_fails_the_build(tmp_path):
         build_graph(load_snapshot(tmp_path), tmp_path / "graph")
 
 
+def _winner(deck_id, title, event="E", **overrides):
+    """A parsed deck whose title claims (a tier at) rank 1, for the sole-winner guard."""
+    return Deck.model_validate(
+        _deck(deck_id, event, "2026-06-27T00:00:00+00:00", name=title, **overrides)
+    )
+
+
+def test_a_second_winner_fails_the_build(tmp_path):
+    # The 2026-08 S&CWADJune shape: upstream folded a second event into one
+    # name, so the merged record crowns two winners on exclusive titles. No
+    # per-record guard can see the merge (the foreign decks arrive under fresh
+    # ids), but a Tournament crowns one winner, so the build refuses to absorb
+    # it rather than publish a doubled bracket.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "WAD", "2026-06-27T00:00:00+00:00", name="1st A - Storm - WAD"),
+        _deck("d2", "WAD", "2026-07-25T00:00:00+00:00", name="01st B - Grixis - WAD"),
+    ])
+
+    with pytest.raises(TwoWinners, match="WAD seats 2 decks at rank 1"):
+        build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+    assert not (tmp_path / "graph").exists()  # aborted before anything was written
+
+
+def test_a_split_final_seats_both_winners(tmp_path):
+    # "1st/2nd" is one tier seating two, not two events: the normal shape of an
+    # unplayed final (BBB, MazeWATrop), so it builds clean.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "BBB", "2026-06-27T00:00:00+00:00", name="1st/2nd A - Lands - BBB"),
+        _deck("d2", "BBB", "2026-06-27T00:00:00+00:00", name="01st/2nd B - Breach - BBB"),
+    ])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+
+
+def test_two_merged_split_finals_still_read_as_two_events():
+    # Even a merge of two events that both split their finals is caught: four
+    # decks cannot sit in a band their titles cap at two.
+    decks = [_winner(f"d{i}", f"1st/2nd P{i} - Deck - E") for i in range(4)]
+
+    with pytest.raises(TwoWinners):
+        _check_sole_winner(decks)
+
+
+def test_an_uncapped_title_disarms_the_winner_guard():
+    # "Top 4" bounds a depth, not a tier: cohort-resolved cuts legitimately put
+    # four decks at rank 1 (CanBrawl2), so a group holding any title that caps
+    # nothing is left alone.
+    decks = [_winner("d1", "1st A - Storm - E"),
+             _winner("d2", "Top 4 B - Jund - E")]
+
+    _check_sole_winner(decks)
+
+
+def test_a_teams_event_crowns_a_whole_team():
+    # Three teammates each titled "1st" is the normal Teams shape
+    # (PoGTeams2024), so only Tournaments are in the guard's scope.
+    decks = [_winner(f"d{i}", f"1st P{i} - Deck - T", event="T", eventType="Teams")
+             for i in range(3)]
+
+    _check_sole_winner(decks)
+
+
 def _one_registration_entered_twice(event, kept_date, dropped_date):
     """A duplicate pair at ``event``: same pilot, name and list, two dates.
 
@@ -603,20 +667,22 @@ def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):
     # event it was really played at one deck short. A [[deck_event]] entry moves
     # it back (issue #167). Shaped after the real case: a four-deck event with a
     # hole at 3rd, and an orphan whose claimed field of 3 is its own placement
-    # copied into the size, so the source scored it dead last at 1.0.
+    # copied into the size, so the source scored it dead last at 1.0. The
+    # cohort's claimed field is 9 so no rule corrects it (ADR 0015 amended:
+    # 8 or less is always a cut now).
     _write_snapshot(tmp_path, [
         _deck("d1", "E", "2024-03-24T00:00:00+00:00", placement=1,
-              placementNorm=0.0, eventSize=5),
+              placementNorm=0.0, eventSize=9),
         _deck("d2", "E", "2024-03-24T00:00:00+00:00", placement=2,
-              placementNorm=0.25, eventSize=5),
+              placementNorm=0.125, eventSize=9),
         _deck("orphan", "nan", "2024-03-24T00:00:00+00:00", placement=3,
               placementNorm=1.0, eventSize=3, eventId=None),
         _deck("d4", "E", "2024-03-24T00:00:00+00:00", placement=4,
-              placementNorm=0.75, eventSize=5),
+              placementNorm=0.375, eventSize=9),
         # Scored by no one: this is the deck `_mint_norms` mints, and the
         # contrast that makes the reassigned deck's own label falsifiable.
         _deck("d5", "E", "2024-03-24T00:00:00+00:00", placement=5,
-              placementNorm=None, eventSize=5),
+              placementNorm=None, eventSize=9),
     ])
     curation = Curation(
         merges={}, rejected=frozenset(), names={}, deck_pilots={},
@@ -636,7 +702,7 @@ def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):
 
     # The orphan is re-scored against the field it really played in. Its claimed
     # 3 was a fact about the event, not the deck, so it leaves with the cohort's
-    # 5 and the last-place norm the source computed from it is replaced.
+    # 9 and the last-place norm the source computed from it is replaced.
     #
     # It says "reassigned" and not "minted", which is the distinction the report
     # a human audits rests on: the source *did* score this deck, at an event
@@ -644,20 +710,20 @@ def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):
     # d5 beside it is the genuine minting, and the two must not read alike.
     assert list(rows(conn.execute(
         "MATCH (d:Deck {deckId: 'orphan'}) RETURN d.placement, d.placementNorm, "
-        "d.normImputed"))) == [[3, 0.5, "reassigned"]]
+        "d.normImputed"))) == [[3, 0.25, "reassigned"]]
     assert list(rows(conn.execute(
         "MATCH (d:Deck {deckId: 'd5'}) RETURN d.placementNorm, d.normImputed"
-    ))) == [[1.0, "minted"]]
+    ))) == [[0.5, "minted"]]
 
     # The cohort it joined is untouched: same norms, and no field correction,
     # since the count it now makes still agrees with what those decks claimed.
-    assert _scalar(conn, "MATCH (e:Event {event: 'E'}) RETURN e.fieldSize") == 5
+    assert _scalar(conn, "MATCH (e:Event {event: 'E'}) RETURN e.fieldSize") == 9
     assert _scalar(conn, "MATCH (e:Event {event: 'E'}) RETURN e.fieldImputed") is None
     assert sorted(rows(conn.execute(
         "MATCH (d:Deck) WHERE d.deckId <> 'orphan' "
         "RETURN d.deckId, d.placementNorm, d.normImputed"))) == [
-        ["d1", 0.0, None], ["d2", 0.25, None], ["d4", 0.75, None],
-        ["d5", 1.0, "minted"],
+        ["d1", 0.0, None], ["d2", 0.125, None], ["d4", 0.375, None],
+        ["d5", 0.5, "minted"],
     ]
 
 
@@ -710,12 +776,13 @@ def test_built_graph_is_queryable_with_expected_shape(tmp_path, snapshot_dir):
         ("Tournament", 16, 28, 16, (28, "A")),
         # Rule A, the other contradiction: someone finished past the claimed field.
         ("Tournament", 5, 3, 7, (24, "A")),
-        # Rule B, domain: 7PH runs no 8-player events, so a field of 8 nobody
-        # finished last in is a top-8 cut reported as a field.
+        # Rule B, domain: 7PH runs no 8-player events, so a field of 8 or less
+        # is a top-8 cut reported as a field.
         ("Tournament", 8, 8, 5, (24, "B")),
-        # Rule B's guard: someone finished 8th of 8, so the small field is
-        # corroborated by the standings and stands.
-        ("Tournament", 8, 8, 8, (8, None)),
+        # A recorded last place does not save it: FSNS's 3rd of a claimed 3 was
+        # a partial podium report, not a 3-player event, so the guard that once
+        # let this case stand is gone (ADR 0015, amended).
+        ("Tournament", 8, 8, 8, (24, "B")),
         # A self-consistent small event above the cut size: untouched.
         ("Tournament", 19, 19, 19, (19, None)),
         # Rule C, defensive: a null eventSize has never been observed.
@@ -739,9 +806,9 @@ def test_corrected_field_applies_one_rule_per_event(
 def test_a_corrected_field_is_never_small_enough_to_break_the_division():
     # placementNorm divides by (field - 1), so a corrected field of 1 would be a
     # zero division and a field of 0 a negative one. Every rule floors at
-    # MIN_CUT_FIELD, so the degenerate one-entrant event either keeps its own
-    # (uncorrected, so never divided) size or is corrected well clear of it.
-    assert corrected_field("Tournament", 1, 1, 1) == (1, None)
+    # MIN_CUT_FIELD, and with Rule B unconditional below 9 the degenerate
+    # one-entrant event is always corrected well clear of the division.
+    assert corrected_field("Tournament", 1, 1, 1) == (MIN_CUT_FIELD, "B")
     assert corrected_field("Tournament", 1, 2, 1) == (MIN_CUT_FIELD, "A")
     assert MIN_CUT_FIELD > 1
 
@@ -871,26 +938,29 @@ def test_a_duplicate_registration_is_not_a_second_attendee(tmp_path):
     # event's norms off one duplicate. This is what puts the correction after
     # `resolve_pilots` and after the duplicate drop (issue #140).
     # One registration entered twice: one pilot, one title, one card-identical
-    # list, so the resolution folds the pair (ADR 0004).
+    # list, so the resolution folds the pair (ADR 0004). The field is 9 so Rule
+    # B stays out of it (ADR 0015 amended), and the attendee count equals the
+    # claimed field, which is what keeps Rule A one miscount away.
     twins = [
-        _deck(f"twin{i}", "TIGHT", "2025-06-01T00:00:00+00:00", pilot="fifth",
-              name="fifth", eventSize=5, placement=5, placementNorm=1.0)
+        _deck(f"twin{i}", "TIGHT", "2025-06-01T00:00:00+00:00", pilot="ninth",
+              name="ninth", eventSize=9, placement=9, placementNorm=1.0)
         for i in (1, 2)
     ]
-    _write_snapshot(tmp_path, _scored("TIGHT", 5, [(1, 0.0), (2, 0.25),
-                                                   (3, 0.5), (4, 0.75)]) + twins)
+    _write_snapshot(tmp_path, _scored("TIGHT", 9, [
+        (1, 0.0), (2, 0.125), (3, 0.25), (4, 0.375),
+        (5, 0.5), (6, 0.625), (7, 0.75), (8, 0.875)]) + twins)
     artifact = tmp_path / "graph"
 
     counts = build_graph(load_snapshot(tmp_path), artifact)
 
-    # The duplicate really was dropped, so the event holds 5 decks for 5 pilots
-    # against a claimed field of 5, and nothing contradicts it.
-    assert (counts.decks, counts.pilots) == (5, 5)
+    # The duplicate really was dropped, so the event holds 9 decks for 9 pilots
+    # against a claimed field of 9, and nothing contradicts it.
+    assert (counts.decks, counts.pilots) == (9, 9)
     conn = open_for_reading(artifact)
-    assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldSize") == 5
+    assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldSize") == 9
     assert _scalar(conn, "MATCH (e:Event) RETURN e.fieldImputed") is None
     assert _scalar(
-        conn, "MATCH (d:Deck) WHERE d.placement = 5 RETURN d.placementNorm"
+        conn, "MATCH (d:Deck) WHERE d.placement = 9 RETURN d.placementNorm"
     ) == 1.0
 
 
