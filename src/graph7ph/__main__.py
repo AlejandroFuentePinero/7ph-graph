@@ -29,6 +29,11 @@ from graph7ph.provenance import staleness
 SNAPSHOTS_ROOT = Path("snapshots")
 DB_PATH = artifact_path()
 
+# How many settled holds the build banner spells out before deferring to the
+# brief. Enough to act on a normal round without the block growing past the
+# screen the banner above it has to stay on.
+BANNER_HOLDS = 5
+
 
 def _fetch(args: argparse.Namespace) -> None:
     snap = fetch_snapshot(args.snapshots)
@@ -122,13 +127,23 @@ def _build(args: argparse.Namespace) -> None:
     moved = len(fired) - len(settled)
     if settled:
         bar = "!" * 74
+        # Capped, because a line per settled hold is how this banner becomes the
+        # thing it guards against. 106 holds are on file and a fetch that lands
+        # several shared events settles them together, which would push the
+        # flagged-record banner above off the top of the terminal. The count is
+        # exact, the first few carry the fact that fired them, and the whole list
+        # is what `curation-report` is for (issue #233).
+        shown, rest = settled[:BANNER_HOLDS], settled[BANNER_HOLDS:]
         print(f"  {bar}\n"
               f"  !! DECISION AVAILABLE: {len(settled)} hold(s) settled by the "
               f"data.\n"
               f"  !! Decide each and retire its [[hold]] from "
               f"{CURATION_PATH}:")
-        for f in settled:
+        for f in shown:
             print(f"  !!   {' + '.join(f['pilots'])}: {f['detail']}")
+        if rest:
+            print(f"  !!   ... and {len(rest)} more: read them all with "
+                  f"`graph7ph curation-report`")
         print(f"  {bar}")
     if moved:
         print(f"  {moved} hold(s) whose evidence moved since they were written "

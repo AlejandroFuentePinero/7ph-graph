@@ -403,11 +403,17 @@ def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
             raise CurationError(
                 f"{path}: a [[hold]] entry needs `settles_on` and `as_of`"
             )
-        if not SNAPSHOT_STAMP.match(as_of):
+        # `isinstance` before the shape, because an unquoted stamp is the likely
+        # slip and TOML parses it as an int or a datetime rather than a string.
+        # Reaching `match` with one raises TypeError, which is not a CurationError
+        # and so escapes both the build's abort message and `curation-report`'s
+        # refusal, putting a traceback where a sentence belongs.
+        if not isinstance(as_of, str) or not SNAPSHOT_STAMP.match(as_of):
             raise CurationError(
                 f"{path}: [[hold]] is `as_of` {as_of!r}, which is not a snapshot "
                 f"stamp; it dates the reasoning against the corpus it was written "
-                f"over, so it has to name a snapshot directory (20260815T140746Z)"
+                f"over, so it has to name a snapshot directory, quoted "
+                f'("20260815T140746Z")'
             )
         hold = Hold(settles_on=settles_on, as_of=as_of)
         ids = _ids(entry, path, "hold")

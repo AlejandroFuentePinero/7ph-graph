@@ -26,16 +26,23 @@ effect:
 
 ```sh
 brief=$(uv run graph7ph curation-report) &&
-  gh issue create --title "$(head -1 <<<"$brief")" \
-    --body "$brief" --label ready-for-human
+  case $brief in
+    "Curation review"*)
+      gh issue create --title "$(head -1 <<<"$brief")" \
+        --body "$brief" --label ready-for-human ;;
+    *) head -1 <<<"$brief" ;;
+  esac
 ```
 
 The brief ranks on what changed: holds the data has now settled (decide each and
 retire its `[[hold]]`), candidates this ingestion introduced, holds whose
 evidence moved, then the unchanged tail and the counts. A round with none of the
-first three says so in one line, and there is nothing to file. The command
-refuses to report on a bundle that is missing, built from other sources, or older
-than the newest snapshot, so a brief always describes the corpus it names.
+first three says so in one line, and there is nothing to file, which is what the
+`case` guards: the brief opens with `Curation review` only when one of the three
+has something in it, and otherwise the line prints the reason rather than filing
+a round nobody has to work. The command refuses to report on a bundle that is
+missing, built from other sources, or older than the newest snapshot, so a brief
+always describes the corpus it names.
 
 Hold the brief before filing rather than piping it: a refusal is a sentence on
 stderr and an empty stdout, and a pipe would hand that empty stdout to `gh` and
@@ -59,6 +66,15 @@ CI secret store later): it is never read by the app and never deployed with it.
 uv run pytest
 uv run playwright install chromium   # once, for the browser suite below
 ```
+
+Rebuild before running the suite after any ingest, build, schema or curation
+edit. Eleven tests grade the real bundle through the `live_graph` fixture, and it
+*skips* rather than fails on a bundle that is missing or built from other sources
+(issue #55), so on a stale bundle they pass green having graded nothing. Among
+them is `test_build.py::test_nothing_in_either_identity_queue_is_left_unexamined`,
+the invariant that every identity-queue entry is curated or held (issue #227): it
+can only redden on the machine that ran the ingestion, and only if the suite runs
+after the rebuild. CI never builds, so it always skips there.
 
 `tests/test_graph_desktop.py` measures what the graph document actually paints at
 desktop width, on a real Chromium, and holds the three regressions ADR 0018 names.
