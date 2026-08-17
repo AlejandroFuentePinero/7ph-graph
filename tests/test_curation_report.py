@@ -216,6 +216,20 @@ def test_a_round_with_nothing_to_work_says_so_instead_of_printing_empty_sections
     ]
 
 
+def test_the_opening_words_are_what_the_runbook_files_on():
+    # The ingestion runbook in docs/development.md decides whether to open an
+    # issue by matching the brief's first line against "Curation review", so those
+    # two words are an interface and not a caption. Renaming them without touching
+    # the runbook is silent in the direction that loses work: every round would
+    # print its brief and file nothing, and nobody finds out by reading a report
+    # that never arrives.
+    loud = _recon(under_merges=[{"display_name": "Ann B", "relation": "initial",
+                                 "pilots": ["A", "B"]}])
+
+    assert curation_report(loud, {}, SNAPSHOT).startswith("Curation review")
+    assert curation_report(_recon(), {}, SNAPSHOT).startswith("Nothing to review")
+
+
 def test_a_quiet_round_with_holds_still_on_file_leads_with_the_quiet_line():
     # The tail is not work, so it does not turn a quiet round into a loud one; it
     # is still printed, because a hold nobody lists is a hold nobody retires.

@@ -203,6 +203,26 @@ def test_hold_with_an_as_of_that_is_not_a_snapshot_stamp_raises(tmp_path, stamp)
         load_curation(path)
 
 
+@pytest.mark.parametrize("unquoted", ["20260815", "2026-08-15T14:07:46Z"])
+def test_hold_with_an_unquoted_as_of_is_refused_as_a_sentence_not_a_traceback(
+    tmp_path, unquoted
+):
+    # Leaving the stamp unquoted is the slip a curator actually makes, and TOML
+    # answers it with an int or a datetime rather than a string. That has to reach
+    # the same CurationError as any other malformed stamp: it is the only
+    # exception `graph7ph build` catches to abort with a sentence, and the only
+    # one `curation-report` catches before it prints, so anything else lands a
+    # traceback on stdout and the runbook files it as the round's review brief.
+    path = _write(tmp_path, f"""
+        [[hold]]
+        ids = ["A", "B"]
+        settles_on = "shared_event"
+        as_of = {unquoted}
+    """)
+    with pytest.raises(CurationError, match="as_of"):
+        load_curation(path)
+
+
 def test_a_well_formed_as_of_loads_whether_or_not_that_snapshot_is_on_this_disk(
     tmp_path, monkeypatch
 ):
