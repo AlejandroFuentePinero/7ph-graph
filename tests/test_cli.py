@@ -128,6 +128,38 @@ def test_a_build_announces_the_holds_the_data_has_now_moved(
         ("hold", "20190101T000000Z")]
 
 
+def test_a_round_that_settles_many_holds_caps_the_banner_rather_than_scrolling(
+    tmp_path, capsys, monkeypatch
+):
+    # The banner exists so a scrolling build log cannot bury an available decision
+    # (issue #230), and a line per settled hold turns it into the thing it guards
+    # against: 106 holds are on file, and a fetch landing several shared events
+    # settles them together, pushing the flagged-record banner above it off the
+    # top of the terminal. So the count stays exact and the first few carry the
+    # fact that fired them, while the whole list stays the brief's job (#233).
+    snapshots = tmp_path / "snapshots"
+    decks, holds = [], []
+    for i in range(8):
+        a, b = f"IdA{i}", f"IdB{i}"
+        decks += [(f"d{i}a", a, f"01st Joe M{i} - Grixis - E{i}", f"E{i}", 1),
+                  (f"d{i}b", b, f"02nd Joel M{i} - Walks - E{i}", f"E{i}", 2)]
+        holds.append(f'[[hold]]\nids = {json.dumps([a, b])}\n'
+                     'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n')
+    _titled_snapshot(snapshots / "20260101T000000Z", decks)
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, tmp_path / "pilots.toml"))
+    (tmp_path / "pilots.toml").write_text("".join(holds))
+
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g"))
+    out = capsys.readouterr().out
+
+    # The number is the whole truth; the enumeration is a sample of it.
+    assert "8 hold(s) settled" in out
+    assert len([ln for ln in out.splitlines() if "both registered at" in ln]) == 5
+    assert "... and 3 more" in out
+    assert "graph7ph curation-report" in out
+
+
 def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
     # Data that cannot be built is a user-facing abort, not a crash: ADR 0003
     # hard-fails before the live graph is touched, and the CLI says so rather
