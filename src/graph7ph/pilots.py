@@ -436,6 +436,11 @@ def resolve_pilots(
         for d in group:
             deck_pilot[d.deck_id] = key
 
+    # The map before the join, keying every deck on the id it resolved to. That
+    # is the population the multi-name scan above read, and a hold on a single id
+    # is watched over the same decks (issue #241).
+    own_deck_pilot = dict(deck_pilot)
+
     # Display name is the player identity: ids that recovered the same name are
     # one person, so fold them onto a single id before anything downstream runs
     # (ADR 0007). A same-name collision inside one event survives this and is
@@ -470,7 +475,8 @@ def resolve_pilots(
     # ids present in the data are counted here to complete the "already decided".
     candidates, held, rejected = _under_merges(real_joined, curation)
     fired = _fired_holds(
-        curation, joined_names, decks, joined_deck_pilot, snapshot_decks
+        curation, joined_names, decks, joined_deck_pilot, own_deck_pilot,
+        snapshot_decks,
     )
     merged = sum(1 for pid in {d.pilot for d in decks} if curation.canonical(pid) != pid)
     # Raw ids plus the buckets they resolve into (the real/null keys are exactly
@@ -1018,7 +1024,7 @@ def _under_merges(
 
 def _fired_holds(
     curation: Curation, joined: list[JoinedName],
-    decks, deck_pilot: dict[str, str],
+    decks, deck_pilot: dict[str, str], own_deck_pilot: dict[str, str],
     snapshot_decks: dict[str, frozenset[str]] | None,
 ) -> list[FiredHold]:
     """Every hold the corpus has moved under since a human parked it (#230).
@@ -1027,7 +1033,8 @@ def _fired_holds(
     divide between them (issue #232). ``joined_name`` and ``shared_event`` are
     facts about two ids meeting and have no single-id shape; ``event_split`` is
     the structural fact under ``shared_event`` asked of one id's own two surnames;
-    ``new_decks`` reads each held id's own career and carries over unchanged.
+    ``new_decks`` asks whether a held id's career has moved and has both shapes.
+    The two shapes are also read at different nodes, for which see below.
 
     The population is every pair the dictionary holds, never the ``held_merges``
     rows the name scan surfaced. Those are the subset whose two recovered names
@@ -1084,17 +1091,33 @@ def _fired_holds(
     are its canonical's now. Holding a pair while merging one of its ids into a
     third is not a decided hold (:func:`curation._refuse_decided_hold` refuses
     only a merge that folds the two onto *each other*), so this is ordinary.
-    ``deck_pilot`` is the map that join left, before the event split renumbers a
-    colliding pilot: a hold names two whole identities, and a career inside one
-    of them is not an answer to which events an id registered at. An ``as_of``
-    naming no snapshot in ``snapshot_decks`` fires nothing and is reported as a
-    dead entry instead (:func:`curation.dead_entries`).
+    Where it is read at differs by shape, and one rule does not cover both
+    (issue #241). A **pair** is read at ``deck_pilot``, the map the name join
+    left, before the event split renumbers a colliding pilot: a hold there names
+    two whole identities, so a career inside one of them is not an answer to
+    which events an id registered at. A **single id** is read at
+    ``own_deck_pilot``, the map before that join, which keys each deck on the id
+    it resolved to. That is the population :func:`_multi_name_id` scanned to
+    raise the row, and the row asks whether *this id's own decks* are one person.
+    An identical-name join folds a sibling's decks onto the same node, and
+    reading a single-id hold there answers the question with registrations the
+    held id never made: at best a stranger's deck under ``new_decks``, at worst
+    ``event_split`` claiming a same-event collision built out of two ids' entries
+    and taking the loudest banner the build prints for it.
+
+    An ``as_of`` naming no snapshot in ``snapshot_decks`` fires nothing and is
+    reported as a dead entry instead (:func:`curation.dead_entries`).
     """
-    events_of: dict[str, dict[str, list[str]]] = {}
-    for deck in decks:
-        events_of.setdefault(deck_pilot[deck.deck_id], {}).setdefault(
-            deck.event, []
-        ).append(deck.deck_id)
+    def careers(by_pilot: dict[str, str]) -> dict[str, dict[str, list[str]]]:
+        events: dict[str, dict[str, list[str]]] = {}
+        for deck in decks:
+            events.setdefault(by_pilot[deck.deck_id], {}).setdefault(
+                deck.event, []
+            ).append(deck.deck_id)
+        return events
+
+    events_of = careers(deck_pilot)
+    own_events = careers(own_deck_pilot)
     joined_as = {pid: join for join in joined for pid in join.merged}
     name_of = {deck.deck_id: _display_name(deck) for deck in decks}
     raw_of = {deck.deck_id: deck.pilot for deck in decks}
@@ -1120,9 +1143,12 @@ def _fired_holds(
         common = dict(
             settles_on=hold.settles_on, as_of=hold.as_of, pilots=pilots
         )
+        single = len(nodes) == 1
+        watched = canonical if single else nodes
+        events_at = own_events if single else events_of
         # One decisive trigger per hold shape, then the soft one both share.
-        if len(nodes) == 1:
-            if collision := _name_collision(events_of.get(nodes[0], {}), name_of):
+        if single:
+            if collision := _name_collision(events_at.get(watched[0], {}), name_of):
                 event, at_event = collision
                 at = sorted(deck for deck, _ in at_event)
                 fired.append(FiredHold(
@@ -1168,10 +1194,10 @@ def _fired_holds(
             continue
         gained = {
             pid: sorted(
-                deck for decks_at in events_of.get(node, {}).values()
+                deck for decks_at in events_at.get(node, {}).values()
                 for deck in decks_at if deck not in known
             )
-            for pid, node in zip(pilots, nodes)
+            for pid, node in zip(pilots, watched)
         }
         if not any(gained.values()):
             continue

@@ -68,7 +68,7 @@ uv run playwright install chromium   # once, for the browser suite below
 ```
 
 Rebuild before running the suite after any ingest, build, schema or curation
-edit. Eleven tests grade the real bundle through the `live_graph` fixture, and it
+edit. Twelve tests grade the real bundle through the `live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
 (issue #55), so on a stale bundle they pass green having graded nothing. Among
 them is `test_build.py::test_nothing_in_either_identity_queue_is_left_unexamined`,
