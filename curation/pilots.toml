@@ -58,6 +58,19 @@
 #     ids = ["A", "B"]
 #     settles_on = "shared_event"     # what the writer expects would decide it
 #     as_of = "20260815T140746Z"      # the snapshot the reasoning was written against
+#
+#                    One id holds the other queue's question open: this id's own
+#                    decks recovered several surnames and may be several people.
+#                    Same fields; what would settle it is the id registering at
+#                    one event under two of them (`event_split`), and what would
+#                    resolve it is a [[deck_pilot]] moving the minority decks to
+#                    their owner, never a [[reject]] -- there is no second id.
+#                    Name the id a [[merge]] leaves standing, not one it folds
+#                    away: the queue reports the canonical, so a hold on a member
+#                    examines nothing (the build refuses it).
+#     ids = ["A"]
+#     settles_on = "event_split"
+#     as_of = "20260815T140746Z"
 
 # --- Names pinned against the vote (no derivable relation, human-confirmed) ---
 
@@ -1290,8 +1303,8 @@ ids = ["WanderingIvoryPanda", "BraveBlackWhale"]
 # The 78 candidates still open after the round above, every one of them read and
 # recorded here. From here on `under_merges` means nobody has looked yet, which is
 # what lets a later round work only the delta instead of re-deriving the whole queue;
-# tests/test_build.py::test_no_pair_in_the_identity_queue_is_left_unexamined holds the
-# invariant.
+# tests/test_build.py::test_nothing_in_either_identity_queue_is_left_unexamined holds
+# the invariant.
 #
 # One derived fact runs under the whole pass and is why the outcome is holds rather
 # than decisions: NONE of the 78 puts its two ids at one event. The twelve pairs
@@ -2446,3 +2459,311 @@ engine_label = "Amber Ascendancy"
 # event's numbers and re-scores him 38-of-63 against CBR3's counted field.
 deck = "FZP9B6alz0OoUVVe74nHeA"
 event = "CBR3"
+
+# --- Examined and left undecided: the pass over the multi-name queue (issue #232) ---
+#
+# The 28 ids `multi_name_ids` held after the pass above, every one read and recorded
+# here. This queue asks the other identity question: `under_merges` is several ids that
+# may be one person, this is one id whose decks recovered several surnames and may
+# therefore be several people (issue #39). From here an unexamined entry in either
+# queue means nobody has looked yet, and
+# tests/test_build.py::test_nothing_in_either_identity_queue_is_left_unexamined holds
+# that across both.
+#
+# One derived fact runs under the whole pass and decides its shape: 25 of the 28 are
+# the shadow of a [[merge]] recorded above. The scan reads each id AFTER this file is
+# applied, so a merge that folded "Ari Steel" onto "Ari S" leaves one id recovering two
+# surnames, and the queue re-poses the question that merge answered. Two ids carry
+# several surnames from the source alone (William LM and Max DK), and one more
+# (SilentGreenLynx) owes its second family to a null-pilot deck a [[deck_pilot]] routed
+# here, whose title left an archetype word where the surname goes.
+#
+# So no row here is decidable on fresh reasoning: for 25 the decision is on file with
+# its own evidence, and re-deciding it from that same evidence is not a second opinion.
+# What the hold buys is the watch. A false merge is the irreversible error (#229), and
+# the one fact that would refute one of these is the id's two surnames registering at
+# one event, where only one person can have entered (ADR 0005). That is the
+# `event_split` trigger, re-evaluated against every hold on every ingestion, so from
+# here these merges are watched rather than only recorded. None fires today: no id in
+# the queue has two of its surnames at one event, which is also why no row could be
+# decided against a structural fact this round.
+#
+# What settles a row is not a [[reject]], there being no second id to reject, but a
+# [[deck_pilot]] moving the minority decks to their real owner, or the [[merge]] behind
+# the row being reversed. Neither is available today: no name in this queue exists
+# elsewhere in the corpus as its own pilot, so there is no id to move a deck to.
+#
+# Each entry below reads `A ? B` for the same reason the pass above does: the row is a
+# question this file records rather than answers, against the `=` of a merge and the
+# `!=` of a reject. Here the two sides are two names on one id, not two ids.
+#
+# Counts and spellings are read across the whole id, numbered careers included, for the
+# reason the pass above gives: a hold names a whole identity, and a career inside one is
+# not an answer to who the id is. They are also read at the id and not at the pilot node
+# it ends up in, which is the population the scan itself reads: the identical-name join
+# (ADR 0007) folds other ids onto that node afterwards, so a recount taken there can be
+# higher (Ben H's node carries a joined id's decks, Max DK's a null-bucket orphan's).
+#
+# `as_of` is the 2026-08-15 snapshot throughout, the corpus every line below was written
+# against. `settles_on` reads `event_split` where the id is still registering in 2026,
+# so its spellings could still meet at one event, and `new_decks` for the three whose
+# last deck is 2025, where nothing can meet until the id registers again.
+
+# The surname behind the initial. Twelve ids where a [[merge]] folded a full-word
+# surname onto the initial it abbreviates ("Steel" onto "S"), which is exactly what
+# makes the merged id span two families: an initial and a word are never the same
+# family, however plainly one stands for the other.
+
+[[hold]]
+# Richard O ? Richard Owen. 27 decks name him by the initial and one, PogAug25
+# 2025-08-30, spells the surname out; the merge above (SilentCrimsonPanda, 0.85
+# overlap) is that deck.
+ids = ["Richard O"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Chris M ? Chris Meli. One deck of 18 carries the full surname, BazaarInvi
+# 2025-11-17, folded in by the merge above at 1.00 overlap on Eldrazi.
+ids = ["ShinyVioletWhale"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jeffrey B ? Jeffrey Blancia ? Jeff B. Two merges above, the full surname
+# (NHC24 2024-01-30, 0.67 on the Grixis he plays exclusively) and the nickname
+# (ChromaticIQ 2025-09-13, 0.83). 14 of the 16 decks read "Jeffrey B".
+ids = ["CleverOrangeHawk"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Ben H ? Ben Hewitt. 22 decks by the initial, one by the surname (ETEAE
+# 2025-11-19), merged above at 0.94 on Azorius Control.
+ids = ["NimbleAzureTiger"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Brayden W ? Brayden Woods ? BraW40. 21 decks by the initial, one by the surname
+# (TMC24 2024-04-29, merged at 0.83) and one under the handle (ETEAE 2025-11-20,
+# merged at 0.53). The handle recovers no surname at all and is not what puts the
+# id in this queue.
+ids = ["CrimsonBronzeWolf"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Tom C ? Tom Clift. 21 by the initial, one by the surname (TMC24 2024-04-29),
+# merged above at 0.90.
+ids = ["LunarMagentaHawk"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jenny J ? Jenny Jay ? Jen J. The surname deck is NHC26 2026-01-27 (merged at
+# 0.86 on Goblins) and the nickname ETEAE 2025-11-19 (0.54). Six decks in all.
+ids = ["MistyAzureStagA31"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# David T ? David Tysoe. Four decks, one of them the full surname (PogJun25
+# 2025-06-22), merged above at 0.74 across disjoint events.
+ids = ["FlyingVioletHeron"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Ari S ? Ari Steel. Nine decks by the initial, one by the surname (CanBrawl 23
+# 2023-07-23, the earliest deck on the id), merged above on the Mono Red fitting
+# his Mardu red signature.
+ids = ["IvoryCrimsonFox"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Luke J ? Luke Jones. Four by the initial, one by the surname (TMC24
+# 2024-04-29), merged above as the only Luke with surname initial J; the display
+# name is pinned to the full form by the [[name]] entry beside that merge.
+ids = ["MistyCyanTiger"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jake K ? Jake Kearney. Five by the initial, one by the surname (CanBrawl 23
+# 2023-07-23), merged above with no same-event conflict.
+ids = ["LunarMaroonOtter"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Sam B ? Sam Bailey. Four by the initial (2023-11 to 2024-03), one by the surname
+# (NHC26 2026-01-27), merged above on a persistent Goblins signature at 0.35.
+ids = ["MistyGoldWolf"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+
+# Double-barrelled surnames, registered one half at a time. Eleven ids whose
+# spellings are the components of one surname ("L", "LM", "M"), each component its
+# own family by the surname test. The merges above read them as one name; the queue
+# reads them as several.
+
+[[hold]]
+# Gideon H ? Gideon HW. The only id here where both spellings carry a full career:
+# six decks each, alternating from 2023-07 to 2026-06, merged above at 0.88 on a
+# shared Jeskai Midrange and Bus Stop Grixis.
+ids = ["IvoryCyanDolphin"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# James L ? James LS ? James L-S ? JamL9. Two merges above: "James L 1 = James LS"
+# at 1.00 on Grixis with the punctuated form at 0.43, and JamL9 at 1.00 on the
+# Walks list of the second James L career. The id carries two numbered careers and
+# this hold names the whole id, both careers included.
+ids = ["BraveJadeEagle"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# May K ? May KM ? May K-M. Eleven decks under the first initial, six under both,
+# one punctuated (RC7 2024-11-10); merged above at 0.97 and 0.76.
+ids = ["SolarCrimsonManta"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nick O ? Nick O'B. One deck of eleven (PoGWAD 2024-10-28) keeps the apostrophe
+# form the initial abbreviates, merged above on a fitting Sultai signature.
+ids = ["Nick O"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Michael D ? Michael DS. Eight decks under the first initial and five under both,
+# merged above as Reanimator specialists on one shell.
+ids = ["LunarPurpleLynx"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Kiran W ? Kiran WM. Three decks each, and the merge above rests on the clean
+# handoff between them (WM ends 2025-01, W begins 2025-09) rather than on overlap.
+ids = ["IvoryPurpleGecko522"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Elliott L ? Elliot L ? Elliott L C. Two merges above, the spelling variant and
+# the trailing initial (WAC 2025-07-24, 0.59 on Jeskai Breach). That trailing "C"
+# is the second family; the two spellings of the first name are one.
+ids = ["SolarMaroonFalcon"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Eddie L ? Eddie LM ? Eddie L M. Six decks, merged above on the narrow artifact
+# prison family they share; that merge already flips an earlier reject, and this
+# row is the last trace of the question rather than a fresh one.
+ids = ["AmberBronzeStag"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Joe Michael C ? Joe MC ? Joe M ? JoeM54. The widest fan in the queue: six ids
+# merged above as one nested expansion (Joe M -> Joe M C / Joe MC -> Joe Michael
+# C) at 0.57-0.75 across a shared Walks, Bots and Reanimator pool, plus the Jo/Joe
+# typo. The families are "M" and "C", the two halves of the same nested name.
+ids = ["FlyingBlackFox"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jose G ? Jose GH. Five decks under the first initial, three under both, merged
+# above at 0.97 on Grixis Oko. Nothing has registered under this id since
+# 2025-11-18.
+ids = ["CleverVioletGecko8DC"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Ryan L-J ? Ryan L ? Ryan Johns. Three lone decks, three ids, one merge above
+# reading "L-J" as the double barrel whose halves are "L" and "Johns". Nothing has
+# registered under this id since ETEAE 2025-11-20, so nothing can meet until it
+# does.
+ids = ["FrostyTealFox"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+
+# The given name read as the surname. Two ids whose recovered "surname" is the tail
+# of a two-word given name, so the id spans the real surname and a piece of the
+# given one. Both are merges above, and both were read that way when they landed.
+
+[[hold]]
+# Lee Hung N ? Lee H ? Lee N. "Hung" is the second given name and "N" the surname,
+# so the id's two families are halves of one name: six decks under "Lee H", five
+# under the full form, two under "Lee N". Merged above at 0.84 and 0.77, both near
+# exclusive Prison Shops.
+ids = ["LuckyBronzeWhale"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Chia Wei L ? Chia L ? Chia W. "Chia Wei" is the given name and "L" the surname,
+# which the "Chia W" spelling truncates into a second family. Merged above at 0.79
+# and 0.81 on shared Grixis, with the display name pinned to the correct form.
+# Last registered ETEAE 2025-11-19.
+ids = ["LunarJadeRaven"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+
+# Several surnames from the source itself. The two ids the source alone gave more
+# than one surname family, with no decision of ours widening the group. These are
+# what this queue is for, and they are also the two the evidence cannot settle.
+
+[[hold]]
+# William L ? William B. Issue #39's own worked example. 33 decks: 24 "William L",
+# four "William LM", two "Will LM", one "William L M", one "Will L" -- all one
+# double-barrelled name -- and one "William B", at PogMar26 2026-03-07, sitting in
+# the same monthly Pog series between "William L" registrations at PogFeb26 and
+# PogMay26. ADR 0005 reads a substituted surname initial as a different surname,
+# but that rule separates two ids, and there is only one id here: no "William B"
+# exists anywhere in the corpus to move the deck to, and the deck cannot be split
+# off to nobody. One mistyped initial and a borrowed account are the two readings
+# and the data prefers neither.
+ids = ["William LM"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Max DK ? Max D ? Max K. 16 decks under one id: eight name both initials, five
+# "Max K", three "Max D", interleaved across the whole career (NHC24 and NHC25 as
+# "Max DK", NHC26 as "Max D") rather than falling into two runs. That is the
+# signature of one person shortening a double-barrelled surname either way, not of
+# two people sharing an account, but nothing structural says so: no "Max D" or
+# "Max K" exists elsewhere in the corpus, and the id has never entered one event
+# twice.
+ids = ["Max DK"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"
+
+
+# Not a surname at all. One id whose second family is a parse artefact rather than
+# a name, which no identity decision can retire.
+
+[[hold]]
+# Christopher T ? "Christopher T Rug". The second family is "Rug", the archetype,
+# left on the name by the title "5th-8th - Christopher T Rug - Tabernacle2023":
+# the deck's pilot field was empty and the [[deck_pilot]] above routed it here on a
+# 1.00 match to Christopher T's own RUG list. So the id's 25 decks are one person
+# under two spellings of one surname initial, plus one deck whose recovered name
+# carries a deck word. Nothing in this file can retire the row, since name recovery
+# is what produced it; the hold records that, and the entry stays until the parse
+# is repaired or the two names meet at an event.
+ids = ["SilentGreenLynx"]
+settles_on = "event_split"
+as_of = "20260815T140746Z"

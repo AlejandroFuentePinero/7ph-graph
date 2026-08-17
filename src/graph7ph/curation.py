@@ -151,9 +151,13 @@ class Curation:
         """Whether these two same-named ids were declared different people."""
         return frozenset({a, b}) in self.splits
 
-    def hold(self, a: str, b: str) -> "Hold | None":
-        """The hold recorded against these two ids, if a human left one."""
-        return self.holds.get(frozenset({a, b}))
+    def hold(self, *ids: str) -> "Hold | None":
+        """The hold recorded against these ids, if a human left one.
+
+        Two ids ask whether they are one person; one id asks whether its own
+        several names are one person (issue #232). Both are held by the same kind.
+        """
+        return self.holds.get(frozenset(ids))
 
 
 def load_curation(path: Path = CURATION_PATH) -> Curation:
@@ -177,6 +181,19 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
     _refuse_merged_pair(merges, splits, path, "split")
     holds = _holds(raw.get("hold", []), path)
     _refuse_decided_hold(holds, merges, rejected, splits, path)
+    # A hold on one id is matched against the canonical id a merge leaves
+    # standing, the id the multi-name queue reports, so holding a folded-away
+    # member examines nothing: the canonical stays on the queue as unexamined
+    # while the hold's own triggers, which do resolve the merge, can still
+    # announce a decision on it (issue #232). The same misaddressing the pin
+    # below refuses, and the same fix.
+    for ids in holds:
+        if len(ids) == 1 and (pilot := next(iter(ids))) in merges:
+            raise CurationError(
+                f"{path}: [[hold]] holds {pilot!r} on its own several names, "
+                f"but it merges into {merges[pilot]!r}; hold the canonical id "
+                f"instead"
+            )
     names = _names(raw.get("name", []), path)
     # A pin is looked up by the canonical bucket id, so pinning a name on an id
     # that merges away can never fire -- an authoring contradiction, not a dead
@@ -247,10 +264,19 @@ def dead_entries(
     for pid, partners in split_partners.items():
         dead.append(DeadEntry("split", pid, f"split from {sorted(partners)}"))
     hold_partners: dict[str, set[str]] = {}
-    for pair in curation.holds:
-        for pid in pair:
-            if pid not in pilot_ids:
-                hold_partners.setdefault(pid, set()).update(pair - {pid})
+    for ids in curation.holds:
+        for pid in ids:
+            if pid in pilot_ids:
+                continue
+            if len(ids) == 1:
+                # A hold on one id holds that id's own several names open, so it
+                # has no partner to name -- and its own row, since the same id
+                # can be held both alone and in a pair, and one row would let
+                # retiring the pair leave the other entry dead and unflagged
+                # (issue #232).
+                dead.append(DeadEntry("hold", pid, "held on its own several names"))
+            else:
+                hold_partners.setdefault(pid, set()).update(ids - {pid})
     for pid, partners in hold_partners.items():
         dead.append(DeadEntry("hold", pid, f"held against {sorted(partners)}"))
     # One row per absent stamp, not per pair: a hold of three or more ids expands
@@ -342,21 +368,25 @@ def _pairs(entries: list[dict], path: Path, kind: str) -> frozenset[frozenset[st
     entry is just its single pair. (Storing the raw set instead would leave a
     3-id entry matching no pair at all.)
     """
-    pairs: set[frozenset[str]] = set()
-    for entry in entries:
-        ids = _ids(entry, path, kind)
-        for i, a in enumerate(ids):
-            for b in ids[i + 1:]:
-                pairs.add(frozenset({a, b}))
-    return frozenset(pairs)
+    return frozenset(
+        pair for entry in entries for pair in _all_pairs(_ids(entry, path, kind))
+    )
+
+
+def _all_pairs(ids: list[str]) -> set[frozenset[str]]:
+    """Every unordered pair of ``ids``."""
+    return {frozenset({a, b}) for i, a in enumerate(ids) for b in ids[i + 1:]}
 
 
 def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
-    """Every held pair, expanded the way :func:`_pairs` expands a decision.
+    """Every held id set, pairs expanded the way :func:`_pairs` expands a decision.
 
-    A hold names ids that are mutually *unsettled*, so three ids leave three open
-    pairs rather than one three-way question, and each pair carries the same
-    ``settles_on`` and ``as_of``.
+    A hold of two or more ids marks them mutually *unsettled*, so three ids leave
+    three open pairs rather than one three-way question, and each pair carries
+    the same ``settles_on`` and ``as_of``. A hold of *one* id is the other
+    identity queue's question and is kept whole: it holds that id's own several
+    recovered names open, which is not a question about any pair it belongs to
+    (issue #232).
 
     A pair held twice is refused rather than taken last-wins. A hold exists to be
     revisited, so appending a refreshed entry over an older one is the edit this
@@ -380,11 +410,12 @@ def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
                 f"over, so it has to name a snapshot directory (20260815T140746Z)"
             )
         hold = Hold(settles_on=settles_on, as_of=as_of)
-        for pair in _pairs([entry], path, "hold"):
+        ids = _ids(entry, path, "hold")
+        for pair in ([frozenset(ids)] if len(ids) == 1 else _all_pairs(ids)):
             if pair in holds:
-                a, b = sorted(pair)
+                named = " and ".join(repr(pid) for pid in sorted(pair))
                 raise CurationError(
-                    f"{path}: [[hold]] holds {a!r} and {b!r} twice, on "
+                    f"{path}: [[hold]] holds {named} twice, on "
                     f"{holds[pair].settles_on!r} and {hold.settles_on!r}; file "
                     f"order would decide which the report carries, so keep the "
                     f"entry that supersedes and delete the other"
@@ -416,8 +447,16 @@ def _refuse_decided_hold(
     Merges are read off the folded group rather than the entry, since two ids
     chained onto one canonical through separate blocks are as decided as two
     named together. Sorted so the first of several contradictions is stable.
+
+    A hold on a single id has no contradiction to check for. Every kind that
+    settles an identity question keys on two ids (``merge``, ``reject``,
+    ``split``), so each answers a different question than "are this one id's
+    decks one person" (issue #232). What resolves that one is a ``deck_pilot``,
+    which keys on a deck and names only the id it moves the deck *to*: which id
+    it moves a deck away from is derived at build time rather than stated here,
+    and the report shows the id dropping off the queue when it does.
     """
-    for pair in sorted(sorted(p) for p in holds):
+    for pair in sorted(sorted(p) for p in holds if len(p) == 2):
         a, b = pair
         canonical = merges.get(a, a)
         if canonical == merges.get(b, b):
@@ -472,6 +511,10 @@ def _refuse_merged_pair(
 def _ids(entry: dict, path: Path, kind: str) -> list[str]:
     """The entry's ``ids``: two or more, and mutually distinct.
 
+    ``hold`` is the one kind that also takes a single id, because the multi-name
+    queue asks about one id's own recovered names rather than about a pair
+    (issue #232). Every other kind states a relation, which needs two.
+
     Distinctness is the load-bearing half, not the count. A repeated id (``ids =
     ["A", "A"]``) is a typo that no later stage can catch, because every shape it
     takes loads cleanly and then fires nothing: :func:`_merges` unions an id with
@@ -489,10 +532,12 @@ def _ids(entry: dict, path: Path, kind: str) -> list[str]:
     ``curation/pilots.toml`` repeat an id, and the dictionary loads to an equal
     ``Curation`` either way (183 merges, 35 rejected pairs).
     """
+    least = 1 if kind == "hold" else 2
     ids = entry.get("ids")
-    if not isinstance(ids, list) or len(ids) < 2 or len(set(ids)) != len(ids):
+    if not isinstance(ids, list) or len(ids) < least or len(set(ids)) != len(ids):
         raise CurationError(
-            f"{path}: a [[{kind}]] entry needs `ids` of two or more distinct ids"
+            f"{path}: a [[{kind}]] entry needs `ids` of "
+            f"{'one' if least == 1 else 'two'} or more distinct ids"
         )
     return ids
 

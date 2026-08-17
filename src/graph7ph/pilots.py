@@ -164,12 +164,14 @@ class HeldPair:
     as_of: str
 
 
-# The triggers that *settle* a held pair rather than only reopening it. A shared
-# event decides the pair outright (two entries at one event are two people, ADR
-# 0005) and an identical-name join has already decided it, so both are an
-# available decision and take the build's banner; `new_decks` moves the evidence
-# without deciding anything and is counted instead (issue #230).
-SETTLING_TRIGGERS = ("joined_name", "shared_event")
+# The triggers that *settle* a hold rather than only reopening it. A shared event
+# decides a pair outright (two entries at one event are two people, ADR 0005) and
+# an identical-name join has already decided it; `event_split` is that same
+# structural fact reaching a hold on one id, whose two surnames turned up at one
+# event (issue #232). All three are an available decision and take the build's
+# banner; `new_decks` moves the evidence without deciding anything and is counted
+# instead (issue #230).
+SETTLING_TRIGGERS = ("joined_name", "shared_event", "event_split")
 
 
 @dataclass(frozen=True)
@@ -270,6 +272,24 @@ class MultiNameId:
 
 
 @dataclass(frozen=True)
+class HeldName:
+    """One multi-name id a human examined and could not settle (issue #232).
+
+    :class:`MultiNameId` plus the two fields that make a hold worth recording,
+    exactly as :class:`HeldPair` extends a candidate pair. Kept apart from
+    ``multi_name_ids`` so that list means what its name says: ids nobody has
+    reasoned about yet, rather than a permanent tail of ids that have been read
+    and cannot be decided on the evidence on file.
+    """
+
+    pilot: str
+    display_name: str
+    names: list[str]
+    settles_on: str
+    as_of: str
+
+
+@dataclass(frozen=True)
 class UnexplainedName:
     """One id whose decks recovered a spelling nothing connects to the winner.
 
@@ -303,11 +323,12 @@ class Reconciliation:
     joined_names: list[JoinedName]  # ids collapsed for sharing a display name
     curated: int  # decided pairs off the review list: rejections plus applied merges
     dead_entries: list[DeadEntry] = field(default_factory=list)  # entries matching no id (issue #37)
-    multi_name_ids: list[MultiNameId] = field(default_factory=list)  # ids spanning >1 surname (issue #39)
+    multi_name_ids: list[MultiNameId] = field(default_factory=list)  # UNEXAMINED ids spanning >1 surname (issue #39)
     name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split or reject (issues #35, #74)
     unexplained_names: list[UnexplainedName] = field(default_factory=list)  # discarded spellings nothing relates to the winner (issue #103)
     held_merges: list[HeldPair] = field(default_factory=list)  # candidates examined and left undecided (issue #228)
     fired_holds: list[FiredHold] = field(default_factory=list)  # holds the corpus has now moved (issue #230)
+    held_names: list[HeldName] = field(default_factory=list)  # multi-name ids examined and left undecided (issue #232)
 
 
 @dataclass(frozen=True)
@@ -389,6 +410,17 @@ def resolve_pilots(
     multi_reported = {m.pilot for m in multi_name_ids}
     unexplained = [u for u in unexplained if u.pilot not in multi_reported]
 
+    # An id a human has read and could not settle moves onto the held list, the
+    # third state a held pair takes on the other queue (issue #232). Split after
+    # the filter above, so an examined id still keeps its own spellings out of
+    # the unexplained list rather than reappearing there.
+    held_names = [
+        HeldName(m.pilot, m.display_name, m.names, hold.settles_on, hold.as_of)
+        for m in multi_name_ids if (hold := curation.hold(m.pilot))
+    ]
+    examined = {h.pilot for h in held_names}
+    multi_name_ids = [m for m in multi_name_ids if m.pilot not in examined]
+
     # Null decks: one synthetic, low-confidence pilot per distinct recovered
     # name. A deck whose title yields no name is keyed on its own deck id, so
     # untitled decks stay separate rather than collapsing into one bogus node. It
@@ -452,7 +484,7 @@ def resolve_pilots(
     report = Reconciliation(
         variant_clusters, candidates, null_pilots, event_splits, dropped,
         joined_names, rejected + merged, dead, multi_name_ids, name_splits,
-        unexplained, held, fired,
+        unexplained, held, fired, held_names,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
@@ -989,7 +1021,13 @@ def _fired_holds(
     decks, deck_pilot: dict[str, str],
     snapshot_decks: dict[str, frozenset[str]] | None,
 ) -> list[FiredHold]:
-    """Every held pair the corpus has moved under since a human parked it (#230).
+    """Every hold the corpus has moved under since a human parked it (#230).
+
+    A hold of two ids and a hold of one are both evaluated here, and the triggers
+    divide between them (issue #232). ``joined_name`` and ``shared_event`` are
+    facts about two ids meeting and have no single-id shape; ``event_split`` is
+    the structural fact under ``shared_event`` asked of one id's own two surnames;
+    ``new_decks`` reads each held id's own career and carries over unchanged.
 
     The population is every pair the dictionary holds, never the ``held_merges``
     rows the name scan surfaced. Those are the subset whose two recovered names
@@ -1015,6 +1053,12 @@ def _fired_holds(
     evidence to decide it has arrived, which is a decision available rather than
     a question open. The ``"nan"`` sentinel a stranded deck carries is a hole
     where the event should be, not an event, and never fires it.
+
+    ``event_split`` fires where a held single id registered at one event under two
+    surname families (:func:`_name_collision`). It settles the id on the same
+    structural fact, one entry per pilot per event, and where the id's several
+    surnames are there because a ``[[merge]]`` folded them together, firing
+    refutes that merge.
 
     ``new_decks`` is the softer trigger, and fires where either id has gained a
     deck since the snapshot the hold's ``as_of`` names. Nothing is settled, but
@@ -1045,10 +1089,11 @@ def _fired_holds(
             deck.event, []
         ).append(deck.deck_id)
     joined_as = {pid: join for join in joined for pid in join.merged}
+    name_of = {deck.deck_id: _display_name(deck) for deck in decks}
 
     fired: list[FiredHold] = []
-    for pair, hold in sorted(curation.holds.items(), key=lambda kv: sorted(kv[0])):
-        pilots = sorted(pair)
+    for ids, hold in sorted(curation.holds.items(), key=lambda kv: sorted(kv[0])):
+        pilots = sorted(ids)
         # Where each side ended up: a curated merge first, then the name join on
         # top of it, since the join runs over already-folded ids. An id neither
         # touched is its own pilot.
@@ -1058,7 +1103,19 @@ def _fired_holds(
         common = dict(
             settles_on=hold.settles_on, as_of=hold.as_of, pilots=pilots
         )
-        if nodes[0] == nodes[1]:
+        # One decisive trigger per hold shape, then the soft one both share.
+        if len(nodes) == 1:
+            if collision := _name_collision(events_of.get(nodes[0], {}), name_of):
+                event, at_event = collision
+                fired.append(FiredHold(
+                    **common, trigger="event_split",
+                    detail=f"registered at {event} under " + ", ".join(
+                        f"{name!r} with {deck}" for deck, name in at_event
+                    ),
+                    decks=sorted(deck for deck, _ in at_event),
+                ))
+                continue
+        elif nodes[0] == nodes[1]:
             join = joined_as[canonical[0]]
             fired.append(FiredHold(
                 **common, trigger="joined_name", decks=[],
@@ -1066,27 +1123,27 @@ def _fired_holds(
                        f"{join.display_name!r} and joined onto {join.canonical}",
             ))
             continue
-        # A deck the source stranded carries the "nan" event sentinel rather than
-        # an event (``models.Deck._null_to_nan``), so two ids sitting under it
-        # share a hole in the data and not a registration.
-        at = [set(events_of.get(node, ())) - {"nan"} for node in nodes]
-        shared = sorted(at[0] & at[1])
-        if shared:
-            fired.append(FiredHold(
-                **common, trigger="shared_event",
-                detail="both registered at " + "; ".join(
-                    f"{event}: " + ", ".join(
-                        f"{pid} with {', '.join(sorted(events_of[node][event]))}"
-                        for pid, node in zip(pilots, nodes)
-                    )
-                    for event in shared
-                ),
-                decks=sorted(
-                    d for event in shared for node in nodes
-                    for d in events_of[node][event]
-                ),
-            ))
-            continue
+        else:
+            # A deck the source stranded carries the "nan" event sentinel rather
+            # than an event (``models.Deck._null_to_nan``), so two ids sitting
+            # under it share a hole in the data and not a registration.
+            at = [set(events_of.get(node, ())) - {"nan"} for node in nodes]
+            if shared := sorted(at[0] & at[1]):
+                fired.append(FiredHold(
+                    **common, trigger="shared_event",
+                    detail="both registered at " + "; ".join(
+                        f"{event}: " + ", ".join(
+                            f"{pid} with {', '.join(sorted(events_of[node][event]))}"
+                            for pid, node in zip(pilots, nodes)
+                        )
+                        for event in shared
+                    ),
+                    decks=sorted(
+                        d for event in shared for node in nodes
+                        for d in events_of[node][event]
+                    ),
+                ))
+                continue
         known = (snapshot_decks or {}).get(hold.as_of)
         if known is None:
             continue
@@ -1108,6 +1165,40 @@ def _fired_holds(
             decks=sorted(d for gained_by in gained.values() for d in gained_by),
         ))
     return fired
+
+
+def _name_collision(
+    events: dict[str, list[str]], name_of: dict[str, str | None]
+) -> "tuple[str, list[tuple[str, str]]] | None":
+    """The first event this id entered under two surnames, and the decks there.
+
+    The single-id shape of the structural fact a shared event carries for a pair
+    (ADR 0005): one deck is one pilot's single entry at one event, so an id
+    holding two entries at one event under two surname families is two people,
+    and the event split has already numbered them apart (issue #232). The test is
+    :func:`_surname_family`, the one that put the id in the queue, so it fires on
+    exactly the families the row is about -- an initial and the word it stands for
+    included, since two registrations at one event are two people however plainly
+    one name abbreviates the other, and where a ``[[merge]]`` is what put both
+    names on the id, that is the merge refuted.
+
+    A deck at the event whose title recovered no surname belongs to neither
+    family, so it is neither what fired the trigger nor offered as evidence of
+    it: what the banner names is what a maintainer reads to decide.
+
+    Events are read in name order so the fact reported is stable across builds,
+    and the ``"nan"`` sentinel a stranded deck carries is a hole where the event
+    should be rather than a registration, so it never fires.
+    """
+    for event, at_event in sorted(events.items()):
+        if event == "nan":
+            continue
+        named = [(deck, name) for deck in sorted(at_event)
+                 if (name := name_of[deck]) and _surname_family(name)]
+        families = {_surname_family(name) for _, name in named}
+        if len(families) > 1:
+            return event, named
+    return None
 
 
 def _candidate_pairs(names: dict[str, str]) -> set[tuple[str, str]]:

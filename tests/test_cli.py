@@ -251,6 +251,51 @@ def test_a_build_counts_held_pairs_apart_from_the_ones_awaiting_a_human(
     assert "yesterday" in str(exc.value)
 
 
+def test_a_build_counts_held_multi_name_ids_apart_and_announces_a_settled_one(
+    tmp_path, capsys, monkeypatch
+):
+    # The same three states on the other identity queue (issue #232). An id whose
+    # decks recovered two surnames is one id that may be two people, and once a
+    # human has read it, counting it with the ids nobody has read overstates the
+    # queue every build. And when the corpus settles one -- two of its surnames at
+    # one event, where only one person can have entered -- that is a decision
+    # sitting unmade, so it takes the banner rather than a line in the log.
+    snapshots = tmp_path / "snapshots"
+    two_names = [
+        ("d1", "P", "01st Tom H - Storm - E1", "E1", 1),
+        ("d2", "P", "01st Tom M - Lands - E2", "E2", 1),
+    ]
+    _titled_snapshot(snapshots / "20260101T000000Z", two_names)
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, tmp_path / "pilots.toml"))
+
+    # Nothing recorded: the id is a live question.
+    (tmp_path / "pilots.toml").write_text("")
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g1"))
+    assert "0 held, 1 unexamined" in capsys.readouterr().out
+
+    # Held: read, undecided, off the queue.
+    (tmp_path / "pilots.toml").write_text(
+        '[[hold]]\nids = ["P"]\n'
+        'settles_on = "event_split"\nas_of = "20260101T000000Z"\n'
+    )
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g2"))
+    out = capsys.readouterr().out
+    assert "1 held, 0 unexamined" in out
+    assert "DECISION AVAILABLE" not in out
+
+    # A later fetch has both surnames register at E1.
+    _titled_snapshot(snapshots / "20260201T000000Z", two_names + [
+        ("d3", "P", "02nd Tom M - Lands - E1", "E1", 2),
+    ])
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g3"))
+    out = capsys.readouterr().out
+
+    assert "DECISION AVAILABLE" in out
+    assert "1 hold(s) settled" in out
+    assert "P:" in out and "E1" in out
+
+
 def test_a_build_reports_every_value_it_decided_rather_than_accepted(tmp_path, capsys):
     # A value the build decided is an assumption it made about the data, so it says
     # what it decided and under which rule rather than leaving it to be discovered
