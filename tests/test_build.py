@@ -15,7 +15,13 @@ from graph7ph.build import (
     reconciliation_path,
 )
 from graph7ph.curation import ArchetypeOverride, Curation, CurationError, Hold
-from graph7ph.db import database_path, open_database, open_for_reading, rows
+from graph7ph.db import (
+    artifact_path,
+    database_path,
+    open_database,
+    open_for_reading,
+    rows,
+)
 from graph7ph.models import Deck, load_snapshot
 
 
@@ -659,6 +665,28 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
                RETURN a.name, r.weight, r.isPrimary"""))
     }
     assert edges == {"Izzet Prowess": (100, True)}
+
+
+def test_no_pair_in_the_identity_queue_is_left_unexamined(live_graph):
+    # The invariant the thorough pass exists to establish, over the real record
+    # (issues #227, #231): every candidate pair is either curated or held with
+    # recorded reasoning, so `under_merges` -- unexamined only, since #228 -- is
+    # empty. That is what lets a later round work only the delta, and it has to
+    # be a test rather than a fact somebody re-checks: a pair nobody has read
+    # reddens this instead of growing a tail again in silence.
+    #
+    # It reddens where the pair can first appear, which is the machine that ran
+    # the ingestion: `live_graph` skips on a missing or stale bundle, so this is
+    # silent in CI (which never builds) and speaks on the build that introduced
+    # the pair. That is the right place for it, since only an ingestion can add
+    # one, but it does mean a rebuild has to precede the suite for it to grade
+    # anything at all.
+    #
+    # The pairs are named, not counted, because the failure a reader needs is
+    # "these two ids want a decision", not "78".
+    report = json.loads(reconciliation_path(artifact_path()).read_text())
+
+    assert [(u["display_name"], u["pilots"]) for u in report["under_merges"]] == []
 
 
 def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
