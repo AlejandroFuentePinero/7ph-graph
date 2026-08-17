@@ -18,6 +18,7 @@ from graph7ph.curation import (
     ArchetypeOverride,
     Curation,
     CurationError,
+    DeadEntry,
     Hold,
     dead_entries,
     load_curation,
@@ -52,6 +53,26 @@ def test_a_hold_records_the_pair_a_human_examined_and_left_undecided(tmp_path):
     # Keyed on the unordered pair, like every other all-pairs decision.
     assert curation.hold("B", "A") == curation.hold("A", "B")
     assert curation.hold("A", "C") is None
+
+
+def test_a_hold_records_the_single_id_a_human_examined_and_left_undecided(tmp_path):
+    # The other identity queue asks about one id rather than a pair: an id whose
+    # decks recovered several surnames is one id that may be several people
+    # (issues #39, #232). The same kind records it, carrying the same two fields
+    # and keyed on the one id the question is about.
+    path = _write(tmp_path, """
+        [[hold]]
+        ids = ["A"]
+        settles_on = "event_split"
+        as_of = "20260815T140746Z"
+    """)
+
+    curation = load_curation(path)
+
+    assert curation.hold("A") == Hold(
+        settles_on="event_split", as_of="20260815T140746Z")
+    # It holds the id's own names open, and says nothing about any pair it is in.
+    assert curation.hold("A", "B") is None
 
 
 def test_name_pin_on_non_canonical_merge_member_raises(tmp_path):
@@ -242,6 +263,27 @@ def test_a_pair_both_held_and_decided_raises(tmp_path, decision):
         as_of = "20260815T140746Z"
     """)
     with pytest.raises(CurationError, match="A"):
+        load_curation(path)
+
+
+def test_a_hold_on_one_id_a_merge_folds_away_raises(tmp_path):
+    # The multi-name queue is read off the canonical id a merge leaves standing,
+    # so a hold naming a folded-away member matches nothing there and leaves the
+    # canonical reported as unexamined -- while the hold's own triggers, which do
+    # resolve the merge, can still announce a decision on it. The queue and the
+    # banner would then disagree about the same id. Refused the way a [[name]]
+    # pinned on a merged id is, and with the same fix (issue #232).
+    path = _write(tmp_path, """
+        [[merge]]
+        ids = ["A", "C"]
+        canonical = "C"
+
+        [[hold]]
+        ids = ["A"]
+        settles_on = "event_split"
+        as_of = "20260815T140746Z"
+    """)
+    with pytest.raises(CurationError, match="hold the canonical id instead"):
         load_curation(path)
 
 
@@ -458,6 +500,40 @@ def test_dead_entries_flags_every_absent_keyed_entry():
     # Live entries never appear.
     assert not any(key in {"liveMember", "canon", "liveB", "liveC", "liveName"}
                    for _, key in flagged)
+
+
+def test_a_hold_on_one_absent_id_is_reported_without_a_partner():
+    # A hold on a single id keeps that id's own names off the multi-name queue,
+    # so an id the source has since dropped parks a question about nobody. It is
+    # the same dead entry as a held pair's, and it names what it was holding
+    # open rather than an empty partner list (issue #232).
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"goneH"}): Hold("event_split", "20260815T140746Z")},
+    )
+
+    assert dead_entries(curation, {"liveB"}, set()) == [
+        DeadEntry("hold", "goneH", "held on its own several names")]
+    assert dead_entries(curation, {"goneH"}, set()) == []
+
+
+def test_an_id_held_both_alone_and_in_a_pair_is_reported_for_each():
+    # Two entries asking two questions of one id: whether its own names are one
+    # person, and whether it is the same person as another id. Reporting them on
+    # one row would let a maintainer retire the pair the row names and leave the
+    # other entry on file, dead and now flagged by nothing (issue #232).
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={
+            frozenset({"goneH"}): Hold("event_split", "20260815T140746Z"),
+            frozenset({"goneH", "other"}): Hold("shared_event", "20260815T140746Z"),
+        },
+    )
+
+    assert dead_entries(curation, {"other"}, set()) == [
+        DeadEntry("hold", "goneH", "held on its own several names"),
+        DeadEntry("hold", "goneH", "held against ['other']"),
+    ]
 
 
 def test_a_hold_dated_against_a_snapshot_no_build_read_is_reported():

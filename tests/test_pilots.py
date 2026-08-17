@@ -767,6 +767,36 @@ def test_held_candidate_leaves_the_review_list_without_being_decided():
     assert [c.pilots for c in plain.report.under_merges] == [h.pilots for h in held]
 
 
+def test_a_held_id_leaves_the_multi_name_queue_without_being_decided():
+    # The same third state, on the queue that asks about one id rather than a pair
+    # (issues #228, #232). An id whose decks recovered two surnames is examined and
+    # cannot be settled, so it moves off the list a human works through and onto
+    # the held one, carrying what would settle it. It decides nothing: the id is
+    # the pilot it was, under the name the vote gave it.
+    decks = [
+        _deck("d1", "P", "1st Tom H - Storm - E1", event="E1"),
+        _deck("d2", "P", "2nd Tom H - Storm - E2", event="E2"),
+        _deck("d3", "P", "3rd Tom M - Lands - E3", event="E3"),
+    ]
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"P"}): Hold("event_split", "20260815T140746Z")},
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert res.report.multi_name_ids == []
+    [held] = res.report.held_names
+    assert (held.pilot, held.display_name) == ("P", "Tom H")
+    assert set(held.names) == {"Tom H", "Tom M"}
+    assert (held.settles_on, held.as_of) == ("event_split", "20260815T140746Z")
+    # And the resolution itself is what it would be with no hold at all.
+    plain = resolve_pilots(decks)
+    assert res.pilots == plain.pilots
+    assert res.deck_pilot == plain.deck_pilot
+    assert [m.pilot for m in plain.report.multi_name_ids] == ["P"]
+
+
 def test_a_shared_event_fires_the_hold_the_corpus_has_now_settled():
     # A hold records the condition that would settle it, and the build re-evaluates
     # that condition every ingestion, so growing data does the review work (issue
@@ -801,6 +831,55 @@ def test_a_shared_event_fires_the_hold_the_corpus_has_now_settled():
     # The hold's own record rides along, so a reader can tell what the human
     # expected would settle it and which corpus they wrote that against.
     assert (fired[0].settles_on, fired[0].as_of) == ("shared_event", "20260815T140746Z")
+
+
+def test_two_of_a_held_ids_names_at_one_event_settle_it():
+    # The settling trigger a hold on one id has (issue #232). `shared_event` has
+    # no single-id shape, there being no second id, but the structural fact under
+    # it does: a deck is one pilot's single entry at one event, so one id holding
+    # two entries at one event under two surnames is two people, and the event
+    # split has already numbered them apart. That is a decision available, not a
+    # question open, so it is announced with the fact that decided it.
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"P"}): Hold("new_decks", "20260815T140746Z")},
+    )
+    apart = [
+        _deck("d1", "P", "1st Tom H - Storm - E1", event="E1"),
+        _deck("d2", "P", "2nd Tom H - Storm - E2", event="E2"),
+        _deck("d3", "P", "3rd Tom M - Lands - E3", event="E3"),
+    ]
+
+    # Two surnames, but never at one event: nothing is settled.
+    assert resolve_pilots(apart, curation).report.fired_holds == []
+
+    # One more registration puts both surnames at E1, where only one person can
+    # have entered.
+    together = apart + [
+        _deck("d4", "P", "2nd Tom M - Lands - E1", event="E1", placement=2),
+    ]
+    fired = resolve_pilots(together, curation).report.fired_holds
+
+    assert [f.trigger for f in fired] == ["event_split"]
+    assert fired[0].pilots == ["P"]
+    # The fact that fired it: the event, and the deck each name registered there.
+    assert "E1" in fired[0].detail
+    assert "Tom H" in fired[0].detail and "Tom M" in fired[0].detail
+    assert sorted(fired[0].decks) == ["d1", "d4"]
+    # Fired on the data, not on the guess: this hold expected new decks to move it.
+    assert (fired[0].settles_on, fired[0].as_of) == ("new_decks", "20260815T140746Z")
+
+    # A third deck at E1 whose title recovered no surname sits under neither of
+    # the two names, so it is not evidence of the split and is not offered as
+    # any: what the banner names is what a maintainer reads to decide.
+    with_bare = together + [
+        _deck("d5", "P", "3rd Bob - Lands - E1", event="E1", placement=3),
+    ]
+    fired = resolve_pilots(with_bare, curation).report.fired_holds
+
+    assert [f.trigger for f in fired] == ["event_split"]
+    assert sorted(fired[0].decks) == ["d1", "d4"]
+    assert "Bob" not in fired[0].detail
 
 
 def test_a_hold_is_evaluated_off_the_dictionary_not_off_the_review_list():
@@ -921,6 +1000,41 @@ def test_a_deck_gained_since_the_holds_snapshot_puts_it_up_for_re_reading():
     assert moved[0].decks == ["d3"]
     assert "FrostyBlueOtter" in moved[0].detail
     assert "NimbleBlackEagle" not in moved[0].detail
+
+    # A hold written against the corpus this build read has nothing to re-read.
+    assert fired("20260201T000000Z") == []
+
+
+def test_a_held_id_that_gained_a_deck_is_up_for_re_reading_too():
+    # The one pair trigger that carries over to a hold on a single id unchanged
+    # (issue #232): it already reads each held id's own career, and an id that has
+    # registered again is an id whose recovered names may have moved, which is
+    # what the reasoning was written against. Nothing is settled -- a third deck
+    # under a third spelling is still one account -- so it stays the softer
+    # trigger it is for a pair.
+    decks = [
+        _deck("d1", "P", "1st Tom H - Storm - E1", event="E1"),
+        _deck("d2", "P", "2nd Tom M - Lands - E2", event="E2"),
+        _deck("d3", "P", "3rd Tom M - Lands - E3", event="E3"),
+    ]
+    history = {
+        "20260101T000000Z": frozenset({"d1", "d2"}),
+        "20260201T000000Z": frozenset({"d1", "d2", "d3"}),
+    }
+
+    def fired(as_of):
+        curation = Curation(
+            merges={}, rejected=frozenset(), names={}, deck_pilots={},
+            holds={frozenset({"P"}): Hold("event_split", as_of)},
+        )
+        return resolve_pilots(
+            decks, curation, snapshot_decks=history
+        ).report.fired_holds
+
+    moved = fired("20260101T000000Z")
+
+    assert [f.trigger for f in moved] == ["new_decks"]
+    assert (moved[0].pilots, moved[0].decks) == (["P"], ["d3"])
 
     # A hold written against the corpus this build read has nothing to re-read.
     assert fired("20260201T000000Z") == []

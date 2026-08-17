@@ -67,13 +67,14 @@ def _build(args: argparse.Namespace) -> None:
               f"  {bar}")
 
     recon = json.loads(reconciliation_path(args.db).read_text())
-    dupes, joined, candidates, curated, multi, splits, unexplained, held = (
+    dupes, joined, candidates, curated, multi, splits, unexplained, held, held_names = (
         len(recon["dropped_duplicates"]), len(recon["joined_names"]),
         len(recon["under_merges"]), recon["curated"],
         len(recon.get("multi_name_ids", [])),
         len(recon.get("name_splits", [])),
         len(recon.get("unexplained_names", [])),
         len(recon.get("held_merges", [])),
+        len(recon.get("held_names", [])),
     )
     # Grouped by property and printed off the report's generated section, so a rule
     # this code has never heard of is still announced the build it first fires
@@ -94,8 +95,6 @@ def _build(args: argparse.Namespace) -> None:
         print(f"  {joined} id group(s) joined on an identical display name")
     if splits:
         print(f"  {splits} display name(s) split into separate people by curation")
-    if multi:
-        print(f"  {multi} id(s) recovered more than one surname (review the report)")
     if unexplained:
         print(f"  {unexplained} id(s) discarded a name spelling nothing relates to the "
               "winner (review the report)")
@@ -106,6 +105,13 @@ def _build(args: argparse.Namespace) -> None:
     # means "open this many questions".
     print(f"  pilot identity: {held} held, {candidates} unexamined, "
           f"{curated} already curated")
+    # The second identity queue, printed in the same three states and for the same
+    # reason (issue #232): one id whose decks recovered several surnames is one id
+    # that may be several people, and an id a human has read is not an open
+    # question. It carries no "curated" figure, a decision here being a deck
+    # reassignment that takes the id off the queue by changing what it holds.
+    if multi or held_names:
+        print(f"  names under one id: {held_names} held, {multi} unexamined")
     # A hold the data has settled is an available decision sitting unmade, not a
     # notice, so it gets the same banner a flagged record does rather than a line
     # a scrolling build log buries (issue #230). A hold whose evidence merely

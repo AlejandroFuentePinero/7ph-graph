@@ -667,13 +667,19 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
     assert edges == {"Izzet Prowess": (100, True)}
 
 
-def test_no_pair_in_the_identity_queue_is_left_unexamined(live_graph):
+def test_nothing_in_either_identity_queue_is_left_unexamined(live_graph):
     # The invariant the thorough pass exists to establish, over the real record
-    # (issues #227, #231): every candidate pair is either curated or held with
-    # recorded reasoning, so `under_merges` -- unexamined only, since #228 -- is
-    # empty. That is what lets a later round work only the delta, and it has to
-    # be a test rather than a fact somebody re-checks: a pair nobody has read
-    # reddens this instead of growing a tail again in silence.
+    # (issues #227, #231, #232): every entry in either identity queue is curated
+    # or held with recorded reasoning, so `under_merges` and `multi_name_ids` --
+    # unexamined only, since #228 and #232 -- are both empty. That is what lets a
+    # later round work only the delta, and it has to be a test rather than a fact
+    # somebody re-checks: an entry nobody has read reddens this instead of growing
+    # a tail again in silence.
+    #
+    # Both queues, because they ask one question from two directions: several ids
+    # that may be one person, and one id that may be several. An assertion over
+    # one of them would let "the queue is complete" mean complete for half the
+    # work.
     #
     # It reddens where the pair can first appear, which is the machine that ran
     # the ingestion: `live_graph` skips on a missing or stale bundle, so this is
@@ -682,11 +688,27 @@ def test_no_pair_in_the_identity_queue_is_left_unexamined(live_graph):
     # one, but it does mean a rebuild has to precede the suite for it to grade
     # anything at all.
     #
-    # The pairs are named, not counted, because the failure a reader needs is
+    # The entries are named, not counted, because the failure a reader needs is
     # "these two ids want a decision", not "78".
     report = json.loads(reconciliation_path(artifact_path()).read_text())
 
     assert [(u["display_name"], u["pilots"]) for u in report["under_merges"]] == []
+    assert [(m["pilot"], m["names"]) for m in report["multi_name_ids"]] == []
+
+
+def _identity(snapshot, db_path, curation):
+    """Build the snapshot and return what a hold must never move.
+
+    The counts, the deck-to-pilot identity the graph actually holds, and the
+    reconciliation report: what the three inertness tests below compare between a
+    build carrying a [[hold]] and the same build without it.
+    """
+    counts = build_graph(snapshot, db_path, curation)
+    conn = open_for_reading(db_path)
+    return counts, sorted(rows(conn.execute(
+        """MATCH (d:Deck)-[:PILOTED_BY]->(p:Pilot)
+           RETURN d.deckId, p.pilot, p.displayName"""))), json.loads(
+        reconciliation_path(db_path).read_text())
 
 
 def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
@@ -708,16 +730,8 @@ def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
                Hold("shared_event", "20260815T140746Z")},
     )
 
-    def identity(db_path, curation):
-        counts = build_graph(snapshot, db_path, curation)
-        conn = open_for_reading(db_path)
-        return counts, sorted(rows(conn.execute(
-            """MATCH (d:Deck)-[:PILOTED_BY]->(p:Pilot)
-               RETURN d.deckId, p.pilot, p.displayName"""))), json.loads(
-            reconciliation_path(db_path).read_text())
-
-    with_hold, held_ids, held_report = identity(tmp_path / "held", held)
-    without, plain_ids, plain_report = identity(tmp_path / "plain", Curation.empty())
+    with_hold, held_ids, held_report = _identity(snapshot, tmp_path / "held", held)
+    without, plain_ids, plain_report = _identity(snapshot, tmp_path / "plain", Curation.empty())
 
     # Same counts, and the same deck-to-pilot identity deck by deck.
     assert with_hold == without
@@ -736,6 +750,43 @@ def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
             if k not in {"under_merges", "held_merges"}} == {
         k: v for k, v in plain_report.items()
         if k not in {"under_merges", "held_merges"}}
+
+
+def test_a_hold_on_one_id_moves_it_off_the_multi_name_queue_and_changes_no_graph(
+    tmp_path
+):
+    # The same load-bearing property on the other queue (issue #232): a hold on a
+    # single id is a note about a decision not taken, so deleting it has to leave
+    # the same graph. Otherwise the watchlist has become a way to change who the
+    # pilots are -- here, whose decks are whose -- without recording a decision.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
+              pilot="NimbleBlackEagle", name="01st Tom H - Grixis - E1"),
+        _deck("d2", "E2", "2026-02-01T00:00:00+00:00",
+              pilot="NimbleBlackEagle", name="01st Tom M - Walks - E2"),
+    ])
+    snapshot = load_snapshot(tmp_path)
+    held = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"NimbleBlackEagle"}):
+               Hold("event_split", "20260815T140746Z")},
+    )
+
+    with_hold, held_ids, held_report = _identity(snapshot, tmp_path / "held", held)
+    without, plain_ids, plain_report = _identity(snapshot, tmp_path / "plain", Curation.empty())
+
+    assert with_hold == without
+    assert held_ids == plain_ids
+    # The id moved between the two lists and nowhere else.
+    assert plain_report["held_names"] == []
+    assert [m["pilot"] for m in plain_report["multi_name_ids"]] == ["NimbleBlackEagle"]
+    assert held_report["multi_name_ids"] == []
+    assert [(h["pilot"], h["settles_on"]) for h in held_report["held_names"]] == [
+        ("NimbleBlackEagle", "event_split")]
+    assert {k: v for k, v in held_report.items()
+            if k not in {"multi_name_ids", "held_names"}} == {
+        k: v for k, v in plain_report.items()
+        if k not in {"multi_name_ids", "held_names"}}
 
 
 def test_a_fired_trigger_changes_the_report_and_leaves_the_graph_alone(tmp_path):
@@ -758,16 +809,8 @@ def test_a_fired_trigger_changes_the_report_and_leaves_the_graph_alone(tmp_path)
                Hold("shared_event", "20260815T140746Z")},
     )
 
-    def identity(db_path, curation):
-        counts = build_graph(snapshot, db_path, curation)
-        conn = open_for_reading(db_path)
-        return counts, sorted(rows(conn.execute(
-            """MATCH (d:Deck)-[:PILOTED_BY]->(p:Pilot)
-               RETURN d.deckId, p.pilot, p.displayName"""))), json.loads(
-            reconciliation_path(db_path).read_text())
-
-    with_hold, held_ids, held_report = identity(tmp_path / "held", held)
-    without, plain_ids, plain_report = identity(tmp_path / "plain", Curation.empty())
+    with_hold, held_ids, held_report = _identity(snapshot, tmp_path / "held", held)
+    without, plain_ids, plain_report = _identity(snapshot, tmp_path / "plain", Curation.empty())
 
     # The pair is settled by the shared event, and named with what settled it.
     fired = held_report["fired_holds"]
