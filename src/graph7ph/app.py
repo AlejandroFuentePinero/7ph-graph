@@ -866,7 +866,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "It happens the other way round too: one person can be listed as two names. "
         "Two spellings are joined only when the names recovered from the titles match "
         "outright, so \"Josh V\" and \"Joshua V\" stay apart until a maintainer confirms "
-        "they are one person. 145 of the names offered are currently paired with another "
+        "they are one person. 126 of the names offered are currently paired with another "
         "that may be the same person, which is a question this project has not settled "
         "rather than an answer it got wrong. If you find yourself in here twice, the "
         "email and Discord at the foot of the page are the way to say so.",

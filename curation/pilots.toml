@@ -1184,6 +1184,95 @@ ids = ["ShinyMaroonRaven", "SolarCrimsonHawk"]
 ids = ["HiddenCrimsonWolf1D5", "SolarCrimsonHawk"]
 
 
+# --- Separated by a shared event (issue #226 review round) ---
+#
+# Twelve of the 90 open candidates put both ids at the same event. A deck is one
+# pilot's single entry at one event, so two entries there are two humans unless one
+# person played two flights under two spellings. None of these is that case: every
+# shared event below is a single Tournament, and at it the two ids field *different*
+# decks (the highest shared-event overlap in the whole set is 0.28). Where a pair
+# also scores high at other events, that is a netdecked archetype, which ADR 0005
+# rules is community list-sharing rather than identity.
+#
+# No merge was recorded this round. Each of the three pairs that cleared the naive
+# 0.5 overlap bar failed a stranger baseline matched for archetype, colour and date
+# gap, the test the Angus M != Angus McC entry above established: Bradley H / Brad H
+# at 0.72 on BG Lands sits at the 88th percentile of DIFFERENT pilots (185 stranger
+# pairs score at or above it), and Brint G / Brent G at 0.60 on Grixis sits at the
+# 46th, the literal median stranger. A false merge fuses two people irreversibly for
+# every metric downstream; a pair left apart costs only a row in the review queue.
+
+[[reject]]
+# James M != JamM72. Both at ETEAE and at SydneyShowdown: two shared events, so the
+# one-entry-per-person rule settles it without appeal. The 0.97 that proposed the
+# merge is Mardu at those same events, where they registered different decks (0.19).
+ids = ["IvoryVioletManta", "FlyingGreenPanda"]
+
+[[reject]]
+# Timothy T != Tim T. Both at Masters26 (Tournament, 63 decks), different decks there
+# (0.09). Two careers just under the both-established floor, the shape #210 recorded
+# for Alex B / Alexander B: 2 decks against 3, the 0.73 coming from Temur lists at
+# other events.
+ids = ["LuckyMaroonManta", "AmberJadeEagle"]
+
+[[reject]]
+# MicW52 != Michael W. Both at ETEAE, different decks there (0.09), and the name link
+# is a handle, which ADR 0005 never treats as structural. The 0.66 is Blue Moon at
+# other events, i.e. the netdecked-archetype case the ADR names.
+ids = ["WanderingIvoryFalcon", "LunarAzureWolf"]
+
+[[reject]]
+# Matthew G != Matt G. Both at HighlanderWorlds26, different decks there (0.06), and
+# the record is lopsided 18 decks to 1: the borrowed-list shape from #210 (Ben H 1 /
+# Benjamin H). Matt G's lone Mono Red scores 0.46 against Matthew G's other events,
+# which is list-sharing, not a career.
+ids = ["CleverMagentaViper", "JumpingMagentaWhale"]
+
+[[reject]]
+# Dan S != Dan. Both at TMC25, different decks there (0.24). A bare first name is the
+# weakest link there is, and Dan S carries 54 decks against this id's one.
+ids = ["Daniel S", "MistyAzureHawk"]
+
+[[reject]]
+# Will M != Willow M. Both at NHC24, different decks there (0.12), 10 decks to 1. The
+# names are not even a nickname pair in the relevant direction: Willow is its own
+# name, not a shortening of William.
+ids = ["LuckyCrimsonViper", "CleverJadeEagle"]
+
+[[reject]]
+# Denby A != Denby. Both at WAC26, different decks there (0.28).
+ids = ["SwiftCrimsonWhale", "NimbleMaroonBadger"]
+
+[[reject]]
+# San D != Ian D. Both at WAC26, different decks there (0.07). The name link is a
+# single substitution, which ADR 0005 puts in the danger zone precisely because it
+# flips to a different real name (Dan / Ian is its own worked example).
+ids = ["BraveJadeDolphin993", "LunarAmberWolf"]
+
+[[reject]]
+# Daniel G != Dan G. Both at WAC, different decks there (0.03), and nothing anywhere
+# else: 0.06 across their whole records.
+ids = ["AmberJadeHeron", "BraveMaroonHeron"]
+
+[[reject]]
+# Phillip H != PhiH28. Both at ETEAE, different decks there (0.05). One deck each and
+# a handle link, which earns nothing: their disjoint overlap is 0.00.
+ids = ["SilentJadeEagle", "ShinyPurpleWolf"]
+
+[[reject]]
+# ChrT58 != Christopher T. Both at ETEAE, different decks there (0.02). A handle at
+# 0.04 against a 25-deck career is the ~0.05 chaining failure ADR 0005 warns about.
+ids = ["WanderingGoldOtter", "SilentGreenLynx"]
+
+[[reject]]
+# Samuel F != the bare "Samuel" id. BraveBlackWhale is two decks at WAC26 alone, so it
+# is already two entrants (split into Samuel 1 and Samuel 2), and Samuel F registered
+# at WAC26 too: three Samuel entries at one event, different decks (0.04). Samuel C
+# and Samuel M never attended WAC26, so they stay open candidates for the two bare
+# ids; Samuel F cannot be either of them.
+ids = ["WanderingIvoryPanda", "BraveBlackWhale"]
+
+
 # Corroborated merges the audit added (deck overlap + shared archetype, disjoint events).
 [[merge]]
 # Mat B = MatB161 (handle embeds "Mat B", 0.78 Jund, disjoint; disambiguates vs MatB163)
@@ -1563,6 +1652,25 @@ deck = "NEAr5sy1kEy5cwFUGhEa_A"
 deck_name = "UR Prowess"
 engine = "engine:izzet_prowess"
 engine_label = "Izzet Prowess"
+
+[[deck_archetype]]
+# Henry F's 88WADJuly deck (10th), titled "Amber Ascendency". The misspelling is
+# what the tagger tripped on: it matched only the generic engine:ascendancy and
+# gave it weight 100, which no other deck in the corpus carries as a primary.
+# The seven real Amber Ascendancy decks all carry engine:amber_ascendancy at 50
+# primary with engine:ascendancy at 50 beside it, and 11 further decks carry the
+# bare tag only as a secondary.
+#
+# The cards settle it without leaning on the title at all: this deck's seven
+# closest lists in the whole corpus are exactly those seven Amber Ascendancy
+# decks, from 0.63 (ANZSS11) to 0.765 (SydneyShowdown26), with nothing else
+# reaching them. Collapse it onto the single corrected engine, which is what
+# every archetype figure counts (ADR 0023), and correct the deck name to the
+# convention its sisters use.
+deck = "J4CqDvaCPkO4LeCxJgBydQ"
+deck_name = "Amber Ascendancy"
+engine = "engine:amber_ascendancy"
+engine_label = "Amber Ascendancy"
 
 # --- Decks stranded at a malformed event, returned to their cohort (issue #167) ---
 
