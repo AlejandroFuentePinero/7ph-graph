@@ -14,7 +14,7 @@ from graph7ph.build import (
     graph_counts,
     reconciliation_path,
 )
-from graph7ph.curation import ArchetypeOverride, Curation, CurationError
+from graph7ph.curation import ArchetypeOverride, Curation, CurationError, Hold
 from graph7ph.db import database_path, open_database, open_for_reading, rows
 from graph7ph.models import Deck, load_snapshot
 
@@ -659,6 +659,55 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
                RETURN a.name, r.weight, r.isPrimary"""))
     }
     assert edges == {"Izzet Prowess": (100, True)}
+
+
+def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
+    # The load-bearing property of the eighth kind (issue #228): a hold is a note
+    # about a decision not taken, so it must be inert. Deleting every [[hold]] has
+    # to leave the same graph, or the watchlist has quietly become a way to change
+    # who the pilots are without recording a decision. Graded by building the same
+    # snapshot twice and comparing the identity the graph actually holds.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
+              pilot="NimbleBlackEagle", name="01st Joe M - Grixis - E1"),
+        _deck("d2", "E2", "2026-02-01T00:00:00+00:00",
+              pilot="FrostyBlueOtter", name="01st Joel M - Grixis - E2"),
+    ])
+    snapshot = load_snapshot(tmp_path)
+    held = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
+               Hold("shared_event", "20260815T140746Z")},
+    )
+
+    def identity(db_path, curation):
+        counts = build_graph(snapshot, db_path, curation)
+        conn = open_for_reading(db_path)
+        return counts, sorted(rows(conn.execute(
+            """MATCH (d:Deck)-[:PILOTED_BY]->(p:Pilot)
+               RETURN d.deckId, p.pilot, p.displayName"""))), json.loads(
+            reconciliation_path(db_path).read_text())
+
+    with_hold, held_ids, held_report = identity(tmp_path / "held", held)
+    without, plain_ids, plain_report = identity(tmp_path / "plain", Curation.empty())
+
+    # Same counts, and the same deck-to-pilot identity deck by deck.
+    assert with_hold == without
+    assert held_ids == plain_ids
+    # The pair moved between the two lists and nowhere else: it is the one entry
+    # the report gained, and the one the review queue lost.
+    assert plain_report["held_merges"] == []
+    assert len(plain_report["under_merges"]) == 1
+    assert held_report["under_merges"] == []
+    assert [set(h["pilots"]) for h in held_report["held_merges"]] == [
+        {"NimbleBlackEagle", "FrostyBlueOtter"}]
+    # A hold decides nothing, so it is counted with neither the merged nor the
+    # rejected: the "already curated" figure cannot inflate on a parked pair.
+    assert held_report["curated"] == plain_report["curated"] == 0
+    assert {k: v for k, v in held_report.items()
+            if k not in {"under_merges", "held_merges"}} == {
+        k: v for k, v in plain_report.items()
+        if k not in {"under_merges", "held_merges"}}
 
 
 def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):

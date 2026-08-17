@@ -14,20 +14,33 @@ The file is TOML because a human writes it: it takes comments, and ``tomllib`` i
 in the standard library, so reading it costs no dependency.
 """
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-# The seven kinds of recorded decision, one per TOML entry type (repo idiom:
+# The eight kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
 DeadKind = Literal[
-    "merge", "reject", "split", "name", "deck_pilot", "deck_archetype", "deck_event"
+    "merge", "reject", "split", "name", "deck_pilot", "deck_archetype",
+    "deck_event", "hold",
 ]
 
 # The dictionary is checked in, and lives apart from `snapshots/` (immutable
 # source) and `data/` (derived artifacts): it is neither, it is human judgement.
 CURATION_PATH = Path("curation/pilots.toml")
+
+# A snapshot directory's name, as `fetch` mints it ("%Y%m%dT%H%M%SZ"). A
+# [[hold]]'s `as_of` is graded on this shape and not on whether the directory is
+# present, because presence is not a portable question: `snapshots/` is
+# gitignored and each directory is named for the wall clock of the machine that
+# fetched it, so the stamps differ in every clone and CI holds none at all. A
+# dictionary that loaded only where it was written would make the one entry kind
+# that applies nothing to the graph the only one able to stop the graph being
+# built. Whether a stamp names a snapshot a given build actually read is a real
+# question, answerable only at build time, and it belongs to issue #230.
+SNAPSHOT_STAMP = re.compile(r"^\d{8}T\d{6}Z$")
 
 
 class CurationError(Exception):
@@ -47,6 +60,27 @@ class ArchetypeOverride:
     deck_name: str
     engine: str  # the engine code, e.g. "engine:izzet_prowess"
     engine_label: str  # its display label, e.g. "Izzet Prowess"
+
+
+@dataclass(frozen=True)
+class Hold:
+    """A pair a human examined and deliberately left undecided (issue #228).
+
+    Every other kind records a decision. This one records that a decision was
+    attempted and could not be reached on the evidence available, which is the
+    difference between a pair nobody has looked at and a pair that cannot yet be
+    settled. Reasoning stays in the TOML comment above the entry, where a human
+    reads it; the two fields here are what a later pass needs mechanically.
+
+    ``settles_on`` names the evidence that would decide the pair (a shared event,
+    a fresh deck, a corroborating name). It is carried, not evaluated: firing on
+    it is issue #230. ``as_of`` is the snapshot the reasoning was written
+    against, so a later pass can tell "still unsettled" from "not looked at since
+    two ingestions ago".
+    """
+
+    settles_on: str
+    as_of: str  # a snapshot directory name, e.g. "20260815T140746Z"
 
 
 @dataclass(frozen=True)
@@ -80,10 +114,14 @@ class Curation:
     stranded at a malformed event rejoins its cohort. ``splits`` holds id pairs
     that share a display name but are different people, which keeps the
     identical-name join (ADR 0007) from folding them into one node -- the
-    inverse of a ``merge``.
+    inverse of a ``merge``. ``holds`` maps an id pair onto the :class:`Hold` a
+    human left against it: alone among the eight kinds it decides nothing and
+    applies nothing, it only records that the pair was examined (issue #228).
 
     No pair in ``rejected`` or ``splits`` is one ``merges`` folds together:
-    :func:`_refuse_merged_pair` refuses a dictionary that states both.
+    :func:`_refuse_merged_pair` refuses a dictionary that states both. No pair in
+    ``holds`` is decided by any of the three: :func:`_refuse_decided_hold` refuses
+    a dictionary that calls one pair both open and settled.
     """
 
     merges: dict[str, str]
@@ -93,10 +131,11 @@ class Curation:
     deck_archetypes: dict[str, ArchetypeOverride] = field(default_factory=dict)
     splits: frozenset[frozenset[str]] = field(default_factory=frozenset)
     deck_events: dict[str, str] = field(default_factory=dict)
+    holds: dict[frozenset[str], Hold] = field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "Curation":
-        return cls({}, frozenset(), {}, {}, {}, frozenset(), {})
+        return cls({}, frozenset(), {}, {}, {}, frozenset(), {}, {})
 
     def canonical(self, pilot_id: str) -> str:
         """The id ``pilot_id`` was merged into, or itself."""
@@ -109,6 +148,10 @@ class Curation:
     def is_split(self, a: str, b: str) -> bool:
         """Whether these two same-named ids were declared different people."""
         return frozenset({a, b}) in self.splits
+
+    def hold(self, a: str, b: str) -> "Hold | None":
+        """The hold recorded against these two ids, if a human left one."""
+        return self.holds.get(frozenset({a, b}))
 
 
 def load_curation(path: Path = CURATION_PATH) -> Curation:
@@ -130,6 +173,8 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
     splits = _pairs(raw.get("split", []), path, "split")
     _refuse_merged_pair(merges, rejected, path, "reject")
     _refuse_merged_pair(merges, splits, path, "split")
+    holds = _holds(raw.get("hold", []), path)
+    _refuse_decided_hold(holds, merges, rejected, splits, path)
     names = _names(raw.get("name", []), path)
     # A pin is looked up by the canonical bucket id, so pinning a name on an id
     # that merges away can never fire -- an authoring contradiction, not a dead
@@ -144,6 +189,7 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
         merges=merges,
         rejected=rejected,
         names=names,
+        holds=holds,
         deck_pilots=_deck_map(raw.get("deck_pilot", []), path, "deck_pilot", "pilot"),
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
         splits=splits,
@@ -184,6 +230,13 @@ def dead_entries(
                 split_partners.setdefault(pid, set()).update(pair - {pid})
     for pid, partners in split_partners.items():
         dead.append(DeadEntry("split", pid, f"split from {sorted(partners)}"))
+    hold_partners: dict[str, set[str]] = {}
+    for pair in curation.holds:
+        for pid in pair:
+            if pid not in pilot_ids:
+                hold_partners.setdefault(pid, set()).update(pair - {pid})
+    for pid, partners in hold_partners.items():
+        dead.append(DeadEntry("hold", pid, f"held against {sorted(partners)}"))
     for pilot, display in curation.names.items():
         if pilot not in pilot_ids:
             dead.append(DeadEntry("name", pilot, f"pins {display!r}"))
@@ -267,6 +320,91 @@ def _pairs(entries: list[dict], path: Path, kind: str) -> frozenset[frozenset[st
             for b in ids[i + 1:]:
                 pairs.add(frozenset({a, b}))
     return frozenset(pairs)
+
+
+def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
+    """Every held pair, expanded the way :func:`_pairs` expands a decision.
+
+    A hold names ids that are mutually *unsettled*, so three ids leave three open
+    pairs rather than one three-way question, and each pair carries the same
+    ``settles_on`` and ``as_of``.
+
+    A pair held twice is refused rather than taken last-wins. A hold exists to be
+    revisited, so appending a refreshed entry over an older one is the edit this
+    kind invites, and silently keeping the lower block would make the condition
+    the report carries a fact about file order rather than about either
+    judgement, with the discarded one reported nowhere (``dead_entries`` cannot
+    see it, both ids being live). Same reasoning as :func:`_names`, and it fires
+    on overlap too, since a 3-id entry and a 2-id entry can share a pair.
+    """
+    holds: dict[frozenset[str], Hold] = {}
+    for entry in entries:
+        settles_on, as_of = entry.get("settles_on"), entry.get("as_of")
+        if not settles_on or not as_of:
+            raise CurationError(
+                f"{path}: a [[hold]] entry needs `settles_on` and `as_of`"
+            )
+        if not SNAPSHOT_STAMP.match(as_of):
+            raise CurationError(
+                f"{path}: [[hold]] is `as_of` {as_of!r}, which is not a snapshot "
+                f"stamp; it dates the reasoning against the corpus it was written "
+                f"over, so it has to name a snapshot directory (20260815T140746Z)"
+            )
+        hold = Hold(settles_on=settles_on, as_of=as_of)
+        for pair in _pairs([entry], path, "hold"):
+            if pair in holds:
+                a, b = sorted(pair)
+                raise CurationError(
+                    f"{path}: [[hold]] holds {a!r} and {b!r} twice, on "
+                    f"{holds[pair].settles_on!r} and {hold.settles_on!r}; file "
+                    f"order would decide which the report carries, so keep the "
+                    f"entry that supersedes and delete the other"
+                )
+            holds[pair] = hold
+    return holds
+
+
+def _refuse_decided_hold(
+    holds: dict[frozenset[str], Hold],
+    merges: dict[str, str],
+    rejected: frozenset[frozenset[str]],
+    splits: frozenset[frozenset[str]],
+    path: Path,
+) -> None:
+    """Refuse a pair the dictionary both holds and decides.
+
+    A ``[[hold]]`` says a human looked and could not settle the pair; a
+    ``[[merge]]``, ``[[reject]]`` or ``[[split]]`` says one did. The two are not
+    degrees of the same claim, so no precedence resolves them, and the failure is
+    the quiet one :func:`_refuse_merged_pair` describes: whichever kind the code
+    consults first, the other is a recorded judgement that fires nothing and that
+    ``dead_entries`` cannot report, both ids being live.
+
+    It is also the shape a watchlist invites, since the point of a hold is to be
+    upgraded later: the upgrade is editing the ``[[hold]]`` into a decision, not
+    appending the decision beside it, so the message names that edit.
+
+    Merges are read off the folded group rather than the entry, since two ids
+    chained onto one canonical through separate blocks are as decided as two
+    named together. Sorted so the first of several contradictions is stable.
+    """
+    for pair in sorted(sorted(p) for p in holds):
+        a, b = pair
+        canonical = merges.get(a, a)
+        if canonical == merges.get(b, b):
+            kind, decided = "merge", f"already folds onto {canonical!r}"
+        elif frozenset(pair) in rejected:
+            kind, decided = "reject", "already separates them"
+        elif frozenset(pair) in splits:
+            kind, decided = "split", "already keeps them apart"
+        else:
+            continue
+        raise CurationError(
+            f"{path}: [[hold]] leaves {a!r} and {b!r} undecided, but a "
+            f"[[{kind}]] {decided}; a pair cannot be both open and settled. "
+            f"Delete the [[hold]] -- upgrading one means replacing it with the "
+            f"decision, not appending the decision beside it"
+        )
 
 
 def _refuse_merged_pair(

@@ -109,6 +109,68 @@ def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
     assert "restart" in capsys.readouterr().out
 
 
+def test_a_build_counts_held_pairs_apart_from_the_ones_awaiting_a_human(
+    tmp_path, capsys, monkeypatch
+):
+    # The line a maintainer reads to decide whether there is curation work to do
+    # (issue #228). A held pair has been reasoned about and cannot be settled yet,
+    # so counting it with the unexamined ones overstates the queue every build
+    # until the evidence arrives. The two states are printed apart, and the
+    # unexamined figure is the one that means "open this many questions".
+    # Written out here rather than through `_snapshot`, which seats every deck at
+    # rank 1: two ids have to place differently to sit in one event at all, and
+    # they have to sit in one event to recover the two names this needs.
+    snap = tmp_path / "snapshots" / "20260101T000000Z"
+    snap.mkdir(parents=True)
+    ids = ["01st Joe M - Grixis - NYE", "02nd Joel M - Grixis - NYE"]
+    (snap / "decks.json").write_text(json.dumps([
+        {"deckId": d, "name": d, "deckName": "n", "pilot": d, "event": "NYE",
+         "eventId": "evt_1", "eventType": "Tournament", "placement": i + 1,
+         "placementNorm": i / 2, "eventSize": 2,
+         "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+         "macro": "macro:control", "engineTags": [], "engineTagLabels": {},
+         "primaryTag": "", "primaryTagWeights": {}}
+        for i, d in enumerate(ids)
+    ]))
+    (snap / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaCost": None, "manaValue": 0.0, "reserved": False,
+                   "points": 0, "pointsCompanion": 0}],
+        "decks": {d: {"m": [0], "s": []} for d in ids},
+    }))
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, tmp_path / "pilots.toml"))
+
+    # First with nothing recorded: the pair is a live question.
+    (tmp_path / "pilots.toml").write_text("")
+    _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "g1"))
+    assert "0 held, 1 unexamined" in capsys.readouterr().out
+
+    # Then held: the same pair, off the queue and still undecided.
+    (tmp_path / "pilots.toml").write_text(
+        f'[[hold]]\nids = {json.dumps(ids)}\n'
+        'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n'
+    )
+    _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "g2"))
+    out = capsys.readouterr().out
+
+    assert "1 held, 0 unexamined" in out
+    # Held is not curated: the pair is parked, not decided.
+    assert "0 already curated" in out
+
+    # A malformed `as_of` is a bad dictionary, so it aborts the build with the
+    # sentence every other curation fault gets rather than a traceback.
+    (tmp_path / "pilots.toml").write_text(
+        f'[[hold]]\nids = {json.dumps(ids)}\n'
+        'settles_on = "shared_event"\nas_of = "yesterday"\n'
+    )
+    with pytest.raises(SystemExit) as exc:
+        _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "g3"))
+    assert "Build aborted, live graph untouched" in str(exc.value)
+    assert "yesterday" in str(exc.value)
+
+
 def test_a_build_reports_every_value_it_decided_rather_than_accepted(tmp_path, capsys):
     # A value the build decided is an assumption it made about the data, so it says
     # what it decided and under which rule rather than leaving it to be discovered

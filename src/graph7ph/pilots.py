@@ -147,6 +147,24 @@ class UnderMerge:
 
 
 @dataclass(frozen=True)
+class HeldPair:
+    """A candidate pair a human examined and could not settle (issue #228).
+
+    The same shape as :class:`UnderMerge` plus the two fields that make a hold
+    worth recording: what would settle the pair, and the snapshot the reasoning
+    was written against. Kept apart from ``under_merges`` so that list means what
+    its name says -- pairs nobody has reasoned about yet -- rather than growing a
+    permanent tail of pairs that have been read and cannot be decided.
+    """
+
+    display_name: str
+    pilots: list[str]
+    relation: str
+    settles_on: str
+    as_of: str
+
+
+@dataclass(frozen=True)
 class DroppedDuplicate:
     """A deck removed as a duplicate registration, kept for the record.
 
@@ -244,7 +262,7 @@ class UnexplainedName:
 @dataclass(frozen=True)
 class Reconciliation:
     variant_clusters: list[VariantCluster]
-    under_merges: list[UnderMerge]  # UNCURATED candidates only; curated ones drop off
+    under_merges: list[UnderMerge]  # UNEXAMINED candidates only; curated and held ones drop off
     null_pilots: list[ResolvedPilot]  # the re-keyed null bucket (ADR 0004)
     event_splits: list[EventSplit]  # ids split for same-event collisions (ADR 0004)
     dropped_duplicates: list[DroppedDuplicate]  # removed duplicate registrations
@@ -254,6 +272,7 @@ class Reconciliation:
     multi_name_ids: list[MultiNameId] = field(default_factory=list)  # ids spanning >1 surname (issue #39)
     name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split or reject (issues #35, #74)
     unexplained_names: list[UnexplainedName] = field(default_factory=list)  # discarded spellings nothing relates to the winner (issue #103)
+    held_merges: list[HeldPair] = field(default_factory=list)  # candidates examined and left undecided (issue #228)
 
 
 @dataclass(frozen=True)
@@ -371,7 +390,7 @@ def resolve_pilots(
     # A decided pair is off the review list either way: a rejection is counted in
     # the scan, and a confirmed merge folds an id away before it, so those folded
     # ids present in the data are counted here to complete the "already decided".
-    candidates, rejected = _under_merges(real_joined, curation)
+    candidates, held, rejected = _under_merges(real_joined, curation)
     merged = sum(1 for pid in {d.pilot for d in decks} if curation.canonical(pid) != pid)
     # Raw ids plus the buckets they resolve into (the real/null keys are exactly
     # those resolved ids), so a decision keyed on a live canonical is not misread
@@ -381,7 +400,7 @@ def resolve_pilots(
     report = Reconciliation(
         variant_clusters, candidates, null_pilots, event_splits, dropped,
         joined_names, rejected + merged, dead, multi_name_ids, name_splits,
-        unexplained,
+        unexplained, held,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
@@ -882,18 +901,23 @@ def _cluster_display(cluster: dict[str, int]) -> str:
 
 def _under_merges(
     pilots: list[ResolvedPilot], curation: Curation
-) -> tuple[list[UnderMerge], int]:
+) -> tuple[list[UnderMerge], list[HeldPair], int]:
     """Uncurated pilot-id pairs whose names say they may be one person.
 
     Two ids are only ever a candidate here, never merged by this function: the
     build merges only what the dictionary records (:mod:`graph7ph.curation`).
-    Returns the live candidates and a count of pairs a human has *rejected* as
-    two people, which drop off the list and are counted so the review shrinks as
-    decisions accrue. Confirmed merges never reach here (they were collapsed onto
-    one id upstream), so the caller counts those separately (issue #9).
+    Returns three things, one per state a pair can be in. The *unexamined*
+    candidates, which is the queue a human works through. The *held* pairs, which
+    a human has read and could not settle (issue #228): off the queue, but not
+    decided, so they are listed with their condition rather than counted away. And
+    a count of pairs a human has *rejected* as two people, which drop off for good
+    so the review shrinks as decisions accrue. Confirmed merges never reach here
+    (they were collapsed onto one id upstream), so the caller counts those
+    separately (issue #9).
     """
     names = {p.pilot: p.display_name for p in pilots}
     candidates: list[UnderMerge] = []
+    held: list[HeldPair] = []
     rejected = 0
     for a, b in sorted(_candidate_pairs(names)):
         relation = name_relation(names[a], names[b])
@@ -901,9 +925,11 @@ def _under_merges(
             continue
         if curation.is_rejected(a, b):
             rejected += 1
+        elif hold := curation.hold(a, b):
+            held.append(HeldPair(names[a], [a, b], relation, hold.settles_on, hold.as_of))
         else:
             candidates.append(UnderMerge(names[a], [a, b], relation))
-    return candidates, rejected
+    return candidates, held, rejected
 
 
 def _candidate_pairs(names: dict[str, str]) -> set[tuple[str, str]]:
