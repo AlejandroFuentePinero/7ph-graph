@@ -942,6 +942,37 @@ def test_two_of_a_held_ids_names_at_one_event_settle_it():
     assert "Bob" not in fired[0].detail
 
 
+def test_a_single_id_hold_is_watched_over_that_ids_own_decks():
+    # The population a single-id hold is read at (issue #241). The queue that
+    # produced the row scanned this id's own decks, so the trigger that settles it
+    # has to ask the same question of the same decks: did *this id* recover more
+    # than one surname at one event. The identical-name join (ADR 0007) folds a
+    # sibling's decks onto the same node, and reading there hands a registration
+    # the held id never made back as its own evidence.
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"BraveJadeEagle"}): Hold("event_split", "20260815T140746Z")},
+    )
+    decks = [
+        _deck("d1", "BraveJadeEagle", "1st Tom H - Storm - E1", event="E1"),
+        _deck("d2", "BraveJadeEagle", "2nd Tom H - Storm - E2", event="E2"),
+        _deck("d3", "BraveJadeEagle", "3rd Tom M - Lands - E3", event="E3"),
+        # The sibling the join folds in: its one registration lands at E3, where
+        # the held id already holds a deck under the other surname.
+        _deck("d4", "BraveMagentaPanda", "4th Tom H - Walks - E3", event="E3",
+              placement=4),
+    ]
+
+    res = resolve_pilots(decks, curation)
+
+    # The join did fire, so the two surnames really are at E3 on one node.
+    assert [j.merged for j in res.report.joined_names] == [
+        ["BraveJadeEagle", "BraveMagentaPanda"]
+    ]
+    # And nothing settles: BraveJadeEagle registered at E3 exactly once.
+    assert res.report.fired_holds == []
+
+
 def test_a_hold_is_evaluated_off_the_dictionary_not_off_the_review_list():
     # The population under evaluation is every [[hold]] on file, not the held
     # pairs the name scan happens to surface (issue #230). A display name is a
@@ -1098,6 +1129,46 @@ def test_a_held_id_that_gained_a_deck_is_up_for_re_reading_too():
 
     # A hold written against the corpus this build read has nothing to re-read.
     assert fired("20260201T000000Z") == []
+
+
+def test_a_siblings_new_deck_is_not_the_held_ids_evidence_moving():
+    # `new_decks` has the same asymmetry as `event_split` (issue #241): what the
+    # reasoning was written against is this id's own career, so a deck arriving
+    # under the sibling the join folded in has moved nothing a re-read would look
+    # at. Read at the node, every registration by a joined stranger would put the
+    # hold back up for review.
+    own = [
+        _deck("d1", "BraveJadeEagle", "1st Tom H - Storm - E1", event="E1"),
+        _deck("d2", "BraveJadeEagle", "2nd Tom H - Storm - E2", event="E2"),
+        _deck("d3", "BraveJadeEagle", "3rd Tom M - Lands - E3", event="E3"),
+    ]
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"BraveJadeEagle"}): Hold("event_split", "20260101T000000Z")},
+    )
+
+    def fired(decks, gained):
+        return resolve_pilots(decks, curation, snapshot_decks={
+            "20260101T000000Z": frozenset(d.deck_id for d in own),
+            "20260201T000000Z": frozenset(d.deck_id for d in own) | gained,
+        }).report.fired_holds
+
+    # The sibling registered at an event of its own after the hold was written.
+    sibling = own + [
+        _deck("d4", "BraveMagentaPanda", "4th Tom H - Walks - E4", event="E4"),
+    ]
+    assert [j.merged for j in resolve_pilots(sibling, curation).report.joined_names
+            ] == [["BraveJadeEagle", "BraveMagentaPanda"]]
+    assert fired(sibling, {"d4"}) == []
+
+    # The held id registering again is its own evidence moving, and still is.
+    mine = own + [
+        _deck("d5", "BraveJadeEagle", "5th Tom M - Lands - E5", event="E5"),
+    ]
+    moved = fired(mine, {"d5"})
+
+    assert [f.trigger for f in moved] == ["new_decks"]
+    assert (moved[0].pilots, moved[0].decks) == (["BraveJadeEagle"], ["d5"])
 
 
 def test_a_held_pair_the_name_join_folds_is_announced_as_settled():

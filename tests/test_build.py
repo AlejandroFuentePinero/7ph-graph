@@ -14,7 +14,13 @@ from graph7ph.build import (
     graph_counts,
     reconciliation_path,
 )
-from graph7ph.curation import ArchetypeOverride, Curation, CurationError, Hold
+from graph7ph.curation import (
+    ArchetypeOverride,
+    Curation,
+    CurationError,
+    Hold,
+    load_curation,
+)
 from graph7ph.db import (
     artifact_path,
     database_path,
@@ -694,6 +700,39 @@ def test_nothing_in_either_identity_queue_is_left_unexamined(live_graph):
 
     assert [(u["display_name"], u["pilots"]) for u in report["under_merges"]] == []
     assert [(m["pilot"], m["names"]) for m in report["multi_name_ids"]] == []
+
+
+def test_the_held_ids_sitting_on_a_joined_node_are_the_five_on_the_record(live_graph):
+    # The population a single-id hold is watched over is that id's own decks and
+    # not the node the identical-name join left (issue #241), and the difference
+    # is only real where a join has folded another id in. Five of the 28 held ids
+    # are in that position today, so the rule is grading live rows rather than a
+    # hypothetical, and a sixth arriving is a join quietly widening the population
+    # again: it reddens here instead of passing unnoticed.
+    #
+    # Named, not counted, because the failure a reader needs is "this id now
+    # shares a node with that one". The population is every single-id [[hold]] on
+    # file, not the `held_names` rows the multi-name scan surfaced: those are the
+    # subset whose several surnames still reach the queue, and a hold whose row
+    # stops surfacing keeps its `event_split` trigger live while dropping out of
+    # this guard, which is the widening the guard exists to catch.
+    curation = load_curation()
+    held = {curation.canonical(*ids) for ids in curation.holds if len(ids) == 1}
+    report = json.loads(reconciliation_path(artifact_path()).read_text())
+
+    shared = {
+        pilot: [m for m in join["merged"] if m != pilot]
+        for join in report["joined_names"]
+        for pilot in join["merged"] if pilot in held
+    }
+
+    assert shared == {
+        "BraveJadeEagle": ["BraveMagentaPanda"],      # James L
+        "NimbleAzureTiger": ["AmberSilverFalcon"],    # Ben H
+        "LunarMagentaHawk": ["LunarPurpleWhale97E"],  # Tom C
+        "Max DK": ["nan:max dk"],                     # Max DK
+        "CleverVioletGecko8DC": ["LuckyJadeLynx"],    # Jose G
+    }
 
 
 def _identity(snapshot, db_path, curation):
