@@ -66,12 +66,13 @@ def _build(args: argparse.Namespace) -> None:
               f"  {bar}")
 
     recon = json.loads(reconciliation_path(args.db).read_text())
-    dupes, joined, candidates, curated, multi, splits, unexplained = (
+    dupes, joined, candidates, curated, multi, splits, unexplained, held = (
         len(recon["dropped_duplicates"]), len(recon["joined_names"]),
         len(recon["under_merges"]), recon["curated"],
         len(recon.get("multi_name_ids", [])),
         len(recon.get("name_splits", [])),
         len(recon.get("unexplained_names", [])),
+        len(recon.get("held_merges", [])),
     )
     # Grouped by property and printed off the report's generated section, so a rule
     # this code has never heard of is still announced the build it first fires
@@ -97,7 +98,13 @@ def _build(args: argparse.Namespace) -> None:
     if unexplained:
         print(f"  {unexplained} id(s) discarded a name spelling nothing relates to the "
               "winner (review the report)")
-    print(f"  pilot identity: {candidates} candidate(s) to review, {curated} already curated")
+    # Three states, printed apart because only one of them is work (issue #228).
+    # A held pair has been reasoned about and cannot be settled on the evidence
+    # on file, so counting it beside the unexamined ones overstates the queue
+    # every build until that evidence arrives; "unexamined" is the figure that
+    # means "open this many questions".
+    print(f"  pilot identity: {held} held, {candidates} unexamined, "
+          f"{curated} already curated")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
     # The promotion renamed the directory an already-running app opened, and its
     # catalogues were read at startup, so it will serve the old graph in silence.

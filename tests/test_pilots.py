@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from graph7ph.curation import Curation, CurationError
+from graph7ph.curation import Curation, CurationError, Hold
 from graph7ph.pilots import (
     UNNAMED_PILOT,
     display_name_from_title,
@@ -734,6 +734,37 @@ def test_rejected_candidate_stays_suppressed_across_a_rebuild():
     assert res.report.curated == 1             # and counted, so the list shrinks
     # Without the rejection it would be a live candidate.
     assert resolve_pilots(decks).report.under_merges != []
+
+
+def test_held_candidate_leaves_the_review_list_without_being_decided():
+    # A hold is the third state, between "nobody has looked" and "settled"
+    # (issue #228). It takes the pair off the list a human works through, records
+    # what would settle it, and changes nothing about who these two ids are: they
+    # stay two pilots, exactly as they were before the hold was written.
+    decks = [
+        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
+        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Grixis - E2", event="E2"),
+    ]
+    holds = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
+             Hold("shared_event", "20260815T140746Z")}
+    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
+                        holds=holds)
+
+    res = resolve_pilots(decks, curation)
+
+    # Off the unexamined list, on the held one, and carrying its condition so the
+    # report says what would move it rather than only that it was parked.
+    assert res.report.under_merges == []
+    held = res.report.held_merges
+    assert [set(h.pilots) for h in held] == [{"NimbleBlackEagle", "FrostyBlueOtter"}]
+    assert (held[0].settles_on, held[0].as_of) == ("shared_event", "20260815T140746Z")
+    # Not a decision: it is counted with neither the curated nor the merged.
+    assert res.report.curated == 0
+    # And the resolution itself is what it would be with no hold at all.
+    plain = resolve_pilots(decks)
+    assert res.deck_pilot == plain.deck_pilot
+    assert res.pilots == plain.pilots
+    assert [c.pilots for c in plain.report.under_merges] == [h.pilots for h in held]
 
 
 def test_reject_survives_a_display_name_convergence():

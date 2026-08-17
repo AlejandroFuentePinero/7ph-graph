@@ -18,6 +18,7 @@ from graph7ph.curation import (
     ArchetypeOverride,
     Curation,
     CurationError,
+    Hold,
     dead_entries,
     load_curation,
 )
@@ -30,6 +31,27 @@ def _write(tmp_path, toml: str):
     path = tmp_path / "pilots.toml"
     path.write_text(toml)
     return path
+
+
+def test_a_hold_records_the_pair_a_human_examined_and_left_undecided(tmp_path):
+    # The eighth kind (issue #228). A hold is not a decision, it is the record
+    # that one was attempted and could not be reached, so it carries the two
+    # things a later pass needs: what would settle the pair, and the snapshot the
+    # reasoning was written against.
+    path = _write(tmp_path, """
+        [[hold]]
+        ids = ["A", "B"]
+        settles_on = "shared_event"
+        as_of = "20260815T140746Z"
+    """)
+
+    curation = load_curation(path)
+
+    assert curation.hold("A", "B") == Hold(
+        settles_on="shared_event", as_of="20260815T140746Z")
+    # Keyed on the unordered pair, like every other all-pairs decision.
+    assert curation.hold("B", "A") == curation.hold("A", "B")
+    assert curation.hold("A", "C") is None
 
 
 def test_name_pin_on_non_canonical_merge_member_raises(tmp_path):
@@ -104,6 +126,165 @@ def test_two_name_pins_on_one_pilot_raise(tmp_path):
     """)
     with pytest.raises(CurationError, match="Tristian G"):
         load_curation(path)
+
+
+def test_hold_with_three_ids_leaves_every_pair_open(tmp_path):
+    # A hold is an all-pairs decision like reject and split: three ids nobody
+    # could separate leave three open questions, not one three-way one, so each
+    # pair carries the entry's condition.
+    path = _write(tmp_path, """
+        [[hold]]
+        ids = ["A", "B", "C"]
+        settles_on = "shared_event"
+        as_of = "20260815T140746Z"
+    """)
+
+    curation = load_curation(path)
+
+    assert len(curation.holds) == 3
+    assert all(len(pair) == 2 for pair in curation.holds)
+    assert curation.hold("B", "C") == Hold("shared_event", "20260815T140746Z")
+
+
+@pytest.mark.parametrize("field", ['settles_on = "shared_event"',
+                                   'as_of = "20260815T140746Z"'])
+def test_hold_missing_either_field_raises(tmp_path, field):
+    # A hold without `settles_on` records no way out of the queue, and one
+    # without `as_of` cannot say whether it predates the evidence now on file.
+    # Either way the entry parks the pair forever, which is the one thing a
+    # watchlist must not do.
+    path = _write(tmp_path, f"""
+        [[hold]]
+        ids = ["A", "B"]
+        {field}
+    """)
+    with pytest.raises(CurationError):
+        load_curation(path)
+
+
+@pytest.mark.parametrize("stamp", ["2026-08-15", "20260815", "yesterday",
+                                   "20260815T140746"])
+def test_hold_with_an_as_of_that_is_not_a_snapshot_stamp_raises(tmp_path, stamp):
+    # `as_of` dates the reasoning against the corpus it was written over, so it
+    # has to be a snapshot's name, which `fetch` mints as "%Y%m%dT%H%M%SZ". The
+    # shape is all this can check: `snapshots/` is gitignored and each directory
+    # is named for the wall clock of the machine that fetched it, so no two
+    # clones hold the same stamps and existence is not a portable question
+    # (issue #228). Whether the stamp names a snapshot *this build read* is
+    # answerable only at build time, which is #230.
+    path = _write(tmp_path, f"""
+        [[hold]]
+        ids = ["A", "B"]
+        settles_on = "shared_event"
+        as_of = "{stamp}"
+    """)
+    with pytest.raises(CurationError, match="as_of"):
+        load_curation(path)
+
+
+def test_a_well_formed_as_of_loads_whether_or_not_that_snapshot_is_on_this_disk(
+    tmp_path, monkeypatch
+):
+    # The portability property, and the reason existence is not checked here.
+    # `snapshots/` is gitignored and `fetch` names each directory for the wall
+    # clock of the machine that made it, so the stamps differ in every clone and
+    # CI has none at all. A dictionary that only loads on the machine that wrote
+    # it would make the one entry kind that applies nothing to the graph the only
+    # one that can stop the graph being built.
+    monkeypatch.chdir(tmp_path)  # no snapshots/ anywhere in sight
+    path = _write(tmp_path, """
+        [[hold]]
+        ids = ["A", "B"]
+        settles_on = "shared_event"
+        as_of = "19990101T000000Z"
+    """)
+
+    assert load_curation(path).hold("A", "B").as_of == "19990101T000000Z"
+
+
+def test_two_holds_on_one_pair_raise_rather_than_last_wins(tmp_path):
+    # A hold exists to be revisited, so appending a refreshed entry over an older
+    # one is the natural edit -- and it would be last-wins, making the condition
+    # the report carries a fact about block order in the file rather than about
+    # either judgement, with the discarded one reported nowhere. Refused for the
+    # same reason `_names` refuses a second pin on one id (issue #204).
+    path = _write(tmp_path, """
+        [[hold]]
+        ids = ["A", "B"]
+        settles_on = "shared_event"
+        as_of = "20260713T232944Z"
+
+        [[hold]]
+        ids = ["A", "B", "C"]
+        settles_on = "fresh_deck"
+        as_of = "20260815T140746Z"
+    """)
+    with pytest.raises(CurationError, match="shared_event"):
+        load_curation(path)
+
+
+@pytest.mark.parametrize("decision", [
+    '[[merge]]\nids = ["A", "B"]\ncanonical = "A"',
+    '[[reject]]\nids = ["A", "B"]',
+    '[[split]]\nids = ["A", "B"]',
+])
+def test_a_pair_both_held_and_decided_raises(tmp_path, decision):
+    # A hold says "looked, could not settle"; a merge, reject or split each say
+    # "settled". Both cannot be true of one pair, and there is no precedence to
+    # apply: whichever wins, the other entry is a recorded judgement firing
+    # nothing, which is the shape ADR 0005 already refuses for reject-on-merge.
+    path = _write(tmp_path, f"""
+        {decision}
+
+        [[hold]]
+        ids = ["A", "B"]
+        settles_on = "shared_event"
+        as_of = "20260815T140746Z"
+    """)
+    with pytest.raises(CurationError, match="A"):
+        load_curation(path)
+
+
+def test_a_hold_on_a_pair_two_merges_chained_together_raises(tmp_path):
+    # The folded group is what counts, not the entry: A and C reach one canonical
+    # through separate [[merge]] blocks, so they are as decided as two ids named
+    # in the same one, and a hold across them is the same contradiction.
+    path = _write(tmp_path, """
+        [[merge]]
+        ids = ["A", "B"]
+        canonical = "B"
+
+        [[merge]]
+        ids = ["B", "C"]
+        canonical = "B"
+
+        [[hold]]
+        ids = ["A", "C"]
+        settles_on = "shared_event"
+        as_of = "20260815T140746Z"
+    """)
+    with pytest.raises(CurationError):
+        load_curation(path)
+
+
+def test_a_hold_beside_an_unrelated_decision_loads(tmp_path):
+    # The guard has to bite on the pair, not on the presence of both kinds: a
+    # dictionary that holds one pair and decides a different one is the normal
+    # state of a working watchlist, and must load.
+    path = _write(tmp_path, """
+        [[reject]]
+        ids = ["A", "B"]
+
+        [[hold]]
+        ids = ["A", "C"]
+        settles_on = "shared_event"
+        as_of = "20260815T140746Z"
+    """)
+
+    curation = load_curation(path)
+
+    assert curation.is_rejected("A", "B")
+    assert curation.hold("A", "C") == Hold("shared_event", "20260815T140746Z")
 
 
 def test_reject_with_three_ids_suppresses_every_pair(tmp_path):
@@ -251,6 +432,10 @@ def _mixed_curation() -> Curation:
             frozenset({"deadS", "liveB"}),   # deadS absent -> pair can't fire
             frozenset({"liveB", "liveC"}),   # both present -> live
         }),
+        holds={
+            frozenset({"deadH", "liveB"}): Hold("shared_event", "20260815T140746Z"),
+            frozenset({"liveB", "liveC"}): Hold("shared_event", "20260815T140746Z"),
+        },
     )
 
 
@@ -263,6 +448,9 @@ def test_dead_entries_flags_every_absent_keyed_entry():
     assert ("merge", "deadMember") in flagged
     assert ("reject", "deadA") in flagged
     assert ("split", "deadS") in flagged
+    # A hold on a vanished id is the worst dead entry of the eight: it keeps a
+    # pair off the review list forever while naming a person who is gone.
+    assert ("hold", "deadH") in flagged
     assert ("name", "deadName") in flagged
     assert ("deck_pilot", "deadDeck") in flagged
     assert ("deck_archetype", "deadDeck2") in flagged
@@ -274,8 +462,8 @@ def test_dead_entries_flags_every_absent_keyed_entry():
 
 def test_dead_entries_empty_when_all_ids_present():
     cur = _mixed_curation()
-    pilot_ids = {"canon", "deadMember", "liveMember", "deadA", "deadS", "liveB",
-                 "liveC", "deadName", "liveName"}
+    pilot_ids = {"canon", "deadMember", "liveMember", "deadA", "deadS", "deadH",
+                 "liveB", "liveC", "deadName", "liveName"}
     deck_ids = {"deadDeck", "liveDeck", "deadDeck2", "deadDeck3"}
     assert dead_entries(cur, pilot_ids, deck_ids) == []
 
