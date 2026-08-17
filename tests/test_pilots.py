@@ -833,6 +833,66 @@ def test_a_shared_event_fires_the_hold_the_corpus_has_now_settled():
     assert (fired[0].settles_on, fired[0].as_of) == ("shared_event", "20260815T140746Z")
 
 
+def test_a_settling_trigger_says_so_where_its_own_premise_bends():
+    # Both decisive triggers rest on one entry per pilot per event, and the corpus
+    # keeps that 4571 times in 4634 and breaks it 63, concentrated at the large
+    # multi-flight events. So an id the source itself entered twice somewhere is
+    # one the "two entries are two people" reading is weaker for, and the trigger
+    # firing on it has to say so on the line the decision gets made. It still
+    # fires: the evidence has still arrived, and a suppressed trigger parks a hold
+    # nothing else reports (issue #227).
+    held = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
+            Hold("shared_event", "20260815T140746Z")}
+    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
+                        holds=held)
+    shared = [
+        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
+        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Walks - E1", event="E1"),
+    ]
+
+    # With neither side a repeat entrant the fact stands unqualified.
+    assert "weak" not in resolve_pilots(shared, curation).report.fired_holds[0].detail
+
+    # The source's own testimony that this id multi-enters: two registrations of
+    # its own at one other event, under the one name.
+    with_habit = shared + [
+        _deck("d3", "FrostyBlueOtter", "03rd Joel M - Storm - E2", event="E2"),
+        _deck("d4", "FrostyBlueOtter", "04th Joel M - Mardu - E2", event="E2",
+              placement=4),
+    ]
+
+    fired = resolve_pilots(with_habit, curation).report.fired_holds
+
+    assert [f.trigger for f in fired] == ["shared_event"]
+    assert "E1" in fired[0].detail  # the fact still leads
+    assert "weak" in fired[0].detail and "FrostyBlueOtter" in fired[0].detail
+
+
+def test_this_projects_own_join_does_not_manufacture_that_caveat():
+    # The caveat is the source's testimony about one upstream id, so it is read
+    # off the raw id and never off the pilot an id resolves to. The identical-name
+    # join (ADR 0007) puts two ids' decks under one pilot, which at a shared event
+    # is two entries there by construction: this project ruling on identity, not
+    # evidence about how a human enters events. Reading it off the resolved pilot
+    # would caveat every trigger that fires on a joined id.
+    held = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
+            Hold("shared_event", "20260815T140746Z")}
+    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
+                        holds=held)
+    joined = [
+        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
+        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Walks - E1", event="E1"),
+        # Same recovered name as d2's id, so the join folds them onto one pilot
+        # and that pilot now holds two of E1's entries.
+        _deck("d3", "SwiftGoldTiger", "03rd Joel M - Storm - E1", event="E1"),
+    ]
+
+    fired = resolve_pilots(joined, curation).report.fired_holds
+
+    assert [f.trigger for f in fired] == ["shared_event"]
+    assert "weak" not in fired[0].detail
+
+
 def test_two_of_a_held_ids_names_at_one_event_settle_it():
     # The settling trigger a hold on one id has (issue #232). `shared_event` has
     # no single-id shape, there being no second id, but the structural fact under
