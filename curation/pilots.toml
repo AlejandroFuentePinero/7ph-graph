@@ -10,7 +10,8 @@
 # proposal in the reconciliation report until a human confirms them (the second
 # sweep). See docs/adr/0004-pilot-identity.md.
 #
-# Seven kinds of decision:
+# Eight kinds of entry. Seven record a decision; the eighth records that one could
+# not be reached:
 #
 #   [[merge]]        collapse several ids onto one person (transitive)
 #     ids = ["A", "B", "C"]   # every upstream id that is this person
@@ -46,6 +47,17 @@
 #                    cohort's field and is re-scored against it.
 #     deck = "<deckId>"
 #     event = "CBR3"
+#
+#   [[hold]]         this pair was examined and could not be settled on the
+#                    evidence available. Applies nothing to the graph: it moves
+#                    the pair off the unexamined queue and onto the held list,
+#                    carrying the reasoning (in the comment) and the condition
+#                    the build re-evaluates every ingestion. Upgrading a hold
+#                    means replacing it with the decision, never appending one
+#                    beside it.
+#     ids = ["A", "B"]
+#     settles_on = "shared_event"     # what the writer expects would decide it
+#     as_of = "20260815T140746Z"      # the snapshot the reasoning was written against
 
 # --- Names pinned against the vote (no derivable relation, human-confirmed) ---
 
@@ -1271,6 +1283,747 @@ ids = ["WanderingGoldOtter", "SilentGreenLynx"]
 # and Samuel M never attended WAC26, so they stay open candidates for the two bare
 # ids; Samuel F cannot be either of them.
 ids = ["WanderingIvoryPanda", "BraveBlackWhale"]
+
+
+# --- Examined and left undecided: the thorough pass over the queue (issue #231) ---
+#
+# The 78 candidates still open after the round above, every one of them read and
+# recorded here. From here on `under_merges` means nobody has looked yet, which is
+# what lets a later round work only the delta instead of re-deriving the whole queue;
+# tests/test_build.py::test_no_pair_in_the_identity_queue_is_left_unexamined holds the
+# invariant.
+#
+# One derived fact runs under the whole pass and is why the outcome is holds rather
+# than decisions: NONE of the 78 puts its two ids at one event. The twelve pairs
+# separated above were the entire shared-event population of the 90 open then, so the
+# one structural fact this data carries (ADR 0005: a deck is one pilot's single entry
+# at one event) is absent from every pair that remains. What is left is name
+# similarity and deck overlap, and #229 records what neither settles on its own.
+#
+# Three pairs clear the ~0.5 overlap floor that admits a pair to the matched-stranger
+# test, and all three fail it (below). No other pair reaches the floor at all: across
+# the other 75, the highest overlap is 0.495 and the median 0.148. So no merge is
+# argued here. ADR 0005 leaves a merge to a maintainer's entry in any case, and the
+# asymmetry #229 records is why: a false merge fuses two people irreversibly for every
+# metric downstream, and a hold costs one row in a queue.
+#
+# Each entry below reads `A ? B`, against the `=` of a merge and the `!=` of a reject
+# above: the pair is a question this file is recording rather than answering. Deck
+# counts and overlaps are read across the whole id, including any numbered careers the
+# event split left on it, because a hold names two whole identities and a career
+# inside one of them is not an answer to who the id is (ADR 0005).
+#
+# `as_of` is the 2026-08-15 snapshot throughout: the corpus every line of reasoning
+# below was written against. `settles_on` names what the writer expects would decide
+# the pair; the build re-evaluates every trigger against every hold regardless (ADR
+# 0005, issue #230). It reads `shared_event` where both sides carry a live career that
+# could meet, and `new_decks` where one side is a single deck and there is nothing to
+# compare until it registers again.
+
+# Cleared the floor, failed the matched-stranger baseline.
+
+[[hold]]
+# Bradley H ? Brad H. The queue's highest overlap, 0.721 on Lands, and it fails the
+# test the Angus M != Angus McC entry above established: p88 among distinct pilots
+# playing the same archetype in the same colours across a comparable date gap, with
+# 185 stranger pairs at or above it. The p99 an all-time Lands pool suggested is an
+# artefact of pooling Lands variants across four years. Brad H is one deck (BG Lands,
+# SydneyShowdown100K 2026-07); of Bradley H's four only the last, NHC26 2026-01, is
+# Lands at all. No shared event.
+ids = ["CrimsonVioletBadger", "ShadowCyanBadger"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Brint G ? Brent G. 0.596 on Grixis, which is p46 of the matched pool: the literal
+# median stranger, so the number carries nothing. The name link is a single
+# substitution, the danger zone ADR 0005 sends to a human. Brent G is one deck (WAC26
+# 2026-08); Brint G's four run NHC25 2025-01 to NHC26 2026-01, Grixis then Jund, none
+# shared with it.
+ids = ["CleverAmberStag", "FlyingAzureDolphin"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Denis M ? Denis. 0.562, and the pair the floor was never drawn for: it scores Denis
+# M's Grixis list (NHC26 2026-01) against a Red Esper one (SydneyShowdown100K
+# 2026-07), so the same-archetype, same-colour-family population the matched test
+# needs does not exist for it and the raw number is all there is. One deck against a
+# three-deck career, no shared event.
+ids = ["SwiftCrimsonRaven", "ShinyBronzeHeron740"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+
+# Hub ids: one id, several surnames, at most one of them right.
+#
+# 39 of the remaining 75 pairs are not independent questions. One id -- usually a bare
+# first name or a handle, usually a single deck -- sits against several distinct
+# surnames, and a person can be only one of them, so a merge on any one pair is a
+# reject on its siblings. Twenty ids carry such a fan across the whole 78; nineteen of
+# them fan out entirely inside this section, Brent G's second pair being the Brint G
+# hold above. The larger fans are grouped below. Recording the fan once is what stops
+# the next round reading each row as a fresh question with an even chance.
+#
+# The structure bounds how many can be right, never which, so it decides nothing by
+# itself. Every fan is also short of every other kind of evidence, and each entry says
+# what specifically was ruled out.
+
+# Nathan [SilentGreenWolf] is one deck, Jeskai Control at DeckaDiceIQ 2025-09, against
+# seven distinct Nathan careers: six of the seven pairs are wrong by construction. The
+# best of them is 0.274, and a single deck of a stock control shell is the case with
+# least to match against, so there is nothing for the baseline test to work with
+# either.
+
+[[hold]]
+# Nathan ? Nathan W. The fan's highest, 0.274, against a twelve-deck career that runs
+# Prowess to Grixis to UB Tempo, 2023-11 to 2026-04. Blue-red staples, not a
+# signature.
+ids = ["SilentGreenWolf", "CleverVioletTiger"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan ? Nathan S. 0.237 against the busiest career in the fan (35 decks, Grixis and
+# Walks, 2024-10 onward), which is also the one most likely to score against anything.
+ids = ["SilentGreenWolf", "LunarBlueWhale"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan ? Nathan B. 0.181. Nathan B's nineteen decks are an artifact-combo career
+# (Bomberman, Iron Man), which the lone Jeskai Control list is not.
+ids = ["SilentGreenWolf", "CrimsonGoldEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan ? Nathan L. 0.181, and one deck on each side: Grixis at BBO2 2024-08 against
+# the Jeskai Control list a year later. Two single decks can be neither corroborated
+# nor separated on today's data.
+ids = ["SilentGreenWolf", "SilentAmberDolphin"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan ? Nathan F. 0.107, one deck each: Boros Aggro at GGWARL 2026-05, no colour in
+# common with the Jeskai list. Nathan F carries a second open question of its own
+# below.
+ids = ["SilentGreenWolf", "LunarPurpleWolf"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan ? Nathan H. 0.078 against three years of Mono White at the NHC series.
+ids = ["SilentGreenWolf", "AmberIvoryWolf"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan ? Nathan C. 0.035, the bottom of the fan: five Lands decks, 2024-01 to
+# 2026-01.
+ids = ["SilentGreenWolf", "WanderingJadeWolf"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nathan F ? Nathaniel F. The full form of the name, one deck each and nothing behind
+# it: Boros Aggro at GGWARL 2026-05 against Grixis Thoracle at SydneyShowdown26
+# 2026-06, 0.085. Nathan F is also a live reading of the bare Nathan id above, so at
+# most one of the two questions on this id resolves as a merge.
+ids = ["LunarPurpleWolf", "JumpingIvoryViper"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+# The Dan fan is two hubs chained. Dan [MistyAzureHawk] is one deck (UB Thoracle,
+# TMC25 2025-04), already separated from Dan S at that event above, and still faces
+# four surnames. Dan T [FrostyMaroonGecko] is one deck too (4C Midrange,
+# SydneyShowdown100K 2026-07) and faces three readings of its own, the bare Dan among
+# them. So "Dan = Dan T" would answer both fans at once, on the evidence of neither.
+
+[[hold]]
+# Dan ? Dan V. 0.108. Dan V's three decks are Jund then Temur Midrange, 2024-04 to
+# 2025-01; the bare id's is UB Thoracle. Dan V carries its own question below.
+ids = ["MistyAzureHawk", "HiddenPurpleDolphin"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Dan ? Dan T. 0.105, and both sides a single deck: the two bare-ish ids of the fan
+# against each other, with nothing on either to compare.
+ids = ["MistyAzureHawk", "FrostyMaroonGecko"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Dan ? Dan R. 0.007, one deck each: Mono R at LPMPerth 2026-06 against UB Thoracle.
+ids = ["MistyAzureHawk", "NimbleIvoryDolphin"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Dan ? Dan G. 0.000 -- not one card in common. Dan G is one Boros Legends deck at WAC
+# 2025-07 and is separated from Daniel G at that event above.
+ids = ["MistyAzureHawk", "BraveMaroonHeron"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Daniel T ? Dan T. 0.419, the strongest reading of the lone 4C Midrange deck: Daniel
+# T's 21 decks are an Omnath/Nadu midrange career in those colours. Under the floor,
+# and one of three readings of the same id, so the number would have to do work the
+# ADR says a number cannot.
+ids = ["MistyAzureOrca", "FrostyMaroonGecko"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Danny T ? Dan T. 0.236, one deck each: Esper Tempo at TMC25 2025-04 against the 4C
+# Midrange list two years later.
+ids = ["MistyIndigoHeron", "FrostyMaroonGecko"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Dan V ? Daniel V. 0.169. Daniel V is one Naya Initiative deck at NHC24 2024-02; Dan
+# V's three are Jund and Temur Midrange from two months later. Dan V is also a reading
+# of the bare Dan above.
+ids = ["HiddenPurpleDolphin", "LuckyJadeBadger"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+# CalT13 is ADR 0005's own handle-collision example (CalT = Caleb / Calum / Callum),
+# and the corpus now holds all three of them. Four ids, one deck each, no two at one
+# event, and the whole fan's overlaps run 0.079 down to 0.018.
+
+[[hold]]
+# CalT13 ? Caleb T. 0.079. Bug Reanimator at ETEAE 2025-11 against UR Affinity at
+# SydneyShowdown26 2026-06.
+ids = ["CrimsonGreenCobra", "LunarMagentaFalcon"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# CalT13 ? Callum T. 0.043. Against GR Delerium at ManaMarketIQ 2025-10.
+ids = ["CrimsonGreenCobra", "MistyBlackGecko"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# CalT13 ? Calum T. 0.018. Against Mono W Yorion at MateWADiamond 2026-03.
+ids = ["CrimsonGreenCobra", "WanderingRedWolf"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Callum T ? Calum T. One deletion apart, and both are real spellings of the name, so
+# the shape argues nothing: 0.025 between GR Delerium and Mono W Yorion, no colour
+# shared.
+ids = ["MistyBlackGecko", "WanderingRedWolf"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+# Cale M is the same trap one surname over.
+
+[[hold]]
+# CalM29 ? Cale M. 0.056. CalM29's two decks are Jund and Jund Lands (ETEAE and
+# SydneyShowdown, both 2025-11); Cale M's three are all Time Vault, a signature the
+# handle side never plays. A handle is never structural (ADR 0005) and must earn a
+# merge on overlap; this earns nothing.
+ids = ["ShadowRedGecko", "CleverJadeOtter"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Cale M ? Cael M. A transposition on a four-letter name, under the five-letter floor
+# the ADR sets for insert/delete auto-merges precisely because short shapes reach
+# other real names. Cael M's lone deck is Eldrazi at WAC 2025-07; 0.049 against the
+# Time Vault career.
+ids = ["CleverJadeOtter", "LuckyAmberWolf"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+# Jo H [HiddenIndigoEagle] is one deck, RW Legends at CBR Oct 23 (2023-10), and "Jo"
+# shortens all three names below.
+
+[[hold]]
+# Josh H ? Jo H. 0.237, the only positive sign in the fan: Boros Legends at WAC
+# 2025-07, the same archetype two years later. Legends is a stock list, which ADR 0005
+# rules community list-sharing rather than identity, and one deck a side leaves
+# nothing else.
+ids = ["MistySilverViper", "HiddenIndigoEagle"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jose H ? Jo H. 0.052. Jose H's two decks are Grixis, 2025-04 and 2026-04.
+ids = ["LunarMagentaManta", "HiddenIndigoEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jordan H ? Jo H. 0.052. Jordan H's three decks are a different combo shell each
+# time.
+ids = ["SilentRedViper", "HiddenIndigoEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+# The bare "Samuel" id [BraveBlackWhale] is two decks at WAC26 alone, so it is already
+# two entrants (split into Samuel 1 and Samuel 2), and Samuel F is separated from it
+# at that event above. Samuel C and Samuel M never attended WAC26, so both stay live
+# readings of the two bare careers and cannot both be right.
+
+[[hold]]
+# Samuel C ? Samuel 1. 0.106. Samuel C's five decks are an Infect career start to
+# finish (RC6 2024-05 to ANZSS12 2026-05); the bare id's two WAC26 decks are BG
+# Midrange and UW Control, neither of them that.
+ids = ["BraveBronzeTiger", "BraveBlackWhale"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Samuel M ? Samuel 1. 0.123. Samuel M's three decks are High Tide and 4C Breach,
+# 2025-02 to 2026-01.
+ids = ["WanderingGreenLynxBCF", "BraveBlackWhale"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Sam C ? Samuel C. 0.163. Sam C's two decks are Flash Oath and Omnath Lands; Samuel
+# C's five are Infect throughout. A nickname link with nothing behind it, and Samuel C
+# is separately a reading of the bare Samuel careers above.
+ids = ["LuckyRedPanda", "BraveBronzeTiger"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+# San D [BraveJadeDolphin993] is separated from Ian D at WAC26 above, and is a single
+# substitution from two further real names, each with a career of its own.
+
+[[hold]]
+# San D ? Sean D. 0.19. Sean D's four decks are green midrange, 2023-07 to 2024-04;
+# San D's two are Nadu (WAC 2025-07) and UB Doomsday (WAC26 2026-08), a year and
+# colours apart.
+ids = ["BraveJadeDolphin993", "SolarAmberViper7C7"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Sam D ? San D. 0.147. Sam D's eleven decks are red aggro across three years, which
+# the blue combo pair on the other side never touches.
+ids = ["ShinyRedTigerBE3", "BraveJadeDolphin993"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Brett G ? Brent G. 0.279, one deck each: Blue Moon at ETEAE 2025-11 against Grixis
+# at WAC26 2026-08. The second substitution onto this id -- Brint G is the other, held
+# above on a number that measured out as the median stranger -- and at most one can be
+# right.
+ids = ["LunarGreenRaven", "FlyingAzureDolphin"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+# Matt C [NimbleJadeCobra] is one deck, Golgari at LPMPerth 2026-06, and shortens to
+# two names on file.
+
+[[hold]]
+# Matthew C ? Matt C. 0.495: the highest overlap in the queue below the floor, and the
+# nearest thing here to a pair the matched test could open. One deck each even so --
+# Mono B Midrange at WAC 2025-07 against that Golgari list eleven months later -- so a
+# merge would rest on a number that has not cleared the bar, against an id two names
+# read onto.
+ids = ["SwiftMaroonGecko", "NimbleJadeCobra"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Mattezhion C ? Matt C. 0.132. Mattezhion C's three decks are Oath Reanimator,
+# 2024-01 to 2025-09. An unusual name is not a structural fact, and nothing else
+# points here.
+ids = ["CrimsonGreenFox", "NimbleJadeCobra"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+# Declan [ShadowSilverHeron] is one deck, BR Midrange at WAC26 2026-08.
+
+[[hold]]
+# Declan P ? Declan. 0.425, the most any pair in this fan has: Mono R Burn at LPMPerth
+# 2026-06, red on both sides two months apart. Still short of the floor, one deck a
+# side, and red aggro staples are what any two red decks share.
+ids = ["NimbleMaroonStag", "ShadowSilverHeron"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Declan R ? Declan. 0.065. Declan R's three decks are mono-white and Boros aggro,
+# 2024-11 to 2026-03.
+ids = ["MistyAzureStagD43", "ShadowSilverHeron"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+# Angus [FluffyOrangeEagle620] is one deck, BUG Reanimator at MateWADiamond 2026-03,
+# and the two Anguses reading onto it are already separated from each other above --
+# the entry that established the matched-baseline test.
+
+[[hold]]
+# Angus M 1 ? Angus. 0.157, read across the whole id, which is what this entry keys:
+# ShinyTealHawk carries 31 decks in two numbered careers, the first nine of Gorgeous
+# Reanimator (2023-07 to 2024-12) and the second Jund, running to ETEAE 2025-11. So
+# the archetype agrees with the bare id's BUG Reanimator list of 2026-03 and nothing
+# else does, Reanimator being a stock shell; and the two never meet at an event.
+ids = ["ShinyTealHawk", "FluffyOrangeEagle620"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Angus McC ? Angus. 0.122, one deck each: Jund at POG2501 2025-01.
+ids = ["MistyCyanHeron", "FluffyOrangeEagle620"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+# Three ids, three pairs, one handle: ChrB147 [SwiftVioletEagle] fits both "Chris B"
+# and "Christopher B", which are themselves a nickname pair, so no reading is forced
+# and the fan cannot be closed by picking one.
+
+[[hold]]
+# Christopher B ? ChrB147. 0.473: Mono Black at ETEAE against Mono B Prison at
+# SydneyShowdown, both 2025-11, in the same colours. The strongest same-shell pair in
+# the queue and still under the floor that would open the matched test, resting on a
+# handle, which ADR 0005 never treats as structural.
+ids = ["NimbleAzureManta", "SwiftVioletEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# ChrB147 ? Chris B. 0.126. Chris B's five decks are Boros and RW aggro, 2025-01 to
+# 2026-08; the handle's one deck is Mono B Prison.
+ids = ["SwiftVioletEagle", "WildOrangeFalcon"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Christopher B ? Chris B. 0.143. Enchantress and Mono Black against a Boros aggro
+# career: no colour, shell or event in common.
+ids = ["NimbleAzureManta", "WildOrangeFalcon"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+
+# Name shapes ADR 0005 sends to a human by name.
+#
+# A single substitution flips to a different real name at any length (Tim/Tom,
+# Dan/Ian), and a short insertion or deletion does the same (Joe/Jose, JD/Jed), which
+# is why the ADR restricts the insert/delete auto-merge to five letters and up and
+# never auto-merges a substitution. None of these is corroborated either: a name-only
+# merge needs deck overlap behind it, and the best on offer here is 0.415 at disjoint
+# events.
+
+[[hold]]
+# Alec F ? Alex F. 0.415. Two real names one substitution apart. Alec F is seven
+# decks, BUG Control then BR Eclipse, 2023-11 to 2026-01; Alex F is one Esper Control
+# deck at PogFeb26 2026-02, a month after the last of them. The overlap is control
+# staples at disjoint events, which is what the substitution rule exists to stop being
+# enough.
+ids = ["CleverCyanStag", "ShadowVioletPanda"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Damien B ? Damian B. 0.388. Two spellings of one name and also two people's names.
+# Damien B is Blue Moon at NHC24 and NHC25; Damian B is UR Prowess at NHC26: the same
+# annual event three years running and never the same year, which one person
+# continuing and two people alternating both produce.
+ids = ["IvoryBlackDolphin", "WanderingMagentaStag"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Tim S ? Jim S. 0.291. A first-letter substitution onto another real name. Tim S is
+# ten decks, 2024-04 to 2026-06, across five archetypes; Jim S is one Grixis deck at
+# WAC26 2026-08.
+ids = ["LuckyCyanWhale", "SilentJadeWhaleDB0"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Tim F ? Tom F. 0.133. The ADR's own Tim/Tom example. Tim F's three decks are Draw-7s
+# and Academy combo, 2024-04 to 2026-04; Tom F is one UR Prowess deck at 88WADJuly
+# 2026-07.
+ids = ["ShadowTealCobra", "SolarCrimsonStag"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Ben H 1 ? Ken H. 0.21 across the whole id: NimbleAzureTiger carries 24 decks in two
+# numbered careers, the first fifteen of blue control, against Ken H's single Twin
+# Walks deck at ManaMarketIQ 2025-10. Ben and Ken are two names, not a typo pair. This
+# id already attracts other people's names: it is separated from Benjamin H above on a
+# borrowed list.
+ids = ["NimbleAzureTiger", "NimbleCyanGecko"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jose G ? Joe G. 0.217. The ADR's own Joe/Jose false friend. Jose G is nine decks,
+# Grixis throughout 2024-2025; Joe G is one Azorius Control deck at PMJune 2026-06,
+# with no colour in common.
+ids = ["CleverVioletGecko8DC", "WildBronzeOrca"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# JD L ? Jed L. 0.21. The ADR's other named false friend. JD L is one Jund deck from
+# 2023-10; Jed L's two Grixis decks are 2026-03 and 2026-05, two and a half years
+# later.
+ids = ["MistyAzureTiger", "SilentRedHeron"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jon C ? John C. 0.232. An insertion under the five-letter floor, and both spellings
+# are real names. Jon C's three decks are blue tempo and combo from 2025-07; John C's
+# two are Grixis midrange, 2024-10 and 2025-04.
+ids = ["WanderingJadeCobra", "WildVioletOtter"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Nicolas S ? Nicholas S. 0.014, one deck each: Nadu Flash at WAC 2025-07 against
+# Hypergenesis at 88WADJuly 2026-07. The name shape argues one person and the decks
+# refuse to corroborate it at all, which is the unfalsifiable name bet ADR 0005 holds
+# rather than merges.
+ids = ["SwiftRedTiger", "FluffyVioletBadger"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Paul L ? Paulo L. 0.064. Paulo is its own name, not a lengthening of Paul. One deck
+# each, 5c Lands at ANZSS0703 2025-03 against Esper at LPMPerth 2026-06.
+ids = ["CrimsonAmberHawk", "FluffyBlueWolf"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Will S ? Willow S. 0.336. Willow is its own name too, which is part of what
+# separated Will M from Willow M above. The two records are sequential and never meet:
+# Willow S's three decks are all 2024, Will S's two are 2025-07 and 2026-06.
+ids = ["SwiftAmberFox", "SolarSilverEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+
+# Handle links, which ADR 0005 says are never structurally certain: a handle is
+# first-three-letters plus surname initial, so it collides across people (the CalT fan
+# above). Each must earn a merge on deck overlap like any other shape, and none of
+# these does.
+
+[[hold]]
+# LukC13 ? Luke C. 0.471, the highest here, and Grixis on both sides at disjoint
+# events (ETEAE 2025-11, NHC25 2025-01). That is the archetype the Brint G / Brent G
+# baseline was measured on, where 0.596 came out at the median stranger, so this sits
+# below the median stranger for the very shell it is proposed on. One deck each.
+ids = ["ShadowBlackFox", "SwiftVioletPanda"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# NicW47 ? Nick W. 0.415. One Esper Midrange deck at ETEAE 2025-11 against a
+# seven-deck career running Naya Winota to Bant Walks; the 0.415 is against Nick W's
+# Grixis at GGNarellanIQ a month earlier. Neighbouring events, never one event.
+ids = ["HiddenCyanFalcon", "WanderingOrangeBadger"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# RunK ? Rune K. 0.097, one deck each: Brightglass Lands at ETEAE 2025-11 against RW
+# Aggro at SydneyShowdown26 2026-06.
+ids = ["SolarMagentaFalcon", "SolarSilverGecko"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# NicH47 ? Nick H. 0.079, one deck each: Mono Red at ETEAE 2025-11 against Blue Moon
+# at NHC26 2026-01. The second NicX47 handle in this queue, which is the collision
+# shape itself.
+ids = ["WildOrangeFalconFE7", "NimbleRedHeron"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# AndA54 ? Andrey A. 0.059. Twin Moon at ETEAE 2025-11 against Andrey A's Eldrazi and
+# Mono U Tron, 2025-07 to 2026-06.
+ids = ["AmberSilverTiger", "ShinyMaroonDolphin"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# CodS20 ? Cody S. 0.045. CodS20's two decks are Mardu at ETEAE and SydneyShowdown,
+# both 2025-11; Cody S's one is Lutri Izzet Breach at CB4 2024-10.
+ids = ["HiddenBlueHeron", "WildIndigoCobra"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# PetS19 ? Peter S. 0.035, one deck each: Flash Hulk at ETEAE 2025-11 against RW Aggro
+# at WAC26 2026-08.
+ids = ["ShinyOrangeEagle", "JumpingPurpleLynx"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+
+# One-off name bets: a nickname or bare-first-name link, disjoint events, and deck
+# records that corroborate nothing. ADR 0005's rule is that a name-only merge needs
+# deck overlap behind it; with the decks disjoint the claim cannot be falsified, so
+# these are held rather than merged. What would move any of them is a registration at
+# a shared event, or a second deck on the thin side to make a record there is
+# something to compare.
+
+[[hold]]
+# Joseph M ? Jos M. 0.429. Both play the Academy combo family -- Grixis Academy and
+# Welder (2025-10, 2025-11) against Jeskai Academy Combos (SydneyShowdown100K 2026-07)
+# -- in different colours, and the number is under the floor that would even open the
+# test.
+ids = ["WanderingGreenFalcon", "CleverMaroonGecko"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Mat B ? Matthew B 1. 0.393 on Jund, and the two ids run side by side without ever
+# meeting: SilentAmberOrca carries 14 decks in two numbered careers, Jund then Jeskai,
+# through to NHC26 2026-01, while Mat B's three Jund decks run ETEAE 2025-11 to
+# PogJul26 2026-07. So this is not one career continuing under a second spelling. Jund
+# is a stock list, so a shared archetype under the floor says only that both played
+# it. Mat B already carries a merge (MatB161); this would be a second on far weaker
+# evidence.
+ids = ["MistyGoldBadger", "SilentAmberOrca"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Ben T ? Benjamin T. 0.389. Ben T's eight decks are Green Eldrazi and then Grixis;
+# the 0.389 is that last Grixis list (PogInvi2025 2025-12) against Benjamin T's single
+# BUG Thoracle at DNAWADJune26 2026-06.
+ids = ["SilentVioletPanda", "FlyingGreenOrca43D"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Josh T ? Joshua T. 0.327. Both are Thoracle shells -- UB Oracle at CBR3 2024-03
+# against Grixis Thoracle at CanBrawl 23 2023-07 -- with one further deck on Josh T's
+# side, two years later.
+ids = ["SolarOrangeFox", "SolarGoldWhale"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Stefan ? Stefan M. 0.263. A bare first name with one deck, UR Prowess at TMC25
+# 2025-04, against a four-deck career of combo and burn (Hermit Druid, Lutri Mono Red,
+# Recall 5C Burn, Storm) that never plays it.
+ids = ["WildGreenGecko", "AmberAmberFalcon"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Chris D ? Christopher D. 0.231. Chris D's three decks are reanimator shells, 2024-03
+# to 2025-01; Christopher D's one is Bug Thoracle at NHC26 2026-01.
+ids = ["NimbleSilverManta", "SwiftAzureEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Matt H ? Matthew H. 0.231. Matt H's two decks are Grixis and Tin-Fins reanimator
+# (2024); Matthew H's three are UB Tempo, 5C Walks and Mono G Elves, spread 2023-11 to
+# 2026-05.
+ids = ["SolarBronzeDolphin", "LuckySilverEagle"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Joshua V ? Josh V. 0.212, and both decks are Bogles two months apart (Simic at NHC25
+# 2025-01, Bant at ANZSS0703 2025-03). A real alias shares a deck signature; 0.212 on
+# one archetype is not one, and one deck a side leaves nothing else to read.
+ids = ["AmberAmberStag", "SwiftMagentaRaven"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Russell C ? Ru C. 0.187. Ru C is one Flash Hulk deck at NHC24 2024-01; Russell C's
+# six are a different archetype every time (Bots, Eldrazi, Mono Black, Storm, Mono U
+# Tron, UR Elementals), which is a record no overlap can speak to in either direction.
+ids = ["SolarTealWolf", "HiddenCrimsonStag"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Chris P ? Christian P. 0.176. "Chris" shortens Christian and Christopher alike, so
+# the name link does not even pick out one candidate. Chris P's four decks are Jund,
+# Mardu and Esper midrange, 2025-10 to 2026-07; Christian P's one is Sultai Lands at
+# WAC 2025-07.
+ids = ["SilentMaroonWhale", "CrimsonVioletHawk"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Matthew L ? Matt L. 0.172. Matthew L's five decks are a Walks career through 2025;
+# Matt L's one is Naya Stompy at PoGWAD 2024-10.
+ids = ["ShinyIndigoViper", "BraveOrangeBadger"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Jackson P ? Jack P. 0.15. Jackson P's six decks are blue reanimator and Oath
+# control, 2025-07 to 2026-08; Jack P's one is Mono G Scales at NHC26 2026-01, inside
+# that span and at an event Jackson P did not enter.
+ids = ["NimbleOrangeLynx", "FluffyAmberPanda"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Will M ? William M. 0.148. Will M's ten decks are white aggro and midrange, 2023-07
+# to 2025-10; William M's one is Boros Burn at HighlanderWorlds26 2026-04, six months
+# after that record stops. Will M is separated from Willow M at NHC24 above.
+ids = ["LuckyCrimsonViper", "ShadowJadePanda"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Alex C ? Alexander C. 0.141. Two decks each and no meeting point: BUG Reanimator and
+# UB Flood Moon against Rakdos Welder and RW Aggro.
+ids = ["AmberIndigoDolphin", "MistyAmberCobra"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Steven L ? Steve L. 0.121, one deck each: Polymorph Oath at BBO2 2024-08 against
+# Jund at ShuffledDrake 2026-03.
+ids = ["AmberMaroonManta", "WanderingCyanBadger"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Ciaran C ? Ciaran. 0.092, one deck each, at the two editions of one annual event a
+# year apart: Boros Legends at WAC 2025-07 against RG Ramp at WAC26 2026-08. An
+# edition they both enter is exactly what would settle this.
+ids = ["CleverCyanViper", "FrostyBlackPanda"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Anvil ? Anvil C. 0.08, one deck each: RUG Midrange at MateWADiamond 2026-03 against
+# Abzan Initiative at PMJune 2026-06. An unusual name shared by a bare id and a
+# surnamed one is suggestive and is not a structural fact; nothing else points either
+# way.
+ids = ["FluffyIvoryWolf", "NimbleMaroonCobra"]
+settles_on = "new_decks"
+as_of = "20260815T140746Z"
+
+[[hold]]
+# Matt R ? Matthew R. 0.000 -- not one card in common across the two records. Matt R's
+# two decks are Mono W Taxes (2025-10, 2025-11); Matthew R's one is BUG Thoracle at
+# PogJul26 2026-07. The flat case of the name bet with nothing behind it.
+ids = ["MistyMagentaWolf", "LuckyGoldLynx"]
+settles_on = "shared_event"
+as_of = "20260815T140746Z"
 
 
 # Corroborated merges the audit added (deck overlap + shared archetype, disjoint events).

@@ -849,6 +849,12 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "events, the chart says so instead of drawing.",
     ),
     (
+        # The paired-names figure counts the ids in both identity queues, the pairs
+        # nobody has examined and the pairs a human examined and could not settle
+        # (issues #228, #231): a hold parks the question, and the two names are still
+        # offered apart, which is what this sentence is about.
+        # `test_app.py::test_the_pilot_identity_answer_counts_what_the_graph_holds`
+        # grades both figures here against the live record.
         "faq-pilot-identity",
         "Pilots",
         "Is a pilot one person, and where do the names come from?",
