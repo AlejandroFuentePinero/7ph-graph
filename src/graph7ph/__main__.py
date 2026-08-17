@@ -1,4 +1,4 @@
-"""CLI: ``graph7ph fetch | build | app | baseline``.
+"""CLI: ``graph7ph fetch | build | curation-report | app | baseline``.
 
 Wires the fetch, build, and app seams into the three commands issue 2 asks for.
 Paths default under the repo's ``data/`` directory and are overridable by flag.
@@ -10,7 +10,8 @@ from pathlib import Path
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import TwoWinners, YearStraddle, reconciliation_path
-from graph7ph.curation import CURATION_PATH, CurationError
+from graph7ph.curation import CURATION_PATH, CurationError, load_curation
+from graph7ph.curation_report import curation_report, latest_snapshot, unreportable
 from graph7ph.db import (
     NotABundle,
     UnopenableGraph,
@@ -138,6 +139,32 @@ def _build(args: argparse.Namespace) -> None:
     print("  restart any running `graph7ph app`: it still serves the old graph")
 
 
+def _curation_report(args: argparse.Namespace) -> None:
+    # The review brief for the promoted bundle, on stdout for a `gh issue create`
+    # to pipe (issue #233). A pure read: `gh` stays out of the build, which
+    # produces artifacts and stays offline and idempotent, so filing is a runbook
+    # line rather than a build side effect. Every refusal is a sentence naming
+    # the remedy rather than a traceback, since a traceback in this pipe is filed
+    # as the review brief.
+    if not database_path(args.db).exists():
+        raise SystemExit(f"No graph at {args.db}: run `uv run graph7ph build` first.")
+    snapshot = latest_snapshot(args.snapshots)
+    if snapshot is None:
+        raise SystemExit(f"No snapshots in {args.snapshots}/: "
+                         "run `uv run graph7ph fetch` first.")
+    if (complaint := unreportable(args.db, snapshot)) is not None:
+        raise SystemExit(f"Cannot report: {complaint}.")
+    try:
+        curation = load_curation()
+    except CurationError as exc:
+        raise SystemExit(f"Cannot report: {exc}")
+    print(curation_report(
+        json.loads(reconciliation_path(args.db).read_text()),
+        curation.holds,
+        snapshot,
+    ))
+
+
 def _baseline(args: argparse.Namespace) -> None:
     # Every failure below is a user-facing abort rather than a traceback, as the
     # build is: later tickets run this as a gate, where a crash and a regression
@@ -238,6 +265,14 @@ def main() -> None:
     p_build.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
     p_build.add_argument("--db", type=Path, default=DB_PATH)
     p_build.set_defaults(func=_build)
+
+    p_report = sub.add_parser(
+        "curation-report",
+        help="Write the post-ingestion curation review brief to stdout",
+    )
+    p_report.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
+    p_report.add_argument("--db", type=Path, default=DB_PATH)
+    p_report.set_defaults(func=_curation_report)
 
     p_baseline = sub.add_parser(
         "baseline", help="Grade the graph against the checked-in golden subgraphs"

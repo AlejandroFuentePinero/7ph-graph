@@ -19,6 +19,30 @@ ids or changed historical facts says so and writes the detail to
 `data/graph/ingest.json`; a flagged immutable fact is held at its pre-change value
 until a human resolves it, so the flag is an action to take, not a notice.
 
+Then file the curation review for the round, which is where the identity work
+starts (issue #227). `curation-report` is a pure read of the promoted bundle and
+`gh` stays out of the build, so filing is this line rather than a build side
+effect:
+
+```sh
+brief=$(uv run graph7ph curation-report) &&
+  gh issue create --title "$(head -1 <<<"$brief")" \
+    --body "$brief" --label ready-for-human
+```
+
+The brief ranks on what changed: holds the data has now settled (decide each and
+retire its `[[hold]]`), candidates this ingestion introduced, holds whose
+evidence moved, then the unchanged tail and the counts. A round with none of the
+first three says so in one line, and there is nothing to file. The command
+refuses to report on a bundle that is missing, built from other sources, or older
+than the newest snapshot, so a brief always describes the corpus it names.
+
+Hold the brief before filing rather than piping it: a refusal is a sentence on
+stderr and an empty stdout, and a pipe would hand that empty stdout to `gh` and
+file it as the round's review. The title is the brief's own first line, which
+names the snapshot the body reports on, so the issue cannot be titled after a
+different one than it describes.
+
 Restart any `graph7ph app` that was already running: it keeps serving the old
 data, silently. Promotion renames the live directory, so the running app's open
 files still point at the previous artifact, and the dropdown catalogues are read
