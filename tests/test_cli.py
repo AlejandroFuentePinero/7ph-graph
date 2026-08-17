@@ -5,11 +5,12 @@ import json
 import pytest
 
 from graph7ph import baseline as bl
-from graph7ph.__main__ import _baseline, _build
+from graph7ph.__main__ import _baseline, _build, _curation_report
 from graph7ph.build import build_graph
 from graph7ph.curation import load_curation
 from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
+from graph7ph.provenance import provenance_path
 from graph7ph.query import HiddenGems
 
 
@@ -574,3 +575,113 @@ def test_a_baseline_missing_a_section_aborts_cleanly(tmp_path, snapshot_dir):
         _baseline(argparse.Namespace(db=db, baseline=baseline, capture=False))
 
     assert "catalogues" in str(exc.value)
+
+
+def _held_bundle(tmp_path, monkeypatch, snapshots, db):
+    """A built bundle whose dictionary holds the one pair its snapshot carries."""
+    ids = ["NimbleBlackEagle", "FrostyBlueOtter"]
+    _titled_snapshot(snapshots / "20260101T000000Z", [
+        ("d1", ids[0], "01st Joe M - Grixis - E1", "E1", 1),
+        ("d2", ids[1], "01st Joel M - Grixis - E2", "E2", 1),
+    ])
+    (tmp_path / "pilots.toml").write_text(
+        f'[[hold]]\nids = {json.dumps(ids)}\n'
+        'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n'
+    )
+    curation = functools.partial(load_curation, tmp_path / "pilots.toml")
+    monkeypatch.setattr("graph7ph.build.load_curation", curation)
+    monkeypatch.setattr("graph7ph.__main__.load_curation", curation)
+    _build(argparse.Namespace(snapshots=snapshots, db=db))
+    return ids
+
+
+def test_the_curation_report_writes_the_review_brief_for_the_promoted_bundle(
+    tmp_path, monkeypatch, capsys
+):
+    # The command a review round starts from (issue #233): the post-ingestion
+    # state as a page to read, not a `reconciliation.json` to re-derive. Pure
+    # read, so it names the snapshot it is about and touches nothing.
+    snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
+    ids = _held_bundle(tmp_path, monkeypatch, snapshots, db)
+    capsys.readouterr()
+
+    _curation_report(argparse.Namespace(snapshots=snapshots, db=db))
+
+    out = capsys.readouterr().out
+    assert "20260101T000000Z" in out
+    assert "## Unchanged holds (1)" in out
+    assert all(pid in out for pid in ids)
+
+
+def test_reporting_on_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
+    # Nothing to report against is a sentence naming the remedy, not a traceback:
+    # the command is a pipe into `gh issue create`, where a crash would file the
+    # traceback as the review brief.
+    with pytest.raises(SystemExit) as exc:
+        _curation_report(argparse.Namespace(
+            snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
+
+    assert "graph7ph build" in str(exc.value)
+
+
+def test_reporting_on_a_bundle_older_than_the_sources_aborts_instead_of_reporting(
+    tmp_path, monkeypatch, make_stale
+):
+    # A bundle built from other sources describes a graph today's code would not
+    # produce, and the brief becomes an issue a human works from, so a wrong one
+    # costs a round of curation rather than a re-run.
+    snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
+    _held_bundle(tmp_path, monkeypatch, snapshots, db)
+    built_at = make_stale(db)
+
+    with pytest.raises(SystemExit) as exc:
+        _curation_report(argparse.Namespace(snapshots=snapshots, db=db))
+
+    assert "graph7ph build" in str(exc.value)
+    assert built_at in str(exc.value)
+
+
+def test_reporting_against_a_snapshot_the_bundle_predates_aborts(
+    tmp_path, monkeypatch, capsys
+):
+    # A fetch with no build behind it leaves a bundle that no longer matches
+    # `snapshots/`, and the brief would report on the corpus before the one it
+    # names. Refuse, rather than file a round of review about last week's data.
+    snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
+    _held_bundle(tmp_path, monkeypatch, snapshots, db)
+    _titled_snapshot(snapshots / "20260301T000000Z", [
+        ("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", "E1", 1),
+    ])
+    # The bundle was built against the January snapshot, before March was
+    # fetched. Its stamp is dated back to say so, the digest left valid so the
+    # refusal under test is the freshness one and not issue #55's.
+    stamp = json.loads(provenance_path(db).read_text())
+    provenance_path(db).write_text(
+        json.dumps(stamp | {"built_at": "2026-01-05T00:00:00+00:00"}))
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as exc:
+        _curation_report(argparse.Namespace(snapshots=snapshots, db=db))
+
+    assert "20260301T000000Z" in str(exc.value)
+    assert "graph7ph build" in str(exc.value)
+
+
+def test_a_directory_no_fetch_wrote_is_not_read_as_a_snapshot(
+    tmp_path, monkeypatch, capsys
+):
+    # The corpus the brief names is read as a time, and this command's other end
+    # is a `gh issue create` that files whatever it is handed. So a directory
+    # sitting beside the snapshots (a scratch copy, a half-restored backup) must
+    # be ignored rather than parsed, or the review issue is a traceback. Shaped
+    # like a stamp is not enough: a name can carry a date that never happened and
+    # still sort above every real one.
+    snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
+    _held_bundle(tmp_path, monkeypatch, snapshots, db)
+    (snapshots / "scratch-copy").mkdir()
+    (snapshots / "20260231T000000Z").mkdir()
+    capsys.readouterr()
+
+    _curation_report(argparse.Namespace(snapshots=snapshots, db=db))
+
+    assert "20260101T000000Z" in capsys.readouterr().out
