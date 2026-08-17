@@ -32,6 +32,101 @@ def _snapshot(path, decks):
     }))
 
 
+def _titled_snapshot(path, decks):
+    """A snapshot whose deck titles carry recoverable pilot names.
+
+    ``_snapshot`` seats every deck at rank 1 under its own deck id as the pilot,
+    which recovers no name and can never put two ids in one event. Curation
+    tests need both, so each deck here names its pilot, title, event and rank.
+    """
+    path.mkdir(parents=True)
+    (path / "decks.json").write_text(json.dumps([
+        {"deckId": deck, "name": title, "deckName": "n", "pilot": pilot,
+         "event": event, "eventId": f"evt_{event}", "eventType": "Tournament",
+         "placement": placement, "placementNorm": 0.0, "eventSize": 2,
+         "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+         "macro": "macro:control", "engineTags": [], "engineTagLabels": {},
+         "primaryTag": "", "primaryTagWeights": {}}
+        for deck, pilot, title, event, placement in decks
+    ]))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaCost": None, "manaValue": 0.0, "reserved": False,
+                   "points": 0, "pointsCompanion": 0}],
+        "decks": {deck: {"m": [0], "s": []} for deck, *_ in decks},
+    }))
+
+
+def test_a_build_announces_the_holds_the_data_has_now_moved(
+    tmp_path, capsys, monkeypatch
+):
+    # A hold records the condition that would settle it, so the build re-evaluates
+    # that condition every ingestion and growing data does the review work instead
+    # of a human re-reading the list (issue #230). A settled pair is an available
+    # decision sitting unmade, so it gets the banner a scrolling build log cannot
+    # bury; a hold whose evidence merely moved is softer and gets a counted line.
+    snapshots = tmp_path / "snapshots"
+    ids = ["NimbleBlackEagle", "FrostyBlueOtter"]
+    apart = [
+        ("d1", ids[0], "01st Joe M - Grixis - E1", "E1", 1),
+        ("d2", ids[1], "01st Joel M - Grixis - E2", "E2", 1),
+    ]
+    _titled_snapshot(snapshots / "20260101T000000Z", apart)
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, tmp_path / "pilots.toml"))
+    (tmp_path / "pilots.toml").write_text(
+        f'[[hold]]\nids = {json.dumps(ids)}\n'
+        'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n'
+    )
+
+    # Nothing has moved since the reasoning was written: the pair is held, and
+    # the build says nothing further about it.
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g1"))
+    out = capsys.readouterr().out
+    assert "1 held, 0 unexamined" in out
+    assert "DECISION AVAILABLE" not in out
+    assert "evidence moved" not in out
+
+    # A later fetch gives one side a deck the reasoning never saw. Nothing is
+    # settled, so this is a line, not a banner.
+    _titled_snapshot(snapshots / "20260201T000000Z", apart + [
+        ("d3", ids[1], "01st Joel M - Walks - E3", "E3", 1),
+    ])
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g2"))
+    out = capsys.readouterr().out
+    assert "1 hold(s) whose evidence moved" in out
+    assert "DECISION AVAILABLE" not in out
+
+    # A third fetch puts both ids at one event. Two entries at one event are two
+    # people (ADR 0005), so the pair is decided and the build says so loudly.
+    _titled_snapshot(snapshots / "20260301T000000Z", apart + [
+        ("d3", ids[1], "01st Joel M - Walks - E3", "E3", 1),
+        ("d4", ids[1], "02nd Joel M - Walks - E1", "E1", 2),
+    ])
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g3"))
+    out = capsys.readouterr().out
+    assert "DECISION AVAILABLE" in out
+    assert "1 hold(s) settled" in out
+    # Decided, so the deck delta is noise and is not re-reported beside it.
+    assert "evidence moved" not in out
+
+    # An `as_of` naming a snapshot this build never read dates the reasoning
+    # against a corpus nobody can reproduce. Load time cannot ask that, the
+    # stamps differing in every clone (issue #228); the build can, and it reports
+    # rather than aborts, because a hold applies nothing to the graph and a
+    # pruned snapshot must not become a build failure.
+    (tmp_path / "pilots.toml").write_text(
+        f'[[hold]]\nids = {json.dumps(ids)}\n'
+        'settles_on = "shared_event"\nas_of = "20190101T000000Z"\n'
+    )
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g4"))
+    report = json.loads((tmp_path / "g4" / "reconciliation.json").read_text())
+
+    assert [(d["kind"], d["key"]) for d in report["dead_entries"]] == [
+        ("hold", "20190101T000000Z")]
+
+
 def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
     # Data that cannot be built is a user-facing abort, not a crash: ADR 0003
     # hard-fails before the live graph is touched, and the CLI says so rather
@@ -117,28 +212,13 @@ def test_a_build_counts_held_pairs_apart_from_the_ones_awaiting_a_human(
     # so counting it with the unexamined ones overstates the queue every build
     # until the evidence arrives. The two states are printed apart, and the
     # unexamined figure is the one that means "open this many questions".
-    # Written out here rather than through `_snapshot`, which seats every deck at
-    # rank 1: two ids have to place differently to sit in one event at all, and
-    # they have to sit in one event to recover the two names this needs.
-    snap = tmp_path / "snapshots" / "20260101T000000Z"
-    snap.mkdir(parents=True)
+    # Through `_titled_snapshot` rather than `_snapshot`, which seats every deck
+    # at rank 1: two ids have to place differently to sit in one event at all,
+    # and they have to sit in one event to recover the two names this needs.
     ids = ["01st Joe M - Grixis - NYE", "02nd Joel M - Grixis - NYE"]
-    (snap / "decks.json").write_text(json.dumps([
-        {"deckId": d, "name": d, "deckName": "n", "pilot": d, "event": "NYE",
-         "eventId": "evt_1", "eventType": "Tournament", "placement": i + 1,
-         "placementNorm": i / 2, "eventSize": 2,
-         "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
-         "macro": "macro:control", "engineTags": [], "engineTagLabels": {},
-         "primaryTag": "", "primaryTagWeights": {}}
-        for i, d in enumerate(ids)
-    ]))
-    (snap / "cards_index.json").write_text(json.dumps({
-        "v": 2,
-        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
-                   "manaCost": None, "manaValue": 0.0, "reserved": False,
-                   "points": 0, "pointsCompanion": 0}],
-        "decks": {d: {"m": [0], "s": []} for d in ids},
-    }))
+    _titled_snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
+        (title, title, title, "NYE", rank + 1) for rank, title in enumerate(ids)
+    ])
     monkeypatch.setattr("graph7ph.build.load_curation",
                         functools.partial(load_curation, tmp_path / "pilots.toml"))
 

@@ -293,6 +293,30 @@ def _snapshot_dirs(root: Path) -> list[Path]:
     )
 
 
+def _deck_history(
+    dirs: list[Path], snapshots: list[Snapshot]
+) -> dict[str, frozenset[str]]:
+    """The deck ids known as of each snapshot, by snapshot directory name.
+
+    Cumulative rather than per-snapshot, because the union retains an id a later
+    fetch drops (:func:`union_snapshots`): the question a ``[[hold]]``'s ``as_of``
+    asks is what the corpus held when the reasoning was written, and a deck
+    briefly absent from one fetch was still held then. So a hold does not read a
+    windowed-out deck's return as newly gained evidence (issue #230).
+
+    This is the whole of what the build is told about the snapshot sequence. A
+    hold carries no evidence by design (issue #227), so the deck delta behind its
+    trigger is derived here every build and can never be the stale copy a
+    transcribed count would be.
+    """
+    known: set[str] = set()
+    history: dict[str, frozenset[str]] = {}
+    for path, snapshot in zip(dirs, snapshots):  # oldest -> newest
+        known |= {d.deck_id for d in snapshot.decks}
+        history[path.name] = frozenset(known)
+    return history
+
+
 def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCounts]:
     """Build the live graph from every snapshot, gated and atomically promoted.
 
@@ -306,7 +330,8 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     retaining the previous bundle as a self-consistent backup for rollback.
     """
     artifact = Path(artifact)
-    snapshots = [load_checked(d) for d in _snapshot_dirs(snapshots_root)]
+    dirs = _snapshot_dirs(snapshots_root)
+    snapshots = [load_checked(d) for d in dirs]
     if not snapshots:
         raise SchemaError(f"no snapshots in {Path(snapshots_root)}/")
 
@@ -319,7 +344,9 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     # reports, and the database staying a file inside the bundle keeps it that way.
     incoming = artifact.with_name(artifact.name + ".incoming")
     remove_artifact(incoming)
-    counts = build_graph(result.snapshot, incoming)  # writes reconciliation_path(incoming)
+    counts = build_graph(  # writes reconciliation_path(incoming)
+        result.snapshot, incoming, snapshot_decks=_deck_history(dirs, snapshots)
+    )
     ingest_report_path(incoming).write_text(json.dumps(asdict(result.report), indent=2))
 
     backup = artifact.with_name(artifact.name + ".backup")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import TwoWinners, YearStraddle, reconciliation_path
-from graph7ph.curation import CurationError
+from graph7ph.curation import CURATION_PATH, CurationError
 from graph7ph.db import (
     NotABundle,
     UnopenableGraph,
@@ -20,6 +20,7 @@ from graph7ph.db import (
 )
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
+from graph7ph.pilots import SETTLING_TRIGGERS
 from graph7ph.provenance import staleness
 
 # Build outputs live under data/, not the repo root: the graph and its sidecar
@@ -105,6 +106,26 @@ def _build(args: argparse.Namespace) -> None:
     # means "open this many questions".
     print(f"  pilot identity: {held} held, {candidates} unexamined, "
           f"{curated} already curated")
+    # A hold the data has settled is an available decision sitting unmade, not a
+    # notice, so it gets the same banner a flagged record does rather than a line
+    # a scrolling build log buries (issue #230). A hold whose evidence merely
+    # moved decides nothing and is counted instead.
+    fired = recon.get("fired_holds", [])
+    settled = [f for f in fired if f["trigger"] in SETTLING_TRIGGERS]
+    moved = len(fired) - len(settled)
+    if settled:
+        bar = "!" * 74
+        print(f"  {bar}\n"
+              f"  !! DECISION AVAILABLE: {len(settled)} hold(s) settled by the "
+              f"data.\n"
+              f"  !! Decide each and retire its [[hold]] from "
+              f"{CURATION_PATH}:")
+        for f in settled:
+            print(f"  !!   {' + '.join(f['pilots'])}: {f['detail']}")
+        print(f"  {bar}")
+    if moved:
+        print(f"  {moved} hold(s) whose evidence moved since they were written "
+              "(re-read them in the report)")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
     # The promotion renamed the directory an already-running app opened, and its
     # catalogues were read at startup, so it will serve the old graph in silence.
