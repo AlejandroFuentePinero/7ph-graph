@@ -73,10 +73,12 @@ class Hold:
     reads it; the two fields here are what a later pass needs mechanically.
 
     ``settles_on`` names the evidence that would decide the pair (a shared event,
-    a fresh deck, a corroborating name). It is carried, not evaluated: firing on
-    it is issue #230. ``as_of`` is the snapshot the reasoning was written
-    against, so a later pass can tell "still unsettled" from "not looked at since
-    two ingestions ago".
+    a fresh deck, a corroborating name). It is carried into the report and never
+    consulted: the build evaluates every trigger against every hold, because the
+    evidence arriving is a fact about the data rather than about what a human
+    guessed would settle the pair (issue #230, ADR 0005). ``as_of`` is the
+    snapshot the reasoning was written against, and is what the deck-delta
+    trigger measures "since" from.
     """
 
     settles_on: str
@@ -94,7 +96,7 @@ class DeadEntry:
     """
 
     kind: DeadKind
-    key: str  # the pilot id or deck id absent from the snapshot
+    key: str  # the pilot id, deck id or snapshot stamp the build does not hold
     detail: str  # what the dead entry was trying to do
 
 
@@ -198,9 +200,12 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
 
 
 def dead_entries(
-    curation: Curation, pilot_ids: set[str], deck_ids: set[str]
+    curation: Curation,
+    pilot_ids: set[str],
+    deck_ids: set[str],
+    snapshot_stamps: set[str] | None = None,
 ) -> list[DeadEntry]:
-    """Recorded decisions that key on an id or deck absent from the snapshot.
+    """Recorded decisions that key on an id, deck or snapshot the build lacks.
 
     ``pilot_ids`` is every id resolution can key on: the raw upstream pilot ids
     *and* the canonical bucket ids they merge into, so a name pinned on a live
@@ -209,6 +214,17 @@ def dead_entries(
     ``deck_ids`` are post-dedup, so an override stranded on a deduped-away deck
     is caught too. Nothing here raises, since one stale entry among many must
     never break a rebuild. The result is sorted so the report diffs cleanly.
+
+    ``snapshot_stamps`` are the snapshot directories this build actually read, and
+    grade a ``[[hold]]``'s ``as_of``. Load time cannot ask that question: the
+    stamps differ in every clone and CI holds none, so ``load_curation`` grades
+    the shape alone and the real check waits for the build that has an ingested
+    set to grade against (issue #230). It lands here rather than as a fault of its
+    own because it is the same defect as an absent id -- an entry dated against a
+    corpus nobody can reproduce, which no reader can now re-derive the reasoning
+    over -- and it carries the same remedy of retiring or refreshing the entry.
+    Omitted (``None``) where a caller has no snapshot set, which grades nothing
+    rather than calling every ``as_of`` stale.
     """
     dead: list[DeadEntry] = []
     for member, canon in curation.merges.items():
@@ -237,6 +253,19 @@ def dead_entries(
                 hold_partners.setdefault(pid, set()).update(pair - {pid})
     for pid, partners in hold_partners.items():
         dead.append(DeadEntry("hold", pid, f"held against {sorted(partners)}"))
+    # One row per absent stamp, not per pair: a hold of three or more ids expands
+    # to all of its pairs (:func:`_holds`), which would otherwise put the one
+    # stamp in the report three times over.
+    stale: dict[str, set[str]] = {}
+    for pair, hold in curation.holds.items():
+        if snapshot_stamps is not None and hold.as_of not in snapshot_stamps:
+            stale.setdefault(hold.as_of, set()).update(pair)
+    for as_of, ids in stale.items():
+        dead.append(DeadEntry(
+            "hold", as_of,
+            f"dates the reasoning on {sorted(ids)} against a snapshot this "
+            f"build did not read",
+        ))
     for pilot, display in curation.names.items():
         if pilot not in pilot_ids:
             dead.append(DeadEntry("name", pilot, f"pins {display!r}"))

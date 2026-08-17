@@ -460,6 +460,32 @@ def test_dead_entries_flags_every_absent_keyed_entry():
                    for _, key in flagged)
 
 
+def test_a_hold_dated_against_a_snapshot_no_build_read_is_reported():
+    # `as_of` is graded on shape at load time, because `snapshots/` is gitignored
+    # and every clone holds different stamps (issue #228). Whether it names a
+    # snapshot a build actually read is the real question, and it is answerable
+    # only where the ingested set exists (issue #230). Reported and never fatal:
+    # a pruned or re-fetched snapshot must not turn a valid hold into a build
+    # abort, and a hold is the one kind that applies nothing to the graph.
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"liveB", "liveC"}):
+               Hold("shared_event", "20260815T140746Z")},
+    )
+    ids = {"liveB", "liveC"}
+
+    # The build read the snapshot the reasoning was written against.
+    assert dead_entries(curation, ids, set(),
+                        {"20260713T232944Z", "20260815T140746Z"}) == []
+
+    # It did not: the entry dates itself against a corpus nobody can reproduce,
+    # so the stamp is what the report names.
+    pruned = dead_entries(curation, ids, set(), {"20260713T232944Z"})
+
+    assert [(d.kind, d.key) for d in pruned] == [("hold", "20260815T140746Z")]
+    assert "liveB" in pruned[0].detail and "liveC" in pruned[0].detail
+
+
 def test_dead_entries_empty_when_all_ids_present():
     cur = _mixed_curation()
     pilot_ids = {"canon", "deadMember", "liveMember", "deadA", "deadS", "deadH",

@@ -710,6 +710,52 @@ def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
         if k not in {"under_merges", "held_merges"}}
 
 
+def test_a_fired_trigger_changes_the_report_and_leaves_the_graph_alone(tmp_path):
+    # A trigger is evaluation, never application (issue #230). Firing says the
+    # evidence to decide the pair has arrived, and the decision is still a
+    # human's, recorded as an edit to the dictionary; nothing about who these two
+    # ids are may move on the strength of the build noticing. Graded the way the
+    # inert hold above is: the same snapshot built with the hold and without,
+    # compared on the identity the graph actually holds.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
+              pilot="NimbleBlackEagle", name="01st Joe M - Grixis - E1"),
+        _deck("d2", "E1", "2026-01-01T00:00:00+00:00", placement=2,
+              pilot="FrostyBlueOtter", name="02nd Joel M - Walks - E1"),
+    ])
+    snapshot = load_snapshot(tmp_path)
+    held = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
+               Hold("shared_event", "20260815T140746Z")},
+    )
+
+    def identity(db_path, curation):
+        counts = build_graph(snapshot, db_path, curation)
+        conn = open_for_reading(db_path)
+        return counts, sorted(rows(conn.execute(
+            """MATCH (d:Deck)-[:PILOTED_BY]->(p:Pilot)
+               RETURN d.deckId, p.pilot, p.displayName"""))), json.loads(
+            reconciliation_path(db_path).read_text())
+
+    with_hold, held_ids, held_report = identity(tmp_path / "held", held)
+    without, plain_ids, plain_report = identity(tmp_path / "plain", Curation.empty())
+
+    # The pair is settled by the shared event, and named with what settled it.
+    fired = held_report["fired_holds"]
+    assert [f["trigger"] for f in fired] == ["shared_event"]
+    assert sorted(fired[0]["decks"]) == ["d1", "d2"]
+    assert "E1" in fired[0]["detail"]
+    # And the graph is the one the same snapshot builds with no hold on file.
+    assert with_hold == without
+    assert held_ids == plain_ids
+    assert plain_report["fired_holds"] == []
+    assert {k: v for k, v in held_report.items()
+            if k not in {"under_merges", "held_merges", "fired_holds"}} == {
+        k: v for k, v in plain_report.items()
+        if k not in {"under_merges", "held_merges", "fired_holds"}}
+
+
 def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):
     # The source stranded one deck at a malformed event (a stringified NaN with
     # no event id), which minted a phantom Event holding it alone and left the

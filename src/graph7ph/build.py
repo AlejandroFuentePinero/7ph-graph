@@ -162,7 +162,10 @@ def reconciliation_path(artifact: Path) -> Path:
 
 
 def build_graph(
-    snapshot: Snapshot, artifact: Path, curation: Curation | None = None
+    snapshot: Snapshot,
+    artifact: Path,
+    curation: Curation | None = None,
+    snapshot_decks: dict[str, frozenset[str]] | None = None,
 ) -> BuildCounts:
     """Build a fresh artifact bundle at ``artifact`` and return its counts.
 
@@ -173,6 +176,12 @@ def build_graph(
     (issue #9); a reconciliation report is written beside the database at
     :func:`reconciliation_path` (ADR 0004). Duplicate registrations the resolution
     drops are excluded from the graph entirely.
+
+    ``snapshot_decks`` is what each snapshot this build read held, cumulatively,
+    which is what a ``[[hold]]``'s ``as_of`` is graded against (issue #230). Only
+    :func:`ingest.ingest` can supply it, the snapshot sequence being its own; a
+    caller handing this function one already-unioned snapshot passes none, and
+    the deck-delta trigger is simply not evaluated.
 
     Everything that can reject the data runs before the bundle is touched, so a
     build that aborts (a year straddle, a bad curation dictionary) leaves no
@@ -186,7 +195,9 @@ def build_graph(
     from_disk = curation is None
     curation = curation if curation is not None else load_curation()
     snapshot = _apply_deck_events(_apply_deck_archetypes(snapshot, curation), curation)
-    pilots = resolve_pilots(snapshot.decks, curation, _decklists(snapshot.containments))
+    pilots = resolve_pilots(
+        snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
+    )
     # Deliberately above the duplicate drop, so the straddle guard reads the
     # population the source gave rather than the one de-duplication left. The
     # survivor rule never consults a date (it tie-breaks on placement, then deck
