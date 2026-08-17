@@ -1060,6 +1060,13 @@ def _fired_holds(
     surnames are there because a ``[[merge]]`` folded them together, firing
     refutes that merge.
 
+    Both decisive triggers carry a caveat where their shared premise bends: an id
+    the source itself entered at one event twice is one the "two entries are two
+    people" reading is weaker for (:func:`_repeat_entrants`). The trigger still
+    fires, because the evidence has still arrived and suppressing it would park a
+    hold nothing else reports; what changes is that the detail says so, at the
+    line a maintainer decides on.
+
     ``new_decks`` is the softer trigger, and fires where either id has gained a
     deck since the snapshot the hold's ``as_of`` names. Nothing is settled, but
     the evidence the reasoning was written against has moved, so the pair is up
@@ -1090,6 +1097,16 @@ def _fired_holds(
         ).append(deck.deck_id)
     joined_as = {pid: join for join in joined for pid in join.merged}
     name_of = {deck.deck_id: _display_name(deck) for deck in decks}
+    raw_of = {deck.deck_id: deck.pilot for deck in decks}
+    repeat_entrants = _repeat_entrants(decks)
+
+    def caveat(deck_ids: list[str]) -> str:
+        """The ", but" a decisive trigger owes when its own premise bends here."""
+        breaks = sorted({raw_of[deck] for deck in deck_ids} & repeat_entrants)
+        if not breaks:
+            return ""
+        return (f" (weak: upstream has {', '.join(breaks)} entering one event "
+                f"more than once elsewhere, so two entries need not be two people)")
 
     fired: list[FiredHold] = []
     for ids, hold in sorted(curation.holds.items(), key=lambda kv: sorted(kv[0])):
@@ -1107,12 +1124,13 @@ def _fired_holds(
         if len(nodes) == 1:
             if collision := _name_collision(events_of.get(nodes[0], {}), name_of):
                 event, at_event = collision
+                at = sorted(deck for deck, _ in at_event)
                 fired.append(FiredHold(
                     **common, trigger="event_split",
                     detail=f"registered at {event} under " + ", ".join(
                         f"{name!r} with {deck}" for deck, name in at_event
-                    ),
-                    decks=sorted(deck for deck, _ in at_event),
+                    ) + caveat(at),
+                    decks=at,
                 ))
                 continue
         elif nodes[0] == nodes[1]:
@@ -1129,6 +1147,10 @@ def _fired_holds(
             # under it share a hole in the data and not a registration.
             at = [set(events_of.get(node, ())) - {"nan"} for node in nodes]
             if shared := sorted(at[0] & at[1]):
+                together = sorted(
+                    d for event in shared for node in nodes
+                    for d in events_of[node][event]
+                )
                 fired.append(FiredHold(
                     **common, trigger="shared_event",
                     detail="both registered at " + "; ".join(
@@ -1137,11 +1159,8 @@ def _fired_holds(
                             for pid, node in zip(pilots, nodes)
                         )
                         for event in shared
-                    ),
-                    decks=sorted(
-                        d for event in shared for node in nodes
-                        for d in events_of[node][event]
-                    ),
+                    ) + caveat(together),
+                    decks=together,
                 ))
                 continue
         known = (snapshot_decks or {}).get(hold.as_of)
@@ -1165,6 +1184,35 @@ def _fired_holds(
             decks=sorted(d for gained_by in gained.values() for d in gained_by),
         ))
     return fired
+
+
+def _repeat_entrants(decks) -> set[str]:
+    """Upstream ids the source itself registered at one event more than once.
+
+    Both decisive triggers rest on one entry per pilot per event, and the corpus
+    keeps that 4571 times in 4634 and breaks it 63, concentrated at the large
+    multi-flight events (5% of the ids at NHC26, 4% at NHC24 and NHC25, against
+    1% at ETEAE). So it is a regularity and not the hard fact ADR 0005 called it,
+    and where the ids under a fired trigger are ones that break it, "two entries
+    are two people" is the weaker reading of the same evidence. That is carried
+    into the fired hold's own detail rather than left for a reader to know,
+    because the detail is where the decision gets made (issue #227).
+
+    Read off the *raw* upstream id, never the pilot an id resolves to: a
+    ``[[merge]]`` folding two ids together manufactures exactly this pattern, and
+    what makes it evidence is that the source recorded it before this project
+    joined anything. The ``"nan"`` sentinel is a hole where the event should be,
+    so two decks under it are not one id entering one event twice.
+    """
+    seen: set[tuple[str, str]] = set()
+    repeat: set[str] = set()
+    for deck in decks:
+        if deck.event == "nan":
+            continue
+        if (deck.pilot, deck.event) in seen:
+            repeat.add(deck.pilot)
+        seen.add((deck.pilot, deck.event))
+    return repeat
 
 
 def _name_collision(
