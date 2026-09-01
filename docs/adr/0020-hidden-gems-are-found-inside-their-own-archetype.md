@@ -21,6 +21,12 @@ for each archetype with >= MIN_GEM_SLICE ranked decks:
 | `GEM_TOP_CUT` | the best 20% | Which of its decks count as the good ones? |
 | `MAX_GEM_LUCK` | 0.010 | How often would chance alone do this? |
 
+> **The winning cell moved with the corpus (ADR 0026, 2026-09-01).** On the 2026-09-01
+> corpus the cell in this table reads more than half its list expected by luck and
+> fails the qualification rule fixed below, so the constants were re-picked by the same
+> sweep. `query.py` holds the live values and ADR 0026 records the move; the values and
+> tables here record the corpus they measured.
+
 An archetype is a deck's **primary** tag and nothing else. `CONTEXT.md` fixes that rule
 for aggregates ("counting every tag sums to roughly 160 percent of decks") and it binds
 harder here than anywhere, because the archetype is now the unit every one of the four

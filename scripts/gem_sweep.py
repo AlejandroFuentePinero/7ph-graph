@@ -11,10 +11,10 @@ Every cell is scored on ``found - luck``: how many cards clear the bar, less how
 of them the null itself expects to clear it. Maximising the raw count is what a
 threshold always rewards and is the one thing the rule must not do. A cell qualifies
 only if it draws inside ``MAX_GEM_NODES`` and no more than half its list is luck; the
-half is a floor on being a finding at all, not a target. The shipped cell clears it by
-little: charging each card for the pilots behind its decks rather than the decks
-(``query.PILOT_ICC``) leaves the winner at 3.3 luck in a list of 7. That is the honest
-size of this finding on this corpus, and no cell in the grid does better.
+half is a floor on being a finding at all, not a target. The shipped cell (ADR 0026)
+reads 2.0 luck in a list of 5 on the 2026-09-01 corpus, charging each card for the
+pilots behind its decks rather than the decks (``query.PILOT_ICC``). That is the
+honest size of this finding on this corpus, and no cell in the grid does better.
 
 The null is imported rather than restated, so what is swept is the arithmetic the app
 runs. What is *not* imported is the screen itself: `query` screens at the shipped
@@ -54,17 +54,21 @@ from graph7ph.trends import MAJOR_FIELD_SIZE
 
 # The grid. Three of the four axes bracket the shipped value on both sides, so a cell
 # winning at an edge shows up as an edge and can be widened rather than silently taken.
+# `FLOORS` gained 10 when the 2026-09-01 sweep moved the floor to its then-edge of 8
+# (ADR 0026): the widened axis confirms 8 as a peak rather than a truncation, with 10
+# scoring 2.5 genuine against 8's 3.0 on that corpus.
 #
-# `SHARES` is the exception, and deliberately: 0.15 is the top of the axis *and* the
-# shipped value, because it is a definition rather than a measurement. Widening it wins
-# on this script's own score every time (0.20 scores 5.9 genuine against 0.15's 3.7,
-# and 0.30 scores 8.6, with no sign of a peak), and the premise refuses it: a card in
-# 30% of an archetype's decks is a staple, not hidden tech, so a ceiling chosen by the
-# score would be answering a different question (ADR 0020). Read a high-share cell as
-# out of scope rather than as a finding this grid missed.
+# `SHARES` is the exception, and deliberately: 0.15 is the top of the axis even though
+# 0.10 now ships (ADR 0026), because the top is a definition rather than a measurement.
+# Widening past it wins on this script's own score every time (at the original sweep,
+# 0.20 scored 5.9 genuine against 0.15's 3.7, and 0.30 scored 8.6, with no sign of a
+# peak), and the premise refuses it: a card in 30% of an archetype's decks is a staple,
+# not hidden tech, so a ceiling chosen by the score would be answering a different
+# question (ADR 0020). Read a high-share cell as out of scope rather than as a finding
+# this grid missed.
 TOP_CUTS = (0.10, 0.20, 0.25, 0.33)
 SHARES = (0.05, 0.10, 0.15)
-FLOORS = (5, 6, 8)
+FLOORS = (5, 6, 8, 10)
 LUCKS = (0.05, 0.01, 0.005, 0.001)
 
 # A cell whose list is more than this fraction luck is not a finding, whatever its

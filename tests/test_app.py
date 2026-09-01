@@ -653,12 +653,14 @@ def test_the_gem_caption_says_what_the_list_is_and_nothing_else():
         ("lands", "port", 21, 13, 10, 0.0039),
         ("bant", "leyline", 24, 18, 3, 0.00001),
         ("jeskai", "noon", 29, 17, 15, 0.0023),
-        luck=8.45,
+        luck=9.45,
     ))
 
+    # The luck value is planted with digits the caption's own numbers (the count, the
+    # cut, MIN_GEM_SLICE) cannot produce, so "9" catches it under any rendering.
     assert "3 gems" in caption
     assert f"best {GEM_TOP_CUT:.0%}" in caption
-    assert "chance" not in caption and "8" not in caption
+    assert "chance" not in caption and "9" not in caption
 
 def test_band_over_a_non_crossing_segment_is_one_trapezoid_tinted_by_the_upper_line():
     # a stays above b across the segment, so a single polygon carries a_above True.
