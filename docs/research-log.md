@@ -435,3 +435,27 @@ pass when the next snapshot lands.
   of 25ths). While upstream stays merged, every future fetch will flag those 16 decks and pin
   them at the corrected values; the standing action is to report the merge to 7phstats, not to
   resolve the pin.
+
+## 2026-09-01 - The source ships unenriched card stubs for cards new to it; enrich the snapshot from Scryfall
+
+- The 2026-09-01 fetch aborted the build at schema validation: 69 cards new to the corpus
+  (Hobbit, Marvel, Avatar, FF sets, plus first-ever-played staples like Fog and Evolving
+  Wilds) arrived as stubs, `type: "Other"` with null `manaCost`, `manaValue`, `reserved`
+  and `priceUsd`. 7phstats adds a card row when a deck first plays the card and enriches
+  it later; every one of the 69 was referenced by at least one of the 215 new decks, so
+  nothing could be dropped.
+- Repaired at the source per the ADR 0025 standing practice: the 69 rows in the
+  snapshot's `cards_index.json` were filled from Scryfall (`/cards/collection`, exact
+  name match, all 69 resolved, none reserved), transcribing the index's own conventions,
+  cross-face type precedence Creature > Land > single type, split costs joined with
+  " // ", `cmc` as Scryfall computes it, lands' empty cost as null. Only the 69 stub rows
+  changed; `points`, `pointsCompanion`, canon and the decks map are untouched.
+- Why it matters: `ingest()` re-validates every snapshot on every build, so an
+  unenriched stub anywhere in `snapshots/` blocks all future builds, not just this
+  round's. Expect the same abort on any fetch that lands soon after an event introduces
+  new cards, and repair it the same way. If upstream's own enrichment later restates one
+  of these cards, the card hash flags it for review, which is the correct outcome.
+
+[handoff] Snapshots are gitignored, so this repair exists only on this machine (issue
+#205's known limit). A re-fetch on another machine before upstream enriches will need
+the same Scryfall pass.
