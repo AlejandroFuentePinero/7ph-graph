@@ -86,6 +86,14 @@ display_name = "Alejandro D"
 pilot = "FlyingMagentaLynx"
 display_name = "Wan Chin L"
 
+[[name]]
+# The Ezra merge below (JumpingGreenGecko + ShadowSilverHawk) records him as
+# 'Ezra M', but only the ShadowSilverHawk deck carries the surname; the 2026-09
+# FSNS deck made the bare-titled decks the 2-1 majority. Pinned so the surname
+# survives the vote (maintainer, 2026-09-01).
+pilot = "ShadowSilverHawk"
+display_name = "Ezra M"
+
 # --- Wave 3, pass 1: obvious duplicate joins (issue #9) ---
 # Accepted automatically only where the evidence is unambiguous: pure
 # punctuation variants, or deck overlap >= 0.90 on a shared archetype at
