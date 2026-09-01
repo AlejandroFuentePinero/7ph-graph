@@ -50,6 +50,25 @@ file it as the round's review. The title is the brief's own first line, which
 names the snapshot the body reports on, so the issue cannot be titled after a
 different one than it describes.
 
+A round is not done when the identity queue empties. Two more things read the
+corpus and go stale silently:
+
+- **The FAQ's own figures.** Several answers in `app.py` quote the corpus (the
+  pilot totals and paired names, the settled fields, the leaderboard size, the
+  drawable-pair and bounded-meeting counts, the Golgari example, the gem luck
+  share). Only the pilot-identity pair is test-graded; the rest are prose.
+  Re-derive every one from the freshly promoted bundle, never adjust by eye:
+  each figure came from a measurement (ADR 0024's counting for the pair
+  figures, `trends`' own functions for the rest), and the 2026-09-01 round
+  found four of them stale after a routine refresh missed them.
+- **The measured constants.** `scripts/gem_sweep.py` says it itself: re-run it
+  whenever the artifact grows, because the winning cell is a property of the
+  corpus and has moved before. A shipped cell that stops qualifying is a
+  maintainer decision (ADR 0020), not a silent edit. ADR 0024's sign-test
+  premise is also corpus-bound: a second partially published event that clears
+  `MIN_FIELD_COVERAGE` reopens it, so check `_tail_bounds` still names one
+  event.
+
 Restart any `graph7ph app` that was already running: it keeps serving the old
 data, silently. Promotion renames the live directory, so the running app's open
 files still point at the previous artifact, and the dropdown catalogues are read
