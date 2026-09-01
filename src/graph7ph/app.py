@@ -351,8 +351,8 @@ def _gem_caption(subgraph: Subgraph) -> str:
 
     The last of those is the archetypes the rule could ask at all. Below
     :data:`MIN_GEM_SLICE` ranked decks the band is empty by construction, so those
-    archetypes are skipped in the query rather than answered for, and today that is 84
-    of the format's 124. Without the clause a reader whose archetype is absent reads
+    archetypes are skipped in the query rather than answered for, and today that is 111
+    of the format's 127. Without the clause a reader whose archetype is absent reads
     "no gems here" off a page that means "not enough decks to tell", which is the
     distinction ADR 0012 raised `SliceTooSmall` for and ADR 0020 dropped along with the
     dropdown. Dropping the refusal removed the user to refuse, not the reason.
@@ -1103,9 +1103,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Cards",
         "Does it matter which board a card is in?",
         "Not to the rule. A deck counts once whether the card sat in Main, in Side, or "
-        'in both, so "Decks running it" is not a count of Main play alone. Some of the '
-        "cards on the list today appear only in Side: they are cards the archetype's "
-        "best decks bring alongside, and by this measure that is worth what playing one "
+        'in both, so "Decks running it" is not a count of Main play alone. One card '
+        "on the list today appears only in Side: a card the archetype's best decks "
+        "bring alongside, and by this measure that is worth what playing one "
         "in Main is worth.\n\n"
         "It is worth knowing which before acting on a gem, since a card the best decks "
         "bring to a matchup is different advice from one they play every game. The link "
@@ -1119,8 +1119,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "alone would produce its crowding no more than one time in a hundred (see the "
         "hidden gem question above). But every rare card of every archetype is put to "
         "that test, which is more than a thousand chances for a coincidence, so even a "
-        f"bar of {MAX_GEM_LUCK:.0%} lets some cards through on luck alone: likely more "
-        "than half the list, and nothing says which ones. The list cannot be checked "
+        f"bar of {MAX_GEM_LUCK:.0%} lets some cards through on luck alone: about two "
+        "of the five on the list today, and nothing says which ones. The list cannot be checked "
         "against later results either: a gem that works stops being rare, so a card "
         "still looking like a gem a year on is a card nobody acted on.\n\n"
         "The odds are discounted for the pilots behind a card rather than counted per "
@@ -1149,7 +1149,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Cards",
         "Why can I not filter the hidden gems?",
         "Because there is nothing left to narrow. The rule is strict enough that the "
-        "whole format produces well under a dozen gems across a handful of "
+        "whole format produces well under a dozen gems across a couple of "
         "archetypes, which fits in one picture, so the tab draws all of them at once. "
         "It recalculates as decks are added, and if it ever finds more gems than the "
         "picture can hold, it draws the ones least likely to be luck and the caption "
