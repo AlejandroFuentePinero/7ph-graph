@@ -2099,11 +2099,6 @@ ids = ["LunarJadeRaven", "LunarMaroonRaven"]
 canonical = "LunarJadeRaven"
 
 [[merge]]
-# Elliot L = Elliott L C (spelling variant + initial, 0.59 Jeskai Breach, disjoint)
-ids = ["HiddenMaroonRaven", "SolarMaroonFalcon"]
-canonical = "SolarMaroonFalcon"
-
-[[merge]]
 # Christopher KH = Chris KH (Chris/Christopher of the double-barrel KH surname)
 ids = ["SolarJadeHeron", "AmberBronzeViper"]
 canonical = "SolarJadeHeron"
@@ -2233,11 +2228,14 @@ ids = ["SwiftPurpleWhale", "SolarAmberEagle"]
 canonical = "SwiftPurpleWhale"
 
 [[merge]]
-# Elliott L = Elliot L (spelling variant, same surname initial). Elliott L's lone
-# UR Prowess is off-archetype vs Elliot L's Breach/Lands but a single deck;
-# timelines sequential, no same-day conflict.
-ids = ["SolarMaroonFalcon", "LuckyIndigoWolf"]
-canonical = "SolarMaroonFalcon"
+# Elliot L (HiddenMaroonRaven) = Elliott LC (SilentCyanViper). Upstream folded the
+# Elliott L / Elliott L C spellings into one 'Elliott LC' id on 2026-09-12 and moved
+# the Elliot L Jeskai Breach GGWARL deck in with them, which is the 0.59 Breach
+# overlap the earlier Elliot L = Elliott L C merge rested on. What upstream left
+# under Elliot L is the lone 8pt Abzan Lands PoGWAD deck; this carries the standing
+# decision that the two spellings of the first name are one person over to the new id.
+ids = ["HiddenMaroonRaven", "SilentCyanViper"]
+canonical = "SilentCyanViper"
 
 [[merge]]
 # Elliott R = Elliot R (spelling variant, same surname initial). Same DNAWAD
@@ -2713,12 +2711,13 @@ settles_on = "event_split"
 as_of = "20260815T140746Z"
 
 [[hold]]
-# Elliott L ? Elliot L ? Elliott L C. Two merges above, the spelling variant and
-# the trailing initial (WAC 2025-07-24, 0.59 on Jeskai Breach). That trailing "C"
-# is the second family; the two spellings of the first name are one.
-ids = ["SolarMaroonFalcon"]
+# Elliot L ? Elliott LC. Upstream now carries the trailing initial itself (the
+# 2026-09-12 fold into SilentCyanViper, five decks including the SSB Time Vault);
+# what the merge above still infers is that the Elliot L Abzan Lands PoGWAD deck
+# belongs to the same person, on the first-name spelling alone.
+ids = ["SilentCyanViper"]
 settles_on = "event_split"
-as_of = "20260815T140746Z"
+as_of = "20260912T113000Z"
 
 [[hold]]
 # Eddie L ? Eddie LM ? Eddie L M. Six decks, merged above on the narrow artifact
