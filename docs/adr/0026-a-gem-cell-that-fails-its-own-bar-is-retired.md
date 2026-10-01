@@ -1,5 +1,10 @@
 # A gem cell that fails its own bar is retired, and the sweep names its successor
 
+> **The cell moved again (ADR 0027, 2026-10-01).** On the 2026-10-01 corpus the
+> 0.10/8 cell this ADR shipped reads 2.1 luck in a list of 4 and fails the same rule,
+> so the same sweep re-picked it: the ceiling is 0.05 now. `query.py` holds the live
+> values; the tables here record the corpus they measured.
+
 ADR 0020 made the four gem constants a measurement of the corpus and told the
 maintainer to re-run `scripts/gem_sweep.py` whenever the artifact grows, because the
 winning cell is a property of the corpus rather than of the rule. The 2026-09-01
