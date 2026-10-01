@@ -36,9 +36,10 @@ Kind = Literal[
 # convolution of hypergeometric tails, so a cell that wins by a tenth of a find
 # wins by a tenth of a find. The winning cell is a property of the corpus and has
 # moved with it: the 2026-09-01 re-sweep retired the original 0.15/5 cell, which
-# had drifted to more than half its list expected by luck, for this one (ADR 0026).
+# had drifted to more than half its list expected by luck, for 0.10/8 (ADR 0026),
+# and the 2026-10-01 re-sweep retired that one the same way for this one (ADR 0027).
 MIN_GEM_DECKS = 8  # trust floor: an absolute count, so it holds at any slice size
-MAX_GEM_SHARE = 0.10  # rarity ceiling: a share, so it means the same in any slice
+MAX_GEM_SHARE = 0.05  # rarity ceiling: a share, so it means the same in any slice
 GEM_TOP_CUT = 0.20  # the archetype's own best fifth, the cut a gem must crowd
 MAX_GEM_LUCK = 0.010  # how often chance alone may explain that crowding
 
@@ -66,8 +67,8 @@ _NORMAL = statistics.NormalDist()
 
 # The two bounds cross here: below this many ranked decks the ceiling falls under
 # the floor and the rule is empty by construction, because "rare" and "attested
-# by 8 decks" are contradictory in a small slice (8 decks IS a tenth of an
-# 80-deck archetype). That is not a bug to paper over: the slice genuinely cannot
+# by 8 decks" are contradictory in a small slice (8 decks IS a twentieth of a
+# 160-deck archetype). That is not a bug to paper over: the slice genuinely cannot
 # support a gem claim, so it is skipped rather than lowering the floor and
 # reporting noise. Rounded UP, never to nearest: the smallest slice admitted must
 # satisfy `MIN_GEM_DECKS <= MAX_GEM_SHARE * MIN_GEM_SLICE`, and rounding down
@@ -1042,7 +1043,7 @@ def _fit_to_budget(found: list[_Gem]) -> list[_Gem]:
     This is the only cap on the picture now, and it cuts whole gems rather than the
     decks behind one, which is the trade worth naming: a shorter list of fully evidenced
     findings beats a longer list whose deck layer is a sample the reader cannot see the
-    edge of. It does not bind today, at 32 nodes against 250.
+    edge of. It does not bind today, at 20 nodes against 250.
     """
     kept: list[_Gem] = []
     archetypes: set[str] = set()
