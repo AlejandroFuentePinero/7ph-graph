@@ -2228,14 +2228,16 @@ ids = ["SwiftPurpleWhale", "SolarAmberEagle"]
 canonical = "SwiftPurpleWhale"
 
 [[merge]]
-# Elliot L (HiddenMaroonRaven) = Elliott LC (SilentCyanViper). Upstream folded the
+# Elliot L (HiddenMaroonRaven) = Elliott LC (SilentCrimsonWolf). Upstream folded the
 # Elliott L / Elliott L C spellings into one 'Elliott LC' id on 2026-09-12 and moved
 # the Elliot L Jeskai Breach GGWARL deck in with them, which is the 0.59 Breach
 # overlap the earlier Elliot L = Elliott L C merge rested on. What upstream left
 # under Elliot L is the lone 8pt Abzan Lands PoGWAD deck; this carries the standing
 # decision that the two spellings of the first name are one person over to the new id.
-ids = ["HiddenMaroonRaven", "SilentCyanViper"]
-canonical = "SilentCyanViper"
+# On 2026-10-01 upstream re-keyed that id again, SilentCyanViper -> SilentCrimsonWolf,
+# with the same five decks under it; the decision follows the id.
+ids = ["HiddenMaroonRaven", "SilentCrimsonWolf"]
+canonical = "SilentCrimsonWolf"
 
 [[merge]]
 # Elliott R = Elliot R (spelling variant, same surname initial). Same DNAWAD
@@ -2712,10 +2714,11 @@ as_of = "20260815T140746Z"
 
 [[hold]]
 # Elliot L ? Elliott LC. Upstream now carries the trailing initial itself (the
-# 2026-09-12 fold into SilentCyanViper, five decks including the SSB Time Vault);
-# what the merge above still infers is that the Elliot L Abzan Lands PoGWAD deck
-# belongs to the same person, on the first-name spelling alone.
-ids = ["SilentCyanViper"]
+# 2026-09-12 fold into SilentCyanViper, five decks including the SSB Time Vault,
+# re-keyed upstream to SilentCrimsonWolf on 2026-10-01); what the merge above still
+# infers is that the Elliot L Abzan Lands PoGWAD deck belongs to the same person, on
+# the first-name spelling alone.
+ids = ["SilentCrimsonWolf"]
 settles_on = "event_split"
 as_of = "20260912T113000Z"
 
