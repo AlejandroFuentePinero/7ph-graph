@@ -1306,6 +1306,11 @@ def test_an_event_a_refile_builds_carries_the_refile_rule_on_its_field_and_norms
         "MATCH (d:Deck) RETURN d.deckId, d.placementNorm, d.normImputed")))) == [
         ("d1", 0.0, None), ("d2", 2 / 48, "refiled"), ("d3", 3 / 48, "refiled"),
         ("d4", 0.0, "refiled")]
+    # A stated field was never refuted, so the report's list of counted
+    # contradictions holds the event the rules corrected and not the one the
+    # ruling stated (what the hover stars is the Event column above).
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    assert [(f["event"], f["rule"]) for f in report["field_evidence"]] == [("E27", "C")]
 
 
 def test_the_report_carries_the_source_repairs_the_ingest_applied(tmp_path, snapshot_dir):

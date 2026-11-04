@@ -113,6 +113,11 @@ def load_repairs(path: Path = REPAIRS_PATH) -> Repairs:
         raw = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as exc:
         raise RepairError(f"{path} is not valid TOML: {exc}") from exc
+    if unknown := set(raw) - set(KEYS):
+        raise RepairError(
+            f"{path} holds {sorted(unknown)}, which no kind of repair is called; the "
+            f"kinds are {sorted(KEYS)}"
+        )
     repairs = Repairs(
         hold_outs=tuple(
             HoldOut(**_common(entry, path, "hold_out")) for entry in raw.get("hold_out", [])
@@ -185,6 +190,13 @@ def _adopt(entry: dict, path: Path) -> Adopt:
             f"{path}: [[adopt]] states {value!r} for {fact}, which takes a "
             f"{ADOPTABLE[fact][0].__name__}"
         )
+    # TOML reads a datetime without an offset as a local one; the source stamps
+    # every createdAt in UTC, and a naive value cannot be compared with those.
+    if fact == "createdAt" and value.tzinfo is None:
+        raise RepairError(
+            f"{path}: [[adopt]] states {value.isoformat()} for createdAt without an "
+            f"offset; write it as the source does, in UTC (\"...T11:11:05Z\")"
+        )
     return Adopt(**_common(entry, path, "adopt"), fact=fact, value=value)
 
 
@@ -204,9 +216,25 @@ def _refile(entry: dict, path: Path) -> Refile:
     )
 
 
+# The keys each kind of entry may carry. A key outside them is refused rather
+# than ignored: a misspelt `field` would otherwise read as "left out" and hand
+# the event to the build's field rules, and nothing would say the file was
+# never read as written.
+KEYS = {
+    "hold_out": {"decks", "reason", "as_of"},
+    "refile": {"decks", "reason", "as_of", "event", "event_type", "field"},
+    "adopt": {"decks", "reason", "as_of", "fact", "value"},
+}
+
+
 def _common(entry: dict, path: Path, kind: str) -> dict:
     """The three fields every kind carries, as keyword arguments for its dataclass:
     the decks it keys on, why, and the snapshot the ruling was written against."""
+    if unknown := set(entry) - KEYS[kind]:
+        raise RepairError(
+            f"{path}: a [[{kind}]] entry carries {sorted(unknown)}, which it has no use "
+            f"for; its keys are {sorted(KEYS[kind])}"
+        )
     decks, reason, as_of = entry.get("decks"), entry.get("reason"), entry.get("as_of")
     if (not isinstance(decks, list) or not decks or len(set(decks)) != len(decks)
             or not all(isinstance(d, str) and d for d in decks)):
@@ -237,14 +265,12 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, froze
     for entry in repairs.adopts:
         for d in entry.decks:
             adopted.setdefault(d, {})[ADOPTABLE[entry.fact][1]] = entry.value
-    present = {d.deck_id for d in snapshot.decks}
-    matched = (held | refiled.keys() | adopted.keys()) & present
-    if not matched:
-        return snapshot, frozenset()
-    # The event a refile builds must be one the source does not have in this
-    # snapshot: seating the ruling's type and field beside the source's own decks
-    # would leave the event described two ways, and a deck that belongs at an
-    # event the source has is the pilot dictionary's `[[deck_event]]`.
+    # The event a refile builds must be one the source does not have in any
+    # snapshot, this one included even if nothing here is refiled: seating the
+    # ruling's type and field beside the source's own decks would leave the
+    # event described two ways in the union the build reads, and a deck that
+    # belongs at an event the source has is the pilot dictionary's
+    # `[[deck_event]]`.
     built = {entry.event for entry in repairs.refiles}
     for d in snapshot.decks:
         if d.deck_id not in refiled and d.event in built:
@@ -253,6 +279,10 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, froze
                 f"there ({d.deck_id!r}); a deck that belongs at an event the source has is a "
                 f"[[deck_event]] in the pilot dictionary"
             )
+    present = {d.deck_id for d in snapshot.decks}
+    matched = (held | refiled.keys() | adopted.keys()) & present
+    if not matched:
+        return snapshot, frozenset()
     decks = []
     for d in snapshot.decks:
         if d.deck_id in held:
@@ -298,8 +328,11 @@ def repairs_report(repairs: Repairs, applied: dict[str, list[str]]) -> dict:
     Dead means a mistyped or reissued id, not a ruling upstream has overtaken:
     the sequence is append-only and a deck keeps its id across an upstream
     correction, so an entry that was ever live stays live. The snapshots a
-    repair matched are what a maintainer reads for that: a hold-out the newest
-    snapshot no longer matches is a deck upstream removed or refiled itself.
+    repair matched are what a maintainer reads for that, and they answer one
+    question only: a hold-out the newest snapshot no longer matches is a deck
+    upstream removed. A deck upstream refiled or re-keyed itself keeps its id
+    and keeps matching, so whether a ruling is still right is a hand check
+    against the newest snapshot, not something the report can show.
     """
     rows: list[tuple[str, str, str]] = []
     for kind, entries, describe in (
