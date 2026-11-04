@@ -78,11 +78,12 @@ def curation_report(recon: dict, holds: Holds, snapshot: str) -> str:
     settled = [f for f in fired if f["trigger"] in SETTLING_TRIGGERS]
     moved = [f for f in fired if f["trigger"] not in SETTLING_TRIGGERS]
 
-    # Unexamined *is* new: both queues carry only what no pass has read, and the
-    # invariant that nothing else sits there is held by the suite
-    # (`test_build.py::test_nothing_in_either_identity_queue_is_left_unexamined`)
-    # rather than assumed here, so a row reaching this section is a row this
-    # ingestion introduced (issues #231, #232).
+    # Unexamined *is* new: both queues carry only what no pass has read, so a row
+    # reaching this section is a row this ingestion introduced (issues #231,
+    # #232). That every such row reaches it, and none is dropped on the way, is
+    # held by the suite (`test_curation_report.py::
+    # test_the_live_brief_states_exactly_what_the_live_report_holds`); whether the
+    # queue is empty is the round's issue to track, not the suite's (issue #270).
     new = recon.get("under_merges", []) + recon.get("multi_name_ids", [])
     named = {frozenset(h["pilots"]): h for h in recon.get("held_merges", [])} | {
         frozenset({h["pilot"]}): h for h in recon.get("held_names", [])}

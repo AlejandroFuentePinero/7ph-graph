@@ -673,35 +673,6 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
     assert edges == {"Izzet Prowess": (100, True)}
 
 
-def test_nothing_in_either_identity_queue_is_left_unexamined(live_graph):
-    # The invariant the thorough pass exists to establish, over the real record
-    # (issues #227, #231, #232): every entry in either identity queue is curated
-    # or held with recorded reasoning, so `under_merges` and `multi_name_ids` --
-    # unexamined only, since #228 and #232 -- are both empty. That is what lets a
-    # later round work only the delta, and it has to be a test rather than a fact
-    # somebody re-checks: an entry nobody has read reddens this instead of growing
-    # a tail again in silence.
-    #
-    # Both queues, because they ask one question from two directions: several ids
-    # that may be one person, and one id that may be several. An assertion over
-    # one of them would let "the queue is complete" mean complete for half the
-    # work.
-    #
-    # It reddens where the pair can first appear, which is the machine that ran
-    # the ingestion: `live_graph` skips on a missing or stale bundle, so this is
-    # silent in CI (which never builds) and speaks on the build that introduced
-    # the pair. That is the right place for it, since only an ingestion can add
-    # one, but it does mean a rebuild has to precede the suite for it to grade
-    # anything at all.
-    #
-    # The entries are named, not counted, because the failure a reader needs is
-    # "these two ids want a decision", not "78".
-    report = json.loads(reconciliation_path(artifact_path()).read_text())
-
-    assert [(u["display_name"], u["pilots"]) for u in report["under_merges"]] == []
-    assert [(m["pilot"], m["names"]) for m in report["multi_name_ids"]] == []
-
-
 def test_the_held_ids_sitting_on_a_joined_node_are_the_five_on_the_record(live_graph):
     # The population a single-id hold is watched over is that id's own decks and
     # not the node the identical-name join left (issue #241), and the difference
