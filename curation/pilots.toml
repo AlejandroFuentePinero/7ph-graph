@@ -1311,8 +1311,8 @@ ids = ["WanderingIvoryPanda", "BraveBlackWhale"]
 # The 78 candidates still open after the round above, every one of them read and
 # recorded here. From here on `under_merges` means nobody has looked yet, which is
 # what lets a later round work only the delta instead of re-deriving the whole queue;
-# tests/test_build.py::test_every_unexamined_identity_row_is_reported_as_new holds that every
-# such entry reaches the curation brief (issue #270).
+# tests/test_curation_report.py::test_the_live_brief_states_exactly_what_the_live_report_holds
+# holds that every such entry reaches the curation brief (issue #270).
 #
 # One derived fact runs under the whole pass and is why the outcome is holds rather
 # than decisions: NONE of the 78 puts its two ids at one event. The twelve pairs
@@ -2511,8 +2511,8 @@ event = "CBR3"
 # may be one person, this is one id whose decks recovered several surnames and may
 # therefore be several people (issue #39). From here an unexamined entry in either
 # queue means nobody has looked yet, and
-# tests/test_build.py::test_every_unexamined_identity_row_is_reported_as_new holds that each
-# reaches the curation brief, across both (issue #270).
+# tests/test_curation_report.py::test_the_live_brief_states_exactly_what_the_live_report_holds
+# holds that each reaches the curation brief, across both (issue #270).
 #
 # One derived fact runs under the whole pass and decides its shape: 25 of the 28 are
 # the shadow of a [[merge]] recorded above. The scan reads each id AFTER this file is

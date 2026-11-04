@@ -106,15 +106,16 @@ uv run playwright install chromium   # once, for the browser suite below
 ```
 
 Rebuild before running the suite after any ingest, build, schema or curation
-edit. Twelve tests grade the real bundle through the `live_graph` fixture, and it
+edit. Ten tests grade the real bundle through the `live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
-(issue #55), so on a stale bundle they pass green having graded nothing. Among
-them is `test_build.py::test_every_unexamined_identity_row_is_reported_as_new`, the
-invariant that every identity-queue entry nobody has read reaches the curation
-brief under "New this ingestion" (issues #227, #270): it can only grade on the
-machine that ran the ingestion, and only if the suite runs after the rebuild. CI
-never builds, so it always skips there. Whether the queue is empty is not graded;
-the round's issue tracks that.
+(issue #55), so on a stale bundle they pass green having graded nothing. The
+identity-queue invariant, that every entry nobody has read reaches the curation
+brief under "New this ingestion" (issues #227, #270), is held by
+`test_curation_report.py::test_the_live_brief_states_exactly_what_the_live_report_holds`,
+which skips on the same terms: it can only grade on the machine that ran the
+ingestion, and only if the suite runs after the rebuild. CI never builds, so it
+always skips there. Whether the queue is empty is not graded; the round's issue
+tracks that.
 
 `tests/test_graph_desktop.py` measures what the graph document actually paints at
 desktop width, on a real Chromium, and holds the three regressions ADR 0018 names.
