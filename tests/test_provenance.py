@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from graph7ph.baseline import GATE_INPUTS, code_digest
 from graph7ph.build import build_graph
 from graph7ph.curation import Curation
 from graph7ph.models import load_snapshot
@@ -54,7 +55,10 @@ def _first_party_imports(module: Path) -> set[str]:
     # walk cannot see is a module BUILD_INPUTS can silently omit.
     names = set()
     for node in ast.walk(ast.parse(module.read_text())):
-        if isinstance(node, ast.ImportFrom):
+        if isinstance(node, ast.ImportFrom) and node.module == "graph7ph":
+            # `from graph7ph import numfmt`: the module is the imported name.
+            names.update(f"graph7ph.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
             names.add(node.module or "")
         elif isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
@@ -235,3 +239,51 @@ def test_the_digest_moves_with_the_repairs_file(tmp_path):
 
     repairs.write_text("[[hold_out]]\n")
     assert source_digest(package, curation, repairs) != before
+
+
+def test_the_oracles_digest_moves_with_the_harness_the_build_stamp_ignores(tmp_path):
+    # The build stamp may ignore `baseline.py`: nothing in it reaches the bundle.
+    # The oracle may not, because its question is whether the code moved since
+    # its answers were proven, and a change to how the answers are captured moves
+    # them (issue #272). Same hashing, wider list: baseline.py moves it, app.py
+    # does not. (The query layer was the example until issue #264 made it a
+    # build input, the figures file being derived from it.)
+    package, _ = _sources(tmp_path)
+    before = code_digest(package)
+    (package / "app.py").write_text("# app.py, changed\n")
+    assert code_digest(package) == before
+    (package / "baseline.py").write_text("# baseline.py, changed\n")
+    assert code_digest(package) != before
+
+
+def test_a_curation_ruling_does_not_move_the_oracles_digest(tmp_path, monkeypatch):
+    # A round edits the curation files as a matter of course (an adopt for a
+    # flagged fact, the identity merges), after the fetch and before the recapture.
+    # A ruling there is made about the data that just arrived and listed by the
+    # build, so the recapture accepts it on the same terms as the data move; folding
+    # it into the proof would refuse every round at its normal step (ruled on #272).
+    # The build stamp keeps folding it in: a bundle built under old rulings is stale.
+    package, curation = _sources(tmp_path)
+    repairs = tmp_path / "curation" / "repairs.toml"
+    monkeypatch.setattr("graph7ph.provenance.CURATION_PATH", curation)
+    monkeypatch.setattr("graph7ph.provenance.REPAIRS_PATH", repairs)
+    before_code, before_stamp = code_digest(package), source_digest(package, curation, repairs)
+    curation.write_text("[pilots]\n# one more ruling\n")
+    repairs.write_text('[[hold_out]]\nids = ["d1"]\nreason = "r"\nas_of = "s"\n')
+    assert code_digest(package) == before_code
+    assert source_digest(package, curation, repairs) != before_stamp
+
+
+def test_every_module_the_gate_reads_is_an_oracle_input():
+    # Same walk as the build-input test above, from the module the gate runs:
+    # a module joining the query path and missing from GATE_INPUTS would let a
+    # forced recapture read a code change as a data move.
+    reached, pending = set(), ["baseline.py"]
+    while pending:
+        name = pending.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        pending.extend(_first_party_imports(PACKAGE_DIR / name))
+
+    assert (reached - {"provenance.py"}) | set(BUILD_INPUTS) == set(GATE_INPUTS)

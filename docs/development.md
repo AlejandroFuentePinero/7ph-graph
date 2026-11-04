@@ -177,27 +177,38 @@ the oracle the Ladybug migration is graded against (issue #45):
 
 ```sh
 uv run graph7ph baseline                    # grade the built graph, non-zero on any difference
-uv run graph7ph baseline --capture          # rewrite the baseline, but only if it still matches
-uv run graph7ph baseline --capture --force  # rewrite it even though it differs
+uv run graph7ph baseline --capture          # green: record the code it is proven under; red: refuse
+uv run graph7ph baseline --capture --force  # rewrite it: the data moved and the code did not
 ```
 
 `--capture` grades against the existing baseline first. Green, it rewrites only
 the oracle's `code_digest`: the digest of the code its answers were just proven
 under, which is the build stamp's module list widened by the query layer the
-gate reads live. That is a one-line diff, so the proof rides in the same commit
-as the change it proves. Red, it refuses and tells you to pass `--force`, because
-the oracle goes red *wholesale* the moment a `fetch` moves the data and its diff
-is too large to read (issue #67). `--force` recaptures only when the recorded
-digest is the working tree's, since then nothing but data moved since the oracle
-was last proven; it prints the count it overrode and nothing of the difference.
-When the code moved since the proof it refuses, with the order to follow: gate
-green on the previous bundle first, then recapture (issue #272). After a
+gate reads live, and without the two curation files, since a ruling there is
+made in the round about the data that just arrived, listed by the build, and
+accepted on the same terms as the data move. That is a one-line diff, so the
+proof rides in the same commit as the change it proves. Red, it refuses, because the oracle goes red *wholesale*
+the moment a `fetch` moves the data and its diff is too large to read (issue
+#67): when the recorded digest is the working tree's it tells you to pass
+`--force`, which recaptures, since nothing but data moved since the oracle was
+last proven, and prints the count it overrode and nothing of the difference.
+When the code moved since the proof, `--force` or not, it refuses with the order
+to follow: gate green on the previous bundle first, then recapture (issue #272).
+After a
 render-side change the previous bundle is `data/graph.backup` and can be graded
 as it stands; a build-input change makes that bundle stale too, so move the
 newest snapshot aside, build and prove, then put it back and build again. With
 no baseline on disk, `--capture` just writes. A baseline that exists but cannot
 be graded (a corrupt oracle) is a refusal too, not a clean slate: pass `--force`
 to replace it.
+
+An intended answer change (an ADR that moves what a query says, as 0020, 0023,
+0026 and 0027 did) cannot be proven, by definition: the gate is red on every
+bundle and the code moved, so `--force` is refused. Read the differences the
+plain gate prints on the previous bundle, which is the record the ADR has to
+make anyway, then remove the oracle and `--capture` it fresh, in its own commit:
+the first capture of the new answers. That, and a corrupt oracle forced over,
+are the two captures that record a digest nothing graded.
 
 Both forms refuse outright on an artifact the working tree has moved past. The
 gate re-runs the queries live, but ingest, build, schema, curation and repairs
@@ -219,11 +230,12 @@ A case's *parameters* are part of the oracle, so a query whose signature changes
 invalidates its cases rather than regrading them: `compare` says "spec changed"
 and a case the new signature cannot express reads as "in the baseline but not in
 the cases being run". The gem query lost its archetype parameter at #184, which
-turned its two cases into one and forced a `--force` recapture; expect the same
-whenever a query's spec changes shape.
+turned its two cases into one and was recaptured as an intended change (above);
+expect the same whenever a query's spec changes shape.
 
-A `--force` recapture rewrites the file wholesale, in the engine's row order and
-with the last bits of every float redrawn, so its diff is churn and is not read:
+A `--force` recapture over a red gate rewrites the file wholesale (a green gate
+never rewrites the answers), in the engine's row order and with the last bits of
+every float redrawn, so its diff is churn and is not read:
 what makes it safe is the proof before it, not a reading after it. Recapture in
 its own commit with nothing else in the diff, so the churn never sits beside a
 code change (issues #67, #165, #272).

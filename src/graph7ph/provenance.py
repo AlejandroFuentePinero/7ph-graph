@@ -43,6 +43,7 @@ BUILD_INPUTS = (
     "figures.py",
     "ingest.py",
     "models.py",
+    "numfmt.py",
     "pilots.py",
     "query.py",
     "repairs.py",
@@ -71,10 +72,20 @@ def source_digest(
     decides which records the build reads, and an absent one is an unrepaired
     build.
     """
+    return digest_of(
+        [(n, Path(package) / n) for n in BUILD_INPUTS]
+        + [("curation", Path(curation)), ("repairs", Path(repairs))]
+    )
+
+
+def digest_of(sources: list[tuple[str, Path]]) -> str:
+    """A content digest over named files, an absent one folded in as empty.
+
+    Shared by the build stamp and the no-regression oracle (issue #272), so the
+    two digests are read the same way even though they cover different lists.
+    """
     digest = hashlib.sha256()
-    for name, path in [(n, Path(package) / n) for n in BUILD_INPUTS] + [
-        ("curation", Path(curation)), ("repairs", Path(repairs))
-    ]:
+    for name, path in sources:
         blob = path.read_bytes() if path.exists() else b""
         # Length-prefixed, so the boundary between one file and the next name is
         # unambiguous. Concatenating them plainly lets content absorb the marker
