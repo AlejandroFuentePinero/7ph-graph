@@ -5,8 +5,10 @@
 # build sees is the repaired one. Every entry keys on deck ids (the source's
 # stable identifier), carries a one-line `reason`, and names in `as_of` the
 # snapshot the ruling was written against. An entry whose decks no snapshot
-# holds is reported as dead in the reconciliation report, never fatal; a file
-# that contradicts itself aborts the build.
+# holds is reported as dead in the reconciliation report, never fatal; a deck
+# whose source filing changes under its repair from `as_of` on is reported
+# there as moved, since the gate cannot see it (issue #278); a file that
+# contradicts itself aborts the build.
 #
 # Three kinds:
 #

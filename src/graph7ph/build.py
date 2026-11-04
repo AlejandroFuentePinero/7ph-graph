@@ -210,9 +210,10 @@ def build_graph(
     the deck-delta trigger is simply not evaluated.
 
     ``source_repairs`` is the record of which repairs the ingest applied to the
-    snapshot sequence and which matched nothing (:func:`repairs.repairs_report`),
-    written into the reconciliation report as given. Only the ingest can grade
-    it, the repairs being applied as each snapshot is loaded (issue #268); a
+    snapshot sequence, which matched nothing, and which upstream has moved under
+    (:func:`repairs.repairs_report`), written into the reconciliation report as
+    given. Only the ingest can grade it, the repairs being applied as each
+    snapshot is loaded (issue #268); a
     caller handing this function a snapshot of its own passes none, and the
     report carries no section rather than an empty one that would read as "no
     repairs were on file".

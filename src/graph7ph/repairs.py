@@ -252,12 +252,24 @@ def _common(entry: dict, path: Path, kind: str) -> dict:
     return {"decks": tuple(decks), "reason": reason, "as_of": as_of}
 
 
-def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, frozenset[str]]:
-    """The snapshot with every repair applied, and the deck ids the repairs matched.
+# What the source holds under each kind of repair, as the source spells it: the
+# keys `apply_repairs` records per matched deck and `repairs_report` compares
+# between snapshots. An adopt's key is the fact it adopts.
+HOLD_OUT_HELD = ("present", "event", "eventId")
+REFILE_HELD = ("event", "eventId")
 
-    The ids ride back because a repair that matched nothing in any snapshot is a
-    dead entry the reconciliation report has to name, and only the caller holding
-    the whole sequence can grade that.
+
+def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, dict[str, dict]]:
+    """The snapshot with every repair applied, and what the source held under each.
+
+    The second value maps every deck id a repair matched to the source's own
+    value for what the repair rewrote, as the source spells it and JSON-ready: a
+    refile's `event` and `eventId`, an adopt's fact, a hold-out's `present` with
+    the event the source files it at. It rides back because only the caller
+    holding the whole sequence can grade a repair: one that matched nothing
+    anywhere is a dead entry, and one whose source value changes between
+    snapshots is a ruling upstream has moved under, which the gate cannot see
+    because it compares repaired snapshots (issue #278).
     """
     held = {d for entry in repairs.hold_outs for d in entry.decks}
     refiled = {d: entry for entry in repairs.refiles for d in entry.decks}
@@ -279,21 +291,30 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, froze
                 f"there ({d.deck_id!r}); a deck that belongs at an event the source has is a "
                 f"[[deck_event]] in the pilot dictionary"
             )
-    present = {d.deck_id for d in snapshot.decks}
-    matched = (held | refiled.keys() | adopted.keys()) & present
-    if not matched:
-        return snapshot, frozenset()
+    source_held: dict[str, dict] = {}
     decks = []
     for d in snapshot.decks:
         if d.deck_id in held:
+            source_held[d.deck_id] = {"present": True, "event": d.event, "eventId": d.event_id}
             continue
         if d.deck_id in adopted:
+            source_held.setdefault(d.deck_id, {}).update(
+                (fact, _json_ready(getattr(d, field)))
+                for fact, (_, field) in ADOPTABLE.items() if field in adopted[d.deck_id]
+            )
             d = d.model_copy(update=adopted[d.deck_id])
-        decks.append(_refiled(d, refiled[d.deck_id]) if d.deck_id in refiled else d)
+        if d.deck_id in refiled:
+            source_held.setdefault(d.deck_id, {}).update(event=d.event, eventId=d.event_id)
+            d = _refiled(d, refiled[d.deck_id])
+        decks.append(d)
     return Snapshot(
         cards=snapshot.cards, decks=decks,
         containments=[c for c in snapshot.containments if c.deck_id not in held],
-    ), frozenset(matched)
+    ), source_held
+
+
+def _json_ready(value: object) -> object:
+    return value.isoformat() if isinstance(value, datetime) else value
 
 
 def _refiled(deck: Deck, entry: Refile) -> Deck:
@@ -315,37 +336,60 @@ def _refiled(deck: Deck, entry: Refile) -> Deck:
     })
 
 
-def repairs_report(repairs: Repairs, applied: dict[str, list[str]]) -> dict:
+def repairs_report(
+    repairs: Repairs, applied: dict[str, list[tuple[str, dict]]], snapshots: list[str]
+) -> dict:
     """The reconciliation report's ``source_repairs`` section.
 
     ``applied`` maps each deck id a repair matched to the snapshots it matched
-    in, as the ingest accumulated it over the sequence. One row per deck rather
-    than per entry, since an entry of 44 decks can be live for 43 of them: a deck
-    no snapshot held is a dead ruling, reported the way a dead dictionary entry
-    is (`curation.dead_entries`) and never fatal, so a maintainer can retire or
+    in, oldest first, each with what the source held there under the repair
+    (the second value of :func:`apply_repairs`); ``snapshots`` names the whole
+    sequence in the same order. One row per deck rather than per entry, since
+    an entry of 44 decks can be live for 43 of them: a deck no snapshot held is
+    a dead ruling, reported the way a dead dictionary entry is
+    (`curation.dead_entries`) and never fatal, so a maintainer can retire or
     repair it without a stale id stopping the build.
 
     Dead means a mistyped or reissued id, not a ruling upstream has overtaken:
     the sequence is append-only and a deck keeps its id across an upstream
-    correction, so an entry that was ever live stays live. The snapshots a
-    repair matched are what a maintainer reads for that, and they answer one
-    question only: a hold-out the newest snapshot no longer matches is a deck
-    upstream removed. A deck upstream refiled or re-keyed itself keeps its id
-    and keeps matching, so whether a ruling is still right is a hand check
-    against the newest snapshot, not something the report can show.
+    correction, so an entry that was ever live stays live and keeps applying.
+    ``moved`` is where upstream overtaking a ruling shows (issue #278): a repair
+    is applied to every snapshot before the gate compares them, so the gate
+    sees the repaired value on both sides and stays quiet when the source
+    refiles a refiled deck to an event of its own, rewrites an adopted fact
+    again, or drops or refiles a held-out deck. Each such deck is a row naming
+    the two snapshots and what the source held on each; what to do about it
+    (retire the entry, rename the event, carry upstream's field) is a ruling,
+    so the build promotes and the row waits to be read. Only snapshots from
+    the one the entry was written against count: the author ruled on
+    everything the source had filed up to `as_of`, and in particular an adopt
+    exists because the source rewrote the fact once, which is not the source
+    moving again.
     """
-    rows: list[tuple[str, str, str]] = []
-    for kind, entries, describe in (
-        ("hold_out", repairs.hold_outs, lambda e: "held out"),
-        ("refile", repairs.refiles, lambda e: f"refiled to {e.event}"),
-        ("adopt", repairs.adopts, lambda e: f"adopts {e.fact} = {e.value!r}"),
+    applied_rows, dead, moved = [], [], []
+    for kind, entries, describe, held_keys in (
+        ("hold_out", repairs.hold_outs, lambda e: "held out", lambda e: HOLD_OUT_HELD),
+        ("refile", repairs.refiles, lambda e: f"refiled to {e.event}", lambda e: REFILE_HELD),
+        ("adopt", repairs.adopts, lambda e: f"adopts {e.fact} = {e.value!r}",
+         lambda e: (e.fact,)),
     ):
         for entry in entries:
             detail = f"{describe(entry)}: {entry.reason}"
-            rows.extend((kind, deck, detail) for deck in entry.decks)
-    return {
-        "applied": [{"kind": k, "deck": d, "detail": t, "snapshots": applied[d]}
-                    for k, d, t in rows if d in applied],
-        "dead": [{"kind": k, "deck": d, "detail": t}
-                 for k, d, t in rows if d not in applied],
-    }
+            for deck in entry.decks:
+                row = {"kind": kind, "deck": deck, "detail": detail}
+                if deck not in applied:
+                    dead.append(row)
+                    continue
+                applied_rows.append({**row, "snapshots": [name for name, _ in applied[deck]]})
+                # Snapshot names are UTC stamps, so string order is time order.
+                seen = [(name, {k: held[k] for k in held_keys(entry)})
+                        for name, held in applied[deck] if name >= entry.as_of]
+                if kind == "hold_out" and seen and seen[-1][0] != snapshots[-1]:
+                    gone = snapshots[snapshots.index(seen[-1][0]) + 1]
+                    seen.append((gone, {"present": False}))
+                moved.extend(
+                    {**row, "from": {"snapshot": before[0], **before[1]},
+                     "to": {"snapshot": after[0], **after[1]}}
+                    for before, after in zip(seen, seen[1:]) if before[1] != after[1]
+                )
+    return {"applied": applied_rows, "dead": dead, "moved": moved}
