@@ -2,12 +2,29 @@
 
 ## Refreshing the data
 
-`fetch` then `build` is the whole refresh:
+A round opens by mirroring the snapshots, then `fetch`, mirror again, `build`:
 
 ```sh
+uv run graph7ph mirror Alejandrofupi/7ph-graph-snapshots   # copy what is not yet there
 uv run graph7ph fetch   # download 7phstats data into snapshots/<timestamp>/
+uv run graph7ph mirror Alejandrofupi/7ph-graph-snapshots   # cover the new snapshot too
 uv run graph7ph build   # load the latest snapshot into data/graph
 ```
+
+The snapshots under `snapshots/` are the project's only primary data: gitignored,
+append-only, and on one machine, so a disk loss would lose the ability to rebuild
+any graph. The mirror copies every snapshot directory the build would read into a
+private Hugging Face dataset the owner created once by hand, and sends only the
+directories the dataset does not yet hold by name. Snapshots are append-only, so
+an upload is never an overwrite; it deletes nothing, locally or remotely, and a
+second run sends nothing and says so. It refuses a dataset that does not exist
+(or that the login cannot see) and one that has gone public, in a sentence
+naming the remedy, before sending anything. It uses the Hub login the deploy
+uses (`uvx --from huggingface_hub hf auth login`, once). Run it again straight
+after the fetch so the snapshot just downloaded is covered before any adoption
+edit touches it. The dataset holds each snapshot as it stood on disk the first
+time it was sent: for the rounds before the mirror existed, that is the locally
+edited copy the build reads, not upstream's bytes.
 
 Each fetch is kept as an append-only snapshot, and the build folds the whole
 sequence: each snapshot is gated against the accumulated union of every snapshot
@@ -75,9 +92,11 @@ files still point at the previous artifact, and the dropdown catalogues are read
 once at startup, so new pilots and cards would be missing from them regardless.
 The deploy path handles this on its own, since the Space restarts on upload.
 
-Fetch and build are the only steps that talk upstream. Any credential they need
-belongs to this pipeline environment (a local `.env`, which is gitignored, or the
-CI secret store later): it is never read by the app and never deployed with it.
+Fetch and build are the only steps that talk to 7phstats; the mirror and the
+deploy talk to the Hub, with the login `hf auth login` stores. Any credential
+these need belongs to this pipeline environment (the Hub login's own cache, a
+local `.env`, which is gitignored, or the CI secret store later): it is never
+read by the app and never deployed with it.
 
 ## Tests
 

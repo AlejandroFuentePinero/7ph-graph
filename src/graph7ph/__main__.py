@@ -1,4 +1,4 @@
-"""CLI: ``graph7ph fetch | build | curation-report | app | baseline``.
+"""CLI: ``graph7ph mirror | fetch | build | curation-report | app | baseline``.
 
 Wires the fetch, build, and app seams into the three commands issue 2 asks for.
 Paths default under the repo's ``data/`` directory and are overridable by flag.
@@ -7,6 +7,8 @@ Paths default under the repo's ``data/`` directory and are overridable by flag.
 import argparse
 import json
 from pathlib import Path
+
+from huggingface_hub import HfApi
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
 from graph7ph.build import TwoWinners, YearStraddle, reconciliation_path
@@ -21,6 +23,7 @@ from graph7ph.db import (
 )
 from graph7ph.fetch import fetch_snapshot
 from graph7ph.ingest import SchemaError, ingest, ingest_report_path
+from graph7ph.mirror import MirrorRefused, mirror_snapshots
 from graph7ph.pilots import SETTLING_TRIGGERS
 from graph7ph.provenance import staleness
 
@@ -33,6 +36,21 @@ DB_PATH = artifact_path()
 # brief. Enough to act on a normal round without the block growing past the
 # screen the banner above it has to stay on.
 BANNER_HOLDS = 5
+
+
+def _mirror(args: argparse.Namespace) -> None:
+    # The round's first step (issue #267): every snapshot the build would read gets
+    # a copy in the owner's private dataset before anything else runs. The client
+    # reads the same Hub login the deploy uses; a refusal is a sentence naming the
+    # remedy, as the build's aborts are.
+    try:
+        sent = mirror_snapshots(args.snapshots, args.dataset, HfApi())
+    except MirrorRefused as exc:
+        raise SystemExit(str(exc))
+    for name in sent:
+        print(f"Mirrored {name} to {args.dataset}")
+    if not sent:
+        print(f"Nothing to mirror: every snapshot is already in {args.dataset}")
 
 
 def _fetch(args: argparse.Namespace) -> None:
@@ -271,6 +289,13 @@ def _app(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="graph7ph")
     sub = parser.add_subparsers(required=True)
+
+    p_mirror = sub.add_parser(
+        "mirror", help="Copy every snapshot missing from a private Hugging Face dataset"
+    )
+    p_mirror.add_argument("dataset", help="<user>/<dataset>, created once by hand")
+    p_mirror.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
+    p_mirror.set_defaults(func=_mirror)
 
     p_fetch = sub.add_parser("fetch", help="Download 7phstats data into a snapshot")
     p_fetch.add_argument("--snapshots", type=Path, default=SNAPSHOTS_ROOT)
