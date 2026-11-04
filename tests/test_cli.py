@@ -561,11 +561,15 @@ def test_a_green_capture_after_a_code_change_records_the_digest_and_moves_nothin
     assert len(held["queries"]["pilot"]["nodes"]) > 1, "the case must have rows to reorder"
     held["queries"]["pilot"]["nodes"].reverse()
     held["code_digest"] = "0" * 64
-    baseline.write_text(json.dumps(held, indent=2) + "\n")
+    stale = json.dumps(held, indent=2) + "\n"
+    baseline.write_text(stale)
 
     _baseline(_ns(db=db, baseline=baseline, capture=True))
 
-    assert json.loads(baseline.read_text()) == held | {"code_digest": bl.code_digest()}
+    # Byte for byte, not parsed: the promise is a one-line diff, which a rewrite
+    # that re-indented, sorted keys or moved the digest would break while still
+    # parsing to the same dict.
+    assert baseline.read_text() == stale.replace("0" * 64, bl.code_digest())
 
 
 def test_capture_over_an_identical_baseline_succeeds(
@@ -634,6 +638,25 @@ def test_force_after_an_unproven_code_change_refuses_and_names_the_order(
 
     assert "run the gate on the previous bundle first" in str(exc.value)
     assert baseline.read_bytes() == before
+
+
+def test_an_unforced_capture_over_moved_code_names_the_order_not_a_force_that_would_refuse(
+    tmp_path, snapshot_dir, small_cases
+):
+    # Without --force the old refusal said to pass it; after a code change that
+    # advice leads to a second refusal, so the first one names the order instead.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    held = _moved_data(baseline) | {"code_digest": "0" * 64}
+    baseline.write_text(json.dumps(held, indent=2) + "\n")
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert "run the gate on the previous bundle first" in str(exc.value)
+    assert "Pass --force" not in str(exc.value)
 
 
 def test_force_over_an_oracle_that_records_no_proof_refuses_too(

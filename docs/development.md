@@ -174,13 +174,14 @@ uv run graph7ph baseline --capture --force  # rewrite it: the data moved and the
 the oracle's `code_digest`: the digest of the code its answers were just proven
 under, which is the build stamp's module list widened by the query layer the
 gate reads live. That is a one-line diff, so the proof rides in the same commit
-as the change it proves. Red, it refuses and tells you to pass `--force`, because
-the oracle goes red *wholesale* the moment a `fetch` moves the data and its diff
-is too large to read (issue #67). `--force` recaptures only when the recorded
-digest is the working tree's, since then nothing but data moved since the oracle
-was last proven; it prints the count it overrode and nothing of the difference.
-When the code moved since the proof it refuses, with the order to follow: gate
-green on the previous bundle first, then recapture (issue #272). After a
+as the change it proves. Red, it refuses, because the oracle goes red *wholesale*
+the moment a `fetch` moves the data and its diff is too large to read (issue
+#67): when the recorded digest is the working tree's it tells you to pass
+`--force`, which recaptures, since nothing but data moved since the oracle was
+last proven, and prints the count it overrode and nothing of the difference.
+When the code moved since the proof, `--force` or not, it refuses with the order
+to follow: gate green on the previous bundle first, then recapture (issue #272).
+After a
 query-side change the previous bundle is `data/graph.backup` and can be graded
 as it stands; a build-input change makes that bundle stale too, so move the
 newest snapshot aside, build and prove, then put it back and build again. With

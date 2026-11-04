@@ -290,11 +290,6 @@ def _capture(conn, args: argparse.Namespace) -> None:
             )
         _write_baseline(conn, args)
         return
-    if diffs and not args.force:
-        raise SystemExit(
-            f"{len(diffs)} difference(s) against {args.baseline}; recapturing would "
-            f"overwrite the oracle. Pass --force to overwrite it anyway."
-        )
     held = json.loads(args.baseline.read_text())
     if not diffs:
         # Green: the answers stand, and the capture records only which code they
@@ -305,12 +300,12 @@ def _capture(conn, args: argparse.Namespace) -> None:
         print(f"0 difference(s) against {args.baseline}: recorded the code digest "
               f"it is proven under.")
         return
-    # Red and forced. The oracle records the code it was last proven under, so the
-    # judgement a person used to make by reading the diff (data move or regression?)
-    # is read off that instead: unchanged code means nothing but data moved, and
-    # the capture is accepted without printing a line of the difference. Code that
-    # moved since the proof is refused, because a red gate over moved code and moved
-    # data cannot say which one moved the answers (issue #272).
+    # Red. The oracle records the code it was last proven under, so the judgement a
+    # person used to make by reading the diff (data move or regression?) is read
+    # off that instead. Code that moved since the proof is refused whether or not
+    # --force was passed, because a red gate over moved code and moved data cannot
+    # say which one moved the answers, and the refusal names the order rather than
+    # sending the user to a --force that would refuse again (issue #272).
     proven = held.get("code_digest")
     if proven != code_digest():
         raise SystemExit(
@@ -318,7 +313,15 @@ def _capture(conn, args: argparse.Namespace) -> None:
             f"since the oracle was last proven"
             f"{'' if proven else ' (it records no proof)'}: run the gate on the "
             f"previous bundle first (`uv run graph7ph baseline --capture`, green, "
-            f"before the fetch), then recapture; docs/development.md has the order."
+            f"before the fetch), then recapture with --force; docs/development.md "
+            f"has the order."
+        )
+    # Unchanged code means nothing but data moved, and a forced capture is accepted
+    # without printing a line of the difference.
+    if not args.force:
+        raise SystemExit(
+            f"{len(diffs)} difference(s) against {args.baseline}; recapturing would "
+            f"overwrite the oracle. Pass --force to overwrite it anyway."
         )
     print(f"{len(diffs)} difference(s) against {args.baseline}: the code is unchanged "
           f"since the oracle was proven, so only the data moved.")
@@ -372,7 +375,8 @@ def main() -> None:
     )
     p_baseline.add_argument(
         "--force", action="store_true",
-        help="With --capture, overwrite a baseline that differs or cannot be graded",
+        help="With --capture, overwrite a baseline that differs under unchanged code, "
+             "or one that cannot be graded",
     )
     p_baseline.set_defaults(func=_baseline)
 
