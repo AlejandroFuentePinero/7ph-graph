@@ -899,7 +899,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "scored years, weighted by events, so a busy year counts for more. It counts "
         "every event that published full standings (see the finish question above); "
         "the player leaderboard counts only the biggest ones. The two measure "
-        "different things, and typically put a pilot about 10 places apart in the "
+        "different things, and typically put a pilot about a dozen places apart in the "
         "player leaderboard standings, which rank 144 pilots.\n\n"
         "Each year carries an error bar: the 90% range that year's average could "
         "reasonably sit in (see the finish question above). The bars are wide and they "
