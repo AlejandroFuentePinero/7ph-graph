@@ -10,7 +10,7 @@ from pathlib import Path
 
 from huggingface_hub import HfApi
 
-from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
+from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check, code_digest
 from graph7ph.build import RegistrationSpread, TwoWinners, YearStraddle, reconciliation_path
 from graph7ph.curation import CURATION_PATH, CurationError, load_curation
 from graph7ph.curation_report import curation_report, latest_snapshot, unreportable
@@ -251,9 +251,20 @@ def _baseline(args: argparse.Namespace) -> None:
     print(f"{args.db} reproduces {args.baseline}: no regression.")
 
 
+def _write_oracle(path: Path, answers: dict) -> None:
+    """Write ``answers`` as the oracle at ``path``, under the working tree's digest.
+
+    The digest first, so a reader sees what the file was proven under before the
+    answers. One writer for a fresh capture and for a proof that moves only the
+    digest, so the two agree byte for byte and the proof stays a one-line diff.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    answers = {key: value for key, value in answers.items() if key != "code_digest"}
+    path.write_text(json.dumps({"code_digest": code_digest(), **answers}, indent=2) + "\n")
+
+
 def _write_baseline(conn, args: argparse.Namespace) -> None:
-    args.baseline.parent.mkdir(parents=True, exist_ok=True)
-    args.baseline.write_text(json.dumps(capture(conn), indent=2) + "\n")
+    _write_oracle(args.baseline, capture(conn))
     print(f"Captured the baseline from {args.db} into {args.baseline}")
 
 
@@ -284,7 +295,33 @@ def _capture(conn, args: argparse.Namespace) -> None:
             f"{len(diffs)} difference(s) against {args.baseline}; recapturing would "
             f"overwrite the oracle. Pass --force to overwrite it anyway."
         )
-    print(f"{len(diffs)} difference(s) against {args.baseline}.")
+    held = json.loads(args.baseline.read_text())
+    if not diffs:
+        # Green: the answers stand, and the capture records only which code they
+        # were just proven under. Rewriting the answers too would bury that one
+        # line under a fresh capture's row-order and float churn (research-log
+        # 2026-07-21), so the proof before a fetch is a one-line diff (#272).
+        _write_oracle(args.baseline, held)
+        print(f"0 difference(s) against {args.baseline}: recorded the code digest "
+              f"it is proven under.")
+        return
+    # Red and forced. The oracle records the code it was last proven under, so the
+    # judgement a person used to make by reading the diff (data move or regression?)
+    # is read off that instead: unchanged code means nothing but data moved, and
+    # the capture is accepted without printing a line of the difference. Code that
+    # moved since the proof is refused, because a red gate over moved code and moved
+    # data cannot say which one moved the answers (issue #272).
+    proven = held.get("code_digest")
+    if proven != code_digest():
+        raise SystemExit(
+            f"{len(diffs)} difference(s) against {args.baseline}, and the code moved "
+            f"since the oracle was last proven"
+            f"{'' if proven else ' (it records no proof)'}: run the gate on the "
+            f"previous bundle first (`uv run graph7ph baseline --capture`, green, "
+            f"before the fetch), then recapture; docs/development.md has the order."
+        )
+    print(f"{len(diffs)} difference(s) against {args.baseline}: the code is unchanged "
+          f"since the oracle was proven, so only the data moved.")
     _write_baseline(conn, args)
 
 
@@ -330,7 +367,8 @@ def main() -> None:
     p_baseline.add_argument("--db", type=Path, default=DB_PATH)
     p_baseline.add_argument("--baseline", type=Path, default=BASELINE_PATH)
     p_baseline.add_argument(
-        "--capture", action="store_true", help="Rewrite the baseline from this graph"
+        "--capture", action="store_true",
+        help="Green: record the code the baseline is proven under. Red: refuse",
     )
     p_baseline.add_argument(
         "--force", action="store_true",

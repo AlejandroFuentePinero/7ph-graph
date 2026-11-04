@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from graph7ph.baseline import GATE_INPUTS
 from graph7ph.build import build_graph
 from graph7ph.curation import Curation
 from graph7ph.models import load_snapshot
@@ -53,7 +54,10 @@ def _first_party_imports(module: Path) -> set[str]:
     # walk cannot see is a module BUILD_INPUTS can silently omit.
     names = set()
     for node in ast.walk(ast.parse(module.read_text())):
-        if isinstance(node, ast.ImportFrom):
+        if isinstance(node, ast.ImportFrom) and node.module == "graph7ph":
+            # `from graph7ph import numfmt`: the module is the imported name.
+            names.update(f"graph7ph.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
             names.add(node.module or "")
         elif isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
@@ -234,3 +238,31 @@ def test_the_digest_moves_with_the_repairs_file(tmp_path):
 
     repairs.write_text("[[hold_out]]\n")
     assert source_digest(package, curation, repairs) != before
+
+
+def test_the_oracles_digest_moves_with_the_query_layer_the_build_stamp_ignores(tmp_path):
+    # The build stamp may ignore `query.py`: a query change is graded live against
+    # any bundle. The oracle may not, because its question is whether the code
+    # moved since its answers were proven, and a query change moves the answers
+    # (issue #272). Same hashing, wider list: query.py moves it, app.py does not.
+    package, curation = _sources(tmp_path)
+    before = source_digest(package, curation, modules=GATE_INPUTS)
+    (package / "app.py").write_text("# app.py, changed\n")
+    assert source_digest(package, curation, modules=GATE_INPUTS) == before
+    (package / "query.py").write_text("# query.py, changed\n")
+    assert source_digest(package, curation, modules=GATE_INPUTS) != before
+
+
+def test_every_module_the_gate_reads_is_an_oracle_input():
+    # Same walk as the build-input test above, from the module the gate runs:
+    # a module joining the query path and missing from GATE_INPUTS would let a
+    # forced recapture read a code change as a data move.
+    reached, pending = set(), ["baseline.py"]
+    while pending:
+        name = pending.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        pending.extend(_first_party_imports(PACKAGE_DIR / name))
+
+    assert (reached - {"provenance.py"}) | set(BUILD_INPUTS) == set(GATE_INPUTS)

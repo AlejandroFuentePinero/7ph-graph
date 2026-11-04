@@ -25,6 +25,7 @@ from pathlib import Path
 import ladybug
 
 from graph7ph.build import graph_counts
+from graph7ph.provenance import BUILD_INPUTS, source_digest
 from graph7ph.query import (
     CardCooccurrence,
     CardUsage,
@@ -42,6 +43,14 @@ from graph7ph.query import (
 # Where the checked-in oracle lives. Kept at the repo root beside `curation/`,
 # not under `data/`, because it is reviewed source rather than a build output.
 BASELINE_PATH = Path("baseline/subgraphs.json")
+
+# The modules whose content decides what the oracle answers: everything baked
+# into the bundle, plus the modules the gate reads live at grading time. The
+# build stamp stops at the first set, because a query change is graded honestly
+# against any bundle; the oracle cannot stop there, because the question it
+# answers is whether the code moved since its answers were last proven, and a
+# query change moves the answers as surely as an ingest change does (#272).
+GATE_INPUTS = BUILD_INPUTS + ("baseline.py", "numfmt.py", "query.py")
 
 # The one query with no ORDER BY, which builds its lists directly in row order.
 # Everything else sorts before emitting, so its order is a promise. The gem view
@@ -149,6 +158,14 @@ def subgraph_blob(subgraph: Subgraph) -> dict:
     if subgraph.expected_by_luck is not None:
         blob["luck"] = subgraph.expected_by_luck
     return blob
+
+
+def code_digest() -> str:
+    """The digest of the code the oracle's answers depend on, as the working tree
+    stands now. Recorded in the oracle at capture, so a later recapture can tell
+    a data move (digest unchanged) from a code change nobody proved (#272).
+    """
+    return source_digest(modules=GATE_INPUTS)
 
 
 def capture(conn: ladybug.Connection, cases: list[Case] = CASES) -> dict:

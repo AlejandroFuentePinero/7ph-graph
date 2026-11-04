@@ -11,7 +11,7 @@ from graph7ph.curation import load_curation
 from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import provenance_path
-from graph7ph.query import HiddenGems
+from graph7ph.query import HiddenGems, PilotNeighbourhood
 from graph7ph.repairs import load_repairs
 
 
@@ -525,6 +525,49 @@ def test_first_capture_writes_without_force(tmp_path, snapshot_dir, small_cases)
     assert "catalogues" in json.loads(baseline.read_text())
 
 
+def test_a_capture_records_the_digest_of_the_code_it_was_proven_under(
+    tmp_path, snapshot_dir, small_cases
+):
+    # The oracle carries the digest of the code whose answers it holds, so a later
+    # recapture can tell a data move from a code change (issue #272).
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert json.loads(baseline.read_text())["code_digest"] == bl.code_digest()
+
+
+def test_a_green_capture_after_a_code_change_records_the_digest_and_moves_nothing_else(
+    tmp_path, snapshot_dir, monkeypatch
+):
+    # The proof step before a fetch: the gate is green, so the oracle's answers
+    # stand, and all that is out of date is which code they were proven under. A
+    # capture then updates the digest alone. Rewriting the answers too would bury
+    # that one line under the row-order and float churn of a fresh capture
+    # (research-log 2026-07-21), and the proof could no longer ride in the same
+    # commit as the change it proves (issue #272). The churn is staged here as
+    # the grader meets it: an order-insensitive case whose rows the oracle holds
+    # in an order the engine does not emit.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    cases = [bl.Case("pilot", PilotNeighbourhood("Jordan C"))]
+    monkeypatch.setattr("graph7ph.__main__.check", functools.partial(bl.check, cases=cases))
+    monkeypatch.setattr("graph7ph.__main__.capture", functools.partial(bl.capture, cases=cases))
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    held = json.loads(baseline.read_text())
+    assert len(held["queries"]["pilot"]["nodes"]) > 1, "the case must have rows to reorder"
+    held["queries"]["pilot"]["nodes"].reverse()
+    held["code_digest"] = "0" * 64
+    baseline.write_text(json.dumps(held, indent=2) + "\n")
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+
+    assert json.loads(baseline.read_text()) == held | {"code_digest": bl.code_digest()}
+
+
 def test_capture_over_an_identical_baseline_succeeds(
     tmp_path, snapshot_dir, small_cases, capsys
 ):
@@ -563,6 +606,72 @@ def test_force_over_a_differing_baseline_writes_and_reports_the_count(
     out = capsys.readouterr().out
     assert "difference(s)" in out and "0 difference(s)" not in out
     assert baseline.read_bytes() != before
+
+
+def _moved_data(baseline):
+    """Re-stage the oracle as the gate meets it after a fetch: an answer moved."""
+    held = json.loads(baseline.read_text())
+    held["counts"]["pilots"] += 1
+    return held
+
+
+def test_force_after_an_unproven_code_change_refuses_and_names_the_order(
+    tmp_path, snapshot_dir, small_cases
+):
+    # The gate is red and the code moved since the oracle was last proven, so
+    # nobody can say whether the difference is the data or the code. The remedy
+    # is the order: prove the code on the previous bundle, then recapture (#272).
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    held = _moved_data(baseline) | {"code_digest": "0" * 64}
+    baseline.write_text(json.dumps(held, indent=2) + "\n")
+    before = baseline.read_bytes()
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(_ns(db=db, baseline=baseline, capture=True, force=True))
+
+    assert "run the gate on the previous bundle first" in str(exc.value)
+    assert baseline.read_bytes() == before
+
+
+def test_force_over_an_oracle_that_records_no_proof_refuses_too(
+    tmp_path, snapshot_dir, small_cases
+):
+    # An oracle from before #272 carries no digest, so nothing says what code it
+    # was proven under: the same refusal, and the same remedy records one.
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    held = _moved_data(baseline)
+    del held["code_digest"]
+    baseline.write_text(json.dumps(held, indent=2) + "\n")
+
+    with pytest.raises(SystemExit) as exc:
+        _baseline(_ns(db=db, baseline=baseline, capture=True, force=True))
+
+    assert "run the gate on the previous bundle first" in str(exc.value)
+
+
+def test_force_with_unchanged_code_accepts_a_data_move_without_printing_the_diff(
+    tmp_path, snapshot_dir, small_cases, capsys
+):
+    # The round after a fetch: the code is the one the oracle was proven under, so
+    # the difference is the data and nobody has to read it (issue #272).
+    db = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), db)
+    baseline = tmp_path / "baseline.json"
+    _baseline(_ns(db=db, baseline=baseline, capture=True))
+    baseline.write_text(json.dumps(_moved_data(baseline), indent=2) + "\n")
+    capsys.readouterr()
+
+    _baseline(_ns(db=db, baseline=baseline, capture=True, force=True))
+
+    out = capsys.readouterr().out
+    assert "counts.pilots" not in out, "the difference was printed for a human"
+    assert json.loads(baseline.read_text())["code_digest"] == bl.code_digest()
 
 
 def test_capture_over_a_malformed_baseline_refuses_without_force(

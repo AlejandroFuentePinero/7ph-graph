@@ -46,9 +46,14 @@ BUILD_INPUTS = (
 
 def source_digest(
     package: Path = PACKAGE_DIR, curation: Path = CURATION_PATH,
-    repairs: Path = REPAIRS_PATH,
+    repairs: Path = REPAIRS_PATH, modules: tuple[str, ...] = BUILD_INPUTS,
 ) -> str:
     """A digest over the sources a build turns into an artifact.
+
+    ``modules`` names the package files folded in. The build stamp digests the
+    build inputs; the no-regression oracle widens the list to the modules the gate
+    reads live (``baseline.GATE_INPUTS``, issue #272), under the same hashing so
+    the two digests are read the same way.
 
     Content, not modification time: ``git checkout`` and ``git stash`` rewrite
     mtimes wholesale, so an mtime comparison would refuse to grade artifacts that
@@ -66,7 +71,7 @@ def source_digest(
     build.
     """
     digest = hashlib.sha256()
-    for name, path in [(n, Path(package) / n) for n in BUILD_INPUTS] + [
+    for name, path in [(n, Path(package) / n) for n in modules] + [
         ("curation", Path(curation)), ("repairs", Path(repairs))
     ]:
         blob = path.read_bytes() if path.exists() else b""
