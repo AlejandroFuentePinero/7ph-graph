@@ -21,6 +21,7 @@ from graph7ph.curation import (
     Hold,
     load_curation,
 )
+from graph7ph.curation_report import curation_report
 from graph7ph.db import (
     artifact_path,
     database_path,
@@ -673,33 +674,43 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
     assert edges == {"Izzet Prowess": (100, True)}
 
 
-def test_nothing_in_either_identity_queue_is_left_unexamined(live_graph):
-    # The invariant the thorough pass exists to establish, over the real record
-    # (issues #227, #231, #232): every entry in either identity queue is curated
-    # or held with recorded reasoning, so `under_merges` and `multi_name_ids` --
-    # unexamined only, since #228 and #232 -- are both empty. That is what lets a
-    # later round work only the delta, and it has to be a test rather than a fact
-    # somebody re-checks: an entry nobody has read reddens this instead of growing
-    # a tail again in silence.
+def test_every_unexamined_identity_row_is_reported_as_new(live_graph):
+    # The invariant over the real record (issues #227, #231, #232, #270): nothing
+    # in either identity queue is dropped in silence. An unexamined row is a row
+    # nobody has read, and the process promises that every such row reaches the
+    # curation brief the round is filed from, under the heading that says it is
+    # new, so the round's issue is where the queue is tracked. Whether that queue
+    # is empty is the round's business, not the suite's. Until issue #270 this
+    # held "both queues are empty" instead, so it sat red by design from the first
+    # unworked ingestion on, which taught every reader to run past a failing suite.
     #
     # Both queues, because they ask one question from two directions: several ids
     # that may be one person, and one id that may be several. An assertion over
-    # one of them would let "the queue is complete" mean complete for half the
-    # work.
+    # one of them would let "nothing is dropped" mean dropped from half the work.
     #
-    # It reddens where the pair can first appear, which is the machine that ran
-    # the ingestion: `live_graph` skips on a missing or stale bundle, so this is
-    # silent in CI (which never builds) and speaks on the build that introduced
-    # the pair. That is the right place for it, since only an ingestion can add
-    # one, but it does mean a rebuild has to precede the suite for it to grade
-    # anything at all.
-    #
-    # The entries are named, not counted, because the failure a reader needs is
-    # "these two ids want a decision", not "78".
-    report = json.loads(reconciliation_path(artifact_path()).read_text())
+    # Graded on the live bundle because the queue is a property of the corpus:
+    # `live_graph` skips on a missing or stale bundle, so a rebuild has to
+    # precede the suite for this to grade anything. The rows are named, not
+    # counted, because the failure a reader needs is "this pair fell out of the
+    # brief", not "56 of 57".
+    recon = json.loads(reconciliation_path(artifact_path()).read_text())
+    asked = ([tuple(u["pilots"]) for u in recon["under_merges"]]
+             + [(m["pilot"],) for m in recon["multi_name_ids"]])
 
-    assert [(u["display_name"], u["pilots"]) for u in report["under_merges"]] == []
-    assert [(m["pilot"], m["names"]) for m in report["multi_name_ids"]] == []
+    # The snapshot name only titles the brief; it is never filed from here.
+    brief = curation_report(recon, load_curation().holds, "live")
+
+    heading = "## New this ingestion"
+    section = brief.split(heading, 1)[1].split("\n## ", 1)[0] if heading in brief else ""
+    rows = [line for line in section.splitlines() if line.startswith("- ")]
+    # Matched on the row's own ids, not on each id appearing somewhere: a single
+    # id from the multi-name queue sits inside pairs on the other queue too, so
+    # a per-id match would let its own dropped row pass on a pair's.
+    def reported(ids):
+        return any(row.startswith("- " + " + ".join(f"`{pid}`" for pid in ids) + ":")
+                   for row in rows)
+    unreported = [ids for ids in asked if not reported(ids)]
+    assert unreported == []
 
 
 def test_the_held_ids_sitting_on_a_joined_node_are_the_five_on_the_record(live_graph):
