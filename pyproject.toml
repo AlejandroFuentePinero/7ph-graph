@@ -30,6 +30,10 @@ dependencies = [
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",
     "requests>=2.32,<3",
+    # The snapshot mirror's Hub client (issue #267). gradio pulls it in as well, but
+    # the pipeline step that depends on it is this project's to declare, by the same
+    # rule as pandas below.
+    "huggingface-hub>=1,<2",
     # Imported by `graph7ph.app` at module load, not called anywhere: it warms the
     # module before a request thread can meet it half-initialised (see the note at
     # that import). gradio pulls it in as well, but a guard this app relies on is
@@ -58,6 +62,10 @@ packages = ["src/graph7ph"]
 dev = [
     "pytest>=8,<9",
     "playwright>=1.49,<2",
+    # tests/test_mirror.py builds the Hub's own not-found error, which carries an
+    # httpx response. huggingface-hub depends on it, but the test's import is this
+    # project's to declare, by the same rule as pandas above.
+    "httpx>=0.27,<1",
 ]
 
 [tool.pytest.ini_options]

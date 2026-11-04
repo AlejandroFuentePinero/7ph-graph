@@ -387,6 +387,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "gradio" },
+    { name = "huggingface-hub" },
     { name = "ladybug" },
     { name = "pandas" },
     { name = "plotly" },
@@ -397,6 +398,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "playwright" },
     { name = "pytest" },
 ]
@@ -404,6 +406,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "gradio", specifier = ">=5,<6" },
+    { name = "huggingface-hub", specifier = ">=1,<2" },
     { name = "ladybug", specifier = ">=0.18,<0.19" },
     { name = "pandas", specifier = ">=2,<3" },
     { name = "plotly", specifier = ">=5,<7" },
@@ -414,6 +417,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "playwright", specifier = ">=1.49,<2" },
     { name = "pytest", specifier = ">=8,<9" },
 ]
