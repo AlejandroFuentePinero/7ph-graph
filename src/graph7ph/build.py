@@ -109,8 +109,9 @@ class TwoWinners(ValueError):
     bracket), which every per-record guard waves through, because the foreign
     decks arrive under new ids the gate has nothing to compare against. Raised
     before anything is written, like :class:`YearStraddle`: a merged event
-    cannot honestly be built, and the fix is refiling the foreign decks in the
-    snapshot, not building around them.
+    cannot honestly be built, and the remedy is a ``[[refile]]`` of the foreign
+    decks in the source-repairs file (:mod:`graph7ph.repairs`), not building
+    around them.
     """
 
 
@@ -166,6 +167,7 @@ def build_graph(
     artifact: Path,
     curation: Curation | None = None,
     snapshot_decks: dict[str, frozenset[str]] | None = None,
+    source_repairs: dict | None = None,
 ) -> BuildCounts:
     """Build a fresh artifact bundle at ``artifact`` and return its counts.
 
@@ -182,6 +184,14 @@ def build_graph(
     :func:`ingest.ingest` can supply it, the snapshot sequence being its own; a
     caller handing this function one already-unioned snapshot passes none, and
     the deck-delta trigger is simply not evaluated.
+
+    ``source_repairs`` is the record of which repairs the ingest applied to the
+    snapshot sequence and which matched nothing (:func:`repairs.repairs_report`),
+    written into the reconciliation report as given. Only the ingest can grade
+    it, the repairs being applied as each snapshot is loaded (issue #268); a
+    caller handing this function a snapshot of its own passes none, and the
+    report carries no section rather than an empty one that would read as "no
+    repairs were on file".
 
     Everything that can reject the data runs before the bundle is touched, so a
     build that aborts (a year straddle, a bad curation dictionary) leaves no
@@ -248,7 +258,9 @@ def build_graph(
         reconciliation_path(artifact).write_text(json.dumps(
             asdict(pilots.report)
             | {"imputed_values": _imputed_values(conn),
-               "field_evidence": [asdict(f) for f in fields.values() if f.rule]},
+               "field_evidence": [{k: v for k, v in asdict(f).items() if k != "stated"}
+                                  for f in fields.values() if f.rule]}
+            | ({"source_repairs": source_repairs} if source_repairs is not None else {}),
             indent=2,
         ))
         # Stamped here rather than in `ingest`, so every path that seals a bundle
@@ -481,8 +493,8 @@ def _check_sole_winner(decks: list[Deck]) -> None:
         raise TwoWinners(
             f"{event} seats {len(group)} decks at rank 1 but its titles declare a "
             f"tier of at most {max(widths)}: {titles}. Two winners mean two events "
-            f"merged under one name upstream; refile the foreign decks in the "
-            f"snapshot before building."
+            f"merged under one name upstream; refile the foreign decks with a "
+            f"[[refile]] in curation/repairs.toml before building."
         )
 
 
@@ -519,7 +531,11 @@ class EventField:
     ``rule`` is null where the source's own ``eventSize`` stood, and a letter
     where :func:`corrected_field` corrected it. The counts it was corrected on
     ride along, so the reconciliation report can show the contradiction rather
-    than assert it.
+    than assert it. ``stated`` is the rule under which a ``[[refile]]`` stated
+    the field of an event it built (issue #268): kept apart from ``rule``
+    because a stated field was never refuted, so it is neither rescaled against
+    nor listed as a contradiction, while the Event node still says who decided
+    it.
     """
 
     event: str
@@ -528,6 +544,7 @@ class EventField:
     field_size: int | None  # what the placements are normalised against
     pilots: int
     max_placement: int
+    stated: str | None = None
 
 
 def corrected_field(
@@ -613,11 +630,19 @@ def _event_fields(
     ``eventSize`` is a property of the event that every one of its decks repeats,
     identically at all 107 events held, so the first one that carries a number
     speaks for the cohort.
+
+    An event a ``[[refile]]`` built has no ``eventSize`` the source stood behind:
+    the number on its decks is the ruling's, and the decks say so
+    (``Deck.field_imputed``, issue #268). Where that number stands, the rule
+    the Event node records is the refile's, because a null there means "the
+    source's own number" and there is none; where a count refutes it, the
+    correction's letter wins, since a stated field is a claim and the rules
+    exist to check claims.
     """
-    counted: dict[str, tuple[str, int | None, set[str], int]] = {}
+    counted: dict[str, tuple[str, int | None, set[str], int, str | None]] = {}
     for deck in decks:
-        _, size, people, deepest = counted.setdefault(
-            deck.event, (deck.event_type, deck.event_size, set(), 0)
+        _, size, people, deepest, _ = counted.setdefault(
+            deck.event, (deck.event_type, deck.event_size, set(), 0, None)
         )
         people.add(deck_pilot[deck.deck_id])
         counted[deck.event] = (
@@ -629,11 +654,12 @@ def _event_fields(
             size if size is not None else deck.event_size,
             people,
             max(deepest, deck.placement or 0),
+            deck.field_imputed,
         )
     fields = {}
-    for event, (event_type, size, people, deepest) in counted.items():
+    for event, (event_type, size, people, deepest, stated) in counted.items():
         field_size, rule = corrected_field(event_type, size, len(people), deepest)
-        fields[event] = EventField(event, rule, size, field_size, len(people), deepest)
+        fields[event] = EventField(event, rule, size, field_size, len(people), deepest, stated)
     return fields
 
 
@@ -774,7 +800,8 @@ def _load_nodes(
           "eventType: r.eventType, fieldSize: r.fieldSize, "
           "fieldImputed: r.fieldImputed})",
           [{"event": e, "eventId": eid, "eventType": et,
-            "fieldSize": fields[e].field_size, "fieldImputed": fields[e].rule}
+            "fieldSize": fields[e].field_size,
+            "fieldImputed": fields[e].rule or fields[e].stated}
            for e, (eid, et) in events.items()])
 
     archetypes = {a.tag: a.name for d in snapshot.decks for a in d.archetypes}

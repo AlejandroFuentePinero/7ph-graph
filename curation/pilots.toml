@@ -44,7 +44,8 @@
 #   [[deck_event]]   return one deck to the event it was really played at (e.g.
 #                    a deck the source stranded at a malformed event). The event
 #                    must be one the snapshot holds; the deck adopts that
-#                    cohort's field and is re-scored against it.
+#                    cohort's field and is re-scored against it. An event the
+#                    source does not have is a [[refile]] in repairs.toml.
 #     deck = "<deckId>"
 #     event = "CBR3"
 #

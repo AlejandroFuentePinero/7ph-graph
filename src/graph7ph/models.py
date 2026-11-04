@@ -222,6 +222,11 @@ class Deck(_Raw):
     # invented yet. Same shape as `Event.fieldImputed`.
     placement_imputed: str | None = None
     norm_imputed: str | None = None
+    # The rule under which a repair stated this deck's event's field, where the
+    # source never shipped one for that event: a `[[refile]]` creates an event the
+    # source does not have (issue #268). Read by the build when it settles the
+    # Event's field, which is where the rule is stored (`Event.fieldImputed`).
+    field_imputed: str | None = None
     # The field the source ranked `placement_norm` against, carried so the build
     # can check it against what it can count and correct it where the two
     # contradict each other (issue #140). Optional because the correction's own

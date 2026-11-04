@@ -21,10 +21,31 @@ second run sends nothing and says so. It refuses a dataset that does not exist
 (or that the login cannot see) and one that has gone public, in a sentence
 naming the remedy, before sending anything. It uses the Hub login the deploy
 uses (`uvx --from huggingface_hub hf auth login`, once). Run it again straight
-after the fetch so the snapshot just downloaded is covered before any adoption
-edit touches it. The dataset holds each snapshot as it stood on disk the first
-time it was sent: for the rounds before the mirror existed, that is the locally
-edited copy the build reads, not upstream's bytes.
+after the fetch so the snapshot just downloaded is covered. The dataset holds
+each snapshot as it stood on disk the first time it was sent: for the rounds
+before the repairs file existed (below), that is the hand-edited copy of the
+time, not upstream's bytes.
+
+A snapshot is upstream's bytes and is never edited (the rounds before the
+repairs file, to 2026-10-17, resolved their rulings by editing snapshot files,
+and those edits remain in the files they were made in because upstream's bytes
+for them were not kept). A ruling about the source's own records goes in
+`curation/repairs.toml`, which the build applies to every
+snapshot as it loads it, before the gate or any guard reads it (issue #268): a
+`[[hold_out]]` keeps a deck out of the graph, a `[[refile]]` moves decks to an
+event the source does not have (stating its type and, where known, its field,
+which then reads as the project's rule rather than the source's count), and an
+`[[adopt]]` carries a value upstream rewrote into every snapshot holding the
+deck. Each entry carries a one-line reason and the snapshot it was written
+against. The build lists every repair it applied in the reconciliation report,
+with the snapshots each matched, and names any entry whose decks no snapshot
+holds as dead. Dead catches a mistyped or reissued id, not a correction
+upstream has since made: the sequence is append-only and a deck keeps its id,
+so an entry that was ever live stays live and keeps applying. Whether upstream
+has overtaken a ruling (named the refiled event itself, dropped the held-out
+deck) is a question for every ingest, answered from the report's snapshot list
+and the newest snapshot, and the entry is retired or renamed by hand. A file
+that contradicts itself aborts the build, as a bad dictionary does.
 
 Each fetch is kept as an append-only snapshot, and the build folds the whole
 sequence: each snapshot is gated against the accumulated union of every snapshot
@@ -34,7 +55,11 @@ is promoted only if it validates, with the previous one retained at
 `data/graph.backup` for an instant rollback (ADR 0003). A build that flags dropped
 ids or changed historical facts says so and writes the detail to
 `data/graph/ingest.json`; a flagged immutable fact is held at its pre-change value
-until a human resolves it, so the flag is an action to take, not a notice.
+until a human resolves it, so the flag is an action to take, not a notice. The
+resolution is an entry in `curation/repairs.toml`: an `[[adopt]]` where
+upstream's rewrite is right, a `[[hold_out]]` or `[[refile]]` where the record
+itself is wrong. A guard that aborts the build (two winners, a year straddle)
+is resolved the same way.
 
 Then file the curation review for the round, which is where the identity work
 starts (issue #227). `curation-report` is a pure read of the promoted bundle and
@@ -105,8 +130,8 @@ uv run pytest
 uv run playwright install chromium   # once, for the browser suite below
 ```
 
-Rebuild before running the suite after any ingest, build, schema or curation
-edit. Ten tests grade the real bundle through the `live_graph` fixture, and it
+Rebuild before running the suite after any ingest, build, schema, curation or
+repairs edit. Ten tests grade the real bundle through the `live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
 (issue #55), so on a stale bundle they pass green having graded nothing. The
 identity-queue invariant, that every entry nobody has read reaches the curation
@@ -148,8 +173,8 @@ to replace it.
 
 Both forms refuse outright on an artifact the working tree has moved past. The
 gate re-runs the queries live, so a query change is graded honestly against any
-artifact, but ingest, build, schema and curation changes live *inside* the
-artifact: change one, skip the rebuild, and a gate that graded anyway would
+artifact, but ingest, build, schema, curation and repairs changes live *inside*
+the artifact: change one, skip the rebuild, and a gate that graded anyway would
 report "no regression" about code it never ran (issue #55). Each build stamps
 `data/graph/provenance.json` with a digest of the sources it was built from, and
 the gate compares that against the sources standing here. Rebuild to clear it.

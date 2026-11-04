@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from graph7ph.curation import CURATION_PATH
+from graph7ph.repairs import REPAIRS_PATH
 
 PACKAGE_DIR = Path(__file__).parent
 
@@ -39,11 +40,13 @@ BUILD_INPUTS = (
     "ingest.py",
     "models.py",
     "pilots.py",
+    "repairs.py",
 )
 
 
 def source_digest(
-    package: Path = PACKAGE_DIR, curation: Path = CURATION_PATH
+    package: Path = PACKAGE_DIR, curation: Path = CURATION_PATH,
+    repairs: Path = REPAIRS_PATH,
 ) -> str:
     """A digest over the sources a build turns into an artifact.
 
@@ -58,11 +61,13 @@ def source_digest(
     the two cases are two different artifacts, and folding the absence in is what
     lets the digest tell them apart. It follows that the digest inherits
     `CURATION_PATH`'s relative resolution, as every other default path in the CLI
-    does.
+    does. The source-repairs file is folded in on the same terms (issue #268): it
+    decides which records the build reads, and an absent one is an unrepaired
+    build.
     """
     digest = hashlib.sha256()
     for name, path in [(n, Path(package) / n) for n in BUILD_INPUTS] + [
-        ("curation", Path(curation))
+        ("curation", Path(curation)), ("repairs", Path(repairs))
     ]:
         blob = path.read_bytes() if path.exists() else b""
         # Length-prefixed, so the boundary between one file and the next name is

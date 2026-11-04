@@ -1,0 +1,122 @@
+# Source repairs: rulings about upstream's own records (issue #268).
+#
+# The build applies these to every snapshot as it is loaded, before the ingest
+# gate compares anything and before any build guard runs, so the snapshot the
+# build sees is the repaired one. Every entry keys on deck ids (the source's
+# stable identifier), carries a one-line `reason`, and names in `as_of` the
+# snapshot the ruling was written against. An entry whose decks no snapshot
+# holds is reported as dead in the reconciliation report, never fatal; a file
+# that contradicts itself aborts the build.
+#
+# Three kinds:
+#
+#   [[hold_out]]   keep these decks out of the graph, from every snapshot
+#     decks = ["<deckId>", ...]
+#
+#   [[refile]]     move these decks to an event the source does not have. The
+#                  entry states the event's type and, where the owner knows it,
+#                  its field; a stated field reaches the graph under this kind's
+#                  rule name (Event.fieldImputed = "refiled"), never as the
+#                  source's own count, and the decks' norms are re-scored against
+#                  it (Deck.normImputed = "refiled"). Leave `field` out where the
+#                  owner does not know it and the build's field rules decide. A
+#                  deck that belongs at an event the source *does* have is a
+#                  [[deck_event]] in pilots.toml, not a refile.
+#     decks = ["<deckId>", ...]
+#     event = "VFNIQ26"
+#     event_type = "Tournament"
+#     field = 49
+#
+#   [[adopt]]      adopt a value for one of a deck's immutable facts (`pilot`,
+#                  `placement`, `createdAt`), where upstream rewrote it in a later
+#                  fetch and the rewrite is right. Carried into every snapshot
+#                  that holds the deck, so the gate reads one fact instead of
+#                  flagging the rewrite and pinning the old value.
+#     decks = ["<deckId>"]
+#     fact = "pilot"
+#     value = "<pilotId>"
+#
+# Every kind also takes:
+#     reason = "one line"
+#     as_of = "20261104T091012Z"
+
+[[hold_out]]
+# GufBendigoIQ arrives with 25 decks for a 24-player field and three rank-1
+# titles; this deck (01st Peter K, Grixis) is the extra one, and the sole-winner
+# guard aborts the build while it is in (issues #253, #258, #262). Upstream had
+# not refiled it as of this snapshot.
+decks = ["x9Xnl2Z0bESr-A5jvLBeVw"]
+reason = "GufBendigoIQ seats 25 decks for a 24-player field with three rank-1 titles; this deck is the extra one (#253, #258, #262)"
+as_of = "20261104T091012Z"
+
+[[refile]]
+# Upstream folded the 2026 running of the Victorian Final National Invitational
+# Qualifier into the 2025 event (VFNIQ, field 49): 44 decks registered on
+# 2026-10-18 arrived under the 2025 event's name and id. Refiled as a second
+# event, as the July Win-a-Dual was refiled out of S&CWADJune (ADR 0025). The
+# name is provisional: upstream has not named the 2026 event; rename this entry
+# to match when it does. The field of 49 is the 2025 event's, kept only because
+# no count refutes it (44 decks, 44 pilots, deepest finish 44th); carry
+# upstream's own size here if it ever states one.
+decks = [
+    "0sTGGbBGBUK5rKh3P-bFOA",
+    "1knZ56KJ5UCN1V4tS48XYw",
+    "32Q3ZIPlX0i9EdIGJ460WA",
+    "4icL5kZvzUaKWUMkF_jzDA",
+    "7a1y0Okzck6Cp9QUnzq6nA",
+    "7dXojESAlk6EzF6CD1lzDA",
+    "CWgoiiRGxkeXB_-AFnkNOw",
+    "CxdPcVnhtk6AnOTZ1lPxrw",
+    "Fuuia4GmbEGUwJpNjo1ZeA",
+    "JumAmj3WkkSOxkotKN_pGg",
+    "K2x4Rsiy_02ofGpyek9xgg",
+    "KGdXeUEvq0uR954vuJETKQ",
+    "L98EUssYeki5Uc-GpHLjBg",
+    "M_XNpmvrrUab7dMl67CCDw",
+    "Q1xFrOVAmkmLTRvKWU1VEg",
+    "RexL2jyuWUi2qyxEnn1pzQ",
+    "TCh9SRdTlEKWB-SuXcjaFg",
+    "TuayJ1dq-UOD2PxVCDHN-g",
+    "VKDcq943WE6GJ9lHdsIY8A",
+    "Vaaxf1sh7UKzmPVCLACGwQ",
+    "XsQ7udce9km3RRhtizYdAw",
+    "Y_85yLfqN0G66stjeUF9AQ",
+    "aN1-FZqdRkSculGUwoR-QA",
+    "cGqR5hslekCjeUCCzSO7Iw",
+    "cJagkMwR1kakwV2JsA_1TQ",
+    "dtm7vCc3mEGenyyxo-VE2A",
+    "dydsBdHMyE64KJlOA4C40g",
+    "eLmcPhdxJU2fZmvNTdfI8Q",
+    "j3FIrg8JtkSICaE6lAnaVw",
+    "jTJbOLvHGki7bhCdxsokyQ",
+    "j_lFLUqbcUOOqTUvYOfZvw",
+    "n9AoHJWuzEK9VTCIb7hmTw",
+    "nDmd55SXNkimV36OFsacDw",
+    "o_FSfETwe0y9jX5Zif91dw",
+    "phgjC5z4UkSLT5pUmi-6xw",
+    "qQPeaDUYfUysr9W4FAq-CA",
+    "ranUGFCAsk-bLLwYVQlSog",
+    "rfaTCCmbREOcTz-6tgVUSA",
+    "u9sxEjb17EibsERhqChtGA",
+    "vXGL-NKuXka9W-6htCziVg",
+    "w-LlbSpghE2isO0exLbblQ",
+    "xapfnE6kG0qIB8ERFyxOow",
+    "xmdlmNKVc0ORYufR4zoh0g",
+    "yxHGIhr5RUysZ5DdQVT4VA",
+]
+event = "VFNIQ26"
+event_type = "Tournament"
+field = 49
+reason = "upstream folded the 44 decks of the 2026 VFNIQ (registered 2026-10-18) into the 2025 event; the field of 49 is the 2025 event's, unrefuted"
+as_of = "20261104T091012Z"
+
+[[adopt]]
+# Upstream re-keyed this deck's pilot from BraveIndigoLynx ('Dan K') to
+# FrostyGoldDolphin ('Daniel K') in the 2026-11-04 fetch; the person is the
+# same and the new id is the one his other decks carry. Adopted so the two
+# older snapshots that hold the deck agree with the newest.
+decks = ["xtVHtjTyLU6ZIU5TrW3w1w"]
+fact = "pilot"
+value = "FrostyGoldDolphin"
+reason = "upstream re-keyed the pilot to FrostyGoldDolphin in the 2026-11-04 fetch; adopted as the person's id"
+as_of = "20261104T091012Z"

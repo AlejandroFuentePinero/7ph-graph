@@ -26,6 +26,7 @@ from graph7ph.ingest import SchemaError, ingest, ingest_report_path
 from graph7ph.mirror import MirrorRefused, mirror_snapshots
 from graph7ph.pilots import SETTLING_TRIGGERS
 from graph7ph.provenance import staleness
+from graph7ph.repairs import REPAIRS_PATH, RepairError
 
 # Build outputs live under data/, not the repo root: the graph and its sidecar
 # reports are derived artifacts, kept out of the working tree's top level.
@@ -66,7 +67,8 @@ def _build(args: argparse.Namespace) -> None:
     # resolves it, so the flag is a required action rather than a notice.
     try:
         report, counts = ingest(args.snapshots, args.db)
-    except (SchemaError, YearStraddle, TwoWinners, NotABundle, CurationError) as exc:
+    except (SchemaError, YearStraddle, TwoWinners, NotABundle, CurationError,
+            RepairError) as exc:
         raise SystemExit(f"Build aborted, live graph untouched: {exc}")
 
     print(f"Built {args.db} ({report.status}):")
@@ -113,6 +115,14 @@ def _build(args: argparse.Namespace) -> None:
               "(listed in the report):")
         for prop, rules in decided.items():
             print(f"    {prop}: {', '.join(rules)}")
+    # The rulings about the source's records this build applied, and any that
+    # matched nothing (issue #268). A dead ruling is a maintenance item rather
+    # than an alarm, so it is a counted line and the report holds the detail.
+    repaired = recon["source_repairs"]
+    if repaired["applied"] or repaired["dead"]:
+        print(f"  {len(repaired['applied'])} deck(s) repaired by {REPAIRS_PATH}"
+              + (f", {len(repaired['dead'])} id(s) in it matching no deck "
+                 f"(listed in the report)" if repaired["dead"] else ""))
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:
