@@ -258,7 +258,8 @@ def build_graph(
         reconciliation_path(artifact).write_text(json.dumps(
             asdict(pilots.report)
             | {"imputed_values": _imputed_values(conn),
-               "field_evidence": [asdict(f) for f in fields.values() if f.rule]}
+               "field_evidence": [{k: v for k, v in asdict(f).items() if k != "stated"}
+                                  for f in fields.values() if f.rule]}
             | ({"source_repairs": source_repairs} if source_repairs is not None else {}),
             indent=2,
         ))
@@ -530,7 +531,11 @@ class EventField:
     ``rule`` is null where the source's own ``eventSize`` stood, and a letter
     where :func:`corrected_field` corrected it. The counts it was corrected on
     ride along, so the reconciliation report can show the contradiction rather
-    than assert it.
+    than assert it. ``stated`` is the rule under which a ``[[refile]]`` stated
+    the field of an event it built (issue #268): kept apart from ``rule``
+    because a stated field was never refuted, so it is neither rescaled against
+    nor listed as a contradiction, while the Event node still says who decided
+    it.
     """
 
     event: str
@@ -539,6 +544,7 @@ class EventField:
     field_size: int | None  # what the placements are normalised against
     pilots: int
     max_placement: int
+    stated: str | None = None
 
 
 def corrected_field(
@@ -628,9 +634,10 @@ def _event_fields(
     An event a ``[[refile]]`` built has no ``eventSize`` the source stood behind:
     the number on its decks is the ruling's, and the decks say so
     (``Deck.field_imputed``, issue #268). Where that number stands, the rule
-    recorded is the refile's, because a null here means "the source's own number"
-    and there is none; where a count refutes it, the correction's letter wins,
-    since a stated field is a claim and the rules exist to check claims.
+    the Event node records is the refile's, because a null there means "the
+    source's own number" and there is none; where a count refutes it, the
+    correction's letter wins, since a stated field is a claim and the rules
+    exist to check claims.
     """
     counted: dict[str, tuple[str, int | None, set[str], int, str | None]] = {}
     for deck in decks:
@@ -652,7 +659,7 @@ def _event_fields(
     fields = {}
     for event, (event_type, size, people, deepest, stated) in counted.items():
         field_size, rule = corrected_field(event_type, size, len(people), deepest)
-        fields[event] = EventField(event, rule or stated, size, field_size, len(people), deepest)
+        fields[event] = EventField(event, rule, size, field_size, len(people), deepest, stated)
     return fields
 
 
@@ -793,7 +800,8 @@ def _load_nodes(
           "eventType: r.eventType, fieldSize: r.fieldSize, "
           "fieldImputed: r.fieldImputed})",
           [{"event": e, "eventId": eid, "eventType": et,
-            "fieldSize": fields[e].field_size, "fieldImputed": fields[e].rule}
+            "fieldSize": fields[e].field_size,
+            "fieldImputed": fields[e].rule or fields[e].stated}
            for e, (eid, et) in events.items()])
 
     archetypes = {a.tag: a.name for d in snapshot.decks for a in d.archetypes}

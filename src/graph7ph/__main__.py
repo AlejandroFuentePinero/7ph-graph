@@ -120,9 +120,9 @@ def _build(args: argparse.Namespace) -> None:
     # than an alarm, so it is a counted line and the report holds the detail.
     repaired = recon["source_repairs"]
     if repaired["applied"] or repaired["dead"]:
-        print(f"  {len(repaired['applied'])} source repair(s) applied from {REPAIRS_PATH}"
-              + (f", {len(repaired['dead'])} matching no deck (listed in the report)"
-                 if repaired["dead"] else ""))
+        print(f"  {len(repaired['applied'])} deck(s) repaired by {REPAIRS_PATH}"
+              + (f", {len(repaired['dead'])} id(s) in it matching no deck "
+                 f"(listed in the report)" if repaired["dead"] else ""))
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

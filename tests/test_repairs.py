@@ -107,6 +107,16 @@ def test_an_adopted_fact_replaces_the_source_value_on_every_snapshot_holding_the
     assert matched == {"d1"}
 
 
+def test_a_refile_whose_event_the_source_later_uses_is_refused_even_where_nothing_is_refiled(
+    tmp_path
+):
+    # The invariant holds over the union the build reads, so a snapshot holding
+    # none of the refiled decks is still refused when it files its own decks at
+    # the event the refile builds.
+    with pytest.raises(RepairError, match=r"\[\[deck_event\]\]"):
+        apply_repairs(snap(deck("d1", event="E26")), repairs(tmp_path, REFILE))
+
+
 def test_a_refile_onto_an_event_the_source_has_is_refused(tmp_path):
     # The kind exists for an event the source does not have. A deck that belongs at
     # one it does have is a [[deck_event]] in the pilot dictionary, which adopts
@@ -125,6 +135,10 @@ def test_a_refile_onto_an_event_the_source_has_is_refused(tmp_path):
     HOLD_OUT.replace('decks = ["d2"]', 'decks = ["d2", "d2"]'),
     HOLD_OUT.replace('decks = ["d2"]', 'deck = "d2"'),
     HOLD_OUT.replace("reason =", "why ="),
+    HOLD_OUT.replace("[[hold_out]]", "[[holdout]]"),  # a table no kind is called
+    REFILE.replace("field = 49", "feild = 49"),  # a key the kind has no use for
+    ADOPT.replace('fact = "pilot"', 'fact = "createdAt"')
+    .replace('value = "FrostyGoldDolphin"', "value = 2026-10-18T11:11:05"),  # no offset
     HOLD_OUT.replace('as_of = "20261104T091012Z"', 'as_of = 20261104'),
     HOLD_OUT.replace('as_of = "20261104T091012Z"', 'as_of = "2026-11-04"'),
     REFILE.replace('event_type = "Tournament"\n', ""),
@@ -161,6 +175,13 @@ def test_two_agreeing_refiles_and_two_facts_adopted_on_one_deck_load(tmp_path):
     assert [r.decks for r in loaded.refiles] == [("d2", "d3"), ("d4",)]
     assert [(a.fact, a.value) for a in loaded.adopts] == [
         ("pilot", "FrostyGoldDolphin"), ("placement", 3)]
+
+
+def test_a_created_at_written_in_utc_loads(tmp_path):
+    loaded = repairs(tmp_path, ADOPT.replace('fact = "pilot"', 'fact = "createdAt"')
+                     .replace('value = "FrostyGoldDolphin"', "value = 2026-10-18T11:11:05Z"))
+
+    assert loaded.adopts[0].value.isoformat() == "2026-10-18T11:11:05+00:00"
 
 
 def test_an_absent_file_is_an_empty_set_of_repairs(tmp_path):
