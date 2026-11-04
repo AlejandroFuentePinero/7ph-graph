@@ -56,9 +56,9 @@ again, dropping or refiling the held-out deck) is invisible to the gate, which c
 repaired snapshots, so the report's `source_repairs.moved` lists it instead
 (issue #278): one row per repaired deck whose source filing changed between two
 snapshots from the one the ruling was written against, naming both snapshots and
-what the source held on each. Read it at every ingest; the build promotes
-regardless, because the answer (retire the entry, rename the event, carry
-upstream's field) is a ruling. A file that contradicts itself aborts the build,
+what the source held on each. The build counts those decks on the terminal
+beside the repairs line; it promotes regardless, because the answer (retire
+the entry, rename the event, carry upstream's field) is a ruling. A file that contradicts itself aborts the build,
 as a bad dictionary does.
 
 Each fetch is kept as an append-only snapshot, and the build folds the whole

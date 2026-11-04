@@ -255,8 +255,7 @@ def _common(entry: dict, path: Path, kind: str) -> dict:
 # What the source holds under each kind of repair, as the source spells it: the
 # keys `apply_repairs` records per matched deck and `repairs_report` compares
 # between snapshots. An adopt's key is the fact it adopts.
-HOLD_OUT_HELD = ("present", "event", "eventId")
-REFILE_HELD = ("event", "eventId")
+HELD = {"hold_out": ("present", "event", "eventId"), "refile": ("event", "eventId")}
 
 
 def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, dict[str, dict]]:
@@ -307,6 +306,8 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, dict[
             source_held.setdefault(d.deck_id, {}).update(event=d.event, eventId=d.event_id)
             d = _refiled(d, refiled[d.deck_id])
         decks.append(d)
+    if not source_held:
+        return snapshot, {}
     return Snapshot(
         cards=snapshot.cards, decks=decks,
         containments=[c for c in snapshot.containments if c.deck_id not in held],
@@ -367,14 +368,14 @@ def repairs_report(
     moving again.
     """
     applied_rows, dead, moved = [], [], []
-    for kind, entries, describe, held_keys in (
-        ("hold_out", repairs.hold_outs, lambda e: "held out", lambda e: HOLD_OUT_HELD),
-        ("refile", repairs.refiles, lambda e: f"refiled to {e.event}", lambda e: REFILE_HELD),
-        ("adopt", repairs.adopts, lambda e: f"adopts {e.fact} = {e.value!r}",
-         lambda e: (e.fact,)),
+    for kind, entries, describe in (
+        ("hold_out", repairs.hold_outs, lambda e: "held out"),
+        ("refile", repairs.refiles, lambda e: f"refiled to {e.event}"),
+        ("adopt", repairs.adopts, lambda e: f"adopts {e.fact} = {e.value!r}"),
     ):
         for entry in entries:
             detail = f"{describe(entry)}: {entry.reason}"
+            keys = HELD.get(kind) or (entry.fact,)
             for deck in entry.decks:
                 row = {"kind": kind, "deck": deck, "detail": detail}
                 if deck not in applied:
@@ -382,8 +383,10 @@ def repairs_report(
                     continue
                 applied_rows.append({**row, "snapshots": [name for name, _ in applied[deck]]})
                 # Snapshot names are UTC stamps, so string order is time order.
-                seen = [(name, {k: held[k] for k in held_keys(entry)})
+                seen = [(name, {k: held[k] for k in keys})
                         for name, held in applied[deck] if name >= entry.as_of]
+                # A held-out deck the source stops filing: its absence is a
+                # value too, dated at the first snapshot that lacks it.
                 if kind == "hold_out" and seen and seen[-1][0] != snapshots[-1]:
                     gone = snapshots[snapshots.index(seen[-1][0]) + 1]
                     seen.append((gone, {"present": False}))
