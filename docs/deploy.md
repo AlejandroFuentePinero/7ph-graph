@@ -50,8 +50,9 @@ the working tree (`.env`, `snapshots/`) can reach the Space. The artifact is the
 one thing staged whole rather than named file by file, so what it carries beside
 the database ships with it: the ingestion reports (`ingest.json`,
 `reconciliation.json`), which restate associations already public on Moxfield,
-and the build stamp (`provenance.json`), a digest of the sources and a build
-time. Redeploy after a refresh by re-running the script.
+the corpus figures the FAQ quotes (`figures.json`, issue #264), and the build
+stamp (`provenance.json`), a digest of the sources and a build time. Redeploy
+after a refresh by re-running the script.
 
 ### Preflights
 

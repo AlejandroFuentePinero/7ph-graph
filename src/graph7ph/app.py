@@ -726,7 +726,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "**scored** wherever a finish ended up on record for it; unscored decks still "
         "count as decks played, they just have no finish.\n\n"
         "The field a placement is measured against is the number the event published, "
-        "where it published a usable one. Twenty-three of the 159 events on record carry a "
+        "where it published a usable one. Twenty-four of the 159 events on record carry a "
         "field this project settled instead, twenty-one of those at a floor of 24 that "
         "nobody counted. At the four teams events the field counts teams rather than "
         "pilots, so teammates share one placement. Those finishes are averaged in like "

@@ -112,11 +112,16 @@ corpus and go stale silently:
 - **The FAQ's own figures.** Several answers in `app.py` quote the corpus (the
   pilot totals and paired names, the settled fields, the leaderboard size, the
   drawable-pair and bounded-meeting counts, the Golgari example, the gem luck
-  share). Only the pilot-identity pair is test-graded; the rest are prose.
-  Re-derive every one from the freshly promoted bundle, never adjust by eye:
-  each figure came from a measurement (ADR 0024's counting for the pair
-  figures, `trends`' own functions for the rest), and the 2026-09-01 round
-  found four of them stale after a routine refresh missed them.
+  share). The build derives every one of them into `data/graph/figures.json`
+  beside the graph (issue #264), by the chart functions' own definitions, so the
+  file is the figure and the prose is a copy of it until issue #265 has the
+  answers read the file. Copy from the file, never adjust by eye: the
+  2026-09-01 round found four figures stale after a routine refresh missed
+  them. The derivation is the slow half of a build (the archetype-pair sweep
+  and the per-pilot rank gap): measured on 2026-11-05 over the 2026-11-04
+  bundle (159 events, 6,065 decks), the build took 3 min 0 s against about
+  a minute before; the derivation alone, run standalone before it joined the
+  build, took 1 min 54 s.
 - **The measured constants.** `scripts/gem_sweep.py` says it itself: re-run it
   whenever the artifact grows, because the winning cell is a property of the
   corpus and has moved before. A shipped cell that stops qualifying is a
@@ -144,8 +149,9 @@ uv run pytest
 uv run playwright install chromium   # once, for the browser suite below
 ```
 
-Rebuild before running the suite after any ingest, build, schema, curation or
-repairs edit. Ten tests grade the real bundle through the `live_graph` fixture, and it
+Rebuild before running the suite after any ingest, build, schema, curation,
+repairs, query or trends edit. Twelve tests grade the real bundle through the
+`live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
 (issue #55), so on a stale bundle they pass green having graded nothing. The
 identity-queue invariant, that every entry nobody has read reaches the curation
@@ -186,7 +192,7 @@ digest is the working tree's, since then nothing but data moved since the oracle
 was last proven; it prints the count it overrode and nothing of the difference.
 When the code moved since the proof it refuses, with the order to follow: gate
 green on the previous bundle first, then recapture (issue #272). After a
-query-side change the previous bundle is `data/graph.backup` and can be graded
+render-side change the previous bundle is `data/graph.backup` and can be graded
 as it stands; a build-input change makes that bundle stale too, so move the
 newest snapshot aside, build and prove, then put it back and build again. With
 no baseline on disk, `--capture` just writes. A baseline that exists but cannot
@@ -194,10 +200,11 @@ be graded (a corrupt oracle) is a refusal too, not a clean slate: pass `--force`
 to replace it.
 
 Both forms refuse outright on an artifact the working tree has moved past. The
-gate re-runs the queries live, so a query change is graded honestly against any
-artifact, but ingest, build, schema, curation and repairs changes live *inside*
-the artifact: change one, skip the rebuild, and a gate that graded anyway would
-report "no regression" about code it never ran (issue #55). Each build stamps
+gate re-runs the queries live, but ingest, build, schema, curation and repairs
+changes live *inside* the artifact, and since issue #264 so do query and trends
+changes, because the build runs both layers to derive the figures file it seals
+into the bundle: change one, skip the rebuild, and a gate that graded anyway
+would report "no regression" about code it never ran (issue #55). Each build stamps
 `data/graph/provenance.json` with a digest of the sources it was built from, and
 the gate compares that against the sources standing here. Rebuild to clear it.
 

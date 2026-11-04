@@ -19,28 +19,29 @@ from graph7ph.provenance import (
 
 
 def _sources(root: Path, *, curation: str = "[pilots]\n") -> tuple[Path, Path]:
-    """A stand-in package tree: every build input, plus a query module beside them."""
+    """A stand-in package tree: every build input, plus a render module beside them."""
     package = root / "graph7ph"
     package.mkdir(parents=True)
     for name in BUILD_INPUTS:
         (package / name).write_text(f"# {name}\n")
-    (package / "query.py").write_text("# query.py\n")
+    (package / "render.py").write_text("# render.py\n")
     curation_path = root / "curation" / "pilots.toml"
     curation_path.parent.mkdir(parents=True)
     curation_path.write_text(curation)
     return package, curation_path
 
 
-def test_the_digest_moves_with_a_build_input_and_holds_across_the_query_layer(tmp_path):
+def test_the_digest_moves_with_a_build_input_and_holds_across_the_render_layer(tmp_path):
     # What the digest is for: telling whether the artifact on disk was built from
     # the code standing here now. Only the code that ends up *inside* the artifact
-    # counts. Issue #55 is explicit that query-layer changes are already graded
-    # correctly against a stale bundle, so moving query.py must not demand a
-    # rebuild, or the gate becomes noise and gets ignored.
+    # counts. Issue #55 is explicit that a layer read live is already graded
+    # correctly against a stale bundle, so moving render.py must not demand a
+    # rebuild, or the gate becomes noise and gets ignored. (The query layer was
+    # the example until issue #264 had the build derive the figures file from it.)
     package, curation = _sources(tmp_path)
     before = source_digest(package, curation)
 
-    (package / "query.py").write_text("# query.py, rewritten\n")
+    (package / "render.py").write_text("# render.py, rewritten\n")
     assert source_digest(package, curation) == before
 
     (package / "pilots.py").write_text("# pilots.py, rewritten\n")

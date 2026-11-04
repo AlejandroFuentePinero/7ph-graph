@@ -104,6 +104,10 @@ _Avoid_: Inferred, guessed, flag, derived (a derived value like Year is not an u
 A ruling about one of the source's own records, applied to every snapshot as it is loaded and before the gate or any guard reads it: a deck held out of the graph, decks refiled to an Event the source does not have, or a value adopted for an immutable fact upstream rewrote. Checked in at `curation/repairs.toml`, keyed on deck ids, each with a one-line reason and the snapshot it was written against (issue #268). Not a curation decision, which is about identity or classification and applies at build, and not an edit to a snapshot, which is upstream's bytes and stays so. A field a refile states is Imputed under the rule `refiled`, since the source never counted it. The gate compares repaired snapshots, so upstream moving under a repair (refiling or dropping the deck, rewriting the adopted fact again) is reported, not flagged: the build keeps, per repaired deck per snapshot, what the source held there, and the reconciliation report's `source_repairs.moved` names each deck whose source filing changed from the ruling's snapshot on (issue #278).
 _Avoid_: Fix, patch, snapshot edit, override
 
+**Figure**:
+A corpus number the FAQ quotes (settled fields, teams events, the bracket-against-field finish averages, the head-to-head pairs drawn, bounded and broken, the numbered and paired names, the leaderboard size and its rank gap from the performance headline, multi-archetype decks, the Golgari example, the coin-close archetypes, the gem list and its luck share). Derived by the build from the promoted graph, by the chart functions' own definitions, into `figures.json` beside the database, so the figures promote and roll back with the bundle and a deploy carries them (issue #264). The build is where they live because the slow ones (the archetype-pair sweep, the per-pilot rank gap) take minutes. A figure is a measurement of the bundle it sits beside, never a number typed into prose.
+_Avoid_: Constant (a rule constant is design, not data), hand count, prose number
+
 ---
 
 See `docs/research-log.md` for cross-session data insights and handoffs.
