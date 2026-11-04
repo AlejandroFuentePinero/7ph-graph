@@ -118,11 +118,16 @@ def _build(args: argparse.Namespace) -> None:
     # The rulings about the source's records this build applied, and any that
     # matched nothing (issue #268). A dead ruling is a maintenance item rather
     # than an alarm, so it is a counted line and the report holds the detail.
+    # A ruling upstream has moved under is the one thing the file hides from
+    # the gate (issue #278), so it is counted here and never only in the report.
     repaired = recon["source_repairs"]
     if repaired["applied"] or repaired["dead"]:
         print(f"  {len(repaired['applied'])} deck(s) repaired by {REPAIRS_PATH}"
               + (f", {len(repaired['dead'])} id(s) in it matching no deck "
                  f"(listed in the report)" if repaired["dead"] else ""))
+    if repaired["moved"]:
+        print(f"  {len({r['deck'] for r in repaired['moved']})} of them upstream has moved "
+              f"under since the ruling (read source_repairs.moved in the report)")
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

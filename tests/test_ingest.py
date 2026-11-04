@@ -498,18 +498,24 @@ def test_shape_shifted_response_hard_fails(tmp_path):
         load_checked(tmp_path)
 
 
-def _repairable_snapshot(path, decks):
+def _repairable_snapshot(path, decks, events=None):
     """``decks`` as ``(deck_id, pilot)``, all at event E, so a pilot rewrite between
-    two snapshots is the immutable-fact change the gate flags."""
+    two snapshots is the immutable-fact change the gate flags. ``events`` maps a
+    deck id to the ``(event, eventId)`` the source files it at instead."""
+    events = events or {}
     path.mkdir(parents=True)
-    (path / "decks.json").write_text(json.dumps([{
-        "deckId": did, "name": f"{did} - n - E", "deckName": "n", "pilot": pilot,
-        "event": "E", "eventId": "evt_1", "eventType": "Tournament",
-        "placement": 1, "placementNorm": 0.0, "eventSize": 32,
-        "createdAt": "2025-06-01T00:00:00+00:00",
-        "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
-        "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
-    } for did, pilot in decks]))
+
+    def record(did, pilot):
+        event, event_id = events.get(did, ("E", "evt_1"))
+        return {
+            "deckId": did, "name": f"{did} - n - {event}", "deckName": "n", "pilot": pilot,
+            "event": event, "eventId": event_id, "eventType": "Tournament",
+            "placement": 1, "placementNorm": 0.0, "eventSize": 32,
+            "createdAt": "2025-06-01T00:00:00+00:00",
+            "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
+            "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
+        }
+    (path / "decks.json").write_text(json.dumps([record(did, pilot) for did, pilot in decks]))
     (path / "cards_index.json").write_text(json.dumps({
         "v": 2,
         "cards": [{"canon": "island", "name": "Island", "type": "Lands",
@@ -579,4 +585,84 @@ as_of = "20260201T000000Z"
              "snapshots": ["20260101T000000Z", "20260201T000000Z"]},
         ],
         "dead": [{"kind": "hold_out", "deck": "d9", "detail": "held out: extra deck"}],
+        "moved": [],
     }
+
+
+def test_a_refiled_deck_upstream_moves_itself_is_reported_as_moved_under_the_repair(
+    tmp_path, monkeypatch
+):
+    # The repair rewrites the deck's event on every snapshot before the gate
+    # compares them, so upstream filing the deck at its own new event is
+    # invisible to the gate (issue #278). The report says so instead, naming
+    # the two snapshots and what the source filed on each.
+    root = tmp_path / "snapshots"
+    _repairable_snapshot(root / "20260101T000000Z", [("d1", "p1"), ("d3", "p3")])
+    _repairable_snapshot(root / "20260201T000000Z", [("d1", "p1"), ("d3", "p3")],
+                         events={"d3": ("E 2026", "evt_2")})
+    repairs = tmp_path / "repairs.toml"
+    repairs.write_text('''
+[[refile]]
+decks = ["d3"]
+event = "E26"
+event_type = "Tournament"
+field = 49
+reason = "folded"
+as_of = "20260101T000000Z"
+''')
+    monkeypatch.setattr("graph7ph.ingest.load_repairs",
+                        functools.partial(load_repairs, repairs))
+    db = tmp_path / "graph"
+
+    report, counts = ingest(root, db)
+
+    assert report.flags == []
+    section = json.loads(reconciliation_path(db).read_text())["source_repairs"]
+    assert section["moved"] == [{
+        "kind": "refile", "deck": "d3", "detail": "refiled to E26: folded",
+        "from": {"snapshot": "20260101T000000Z", "event": "E", "eventId": "evt_1"},
+        "to": {"snapshot": "20260201T000000Z", "event": "E 2026", "eventId": "evt_2"},
+    }]
+
+
+def test_an_adopted_fact_rewritten_again_and_a_held_out_deck_dropped_are_reported_as_moved(
+    tmp_path, monkeypatch
+):
+    # Three fetches. d1's pilot is rewritten once (the adopt, written against
+    # the second snapshot, accepts it) and then again; d2 is held out and the
+    # source drops it in the third fetch. Neither reaches the gate.
+    root = tmp_path / "snapshots"
+    _repairable_snapshot(root / "20260101T000000Z", [("d1", "old"), ("d2", "p2")])
+    _repairable_snapshot(root / "20260201T000000Z", [("d1", "new"), ("d2", "p2")])
+    _repairable_snapshot(root / "20260301T000000Z", [("d1", "newer")])
+    repairs = tmp_path / "repairs.toml"
+    repairs.write_text('''
+[[hold_out]]
+decks = ["d2"]
+reason = "extra deck"
+as_of = "20260101T000000Z"
+
+[[adopt]]
+decks = ["d1"]
+fact = "pilot"
+value = "new"
+reason = "re-keyed"
+as_of = "20260201T000000Z"
+''')
+    monkeypatch.setattr("graph7ph.ingest.load_repairs",
+                        functools.partial(load_repairs, repairs))
+    db = tmp_path / "graph"
+
+    report, counts = ingest(root, db)
+
+    assert report.flags == []
+    section = json.loads(reconciliation_path(db).read_text())["source_repairs"]
+    assert section["moved"] == [
+        {"kind": "hold_out", "deck": "d2", "detail": "held out: extra deck",
+         "from": {"snapshot": "20260201T000000Z", "present": True,
+                  "event": "E", "eventId": "evt_1"},
+         "to": {"snapshot": "20260301T000000Z", "present": False}},
+        {"kind": "adopt", "deck": "d1", "detail": "adopts pilot = 'new': re-keyed",
+         "from": {"snapshot": "20260201T000000Z", "pilot": "new"},
+         "to": {"snapshot": "20260301T000000Z", "pilot": "newer"}},
+    ]

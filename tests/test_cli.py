@@ -243,6 +243,34 @@ def test_a_curation_decision_the_build_cannot_honour_aborts_cleanly(tmp_path, mo
     assert not db.exists()
 
 
+def test_a_build_announces_a_repair_upstream_has_moved_under(tmp_path, capsys, monkeypatch):
+    # The row lives in the reconciliation report, but the build is where the
+    # owner is standing, and a ruling upstream has overtaken is the one thing
+    # the repairs file hides from the gate (issue #278): counted on the
+    # terminal, never only in the report.
+    _snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
+        ("d1", "2026-01-01T00:00:00+00:00"), ("d2", "2026-01-01T00:00:00+00:00"),
+    ])
+    _snapshot(tmp_path / "snapshots" / "20260201T000000Z", [
+        ("d1", "2026-01-01T00:00:00+00:00"),
+    ])
+    repairs = tmp_path / "repairs.toml"
+    repairs.write_text('''
+[[hold_out]]
+decks = ["d2"]
+reason = "extra deck"
+as_of = "20260101T000000Z"
+''')
+    monkeypatch.setattr("graph7ph.ingest.load_repairs",
+                        functools.partial(load_repairs, repairs))
+
+    _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
+
+    out = capsys.readouterr().out
+    assert "1 deck(s) repaired by" in out
+    assert "1 of them upstream has moved under since the ruling (read source_repairs.moved in the report)" in out
+
+
 def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
     # Promotion renames the directory a running app opened, so it goes on serving
     # the old graph with no error at all. The build is the moment the developer is

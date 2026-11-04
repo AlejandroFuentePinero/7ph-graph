@@ -99,6 +99,12 @@ No override layer, no curation entry: the snapshot now records what happened.
   > decks keep their ids, so the entry stays live and keeps applying. Checking
   > whether upstream has since named the event is a step of every ingest, as
   > the entry's own comment says.
+  > **Annotation (issue #278):** that check is now a row, not a hand
+  > comparison: the ingest keeps what the source filed under each repair per
+  > snapshot, and the reconciliation report's `source_repairs.moved` names any
+  > refiled deck whose source event changed since the entry's `as_of`
+  > (`repairs.repairs_report`). The build still promotes; the row waits for
+  > the ruling.
 - A genuinely corrected registration date now also flags and waits for a
   human. History prices that at zero: no other `createdAt` rewrite has ever
   been fetched.

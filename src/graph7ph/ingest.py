@@ -340,15 +340,16 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     # build guard runs (issue #268): the sequence the gate folds is the repaired
     # one, so a hold-out is not a dropped id, an adopted rewrite is not a changed
     # fact, and a refiled cohort is not a second winner. Which snapshots each
-    # repair touched is kept for the report, since only this loop can say.
+    # repair touched, and what the source held there under it, is kept for the
+    # report, since only this loop can say (issue #278).
     repairs = load_repairs()
     snapshots = []
-    applied: dict[str, list[str]] = {}
+    applied: dict[str, list[tuple[str, dict]]] = {}
     for d in dirs:
-        snapshot, matched = apply_repairs(load_checked(d), repairs)
+        snapshot, source_held = apply_repairs(load_checked(d), repairs)
         snapshots.append(snapshot)
-        for deck in sorted(matched):
-            applied.setdefault(deck, []).append(d.name)
+        for deck in sorted(source_held):
+            applied.setdefault(deck, []).append((d.name, source_held[deck]))
 
     result = gate_sequence(snapshots)
 
@@ -361,7 +362,7 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     remove_artifact(incoming)
     counts = build_graph(  # writes reconciliation_path(incoming)
         result.snapshot, incoming, snapshot_decks=_deck_history(dirs, snapshots),
-        source_repairs=repairs_report(repairs, applied),
+        source_repairs=repairs_report(repairs, applied, [d.name for d in dirs]),
     )
     ingest_report_path(incoming).write_text(json.dumps(asdict(result.report), indent=2))
 
