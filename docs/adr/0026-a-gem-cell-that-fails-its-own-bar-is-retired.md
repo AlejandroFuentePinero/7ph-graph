@@ -5,6 +5,17 @@
 > so the same sweep re-picked it: the ceiling is 0.05 now. `query.py` holds the live
 > values; the tables here record the corpus they measured.
 
+> **A qualifying cell holds against any challenger (issue #260, 2026-11-04).** This
+> rule fires on failure only. On the 2026-10-17 corpus a 0.20/0.15/5 cell outranked
+> the shipped cell by more than double (genuine 5.0 against 2.2) while the shipped
+> cell still cleared its own bar, and the issue asked whether a lead of that size
+> should move the ceiling. One ingestion later the challenger reads genuine 0.8
+> (found 1, luck 0.2) and the shipped cell is unchanged at 2.2. A rule that moved on
+> rank would have shipped 0.15 in October and 0.05 again in November, two moves of the
+> public list in a month for a lead that did not survive one sweep. So the margin
+> over the shipped cell is never a reason to move; only the shipped cell failing the
+> half-luck bar is.
+
 ADR 0020 made the four gem constants a measurement of the corpus and told the
 maintainer to re-run `scripts/gem_sweep.py` whenever the artifact grows, because the
 winning cell is a property of the corpus rather than of the rule. The 2026-09-01
