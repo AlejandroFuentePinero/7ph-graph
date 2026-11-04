@@ -75,6 +75,17 @@ upstream's rewrite is right, a `[[hold_out]]` or `[[refile]]` where the record
 itself is wrong. A guard that aborts the build (two winners, a year straddle,
 registrations spread wider than one running) is resolved the same way.
 
+The build also derives every corpus figure the FAQ quotes into
+`data/graph/figures.json` beside the graph (issue #264), by the chart functions'
+own definitions, and the app renders the answers from that file when it starts
+(issue #265), so there is nothing to copy into the prose after a round: the
+2026-09-01 round found four figures stale after a routine refresh missed them,
+which is the failure the file retires. The derivation is the slow half of a
+build (the archetype-pair sweep and the per-pilot rank gap): measured on
+2026-11-05 over the 2026-11-04 bundle (159 events, 6,065 decks), the build took
+3 min 0 s against about a minute before; the derivation alone, run standalone
+before it joined the build, took 1 min 54 s.
+
 Then file the curation review for the round, which is where the identity work
 starts (issue #227). `curation-report` is a pure read of the promoted bundle and
 `gh` stays out of the build, so filing is this line rather than a build side
@@ -106,22 +117,9 @@ file it as the round's review. The title is the brief's own first line, which
 names the snapshot the body reports on, so the issue cannot be titled after a
 different one than it describes.
 
-A round is not done when the identity queue empties. Two more things read the
-corpus and go stale silently:
+A round is not done when the identity queue empties. One more thing reads the
+corpus and goes stale silently:
 
-- **The FAQ's own figures.** Several answers in `app.py` quote the corpus (the
-  pilot totals and paired names, the settled fields, the leaderboard size, the
-  drawable-pair and bounded-meeting counts, the Golgari example, the gem luck
-  share). The build derives every one of them into `data/graph/figures.json`
-  beside the graph (issue #264), by the chart functions' own definitions, so the
-  file is the figure and the prose is a copy of it until issue #265 has the
-  answers read the file. Copy from the file, never adjust by eye: the
-  2026-09-01 round found four figures stale after a routine refresh missed
-  them. The derivation is the slow half of a build (the archetype-pair sweep
-  and the per-pilot rank gap): measured on 2026-11-05 over the 2026-11-04
-  bundle (159 events, 6,065 decks), the build took 3 min 0 s against about
-  a minute before; the derivation alone, run standalone before it joined the
-  build, took 1 min 54 s.
 - **The measured constants.** `scripts/gem_sweep.py` says it itself: re-run it
   whenever the artifact grows, because the winning cell is a property of the
   corpus and has moved before. A shipped cell that stops qualifying is a

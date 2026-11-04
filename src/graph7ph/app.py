@@ -11,6 +11,7 @@ tested in ``tests/test_app.py`` (the captions, the states, and the tab tree a bu
 """
 
 import html
+import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,7 @@ import plotly.graph_objects as pgo
 from graph7ph import numfmt, palette, theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
+from graph7ph.figures import figures_path
 from graph7ph.query import (
     GEM_TOP_CUT,
     MAX_GEM_LUCK,
@@ -713,6 +715,12 @@ _DEFAULT_CUT = "Top 50%"
 # it, which is how the four charts that drop those events came to describe the same
 # rule four different ways. An answer never restates what its own surface already says;
 # what it is for is what the surface had no room for.
+#
+# These are templates (issue #265): every corpus figure an answer quotes is a
+# ``{placeholder}`` that :func:`faq_entries` fills from the bundle's figures file
+# (issue #264) when the app starts, so no number on this tab can lag the graph it
+# describes. The rule constants (the floor of 24, the 64-deck majors cut, the 90%
+# interval, the one-in-a-hundred gem bar) are design, not data, and stay written in.
 _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
     (
         "faq-finish",
@@ -726,15 +734,17 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "**scored** wherever a finish ended up on record for it; unscored decks still "
         "count as decks played, they just have no finish.\n\n"
         "The field a placement is measured against is the number the event published, "
-        "where it published a usable one. Twenty-four of the 159 events on record carry a "
-        "field this project settled instead, twenty-one of those at a floor of 24 that "
-        "nobody counted. At the four teams events the field counts teams rather than "
+        "where it published a usable one. {settled_fields} of the {events} events on record "
+        "carry a field this project settled instead, {settled_at_floor} of those at a "
+        "floor of 24 that nobody counted. At the {teams_events} teams events the field "
+        "counts teams rather than "
         "pilots, so teammates share one placement. Those finishes are averaged in like "
         "any other, and the head-to-head is the only chart that marks the individual "
         "numbers it draws.\n\n"
         "Some events published only their top eight, not full standings. At those "
         "events the only finishes on record are the good ones, so their average is "
-        "misleadingly high: 0.90, against 0.51 at an event that published its whole "
+        "misleadingly high: {mean_finish_cut_only}, against {mean_finish_full} at an event "
+        "that published its whole "
         "field. Every chart that averages finishes leaves those events out: the "
         "metagame landscape's vertical axis, the archetype timeline, a pilot's "
         "performance chart, and the player leaderboard. Two charts keep them. The pilot "
@@ -830,17 +840,20 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "picked, the count is the events where it finished ahead of the middle of the "
         "field (see the finish question above), out of the events it was scored at, "
         "which is the number beside its name "
-        "in the picker. Winning about half the time is what a coin does, and 107 of the "
-        "133 archetypes the picker offers are that close, so most of the time the "
+        "in the picker. Winning about half the time is what a coin does, and "
+        "{archetypes_coin_close} of the {archetypes_offered} archetypes the picker offers "
+        "are that close, so most of the time the "
         "headline says the count could be luck.\n\n"
         "Picking a second archetype narrows the chart to the events both attended, and "
         "the headline counts how many of those each finished ahead at, hedged the same "
         "way. It counts every meeting the record settles, which is every point you can "
-        "see: one event published just 16 of its 28 finishes, so an archetype can have "
+        "see: one event published just {bound_published} of its {bound_field} finishes, so "
+        "an archetype can have "
         "been there with nothing of its own on record. Its decks finished below every "
         "one that event did publish, so the point is drawn at the best it could have "
         "been and marked with a ▽, meaning the real finish is that or worse, and the "
-        "other archetype is counted the winner of that meeting. 68 of the 5,824 pairs "
+        "other archetype is counted the winner of that meeting. {archetype_pairs_bounded} of "
+        "the {archetype_pairs_drawn} pairs "
         "the chart will draw carry one. Where neither archetype was scored there is "
         "nothing to compare, so that meeting is neither drawn nor counted and both "
         "lines break over the date instead.\n\n"
@@ -854,7 +867,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         # (issues #228, #231): a hold parks the question, and the two names are still
         # offered apart, which is what this sentence is about.
         # `test_app.py::test_the_pilot_identity_answer_counts_what_the_graph_holds`
-        # grades both figures here against the live record.
+        # grades both figures, as rendered, against the live record.
         "faq-pilot-identity",
         "Pilots",
         "Is a pilot one person, and where do the names come from?",
@@ -864,7 +877,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Names ending in a number, like \"Dan S 1\" and \"Dan S 2\", are one place a "
         "pilot may not be a single person. The source sometimes files several "
         "entries at one event under one id, which no one person can be, so this "
-        "project separates them into numbered careers. 58 of the 1,310 names offered "
+        "project separates them into numbered careers. {pilots_numbered} of the "
+        "{pilots_offered} names offered "
         "are one of these, and where one career ends and the next begins is this "
         "project's reading rather than a fact on record. Two numbered names sharing a "
         "stem may or may not be the same person, so a head-to-head between them is not "
@@ -872,7 +886,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "It happens the other way round too: one person can be listed as two names. "
         "Two spellings are joined only when the names recovered from the titles match "
         "outright, so \"Josh V\" and \"Joshua V\" stay apart until a maintainer confirms "
-        "they are one person. 232 of the names offered are currently paired with another "
+        "they are one person. {pilots_paired} of the names offered are currently paired with "
+        "another "
         "that may be the same person, which is a question this project has not settled "
         "rather than an answer it got wrong. If you find yourself in here twice, the "
         "email and Discord at the foot of the page are the way to say so.",
@@ -899,8 +914,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "scored years, weighted by events, so a busy year counts for more. It counts "
         "every event that published full standings (see the finish question above); "
         "the player leaderboard counts only the biggest ones. The two measure "
-        "different things, and typically put a pilot about a dozen places apart in the "
-        "player leaderboard standings, which rank 144 pilots.\n\n"
+        "different things, and typically put a pilot about {rank_gap} places apart in the "
+        "player leaderboard standings, which rank {leaderboard_pilots} pilots.\n\n"
         "Each year carries an error bar: the 90% range that year's average could "
         "reasonably sit in (see the finish question above). The bars are wide and they "
         "overlap, because a typical year rests on just three events. "
@@ -919,14 +934,16 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "point is one real placement, not an average, so the top-eight-only events the "
         "averaging charts drop (see the finish question above) are safe to keep here. "
         "Where only one of the two is on record at a meeting, what happens depends on "
-        "how much of that event was published. At the one event that published 16 of "
-        "its 28 finishes, the missing pilot finished below all 16, so their point is "
+        "how much of that event was published. At the one event that published "
+        "{bound_published} of its {bound_field} finishes, the missing pilot finished below "
+        "all {bound_published}, so their point is "
         "drawn at the best it could have been and marked with a ▽. At a top-eight-only "
         "event the same reasoning gives an answer too weak to draw: a cut that published "
         "a handful of finishes puts the missing pilot below only those few, which is most "
         "of the field and says almost nothing, so the line breaks over the meeting "
-        "instead. Of the 219 pairs "
-        "affected out of the 46,155 the chart will draw, 164 are drawn and 55 keep the "
+        "instead. Of the {h2h_pairs_affected} pairs "
+        "affected out of the {h2h_pairs_drawn} the chart will draw, {h2h_pairs_bounded} "
+        "are drawn and {h2h_pairs_break} keep the "
         "break. A pair needs at least two meetings the record can compare them at, "
         "otherwise there is no trajectory to draw and the tool says so: turning up to "
         "the same event is not enough if the source scored neither of them there.\n\n"
@@ -951,8 +968,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "belongs to (aggro, control and the like). Every dot and every link is measured "
         "in separate events rather than "
         "decks, so a day the pilot entered several variants counts once.\n\n"
-        "About half the decks on record carry more than one archetype (3,399 of "
-        "6,065), each weighted, and a deck counts only under its main one. So a "
+        "About half the decks on record carry more than one archetype "
+        "({decks_multi_archetype} of {decks}), each weighted, and a deck counts only "
+        "under its main one. So a "
         "pilot who played a Grixis deck with a little Storm in it is drawn playing "
         "Grixis, not both. Counting every tag instead read half the specialists in "
         "the record as generalists, which is the question this view exists to "
@@ -1047,7 +1065,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "meta share counts, so a deck carrying that archetype as a lesser tag beside a "
         "stronger one is not in either term. Counting every tag instead would describe "
         "a pool of other engines wearing this archetype's name: Golgari, for one, is "
-        "tagged on 236 decks and is the engine of 15.",
+        "tagged on {golgari_tagged} decks and is the engine of {golgari_primary}.",
     ),
     (
         "faq-cooccurrence",
@@ -1119,8 +1137,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "alone would produce its crowding no more than one time in a hundred (see the "
         "hidden gem question above). But every rare card of every archetype is put to "
         "that test, which is more than a thousand chances for a coincidence, so even a "
-        f"bar of {MAX_GEM_LUCK:.0%} lets some cards through on luck alone: about one "
-        "of the three on the list today, and nothing says which ones. The list cannot be checked "
+        f"bar of {MAX_GEM_LUCK:.0%} lets some cards through on luck alone: about "
+        "{gems_by_luck} of the {gems_listed} on the list today, and nothing says which "
+        "ones. The list cannot be checked "
         "against later results either: a gem that works stops being rare, so a card "
         "still looking like a gem a year on is a card nobody acted on.\n\n"
         "The odds are discounted for the pilots behind a card rather than counted per "
@@ -1156,6 +1175,91 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "counts what is shown.",
     ),
 ]
+
+
+def _words(n: int) -> str:
+    """A count in words, the way the prose writes a small one: ``24`` -> ``twenty-four``.
+
+    Through ninety-nine, since that is as far as the answers spell a count out; a
+    larger one is written in digits, thousands-comma'd like every other figure.
+    """
+    ones = ["none", "one", "two", "three", "four", "five", "six", "seven", "eight",
+            "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+            "sixteen", "seventeen", "eighteen", "nineteen"]
+    tens = [None, None, "twenty", "thirty", "forty", "fifty", "sixty", "seventy",
+            "eighty", "ninety"]
+    if n < 20:
+        return ones[n]
+    if n < 100:
+        return tens[n // 10] + (f"-{ones[n % 10]}" if n % 10 else "")
+    return f"{n:,}"
+
+
+def _finish(mean: float | None) -> str:
+    """A mean finish at the two places the prose quotes, or ``n/a`` where a bundle has none."""
+    return "n/a" if mean is None else f"{mean:.2f}"
+
+
+def _faq_fills(figures: dict) -> dict[str, str]:
+    """Each figure the answers quote, written the way its sentence writes it.
+
+    The figures file (issue #264) holds numbers; the prose holds words in some slots
+    ("twenty-one of those", "the four teams events") and digits in the rest, and two
+    sentences choose their wording by the number (issue #265): the performance
+    answer says "about a dozen places" while the median rank gap rounds to 12 or 13
+    and spells the rounded number otherwise, and the gem certainty answer rounds
+    the luck count into words against the list's length. The bounded event is the one
+    ADR 0024 names; a bundle without one fills its slots with zeros, since the
+    sentence has nothing to describe there.
+    """
+    bound = (figures["tail_bounds"] or [{"published": 0, "field": 0}])[0]
+    gap = figures["rank_gap_median"]
+    if gap is None:
+        rank_gap = "an unknown number of"
+    elif round(gap) in (12, 13):
+        rank_gap = "a dozen"
+    else:
+        rank_gap = _words(round(gap))
+    return {
+        "events": f"{figures['events']:,}",
+        "settled_fields": _words(figures["settled_fields"]).capitalize(),
+        "settled_at_floor": _words(figures["settled_at_floor"]),
+        "teams_events": _words(figures["teams_events"]),
+        "mean_finish_cut_only": _finish(figures["mean_finish_cut_only"]),
+        "mean_finish_full": _finish(figures["mean_finish_full"]),
+        "archetypes_coin_close": f"{figures['archetypes_coin_close']:,}",
+        "archetypes_offered": f"{figures['archetypes_offered']:,}",
+        "bound_published": f"{bound['published']:,}",
+        "bound_field": f"{bound['field']:,}",
+        "archetype_pairs_bounded": f"{figures['archetype_pairs_bounded']:,}",
+        "archetype_pairs_drawn": f"{figures['archetype_pairs_drawn']:,}",
+        "pilots_numbered": f"{figures['pilots_numbered']:,}",
+        "pilots_offered": f"{figures['pilots_offered']:,}",
+        "pilots_paired": f"{figures['pilots_paired']:,}",
+        "rank_gap": rank_gap,
+        "leaderboard_pilots": f"{figures['leaderboard_pilots']:,}",
+        "h2h_pairs_affected": f"{figures['h2h_pairs_affected']:,}",
+        "h2h_pairs_drawn": f"{figures['h2h_pairs_drawn']:,}",
+        "h2h_pairs_bounded": f"{figures['h2h_pairs_bounded']:,}",
+        "h2h_pairs_break": f"{figures['h2h_pairs_break']:,}",
+        "decks_multi_archetype": f"{figures['decks_multi_archetype']:,}",
+        "decks": f"{figures['decks']:,}",
+        "golgari_tagged": f"{figures['golgari_tagged']:,}",
+        "golgari_primary": f"{figures['golgari_primary']:,}",
+        "gems_by_luck": _words(round(figures["gems_expected_by_luck"])),
+        "gems_listed": _words(figures["gems_listed"]),
+    }
+
+
+def faq_entries(figures: dict) -> list[tuple[str, str, str, str]]:
+    """The FAQ with every corpus figure filled from a bundle's figures file.
+
+    ``_FAQ_ENTRIES`` holds the templates; this is what the tab renders (issue #265).
+    A placeholder the figures cannot fill raises here, at app start, rather than
+    reaching a reader as a brace.
+    """
+    fills = _faq_fills(figures)
+    return [(eid, cat, q, a.format_map(fills)) for eid, cat, q, a in _FAQ_ENTRIES]
 
 # The board filter, shared by the card views: the label the dropdown shows, the
 # empty string standing for "either board" the query reads as no filter. Kept in
@@ -3952,14 +4056,17 @@ def build_app(artifact: Path) -> gr.Blocks:
         # tag on each box replaces the table of contents the tab used to lead with: the
         # tagged boxes are a scannable list already, so a contents list linking to what
         # the reader can see was a page of indirection. The boxes keep their ``faq-``
-        # ids, the anchors a deep link uses.
+        # ids, the anchors a deep link uses. The answers are rendered from the
+        # figures file sealed beside this graph (issue #265), so what they quote is
+        # what the bundle holds.
         with gr.Tab("FAQ"):
             gr.Markdown("## FAQ")
             gr.Markdown(
                 "How the numbers here are worked out.",
                 elem_classes="t-lede",
             )
-            for _eid, _cat, _q, _a in _FAQ_ENTRIES:
+            figures = json.loads(figures_path(artifact).read_text())
+            for _eid, _cat, _q, _a in faq_entries(figures):
                 with gr.Group(elem_classes="insight-card faq-card", elem_id=_eid):
                     gr.HTML(
                         f"<span class='faq-tag faq-tag-{_cat.lower()}'>{_cat}</span>",
