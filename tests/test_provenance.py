@@ -221,3 +221,16 @@ def test_a_bundle_with_no_stamp_at_all_reads_as_stale(snapshot_dir, tmp_path):
     complaint = staleness(artifact)
     assert complaint is not None
     assert "graph7ph build" in complaint
+
+
+def test_the_digest_moves_with_the_repairs_file(tmp_path):
+    # The repairs file shapes the snapshot the build reads as much as the pilot
+    # dictionary shapes the graph (issue #268): edit it, skip the rebuild, and
+    # the gate would grade a bundle built from records the file no longer
+    # describes. So it is a build input by content, absent digesting as empty.
+    package, curation = _sources(tmp_path)
+    repairs = tmp_path / "curation" / "repairs.toml"
+    before = source_digest(package, curation, repairs)
+
+    repairs.write_text("[[hold_out]]\n")
+    assert source_digest(package, curation, repairs) != before

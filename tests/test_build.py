@@ -29,6 +29,7 @@ from graph7ph.db import (
     rows,
 )
 from graph7ph.models import Deck, load_snapshot
+from graph7ph.repairs import Refile, Repairs, apply_repairs, load_repairs
 
 
 def _scalar(conn, query, params=None):
@@ -1259,3 +1260,63 @@ def test_a_placement_the_events_field_cannot_hold_is_not_minted_a_norm(tmp_path)
             """MATCH (d:Deck)
                RETURN d.deckId, d.placement, d.placementNorm, d.normImputed"""))
     } == {"LOW": (0, None, "none"), "HIGH": (121, None, "none")}
+
+
+def test_an_event_a_refile_builds_carries_the_refile_rule_on_its_field_and_norms(tmp_path):
+    # The field a [[refile]] states is the owner's ruling, not a count the source
+    # stood behind, so the Event says a rule decided it and every norm minted
+    # against it says the same (ADR 0016, issue #268). The hover reads both
+    # marks off these columns. With no field stated the field rules decide as
+    # for any blank `eventSize`, which for a Tournament is Rule C's floor.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E", "2026-01-01T00:00:00+00:00"),
+        _deck("d2", "E", "2026-01-01T00:00:00+00:00", placement=3, placementNorm=0.5),
+        _deck("d3", "E", "2026-01-01T00:00:00+00:00", placement=4, placementNorm=0.6),
+        _deck("d4", "E", "2026-01-02T00:00:00+00:00", placement=1, placementNorm=0.0),
+    ])
+    repaired, _ = apply_repairs(load_snapshot(tmp_path), Repairs(
+        hold_outs=(),
+        refiles=(Refile(("d2", "d3"), "folded", "20260101T000000Z", "E26", "Tournament", 49),
+                 Refile(("d4",), "folded", "20260101T000000Z", "E27", "Tournament", None)),
+    ))
+
+    build_graph(repaired, tmp_path / "graph")
+
+    conn = open_for_reading(tmp_path / "graph")
+    assert sorted(map(tuple, rows(conn.execute(
+        "MATCH (e:Event) RETURN e.event, e.fieldSize, e.fieldImputed")))) == [
+        ("E", 32, None), ("E26", 49, "refiled"), ("E27", MIN_CUT_FIELD, "C")]
+    assert sorted(map(tuple, rows(conn.execute(
+        "MATCH (d:Deck) RETURN d.deckId, d.placementNorm, d.normImputed")))) == [
+        ("d1", 0.0, None), ("d2", 2 / 48, "refiled"), ("d3", 3 / 48, "refiled"),
+        ("d4", 0.0, "refiled")]
+
+
+def test_the_report_carries_the_source_repairs_the_ingest_applied(tmp_path, snapshot_dir):
+    # Applied in `ingest`, where the snapshot sequence is, and written here, where
+    # the report is: the build has no view of what a repair matched, so it takes
+    # the section as given and omits it for a build nobody handed one.
+    section = {"applied": [{"kind": "hold_out", "deck": "x", "detail": "held out: why",
+                            "snapshots": ["20260101T000000Z"]}], "dead": []}
+
+    build_graph(load_snapshot(snapshot_dir), tmp_path / "graph", source_repairs=section)
+    build_graph(load_snapshot(snapshot_dir), tmp_path / "bare")
+
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    assert report["source_repairs"] == section
+    assert "source_repairs" not in json.loads(
+        reconciliation_path(tmp_path / "bare").read_text())
+
+
+def test_every_event_the_checked_in_repairs_build_carries_the_refile_rule(live_graph):
+    # The record's side of issue #268: an event a [[refile]] built with a stated
+    # field has no source count behind it, so its field must read as a rule and
+    # not as the source's number standing. Read off the checked-in file rather
+    # than naming the event, so the next refile is graded the build it lands.
+    stated = {r.event for r in load_repairs().refiles if r.field is not None}
+    assert stated, "the checked-in repairs file builds no event with a stated field"
+
+    rules = dict(map(tuple, rows(live_graph.execute(
+        "MATCH (e:Event) RETURN e.event, e.fieldImputed"))))
+    assert {event: rules.get(event) for event in stated} == {
+        event: "refiled" for event in stated}

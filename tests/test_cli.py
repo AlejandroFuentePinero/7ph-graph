@@ -12,6 +12,7 @@ from graph7ph.db import database_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import provenance_path
 from graph7ph.query import HiddenGems
+from graph7ph.repairs import load_repairs
 
 
 def _snapshot(path, decks):
@@ -717,3 +718,27 @@ def test_a_directory_no_fetch_wrote_is_not_read_as_a_snapshot(
     _curation_report(argparse.Namespace(snapshots=snapshots, db=db))
 
     assert "20260101T000000Z" in capsys.readouterr().out
+
+
+def test_a_repairs_file_the_build_cannot_honour_aborts_cleanly(tmp_path, monkeypatch):
+    # The fourth way a build cannot honestly proceed: a repairs file that
+    # contradicts itself or the data (issue #268). Same sentence as a bad
+    # dictionary, since the maintainer reaches both by hand.
+    _snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
+        ("d1", "2026-01-01T00:00:00+00:00"),
+    ])
+    (tmp_path / "repairs.toml").write_text(
+        '[[hold_out]]\ndecks = ["d1"]\nreason = "r"\nas_of = "20260101T000000Z"\n'
+        '[[adopt]]\ndecks = ["d1"]\nfact = "pilot"\nvalue = "x"\nreason = "r"\n'
+        'as_of = "20260101T000000Z"\n'
+    )
+    monkeypatch.setattr("graph7ph.ingest.load_repairs",
+                        functools.partial(load_repairs, tmp_path / "repairs.toml"))
+    db = tmp_path / "graph"
+
+    with pytest.raises(SystemExit) as exc:
+        _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=db))
+
+    assert "Build aborted, live graph untouched" in str(exc.value)
+    assert "held out and also adopts" in str(exc.value)
+    assert not db.exists()

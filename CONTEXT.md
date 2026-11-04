@@ -100,6 +100,10 @@ _Avoid_: Event size, tournament size, entrant count (the corrected field is not 
 A value the project decided rather than the source supplying it. Recorded beside the value as the name of the rule that produced it: null where the source's own number stands, a rule name where a pass here produced it, and `none` where a rule was looked for and none fit. Every uncertain value carries one (`Deck.placementImputed`, `Deck.normImputed`, `Event.fieldImputed`), so "which of this thing's numbers did we decide, and under what rule?" is one query for every class of uncertainty (ADR 0016).
 _Avoid_: Inferred, guessed, flag, derived (a derived value like Year is not an uncertain one)
 
+**Repair**:
+A ruling about one of the source's own records, applied to every snapshot as it is loaded and before the gate or any guard reads it: a deck held out of the graph, decks refiled to an Event the source does not have, or a value adopted for an immutable fact upstream rewrote. Checked in at `curation/repairs.toml`, keyed on deck ids, each with a one-line reason and the snapshot it was written against (issue #268). Not a curation decision, which is about identity or classification and applies at build, and not an edit to a snapshot, which is upstream's bytes and stays so. A field a refile states is Imputed under the rule `refiled`, since the source never counted it.
+_Avoid_: Fix, patch, snapshot edit, override
+
 ---
 
 See `docs/research-log.md` for cross-session data insights and handoffs.

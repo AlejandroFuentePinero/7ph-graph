@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from graph7ph.build import BuildCounts, build_graph
 from graph7ph.db import remove_artifact
 from graph7ph.models import Card, Containment, Deck, Snapshot, load_snapshot
+from graph7ph.repairs import apply_repairs, load_repairs, repairs_report
 
 # The gate's closed vocabularies, following the repo idiom (models.py `Board`).
 FlagKind = Literal["dropped", "changed"]
@@ -320,7 +321,8 @@ def _deck_history(
 def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCounts]:
     """Build the live graph from every snapshot, gated and atomically promoted.
 
-    All snapshots are schema-validated and unioned by stable id; the gate folds
+    All snapshots are schema-validated, repaired by the checked-in source-repairs
+    file (:mod:`graph7ph.repairs`) and unioned by stable id; the gate folds
     across the sequence, gating each snapshot against the union held before it, so
     an immutable-fact rewrite in any snapshot is flagged and its old value
     retained (ADR 0008). A corrupt snapshot raises
@@ -331,9 +333,22 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     """
     artifact = Path(artifact)
     dirs = _snapshot_dirs(snapshots_root)
-    snapshots = [load_checked(d) for d in dirs]
-    if not snapshots:
+    if not dirs:
         raise SchemaError(f"no snapshots in {Path(snapshots_root)}/")
+    # The checked-in rulings about the source's own records are applied to each
+    # snapshot as it is loaded, before the gate compares anything and before any
+    # build guard runs (issue #268): the sequence the gate folds is the repaired
+    # one, so a hold-out is not a dropped id, an adopted rewrite is not a changed
+    # fact, and a refiled cohort is not a second winner. Which snapshots each
+    # repair touched is kept for the report, since only this loop can say.
+    repairs = load_repairs()
+    snapshots = []
+    applied: dict[str, list[str]] = {}
+    for d in dirs:
+        snapshot, matched = apply_repairs(load_checked(d), repairs)
+        snapshots.append(snapshot)
+        for deck in sorted(matched):
+            applied.setdefault(deck, []).append(d.name)
 
     result = gate_sequence(snapshots)
 
@@ -345,7 +360,8 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     incoming = artifact.with_name(artifact.name + ".incoming")
     remove_artifact(incoming)
     counts = build_graph(  # writes reconciliation_path(incoming)
-        result.snapshot, incoming, snapshot_decks=_deck_history(dirs, snapshots)
+        result.snapshot, incoming, snapshot_decks=_deck_history(dirs, snapshots),
+        source_repairs=repairs_report(repairs, applied),
     )
     ingest_report_path(incoming).write_text(json.dumps(asdict(result.report), indent=2))
 

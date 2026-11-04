@@ -5,6 +5,7 @@ a pure function over parsed Snapshots, so these build Snapshot objects from the
 domain models rather than going through the graph store.
 """
 
+import functools
 import json
 
 import pytest
@@ -23,6 +24,7 @@ from graph7ph.ingest import (
 from graph7ph.build import reconciliation_path
 from graph7ph.db import DB_FILENAME, NotABundle, database_path, open_for_reading, rows
 from graph7ph.models import Card, Containment, Deck, Snapshot
+from graph7ph.repairs import load_repairs
 
 
 def deck(deck_id, *, pilot="pilot", event="E", placement=1, **over) -> Deck:
@@ -494,3 +496,87 @@ def test_shape_shifted_response_hard_fails(tmp_path):
 
     with pytest.raises(SchemaError):
         load_checked(tmp_path)
+
+
+def _repairable_snapshot(path, decks):
+    """``decks`` as ``(deck_id, pilot)``, all at event E, so a pilot rewrite between
+    two snapshots is the immutable-fact change the gate flags."""
+    path.mkdir(parents=True)
+    (path / "decks.json").write_text(json.dumps([{
+        "deckId": did, "name": f"{did} - n - E", "deckName": "n", "pilot": pilot,
+        "event": "E", "eventId": "evt_1", "eventType": "Tournament",
+        "placement": 1, "placementNorm": 0.0, "eventSize": 32,
+        "createdAt": "2025-06-01T00:00:00+00:00",
+        "colour": "colour:U", "macro": "macro:tempo", "engineTags": [],
+        "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
+    } for did, pilot in decks]))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaValue": 0.0, "reserved": False, "points": 0, "pointsCompanion": 0}],
+        "decks": {did: {"m": [0], "s": []} for did, _ in decks},
+    }))
+
+
+def test_source_repairs_apply_to_every_snapshot_before_the_gate_and_are_reported(
+    tmp_path, monkeypatch
+):
+    # The three rulings issue #268 moves out of hand-edited snapshot files: a
+    # deck held out, decks refiled to an event the source does not have, and a
+    # rewritten fact adopted. Applied as each snapshot is loaded, so the gate
+    # sees one consistent sequence (no flag on the adopted rewrite, no dropped
+    # id for the hold-out) and the guards see the refiled cohort. The report
+    # names every repair applied, by the snapshots it touched, and the entry
+    # that matched nothing.
+    root = tmp_path / "snapshots"
+    _repairable_snapshot(root / "20260101T000000Z", [("d1", "old"), ("d2", "p2")])
+    _repairable_snapshot(root / "20260201T000000Z",
+                         [("d1", "new"), ("d2", "p2"), ("d3", "p3"), ("d4", "p4")])
+    repairs = tmp_path / "repairs.toml"
+    repairs.write_text('''
+[[hold_out]]
+decks = ["d2", "d9"]
+reason = "extra deck"
+as_of = "20260201T000000Z"
+
+[[refile]]
+decks = ["d3", "d4"]
+event = "E26"
+event_type = "Tournament"
+field = 49
+reason = "folded"
+as_of = "20260201T000000Z"
+
+[[adopt]]
+decks = ["d1"]
+fact = "pilot"
+value = "new"
+reason = "re-keyed"
+as_of = "20260201T000000Z"
+''')
+    monkeypatch.setattr("graph7ph.ingest.load_repairs",
+                        functools.partial(load_repairs, repairs))
+    db = tmp_path / "graph"
+
+    report, counts = ingest(root, db)
+
+    assert report.flags == []
+    assert _deck_ids(db) == {"d1", "d3", "d4"}
+    conn = open_for_reading(db)
+    assert list(rows(conn.execute(
+        "MATCH (d:Deck {deckId: 'd1'})-[:PILOTED_BY]->(p) RETURN p.pilot"))) == [["new"]]
+    assert list(rows(conn.execute(
+        "MATCH (e:Event {event: 'E26'}) RETURN e.fieldSize, e.fieldImputed"))) == [[49, "refiled"]]
+    assert json.loads(reconciliation_path(db).read_text())["source_repairs"] == {
+        "applied": [
+            {"kind": "hold_out", "deck": "d2", "detail": "held out: extra deck",
+             "snapshots": ["20260101T000000Z", "20260201T000000Z"]},
+            {"kind": "refile", "deck": "d3", "detail": "refiled to E26: folded",
+             "snapshots": ["20260201T000000Z"]},
+            {"kind": "refile", "deck": "d4", "detail": "refiled to E26: folded",
+             "snapshots": ["20260201T000000Z"]},
+            {"kind": "adopt", "deck": "d1", "detail": "adopts pilot = 'new': re-keyed",
+             "snapshots": ["20260101T000000Z", "20260201T000000Z"]},
+        ],
+        "dead": [{"kind": "hold_out", "deck": "d9", "detail": "held out: extra deck"}],
+    }
