@@ -7,6 +7,7 @@ import pytest
 
 from graph7ph.build import (
     MIN_CUT_FIELD,
+    RegistrationSpread,
     TwoWinners,
     _check_sole_winner,
     build_graph,
@@ -332,6 +333,21 @@ def test_event_straddling_two_calendar_years_fails_the_build(tmp_path):
 
     with pytest.raises(ValueError, match="NYE"):
         build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+
+
+def test_an_event_whose_decks_were_registered_a_year_apart_fails_the_build(tmp_path):
+    # The 2026-11 VFNIQ shape: upstream filed the 2026 running under the 2025
+    # event, so one name holds decks registered 378 days apart, where no running
+    # in the corpus spans more than 34. The guard reads the dates directly, so
+    # the abort names what happened, and refuses before anything is written.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "VFNIQ", "2025-10-04T23:00:04+00:00"),
+        _deck("d2", "VFNIQ", "2026-10-18T11:11:05+00:00"),
+    ])
+
+    with pytest.raises(RegistrationSpread, match=r"VFNIQ .*2025-10-04 to 2026-10-18"):
+        build_graph(load_snapshot(tmp_path), tmp_path / "graph")
+    assert not (tmp_path / "graph").exists()
 
 
 def _winner(deck_id, title, event="E", **overrides):
