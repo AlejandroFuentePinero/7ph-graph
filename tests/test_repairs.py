@@ -4,7 +4,7 @@ loaded, before the gate or any guard reads it (issue #268)."""
 import pytest
 
 from graph7ph.models import Card, Containment, Deck, Snapshot
-from graph7ph.repairs import RepairError, apply_repairs, load_repairs
+from graph7ph.repairs import RepairError, apply_repairs, load_repairs, repairs_report
 
 
 def deck(deck_id, *, pilot="pilot", event="E", placement=1, **over) -> Deck:
@@ -48,11 +48,12 @@ as_of = "20261104T091012Z"
 
 
 def test_a_held_out_deck_leaves_every_snapshot_with_its_cards(tmp_path):
-    snapshot, matched = apply_repairs(snap(deck("d1"), deck("d2")), repairs(tmp_path, HOLD_OUT))
+    snapshot, source_held = apply_repairs(
+        snap(deck("d1"), deck("d2")), repairs(tmp_path, HOLD_OUT))
 
     assert [d.deck_id for d in snapshot.decks] == ["d1"]
     assert [c.deck_id for c in snapshot.containments] == ["d1"]
-    assert matched == {"d2"}
+    assert source_held == {"d2": {"present": True, "event": "E", "eventId": "evt_E"}}
 
 
 REFILE = '''
@@ -70,7 +71,7 @@ def test_a_refiled_deck_moves_to_the_new_event_carrying_the_ruled_type_and_field
     source = snap(deck("d1"), deck("d2", placement=3, placement_norm=0.5),
                   deck("d3", placement=4))
 
-    snapshot, matched = apply_repairs(source, repairs(tmp_path, REFILE))
+    snapshot, source_held = apply_repairs(source, repairs(tmp_path, REFILE))
 
     moved = next(d for d in snapshot.decks if d.deck_id == "d2")
     assert (moved.event, moved.event_id, moved.event_type, moved.event_size) == (
@@ -84,7 +85,8 @@ def test_a_refiled_deck_moves_to_the_new_event_carrying_the_ruled_type_and_field
         3, None, "refiled")
     assert moved.field_imputed == "refiled"
     assert next(d for d in snapshot.decks if d.deck_id == "d1") == source.decks[0]
-    assert matched == {"d2", "d3"}
+    assert source_held == {"d2": {"event": "E", "eventId": "evt_E"},
+                           "d3": {"event": "E", "eventId": "evt_E"}}
 
 
 ADOPT = '''
@@ -100,11 +102,11 @@ as_of = "20261104T091012Z"
 def test_an_adopted_fact_replaces_the_source_value_on_every_snapshot_holding_the_deck(
     tmp_path
 ):
-    snapshot, matched = apply_repairs(
+    snapshot, source_held = apply_repairs(
         snap(deck("d1", pilot="BraveIndigoLynx"), deck("d2")), repairs(tmp_path, ADOPT))
 
     assert [d.pilot for d in snapshot.decks] == ["FrostyGoldDolphin", "pilot"]
-    assert matched == {"d1"}
+    assert source_held == {"d1": {"pilot": "BraveIndigoLynx"}}
 
 
 def test_a_refile_whose_event_the_source_later_uses_is_refused_even_where_nothing_is_refiled(
@@ -186,3 +188,76 @@ def test_a_created_at_written_in_utc_loads(tmp_path):
 
 def test_an_absent_file_is_an_empty_set_of_repairs(tmp_path):
     assert load_repairs(tmp_path / "none.toml").hold_outs == ()
+
+
+# What the report says when upstream moves under a ruling (issue #278). The
+# gate compares repaired snapshots, so none of these reach it; the ingest keeps
+# what the source held under each repair per snapshot, and the report compares
+# those from the snapshot the ruling was written against.
+
+S1, S2, S3, S4 = ("20260101T000000Z", "20260201T000000Z", "20260301T000000Z",
+                  "20260401T000000Z")
+AT_E = {"present": True, "event": "E", "eventId": "evt_E"}
+
+
+def test_an_adopted_fact_the_source_rewrites_again_after_the_ruling_is_moved(tmp_path):
+    section = repairs_report(
+        repairs(tmp_path, ADOPT.replace("20261104T091012Z", S2)),
+        {"d1": [(S1, {"pilot": "BraveIndigoLynx"}), (S2, {"pilot": "FrostyGoldDolphin"}),
+                (S3, {"pilot": "BraveIndigoLynx"})]},
+        [S1, S2, S3])
+
+    assert section["moved"] == [{
+        "kind": "adopt", "deck": "d1",
+        "detail": "adopts pilot = 'FrostyGoldDolphin': upstream re-keyed the pilot in the "
+                  "newest fetch; carried into the older ones",
+        "from": {"snapshot": S2, "pilot": "FrostyGoldDolphin"},
+        "to": {"snapshot": S3, "pilot": "BraveIndigoLynx"},
+    }]
+
+
+def test_the_rewrite_an_adopt_was_written_to_accept_is_not_a_move(tmp_path):
+    section = repairs_report(
+        repairs(tmp_path, ADOPT.replace("20261104T091012Z", S2)),
+        {"d1": [(S1, {"pilot": "BraveIndigoLynx"}), (S2, {"pilot": "FrostyGoldDolphin"})]},
+        [S1, S2])
+
+    assert section["moved"] == []
+
+
+HELD_OUT_DETAIL = "held out: the event seats 25 decks for 24 players; this is the extra one"
+
+
+def test_a_held_out_deck_the_source_drops_is_moved_at_the_snapshot_it_left(tmp_path):
+    section = repairs_report(
+        repairs(tmp_path, HOLD_OUT.replace("20261104T091012Z", S1)),
+        {"d2": [(S1, AT_E), (S2, AT_E)]},
+        [S1, S2, S3, S4])
+
+    assert section["moved"] == [{
+        "kind": "hold_out", "deck": "d2", "detail": HELD_OUT_DETAIL,
+        "from": {"snapshot": S2, **AT_E},
+        "to": {"snapshot": S3, "present": False},
+    }]
+
+
+def test_a_held_out_deck_the_source_refiles_to_another_event_is_moved(tmp_path):
+    section = repairs_report(
+        repairs(tmp_path, HOLD_OUT.replace("20261104T091012Z", S1)),
+        {"d2": [(S1, AT_E), (S2, {"present": True, "event": "F", "eventId": "evt_F"})]},
+        [S1, S2])
+
+    assert section["moved"] == [{
+        "kind": "hold_out", "deck": "d2", "detail": HELD_OUT_DETAIL,
+        "from": {"snapshot": S1, **AT_E},
+        "to": {"snapshot": S2, "present": True, "event": "F", "eventId": "evt_F"},
+    }]
+
+
+def test_a_held_out_deck_still_in_the_newest_snapshot_is_not_moved(tmp_path):
+    section = repairs_report(
+        repairs(tmp_path, HOLD_OUT.replace("20261104T091012Z", S1)),
+        {"d2": [(S1, AT_E), (S2, AT_E)]},
+        [S1, S2])
+
+    assert section["moved"] == []

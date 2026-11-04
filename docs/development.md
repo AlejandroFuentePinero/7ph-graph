@@ -2,14 +2,23 @@
 
 ## Refreshing the data
 
-A round opens by mirroring the snapshots, then `fetch`, mirror again, `build`:
+A round opens by proving the code on the bundle it already has, then mirroring
+the snapshots, `fetch`, mirror again, `build`, and recapturing the oracle:
 
 ```sh
+uv run graph7ph baseline --capture   # gate green first: records the code the oracle is proven under
 uv run graph7ph mirror Alejandrofupi/7ph-graph-snapshots   # copy what is not yet there
 uv run graph7ph fetch   # download 7phstats data into snapshots/<timestamp>/
 uv run graph7ph mirror Alejandrofupi/7ph-graph-snapshots   # cover the new snapshot too
 uv run graph7ph build   # load the latest snapshot into data/graph
+uv run graph7ph baseline --capture --force   # the data moved and the code did not: recapture, read nothing
 ```
+
+The order carries a judgement a person used to make by reading the recaptured
+oracle's diff. The gate is green before the fetch, so what moves between that
+proof and the recapture is data alone, and the recapture is accepted on that
+record rather than on a reading; it is refused when the code moved unproven
+(issue #272, and the gate section below).
 
 The snapshots under `snapshots/` are the project's only primary data: gitignored,
 append-only, and on one machine, so a disk loss would lose the ability to rebuild
@@ -41,11 +50,16 @@ against. The build lists every repair it applied in the reconciliation report,
 with the snapshots each matched, and names any entry whose decks no snapshot
 holds as dead. Dead catches a mistyped or reissued id, not a correction
 upstream has since made: the sequence is append-only and a deck keeps its id,
-so an entry that was ever live stays live and keeps applying. Whether upstream
-has overtaken a ruling (named the refiled event itself, dropped the held-out
-deck) is a question for every ingest, answered from the report's snapshot list
-and the newest snapshot, and the entry is retired or renamed by hand. A file
-that contradicts itself aborts the build, as a bad dictionary does.
+so an entry that was ever live stays live and keeps applying. Upstream
+overtaking a ruling (naming the refiled event itself, rewriting an adopted fact
+again, dropping or refiling the held-out deck) is invisible to the gate, which compares
+repaired snapshots, so the report's `source_repairs.moved` lists it instead
+(issue #278): one row per repaired deck whose source filing changed between two
+snapshots from the one the ruling was written against, naming both snapshots and
+what the source held on each. The build counts those decks on the terminal
+beside the repairs line; it promotes regardless, because the answer (retire
+the entry, rename the event, carry upstream's field) is a ruling. A file that contradicts itself aborts the build,
+as a bad dictionary does.
 
 Each fetch is kept as an append-only snapshot, and the build folds the whole
 sequence: each snapshot is gated against the accumulated union of every snapshot
@@ -161,12 +175,20 @@ uv run graph7ph baseline --capture          # rewrite the baseline, but only if 
 uv run graph7ph baseline --capture --force  # rewrite it even though it differs
 ```
 
-`--capture` grades against the existing baseline first and refuses to overwrite
-one that differs, printing the number of diff lines and telling you to pass
-`--force`. That is deliberate: the oracle goes red *wholesale* the moment a
-`fetch` moves the data, and its diff is too large to read, so a blind recapture
-would rubber-stamp any real regression riding along with the data move (issue
-#67). `--force` recaptures anyway, and still prints the count it overrode. With
+`--capture` grades against the existing baseline first. Green, it rewrites only
+the oracle's `code_digest`: the digest of the code its answers were just proven
+under, which is the build stamp's module list widened by the query layer the
+gate reads live. That is a one-line diff, so the proof rides in the same commit
+as the change it proves. Red, it refuses and tells you to pass `--force`, because
+the oracle goes red *wholesale* the moment a `fetch` moves the data and its diff
+is too large to read (issue #67). `--force` recaptures only when the recorded
+digest is the working tree's, since then nothing but data moved since the oracle
+was last proven; it prints the count it overrode and nothing of the difference.
+When the code moved since the proof it refuses, with the order to follow: gate
+green on the previous bundle first, then recapture (issue #272). After a
+query-side change the previous bundle is `data/graph.backup` and can be graded
+as it stands; a build-input change makes that bundle stale too, so move the
+newest snapshot aside, build and prove, then put it back and build again. With
 no baseline on disk, `--capture` just writes. A baseline that exists but cannot
 be graded (a corrupt oracle) is a refusal too, not a clean slate: pass `--force`
 to replace it.
@@ -194,13 +216,10 @@ turned its two cases into one and forced a `--force` recapture; expect the same
 whenever a query's spec changes shape.
 
 A `--force` recapture rewrites the file wholesale, in the engine's row order and
-with the last bits of every float redrawn, so its diff is mostly churn and cannot
-be read line by line. Review it by comparing the old and new JSON case by case
-with the node and edge lists sorted: that separates the lines the change actually
-moved from the reordering, and the count it leaves should match the grade printed
-just before the capture. Recapture in its own commit with nothing else in the
-diff, and say in the message which lines are real, or the reordering becomes a
-place a regression can hide (issues #67, #165).
+with the last bits of every float redrawn, so its diff is churn and is not read:
+what makes it safe is the proof before it, not a reading after it. Recapture in
+its own commit with nothing else in the diff, so the churn never sits beside a
+code change (issues #67, #165, #272).
 
 A change that only *adds a field* to some nodes needs neither form. Splice it
 instead: take a live capture, assert every existing value, node set, edge list,
