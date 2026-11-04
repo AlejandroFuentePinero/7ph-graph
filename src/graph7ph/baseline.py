@@ -25,7 +25,7 @@ from pathlib import Path
 import ladybug
 
 from graph7ph.build import graph_counts
-from graph7ph.provenance import BUILD_INPUTS, source_digest
+from graph7ph.provenance import BUILD_INPUTS, PACKAGE_DIR, digest_of
 from graph7ph.query import (
     CardCooccurrence,
     CardUsage,
@@ -160,12 +160,19 @@ def subgraph_blob(subgraph: Subgraph) -> dict:
     return blob
 
 
-def code_digest() -> str:
+def code_digest(package: Path = PACKAGE_DIR) -> str:
     """The digest of the code the oracle's answers depend on, as the working tree
     stands now. Recorded in the oracle at capture, so a later recapture can tell
     a data move (digest unchanged) from a code change nobody proved (#272).
+
+    Code only. The build stamp also folds in the two curation files, because a
+    bundle built under old rulings is stale; the oracle does not, because a round
+    edits them as a matter of course after the fetch (an adopt for a flagged fact,
+    the identity merges), and a ruling made about the data that just arrived can
+    be proven on no earlier bundle. It is listed by the build and accepted here on
+    the same terms as the data move (ruled on #272).
     """
-    return source_digest(modules=GATE_INPUTS)
+    return digest_of([(n, Path(package) / n) for n in GATE_INPUTS])
 
 
 def capture(conn: ladybug.Connection, cases: list[Case] = CASES) -> dict:

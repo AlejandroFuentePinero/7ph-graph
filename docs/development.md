@@ -173,8 +173,10 @@ uv run graph7ph baseline --capture --force  # rewrite it: the data moved and the
 `--capture` grades against the existing baseline first. Green, it rewrites only
 the oracle's `code_digest`: the digest of the code its answers were just proven
 under, which is the build stamp's module list widened by the query layer the
-gate reads live. That is a one-line diff, so the proof rides in the same commit
-as the change it proves. Red, it refuses, because the oracle goes red *wholesale*
+gate reads live, and without the two curation files, since a ruling there is
+made in the round about the data that just arrived, listed by the build, and
+accepted on the same terms as the data move. That is a one-line diff, so the
+proof rides in the same commit as the change it proves. Red, it refuses, because the oracle goes red *wholesale*
 the moment a `fetch` moves the data and its diff is too large to read (issue
 #67): when the recorded digest is the working tree's it tells you to pass
 `--force`, which recaptures, since nothing but data moved since the oracle was

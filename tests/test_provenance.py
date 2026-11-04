@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from graph7ph.baseline import GATE_INPUTS
+from graph7ph.baseline import GATE_INPUTS, code_digest
 from graph7ph.build import build_graph
 from graph7ph.curation import Curation
 from graph7ph.models import load_snapshot
@@ -245,12 +245,30 @@ def test_the_oracles_digest_moves_with_the_query_layer_the_build_stamp_ignores(t
     # any bundle. The oracle may not, because its question is whether the code
     # moved since its answers were proven, and a query change moves the answers
     # (issue #272). Same hashing, wider list: query.py moves it, app.py does not.
-    package, curation = _sources(tmp_path)
-    before = source_digest(package, curation, modules=GATE_INPUTS)
+    package, _ = _sources(tmp_path)
+    before = code_digest(package)
     (package / "app.py").write_text("# app.py, changed\n")
-    assert source_digest(package, curation, modules=GATE_INPUTS) == before
+    assert code_digest(package) == before
     (package / "query.py").write_text("# query.py, changed\n")
-    assert source_digest(package, curation, modules=GATE_INPUTS) != before
+    assert code_digest(package) != before
+
+
+def test_a_curation_ruling_does_not_move_the_oracles_digest(tmp_path, monkeypatch):
+    # A round edits the curation files as a matter of course (an adopt for a
+    # flagged fact, the identity merges), after the fetch and before the recapture.
+    # A ruling there is made about the data that just arrived and listed by the
+    # build, so the recapture accepts it on the same terms as the data move; folding
+    # it into the proof would refuse every round at its normal step (ruled on #272).
+    # The build stamp keeps folding it in: a bundle built under old rulings is stale.
+    package, curation = _sources(tmp_path)
+    repairs = tmp_path / "curation" / "repairs.toml"
+    monkeypatch.setattr("graph7ph.provenance.CURATION_PATH", curation)
+    monkeypatch.setattr("graph7ph.provenance.REPAIRS_PATH", repairs)
+    before_code, before_stamp = code_digest(package), source_digest(package, curation, repairs)
+    curation.write_text("[pilots]\n# one more ruling\n")
+    repairs.write_text('[[hold_out]]\nids = ["d1"]\nreason = "r"\nas_of = "s"\n')
+    assert code_digest(package) == before_code
+    assert source_digest(package, curation, repairs) != before_stamp
 
 
 def test_every_module_the_gate_reads_is_an_oracle_input():
