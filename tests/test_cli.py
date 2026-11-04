@@ -179,6 +179,24 @@ def test_data_the_build_cannot_support_aborts_cleanly(tmp_path):
     assert not db.exists()
 
 
+def test_an_event_registered_five_months_apart_aborts_cleanly(tmp_path):
+    # Same treatment for the direct signal of an upstream merge (issue #269):
+    # two decks of one event registered five months apart, inside one calendar
+    # year so the year guard stays quiet and this is the guard that spoke.
+    _snapshot(tmp_path / "snapshots" / "20260701T000000Z", [
+        ("d1", "2026-01-10T00:00:00+00:00"),
+        ("d2", "2026-06-10T00:00:00+00:00"),
+    ])
+    db = tmp_path / "graph"
+
+    with pytest.raises(SystemExit) as exc:
+        _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=db))
+
+    assert "Build aborted, live graph untouched" in str(exc.value)
+    assert "NYE registered decks 151 days apart (2026-01-10 to 2026-06-10)" in str(exc.value)
+    assert not db.exists()
+
+
 def test_a_file_blocking_the_bundle_path_aborts_cleanly(tmp_path):
     # The other way a build cannot honestly proceed: a regular file sitting where
     # a bundle directory has to go. The build stages into `<artifact>.incoming`,

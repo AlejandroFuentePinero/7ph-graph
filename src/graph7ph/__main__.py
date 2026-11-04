@@ -11,7 +11,7 @@ from pathlib import Path
 from huggingface_hub import HfApi
 
 from graph7ph.baseline import BASELINE_PATH, MalformedBaseline, capture, check
-from graph7ph.build import TwoWinners, YearStraddle, reconciliation_path
+from graph7ph.build import RegistrationSpread, TwoWinners, YearStraddle, reconciliation_path
 from graph7ph.curation import CURATION_PATH, CurationError, load_curation
 from graph7ph.curation_report import curation_report, latest_snapshot, unreportable
 from graph7ph.db import (
@@ -67,8 +67,8 @@ def _build(args: argparse.Namespace) -> None:
     # resolves it, so the flag is a required action rather than a notice.
     try:
         report, counts = ingest(args.snapshots, args.db)
-    except (SchemaError, YearStraddle, TwoWinners, NotABundle, CurationError,
-            RepairError) as exc:
+    except (SchemaError, YearStraddle, TwoWinners, RegistrationSpread, NotABundle,
+            CurationError, RepairError) as exc:
         raise SystemExit(f"Build aborted, live graph untouched: {exc}")
 
     print(f"Built {args.db} ({report.status}):")

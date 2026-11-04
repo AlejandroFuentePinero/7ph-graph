@@ -55,6 +55,18 @@ line in a report is not an alarm):
    deep-swiss ties (LPMPerth's two source-scored 25ths) all stay out of scope;
    over the full corpus the guard fires on the merged S&CWADJune alone.
 
+> **Annotation (2026-11-05, issue #269).** A third guard reads the merge's
+> direct signal. The second merge upstream made (the 2026 VFNIQ filed under
+> the 2025 running, 2026-11) was caught by the two above only because it
+> happened to cross a New Year and to carry a second winner. Decks register
+> in the weeks around their event, so `build._check_registration_spread`
+> aborts (`RegistrationSpread`, live graph untouched) when one event's decks
+> were registered more than `build.MAX_REGISTRATION_SPREAD` days apart; the
+> bar and the measurement that set it sit beside that constant and in ADR
+> 0014's guard table. Every event type is measured, Teams included. It cannot
+> see a merge of adjacent months (the July decks folded into S&CWADJune sat 28
+> days from its own), which stays guard 2's catch.
+
 The corruption itself was repaired at the source per the project's standing
 practice: the 8 foreign decks were refiled in the 2026-08-15 snapshot under the
 event's real name, S&CWADJuly (field 24, per the repo owner), and the 8 June

@@ -11,6 +11,7 @@ callers can assert they match the source.
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import ladybug
@@ -115,6 +116,19 @@ class TwoWinners(ValueError):
     """
 
 
+class RegistrationSpread(ValueError):
+    """An event's decks were registered further apart than one running spans.
+
+    The direct signal of the merge :class:`TwoWinners` catches by its residue:
+    twice in three rounds upstream has filed a new running of an event under the
+    previous year's name (2026-08 S&CWADJune, 2026-11 VFNIQ), and the second
+    was caught only by guards built for other things (a year straddle, a second
+    winner). Decks register in the weeks around their event, so a name holding
+    registrations a year apart holds two runnings. Raised before anything is
+    written, like the other two; the remedy is the same ``[[refile]]``.
+    """
+
+
 _BATCH = 5000
 
 # The smallest field a corrected event is normalised against: 7PH's top-8 cuts
@@ -122,6 +136,16 @@ _BATCH = 5000
 # can never fall below (issue #140). The two events it moves across the hidden-gem
 # band are robust to the choice: 16, 19, 24, 33 and 40 all produce the same pair.
 MIN_CUT_FIELD = 24
+
+# The widest spread of registration dates one running of an event can hold, in
+# days (issue #269). Measured over the 159 events the guard reads from the
+# 2026-11-04 snapshot (repairs and curation applied; the ticket's 160 is the
+# count before curation folds one name): every event registers its decks within
+# 34 days of each other (TTWGawlerIQ, 2026-09-21 to 2026-10-26; the next widest
+# is 12), while the unrepaired VFNIQ spanned 378 full days. A quarter sits clear
+# of both. Too wide to see a merge of adjacent months (S&CWADJune's July decks
+# sat 28 days from its own), which stays the sole-winner guard's catch.
+MAX_REGISTRATION_SPREAD = 90
 
 # Which Card fields land as node properties. This list drives both the CREATE
 # Cypher and the row projection, so the two never drift (the DDL above still
@@ -208,6 +232,10 @@ def build_graph(
     pilots = resolve_pilots(
         snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
     )
+    # The direct signal of a merge goes first, so a merged event aborts naming
+    # what happened rather than a year it cannot be dated; above the drop for
+    # the reason the straddle guard gives below.
+    _check_registration_spread(snapshot.decks)
     # Deliberately above the duplicate drop, so the straddle guard reads the
     # population the source gave rather than the one de-duplication left. The
     # survivor rule never consults a date (it tie-breaks on placement, then deck
@@ -496,6 +524,31 @@ def _check_sole_winner(decks: list[Deck]) -> None:
             f"merged under one name upstream; refile the foreign decks with a "
             f"[[refile]] in curation/repairs.toml before building."
         )
+
+
+def _check_registration_spread(decks: list[Deck]) -> None:
+    """Abort when an event's decks were registered too far apart to be one running.
+
+    Too far is more than :data:`MAX_REGISTRATION_SPREAD` days (see
+    :class:`RegistrationSpread`). Every event type is measured, Teams included:
+    the bar was set over the whole corpus, and a Teams event's lists register
+    around one weekend like any other's. Runs above the duplicate drop, beside
+    the year guard, for the same reason: the dropped registration is free to be
+    the one dating the event.
+    """
+    seen: dict[str, list[datetime]] = {}
+    for deck in decks:
+        seen.setdefault(deck.event, []).append(deck.created_at)
+    for event, dates in sorted(seen.items()):
+        first, last = min(dates), max(dates)
+        if last - first > timedelta(days=MAX_REGISTRATION_SPREAD):
+            raise RegistrationSpread(
+                f"{event} registered decks {(last - first).days} days apart "
+                f"({first.date()} to {last.date()}), further than the "
+                f"{MAX_REGISTRATION_SPREAD} days one running spans: two runnings "
+                f"are filed under one name upstream; refile the foreign decks with "
+                f"a [[refile]] in curation/repairs.toml before building."
+            )
 
 
 def _event_years(decks: list[Deck]) -> dict[str, int]:

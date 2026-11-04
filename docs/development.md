@@ -58,8 +58,8 @@ ids or changed historical facts says so and writes the detail to
 until a human resolves it, so the flag is an action to take, not a notice. The
 resolution is an entry in `curation/repairs.toml`: an `[[adopt]]` where
 upstream's rewrite is right, a `[[hold_out]]` or `[[refile]]` where the record
-itself is wrong. A guard that aborts the build (two winners, a year straddle)
-is resolved the same way.
+itself is wrong. A guard that aborts the build (two winners, a year straddle,
+registrations spread wider than one running) is resolved the same way.
 
 Then file the curation review for the round, which is where the identity work
 starts (issue #227). `curation-report` is a pure read of the promoted bundle and
