@@ -24,9 +24,12 @@ from graph7ph.repairs import REPAIRS_PATH
 PACKAGE_DIR = Path(__file__).parent
 
 # The modules whose content ends up baked into the artifact. Deliberately not the
-# whole package: query, render, explore, app, baseline and fetch are read live at
-# gate time or are not part of a build at all, so digesting them would demand a
-# rebuild for changes the gate already grades correctly.
+# whole package: render, explore, app, baseline and fetch are read live at gate
+# time or are not part of a build at all, so digesting them would demand a
+# rebuild for changes the gate already grades correctly. The query and trends
+# layers are read live by the gate too, but the build also runs them to derive
+# the figures file it seals into the bundle (issue #264), so a change to either
+# leaves a bundle whose figures were computed by other code, and they are inputs.
 #
 # Granularity is the whole file, which errs towards refusing: `db.py` holds the
 # reader the app uses as well as the writer the build uses, so editing the reader
@@ -37,10 +40,14 @@ BUILD_INPUTS = (
     "build.py",
     "curation.py",
     "db.py",
+    "figures.py",
     "ingest.py",
     "models.py",
+    "numfmt.py",
     "pilots.py",
+    "query.py",
     "repairs.py",
+    "trends.py",
 )
 
 

@@ -20,28 +20,29 @@ from graph7ph.provenance import (
 
 
 def _sources(root: Path, *, curation: str = "[pilots]\n") -> tuple[Path, Path]:
-    """A stand-in package tree: every build input, plus a query module beside them."""
+    """A stand-in package tree: every build input, plus a render module beside them."""
     package = root / "graph7ph"
     package.mkdir(parents=True)
     for name in BUILD_INPUTS:
         (package / name).write_text(f"# {name}\n")
-    (package / "query.py").write_text("# query.py\n")
+    (package / "render.py").write_text("# render.py\n")
     curation_path = root / "curation" / "pilots.toml"
     curation_path.parent.mkdir(parents=True)
     curation_path.write_text(curation)
     return package, curation_path
 
 
-def test_the_digest_moves_with_a_build_input_and_holds_across_the_query_layer(tmp_path):
+def test_the_digest_moves_with_a_build_input_and_holds_across_the_render_layer(tmp_path):
     # What the digest is for: telling whether the artifact on disk was built from
     # the code standing here now. Only the code that ends up *inside* the artifact
-    # counts. Issue #55 is explicit that query-layer changes are already graded
-    # correctly against a stale bundle, so moving query.py must not demand a
-    # rebuild, or the gate becomes noise and gets ignored.
+    # counts. Issue #55 is explicit that a layer read live is already graded
+    # correctly against a stale bundle, so moving render.py must not demand a
+    # rebuild, or the gate becomes noise and gets ignored. (The query layer was
+    # the example until issue #264 had the build derive the figures file from it.)
     package, curation = _sources(tmp_path)
     before = source_digest(package, curation)
 
-    (package / "query.py").write_text("# query.py, rewritten\n")
+    (package / "render.py").write_text("# render.py, rewritten\n")
     assert source_digest(package, curation) == before
 
     (package / "pilots.py").write_text("# pilots.py, rewritten\n")
@@ -240,16 +241,18 @@ def test_the_digest_moves_with_the_repairs_file(tmp_path):
     assert source_digest(package, curation, repairs) != before
 
 
-def test_the_oracles_digest_moves_with_the_query_layer_the_build_stamp_ignores(tmp_path):
-    # The build stamp may ignore `query.py`: a query change is graded live against
-    # any bundle. The oracle may not, because its question is whether the code
-    # moved since its answers were proven, and a query change moves the answers
-    # (issue #272). Same hashing, wider list: query.py moves it, app.py does not.
+def test_the_oracles_digest_moves_with_the_harness_the_build_stamp_ignores(tmp_path):
+    # The build stamp may ignore `baseline.py`: nothing in it reaches the bundle.
+    # The oracle may not, because its question is whether the code moved since
+    # its answers were proven, and a change to how the answers are captured moves
+    # them (issue #272). Same hashing, wider list: baseline.py moves it, app.py
+    # does not. (The query layer was the example until issue #264 made it a
+    # build input, the figures file being derived from it.)
     package, _ = _sources(tmp_path)
     before = code_digest(package)
     (package / "app.py").write_text("# app.py, changed\n")
     assert code_digest(package) == before
-    (package / "query.py").write_text("# query.py, changed\n")
+    (package / "baseline.py").write_text("# baseline.py, changed\n")
     assert code_digest(package) != before
 
 

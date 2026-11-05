@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from graph7ph.curation import Curation, CurationError, load_curation
 from graph7ph.db import open_for_writing, remove_artifact, rows
+from graph7ph.figures import write_figures
 from graph7ph.models import (
     COLOURS, Card, Containment, Deck, Snapshot, tier_width_from_title,
 )
@@ -284,14 +285,18 @@ def build_graph(
         # the counted contradiction (claimed field against pilots attended and
         # deepest finish) that refuted the source's own number, so the report can
         # show a correction rather than assert it.
-        reconciliation_path(artifact).write_text(json.dumps(
+        reconciliation = (
             asdict(pilots.report)
             | {"imputed_values": _imputed_values(conn),
                "field_evidence": [{k: v for k, v in asdict(f).items() if k != "stated"}
                                   for f in fields.values() if f.rule]}
-            | ({"source_repairs": source_repairs} if source_repairs is not None else {}),
-            indent=2,
-        ))
+            | ({"source_repairs": source_repairs} if source_repairs is not None else {})
+        )
+        reconciliation_path(artifact).write_text(json.dumps(reconciliation, indent=2))
+        # The corpus figures the FAQ quotes, derived here rather than at app start
+        # because the slow ones take minutes, and sealed into the bundle so the
+        # prose has one measured source to read them from (issue #264).
+        write_figures(artifact, conn, reconciliation, MIN_CUT_FIELD)
         # Stamped here rather than in `ingest`, so every path that seals a bundle
         # seals a self-describing one, and the baseline gate can tell whether the
         # artifact it is about to grade came from the code standing here (#55).

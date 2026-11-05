@@ -75,6 +75,17 @@ upstream's rewrite is right, a `[[hold_out]]` or `[[refile]]` where the record
 itself is wrong. A guard that aborts the build (two winners, a year straddle,
 registrations spread wider than one running) is resolved the same way.
 
+The build also derives every corpus figure the FAQ quotes into
+`data/graph/figures.json` beside the graph (issue #264), by the chart functions'
+own definitions, and the app renders the answers from that file when it starts
+(issue #265), so there is nothing to copy into the prose after a round: the
+2026-09-01 round found four figures stale after a routine refresh missed them,
+which is the failure the file retires. The derivation is the slow half of a
+build (the archetype-pair sweep and the per-pilot rank gap): measured on
+2026-11-05 over the 2026-11-04 bundle (159 events, 6,065 decks), the build took
+3 min 0 s against about a minute before; the derivation alone, run standalone
+before it joined the build, took 1 min 54 s.
+
 Then file the curation review for the round, which is where the identity work
 starts (issue #227). `curation-report` is a pure read of the promoted bundle and
 `gh` stays out of the build, so filing is this line rather than a build side
@@ -106,17 +117,9 @@ file it as the round's review. The title is the brief's own first line, which
 names the snapshot the body reports on, so the issue cannot be titled after a
 different one than it describes.
 
-A round is not done when the identity queue empties. Two more things read the
-corpus and go stale silently:
+A round is not done when the identity queue empties. One more thing reads the
+corpus and goes stale silently:
 
-- **The FAQ's own figures.** Several answers in `app.py` quote the corpus (the
-  pilot totals and paired names, the settled fields, the leaderboard size, the
-  drawable-pair and bounded-meeting counts, the Golgari example, the gem luck
-  share). Only the pilot-identity pair is test-graded; the rest are prose.
-  Re-derive every one from the freshly promoted bundle, never adjust by eye:
-  each figure came from a measurement (ADR 0024's counting for the pair
-  figures, `trends`' own functions for the rest), and the 2026-09-01 round
-  found four of them stale after a routine refresh missed them.
 - **The measured constants.** `scripts/gem_sweep.py` says it itself: re-run it
   whenever the artifact grows, because the winning cell is a property of the
   corpus and has moved before. A shipped cell that stops qualifying is a
@@ -144,8 +147,9 @@ uv run pytest
 uv run playwright install chromium   # once, for the browser suite below
 ```
 
-Rebuild before running the suite after any ingest, build, schema, curation or
-repairs edit. Ten tests grade the real bundle through the `live_graph` fixture, and it
+Rebuild before running the suite after any ingest, build, schema, curation,
+repairs, query or trends edit. Twelve tests grade the real bundle through the
+`live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
 (issue #55), so on a stale bundle they pass green having graded nothing. The
 identity-queue invariant, that every entry nobody has read reaches the curation
@@ -189,7 +193,7 @@ last proven, and prints the count it overrode and nothing of the difference.
 When the code moved since the proof, `--force` or not, it refuses with the order
 to follow: gate green on the previous bundle first, then recapture (issue #272).
 After a
-query-side change the previous bundle is `data/graph.backup` and can be graded
+render-side change the previous bundle is `data/graph.backup` and can be graded
 as it stands; a build-input change makes that bundle stale too, so move the
 newest snapshot aside, build and prove, then put it back and build again. With
 no baseline on disk, `--capture` just writes. A baseline that exists but cannot
@@ -205,10 +209,11 @@ the first capture of the new answers. That, and a corrupt oracle forced over,
 are the two captures that record a digest nothing graded.
 
 Both forms refuse outright on an artifact the working tree has moved past. The
-gate re-runs the queries live, so a query change is graded honestly against any
-artifact, but ingest, build, schema, curation and repairs changes live *inside*
-the artifact: change one, skip the rebuild, and a gate that graded anyway would
-report "no regression" about code it never ran (issue #55). Each build stamps
+gate re-runs the queries live, but ingest, build, schema, curation and repairs
+changes live *inside* the artifact, and since issue #264 so do query and trends
+changes, because the build runs both layers to derive the figures file it seals
+into the bundle: change one, skip the rebuild, and a gate that graded anyway
+would report "no regression" about code it never ran (issue #55). Each build stamps
 `data/graph/provenance.json` with a digest of the sources it was built from, and
 the gate compares that against the sources standing here. Rebuild to clear it.
 

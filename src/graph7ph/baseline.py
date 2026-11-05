@@ -46,11 +46,14 @@ BASELINE_PATH = Path("baseline/subgraphs.json")
 
 # The modules whose content decides what the oracle answers: everything baked
 # into the bundle, plus the modules the gate reads live at grading time. The
-# build stamp stops at the first set, because a query change is graded honestly
-# against any bundle; the oracle cannot stop there, because the question it
-# answers is whether the code moved since its answers were last proven, and a
-# query change moves the answers as surely as an ingest change does (#272).
-GATE_INPUTS = BUILD_INPUTS + ("baseline.py", "numfmt.py", "query.py")
+# build stamp stops at the first set, because a module read live is graded
+# honestly against any bundle; the oracle cannot stop there, because the
+# question it answers is whether the code moved since its answers were last
+# proven, and a change to the formatting or the harness moves the answers as
+# surely as an ingest change does (#272). The query layer and its formatting
+# sat in the second set until the build began deriving the figures file from
+# them (#264).
+GATE_INPUTS = BUILD_INPUTS + ("baseline.py",)
 
 # The one query with no ORDER BY, which builds its lists directly in row order.
 # Everything else sorts before emitting, so its order is a promise. The gem view

@@ -15,6 +15,7 @@ from graph7ph.app import (
     _CARDS_TAB,
     _CUTS,
     _FAQ_ENTRIES,
+    faq_entries,
     LEADERBOARD_SCORE_PLACES,
     _LANDSCAPE_HEIGHT,
     _LEADERBOARD_ROWS,
@@ -64,6 +65,9 @@ from graph7ph.app import (
 from graph7ph.query import (
     GEM_TOP_CUT,
     MAX_GEM_LUCK,
+    MAX_GEM_SHARE,
+    MIN_GEM_DECKS,
+    MIN_GEM_SLICE,
     Coverage,
     Edge,
     Node,
@@ -3313,10 +3317,172 @@ def test_the_quantities_with_no_description_anywhere_got_one():
         assert "see the year question above" in answers[eid], eid
 
 
+# The figures file of the 2026-11-04 bundle, as the build sealed it, copied here
+# rather than read from disk so the prose can be graded without the bundle present
+# (issue #265). It is the bundle PR #263 wrote the FAQ against, which is what makes
+# the committed prose the independent reading of these numbers.
+_FIGURES_2026_11_04 = {
+    "events": 159, "settled_fields": 24, "settled_at_floor": 21, "teams_events": 4,
+    "decks": 6065, "decks_multi_archetype": 3399,
+    "golgari_tagged": 236, "golgari_primary": 15,
+    "pilots_offered": 1310, "pilots_numbered": 58, "pilots_paired": 232,
+    "mean_finish_cut_only": 0.904, "mean_finish_full": 0.51,
+    "tail_bounds": [{"event": "GGWAD", "published": 16, "field": 28, "bound": 0.593}],
+    "archetypes_offered": 133, "archetypes_coin_close": 107,
+    "archetype_pairs_drawn": 5824, "archetype_pairs_bounded": 68,
+    "leaderboard_pilots": 144, "rank_gap_median": 13.0, "rank_gap_pilots": 138,
+    "gems_listed": 3, "gems_expected_by_luck": 0.83,
+    "h2h_pairs_drawn": 46155, "h2h_pairs_bounded": 164, "h2h_pairs_break": 55,
+    "h2h_pairs_affected": 219,
+}
+
+
+def _answers(figures):
+    """The rendered FAQ by entry id."""
+    return {eid: a for eid, _, _, a in faq_entries(figures)}
+
+
+def test_the_faq_rendered_from_the_figures_reads_as_the_prose_it_replaced():
+    # AC (#265): on the bundle PR #263 wrote the answers against, the rendered FAQ
+    # is the committed prose word for word (the settled count at 24, as #264 ruled).
+    # Each sentence below is quoted from that prose, not rebuilt from the figures,
+    # so a template that drops a comma, a word form or a sentence shape fails here.
+    answers = _answers(_FIGURES_2026_11_04)
+
+    finish = answers["faq-finish"]
+    assert ("Twenty-four of the 159 events on record carry a field this project "
+            "settled instead, twenty-one of those at a floor of 24 that nobody "
+            "counted. At the four teams events the field counts teams") in finish
+    assert ("misleadingly high: 0.90, against 0.51 at an event that published its "
+            "whole field.") in finish
+
+    timeline = answers["faq-archetype-timeline"]
+    assert "and 107 of the 133 archetypes the picker offers are that close" in timeline
+    assert "one event published just 16 of its 28 finishes" in timeline
+    assert "68 of the 5,824 pairs the chart will draw carry one." in timeline
+
+    identity = answers["faq-pilot-identity"]
+    assert "58 of the 1,310 names offered are one of these" in identity
+    assert "232 of the names offered are currently paired" in identity
+
+    assert ("typically put a pilot about a dozen places apart in the player "
+            "leaderboard standings, which rank 144 pilots.") in answers["faq-performance"]
+
+    h2h = answers["faq-head-to-head"]
+    assert ("At the one event that published 16 of its 28 finishes, the missing pilot "
+            "finished below all 16") in h2h
+    assert ("Of the 219 pairs affected out of the 46,155 the chart will draw, 164 are "
+            "drawn and 55 keep the break.") in h2h
+
+    assert "(3,399 of 6,065)" in answers["faq-affinity"]
+    assert "tagged on 236 decks and is the engine of 15." in answers["faq-usage"]
+    assert ("lets some cards through on luck alone: about one of the three on the "
+            "list today, and nothing says which ones.") in answers["faq-gems-certainty"]
+
+
+def test_the_sentences_whose_wording_depends_on_the_number_choose_it_themselves():
+    # AC (#265). "About a dozen places" is the prose for a median rank gap of 12 or
+    # 13, and a gap outside that range is spelled rather than mislabelled a dozen;
+    # the gem luck count is rounded into words against the list's length. Expected
+    # wordings written by hand.
+    def performance(gap):
+        return _answers({**_FIGURES_2026_11_04, "rank_gap_median": gap})["faq-performance"]
+
+    # A median of integers lands on a half, so the range is read off the rounded gap.
+    assert "about a dozen places apart" in performance(11.5)
+    assert "about a dozen places apart" in performance(13.0)
+    assert "about nine places apart" in performance(9.0)
+    assert "about twenty places apart" in performance(20.0)
+
+    def gems(expected, listed):
+        return _answers({**_FIGURES_2026_11_04, "gems_expected_by_luck": expected,
+                         "gems_listed": listed})["faq-gems-certainty"]
+
+    assert "about two of the five on the list today" in gems(1.6, 5)
+    assert "about none of the four on the list today" in gems(0.3, 4)
+
+
+def test_every_placeholder_is_filled_whatever_the_bundle_holds():
+    # AC (#265): no placeholder reaches a reader. Rendering is strict, so a template
+    # slot the fills do not know fails at app start rather than printing a brace,
+    # and the fixture bundles, too thin for any trend tool, still render: the
+    # figures file of one says so with zeros, nulls and no bounded event, and the
+    # fills have a word for each.
+    thin = {key: 0 for key in _FIGURES_2026_11_04} | {
+        "mean_finish_cut_only": None, "mean_finish_full": None,
+        "tail_bounds": [], "rank_gap_median": None, "gems_expected_by_luck": 0.0,
+    }
+    for eid, _, _, answer in faq_entries(thin):
+        assert "{" not in answer and "}" not in answer, eid
+
+    with pytest.raises(KeyError):
+        faq_entries({k: v for k, v in _FIGURES_2026_11_04.items() if k != "events"})
+
+
+def test_no_corpus_figure_is_typed_into_the_faq_templates():
+    # AC (#265): every number the templates still carry is design or illustration,
+    # listed here with its reason, so a corpus figure typed back into the prose
+    # (the stale-FAQ failure #264 and #265 exist to retire) fails this test. The
+    # rule constants are allowed by the issue; the rest are the worked examples the
+    # answers teach with.
+    allowed = {
+        "5", "200", "12", "1", "0", "0.5", "0.62", "62",  # the finish's worked example
+        "24",  # the cut floor, and the "3 / 24" hover example
+        "90",  # every interval is a 90% one
+        "25", "50", "75",  # the meta share cuts, and the landscape's display cut
+        "2",  # "Dan S 2", "fewer than two"
+        "3",  # the hover example, "1-2-3"
+        "64",  # the majors cut
+        "900",  # the band of a thousand resamples
+        "92",  # the privacy note's contact handle
+        f"{GEM_TOP_CUT:.0%}"[:-1], f"{MAX_GEM_SHARE:.0%}"[:-1],
+        f"{MAX_GEM_LUCK:.0%}"[:-1], str(MIN_GEM_DECKS), str(MIN_GEM_SLICE),
+    }
+    for eid, _, _, template in _FAQ_ENTRIES:
+        literals = set(re.findall(r"\d[\d,]*(?:\.\d+)?(?<!,)", template))
+        assert literals <= allowed, (eid, literals - allowed)
+
+    # And every figure in the file reaches the prose: move one on its own and some
+    # answer changes. A figure typed back in words beside its slot ("the four teams
+    # events") leaves its slot dead, which this catches and the digit scan cannot.
+    # The rank-gap sample is the one figure no answer quotes.
+    rendered = _answers(_FIGURES_2026_11_04)
+    for key, value in _FIGURES_2026_11_04.items():
+        if key == "rank_gap_pilots":
+            continue
+        moved = ([{"event": "X", "published": 9, "field": 99, "bound": 0.5}]
+                 if key == "tail_bounds" else value + 7)
+        assert _answers({**_FIGURES_2026_11_04, key: moved}) != rendered, key
+
+
+def test_the_faq_tab_reads_its_figures_from_the_bundle_it_is_built_over(
+    tmp_path, snapshot_dir
+):
+    # AC (#265): the answers the tab shows are the templates filled from the figures
+    # file sealed beside the graph the app opened, so an ingest round is fetch,
+    # build, deploy and the FAQ cannot lag the data. The fixture bundle's figures
+    # are nothing like the live corpus's, which is what makes this a test of the
+    # wiring rather than of the prose.
+    import gradio as gr
+
+    from graph7ph.figures import figures_path
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    figures = json.loads(figures_path(tmp_path / "graph").read_text())
+    expected = [f"### {q}\n\n{a}" for _, _, q, a in faq_entries(figures)]
+
+    shown = [b.value for b in demo.blocks.values()
+             if isinstance(b, gr.Markdown) and "faq" in (b.elem_classes or [])]
+    assert shown == expected
+    assert f"of the {figures['events']} events on record" in shown[0]
+
+
 def test_the_pilot_identity_answer_counts_what_the_graph_holds(live_graph):
-    # The answer quotes two figures about the pilots, and both are prose: nothing else
-    # recomputes them, so a rebuild that moves either leaves the FAQ asserting a number
-    # the app no longer holds. Graded against the real record for that reason.
+    # The answer quotes two figures about the pilots, read from the figures file the
+    # build sealed beside the graph (issues #264, #265). Graded against the real
+    # record all the same: what a reader sees is the rendered answer, so a figures
+    # file that drifted from the graph it sits beside would fail here, not only in
+    # the figures' own tests.
     #
     # The two are opposite failures, and the answer owes a reader both. The numbered
     # careers are one id the project read as several people; the paired names are
@@ -3324,9 +3490,10 @@ def test_the_pilot_identity_answer_counts_what_the_graph_holds(live_graph):
     # likeliest to find about themselves (issue #142's review pass said "the one
     # place", which was only ever true of the first).
     from graph7ph.db import artifact_path, rows
+    from graph7ph.figures import figures_path
 
-    answers = {eid: a for eid, _, _, a in _FAQ_ENTRIES}
-    identity = answers["faq-pilot-identity"]
+    figures = json.loads(figures_path(artifact_path()).read_text())
+    identity = _answers(figures)["faq-pilot-identity"]
 
     def count(cypher):
         return list(rows(live_graph.execute(cypher)))[0][0]
@@ -3347,6 +3514,21 @@ def test_the_pilot_identity_answer_counts_what_the_graph_holds(live_graph):
     open_pairs = report["under_merges"] + report["held_merges"]
     paired = len({pid for e in open_pairs for pid in e["pilots"]})
     assert f"{paired} of the names offered" in identity
+
+
+def test_the_bounded_event_the_answers_describe_is_still_the_only_one(live_graph):
+    # Two answers say "the one event that published 16 of its 28 finishes", and the
+    # renderer fills that sentence from the first bounded event in the figures file
+    # (issue #265): the count itself is prose, because the wording around it (the
+    # ▽, "below all 16") is ADR 0024's reading of a single partially published
+    # event, which the development doc marks as corpus-bound. A second such event,
+    # or none, reopens the ADR and the sentences with it, so the suite says so here
+    # rather than letting the tab describe an event the bundle no longer singles out.
+    from graph7ph.db import artifact_path
+    from graph7ph.figures import figures_path
+
+    figures = json.loads(figures_path(artifact_path()).read_text())
+    assert len(figures["tail_bounds"]) == 1
 
 
 def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
