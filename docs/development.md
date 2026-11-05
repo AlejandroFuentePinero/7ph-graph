@@ -101,13 +101,21 @@ brief=$(uv run graph7ph curation-report) &&
   esac
 ```
 
-The brief ranks on what changed: holds the data has now settled (decide each and
-retire its `[[hold]]`), candidates this ingestion introduced, holds whose
-evidence moved, then the unchanged tail and the counts. A round with none of the
-first three says so in one line, and there is nothing to file, which is what the
-`case` guards: the brief opens with `Curation review` only when one of the three
-has something in it, and otherwise the line prints the reason rather than filing
-a round nobody has to work. The command refuses to report on a bundle that is
+The brief ranks on what changed since the previous round: holds the data has now
+settled (decide each and retire its `[[hold]]`), candidates this ingestion
+introduced, holds whose evidence moved this round, then the candidates carried
+over unexamined from the previous round, the unchanged tail and the counts. The
+previous round's state is read off the snapshot sequence, never off the issue it
+filed: the command re-resolves every snapshot older than the newest through the
+build's own path, so a candidate that sequence already raised is carried rather
+than new, and a hold whose deck delta that sequence already fired is in the tail
+rather than listed again (issue #271). An id recurring across several pairs is
+one row listing its partners. A round with none of the first four says so in
+one line, and there is nothing to file, which is what the `case` guards: the
+brief opens with `Curation review` only when one of the four has something in
+it, and otherwise the line prints the reason rather than filing a round nobody
+has to work. Carried rows count, since the previous round's issue is closed when
+this one is filed and they would otherwise be open nowhere. The command refuses to report on a bundle that is
 missing, built from other sources, or older than the newest snapshot, so a brief
 always describes the corpus it names.
 

@@ -16,7 +16,8 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from graph7ph.build import BuildCounts, build_graph
+from graph7ph.build import BuildCounts, build_graph, reconcile
+from graph7ph.curation import Curation
 from graph7ph.db import remove_artifact
 from graph7ph.models import Card, Containment, Deck, Snapshot, load_snapshot
 from graph7ph.repairs import apply_repairs, load_repairs, repairs_report
@@ -316,6 +317,30 @@ def _deck_history(
         known |= {d.deck_id for d in snapshot.decks}
         history[path.name] = frozenset(known)
     return history
+
+
+def previous_reconciliation(
+    snapshots_root: Path, snapshot: str, curation: Curation
+) -> dict | None:
+    """The reconciliation the sequence before ``snapshot`` yields, or ``None``.
+
+    What the review brief diffs a round against (issue #271): the report the
+    build would have written from every snapshot older than ``snapshot``, the
+    pilot half of what :func:`build.reconciliation_path` holds and in its
+    shape, through the same load, repair, gate and resolution as :func:`ingest`,
+    under the dictionary as it is now. Read off the sequence rather than off the issue the previous round
+    filed, so the brief owes nothing to GitHub and a rebuilt round diffs the
+    same. ``None`` where no snapshot precedes this one.
+    """
+    dirs = [d for d in _snapshot_dirs(snapshots_root) if d.name < snapshot]
+    if not dirs:
+        return None
+    repairs = load_repairs()
+    snapshots = [apply_repairs(load_checked(d), repairs)[0] for d in dirs]
+    _, pilots = reconcile(
+        gate_sequence(snapshots).snapshot, curation, _deck_history(dirs, snapshots)
+    )
+    return asdict(pilots.report)
 
 
 def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCounts]:

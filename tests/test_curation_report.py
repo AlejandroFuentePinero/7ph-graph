@@ -12,8 +12,10 @@ import json
 import pytest
 
 from graph7ph.curation import Hold, load_curation
-from graph7ph.curation_report import curation_report
+from graph7ph.__main__ import SNAPSHOTS_ROOT
+from graph7ph.curation_report import curation_report, latest_snapshot
 from graph7ph.db import artifact_path
+from graph7ph.ingest import previous_reconciliation
 from graph7ph.pilots import SETTLING_TRIGGERS
 from graph7ph.provenance import staleness
 
@@ -28,6 +30,13 @@ def _recon(**overrides) -> dict:
     } | overrides
 
 
+def _new_decks(pilots: list[str], decks: list[str]) -> dict:
+    """A `new_decks` firing as the build writes one: the hold, and what it gained."""
+    return {"pilots": pilots, "trigger": "new_decks", "settles_on": "shared_event",
+            "as_of": SNAPSHOT, "decks": decks,
+            "detail": f"gained decks since {SNAPSHOT}: {pilots[0]} with {', '.join(decks)}"}
+
+
 def _rows(report: str, heading: str) -> list[str]:
     """The bullet lines under one heading, or none where it is not printed."""
     if f"## {heading}" not in report:
@@ -39,9 +48,10 @@ def _rows(report: str, heading: str) -> list[str]:
 def test_the_live_brief_states_exactly_what_the_live_report_holds():
     # The claim is about the real record, so it is graded against the real
     # record: every fired trigger and every unexamined row the build wrote is a
-    # row in the brief, and the brief invents none. Derived from
-    # `reconciliation.json` each run, never transcribed, which is what keeps the
-    # brief honest as the queues move (issue #227).
+    # row in the brief, in the one section its history puts it in, and the brief
+    # invents none. Derived from `reconciliation.json` and the snapshot sequence
+    # each run, never transcribed, which is what keeps the brief honest as the
+    # queues move (issues #227, #271).
     artifact = artifact_path()
     recon_file = artifact / "reconciliation.json"
     if not recon_file.exists():
@@ -49,29 +59,45 @@ def test_the_live_brief_states_exactly_what_the_live_report_holds():
                     "`uv run graph7ph build`")
     if stale := staleness(artifact):
         pytest.skip(f"cannot report on the real record: {stale}")
+    snapshot = latest_snapshot(SNAPSHOTS_ROOT)
+    if snapshot is None:
+        pytest.skip(f"no snapshots in {SNAPSHOTS_ROOT}/")
     recon = json.loads(recon_file.read_text())
-    holds = load_curation().holds
+    curation = load_curation()
+    previous = previous_reconciliation(SNAPSHOTS_ROOT, snapshot, curation)
 
-    report = curation_report(recon, holds, SNAPSHOT)
+    report = curation_report(recon, curation.holds, snapshot, previous=previous)
 
+    key = lambda c: frozenset(c.get("pilots") or [c["pilot"]])  # noqa: E731
     settled = [f for f in recon["fired_holds"] if f["trigger"] in SETTLING_TRIGGERS]
-    moved = [f for f in recon["fired_holds"] if f["trigger"] not in SETTLING_TRIGGERS]
-    new = recon["under_merges"] + recon["multi_name_ids"]
-    for fired, heading in [(settled, "Decisions available"), (moved, "Evidence moved")]:
+    rows = _rows(report, "Decisions available")
+    assert len(rows) == len(settled)
+    for hold in settled:
+        assert any(hold["detail"] in row and all(pid in row for pid in hold["pilots"])
+                   for row in rows)
+    # Every unexamined row is in exactly one of the two queue sections, and
+    # which one is whether the sequence before this snapshot already raised it.
+    before = {key(c) for c in (previous or {}).get("under_merges", [])
+              + (previous or {}).get("multi_name_ids", [])}
+    queue = recon["under_merges"] + recon["multi_name_ids"]
+    new = [c for c in queue if key(c) not in before]
+    carried = [c for c in queue if key(c) in before]
+    for candidates, heading in [(new, "New this ingestion"), (carried, "Carried over")]:
         rows = _rows(report, heading)
-        assert len(rows) == len(fired)
-        for hold in fired:
-            assert any(hold["detail"] in row and all(pid in row for pid in hold["pilots"])
-                       for row in rows)
-    rows = _rows(report, "New this ingestion")
-    assert len(rows) == len(new)
-    for candidate in new:
-        ids = candidate.get("pilots") or [candidate["pilot"]]
-        assert any(all(pid in row for pid in ids) for row in rows)
-    assert f"- unexamined: {len(new)}" in report
-    # Every hold on file that nothing fired reaches the tail, so the dictionary
-    # and the brief cannot disagree about how many pairs are parked.
-    assert len(_rows(report, "Unchanged holds")) == len(holds) - len(recon["fired_holds"])
+        for candidate in candidates:
+            assert any(all(pid in row for pid in key(candidate)) for row in rows)
+    assert f"- new: {len(new)}" in report
+    assert f"- carried: {len(carried)}" in report
+    # Every hold on file reaches the brief once: as a decision, as evidence that
+    # moved this round, or in the tail; so the dictionary and the brief cannot
+    # disagree about how many pairs are parked.
+    moved = _rows(report, "Evidence moved")
+    for hold in recon["fired_holds"]:
+        if hold["trigger"] not in SETTLING_TRIGGERS:
+            assert any(hold["detail"] in row for row in moved) or any(
+                all(pid in row for pid in hold["pilots"])
+                for row in _rows(report, "Unchanged holds"))
+    assert len(moved) + len(_rows(report, "Unchanged holds")) == len(curation.holds) - len(settled)
 
 
 def test_a_settled_hold_leads_the_brief_and_carries_the_fact_that_settled_it():
@@ -103,10 +129,12 @@ def test_a_settled_hold_leads_the_brief_and_carries_the_fact_that_settled_it():
     assert report.index("gained decks since") > settled
 
 
-def test_the_unexamined_queues_are_what_this_ingestion_introduced():
+def test_both_unexamined_queues_rank_above_the_held_tail():
     # Both identity queues mean "nobody has read this" since the thorough passes
-    # (issues #231, #232), so an unexamined row is a row this ingestion brought
-    # in, and it ranks above the tail that has already been reasoned about.
+    # (issues #231, #232), so a row from either ranks above the tail that has
+    # already been reasoned about; which of the two queue sections it lands in
+    # is the previous round's business (issue #271), and with no previous round
+    # both rows are new.
     recon = _recon(
         under_merges=[{"display_name": "Joe M", "relation": "nickname",
                        "pilots": ["NimbleBlackEagle", "FrostyBlueOtter"]}],
@@ -174,34 +202,35 @@ def test_an_id_holding_several_pairs_is_called_out_as_one_decision_that_closes_r
     assert "`D`:" not in report
 
 
-def test_the_counts_close_the_brief_with_what_is_still_unexamined():
-    # The figure that means "open this many questions" is the unexamined one, and
-    # after the thorough passes it should only ever be what this ingestion
-    # introduced (issues #231, #232). Held and curated are counted beside it
-    # because they are what makes that figure small.
+def test_the_counts_close_the_brief_with_new_carried_moved_and_unchanged_apart():
+    # The figure that means "open this many questions" is what this ingestion
+    # introduced; what the previous round already listed is counted beside it,
+    # not inside it, as are the holds that moved this round and the ones that
+    # did not (issue #271). Held and curated are what keep the first figure small.
+    joe = {"display_name": "Joe M", "relation": "nickname", "pilots": ["A", "B"]}
+    ann = {"display_name": "Ann K", "relation": "typo", "pilots": ["K", "L"]}
+    previous = _recon(under_merges=[joe],
+                      fired_holds=[_new_decks(["E", "F"], ["d8"]),
+                                   _new_decks(["I", "J"], ["d7"])])
     recon = _recon(
-        under_merges=[{"display_name": "Joe M", "relation": "nickname",
-                       "pilots": ["A", "B"]}],
+        under_merges=[joe, ann],
         multi_name_ids=[{"pilot": "R", "display_name": "Richard O",
                          "names": ["Richard O", "Richard Owen"]}],
         fired_holds=[{"pilots": ["C", "D"], "trigger": "shared_event",
                       "settles_on": "shared_event", "as_of": SNAPSHOT,
                       "decks": [], "detail": "both registered at E1"},
-                     {"pilots": ["E", "F"], "trigger": "new_decks",
-                      "settles_on": "shared_event", "as_of": SNAPSHOT,
-                      "decks": [], "detail": "gained decks"}],
+                     _new_decks(["E", "F"], ["d8", "d9"]),
+                     _new_decks(["I", "J"], ["d7"])],
         curated=222,
     )
     holds = {frozenset(pair): Hold("shared_event", SNAPSHOT)
-             for pair in [("C", "D"), ("E", "F"), ("G", "H")]}
+             for pair in [("C", "D"), ("E", "F"), ("G", "H"), ("I", "J")]}
 
-    counts = curation_report(recon, holds, SNAPSHOT).split("## Counts")[1]
+    counts = curation_report(recon, holds, SNAPSHOT, previous=previous).split("## Counts")[1]
 
-    assert "unexamined: 2" in counts
-    assert "decisions available: 1" in counts
-    assert "evidence moved: 1" in counts
-    assert "unchanged holds: 1" in counts
-    assert "curated: 222" in counts
+    assert counts.strip().splitlines() == [
+        "- new: 2", "- carried: 1", "- decisions available: 1",
+        "- evidence moved: 1", "- unchanged holds: 2", "- curated: 222"]
 
 
 def test_a_round_with_nothing_to_work_says_so_instead_of_printing_empty_sections():
@@ -212,7 +241,7 @@ def test_a_round_with_nothing_to_work_says_so_instead_of_printing_empty_sections
 
     assert report.strip().splitlines() == [
         f"Nothing to review for snapshot `{SNAPSHOT}`: no hold settled, "
-        "no candidate is new, and no hold's evidence moved."
+        "no candidate is new or carried, and no hold's evidence moved."
     ]
 
 
@@ -243,3 +272,77 @@ def test_a_quiet_round_with_holds_still_on_file_leads_with_the_quiet_line():
     assert "## Unchanged holds (1)" in report
     assert "## Decisions available" not in report
     assert "## New this ingestion" not in report
+
+
+def test_a_candidate_on_the_previous_round_is_carried_and_one_not_on_it_is_new():
+    # "New this ingestion" counted every unexamined pair, and 41 of the 57 it
+    # listed on #262 were on the previous round's issue. What this ingestion
+    # introduced is the queue less the queue the sequence before it would have
+    # produced (issue #271); without a previous round every candidate is new.
+    joe = {"display_name": "Joe M", "relation": "nickname", "pilots": ["A", "B"]}
+    ann = {"display_name": "Ann K", "relation": "typo", "pilots": ["C", "D"]}
+    recon = _recon(under_merges=[joe, ann])
+
+    report = curation_report(recon, {}, SNAPSHOT, previous=_recon(under_merges=[joe]))
+
+    assert _rows(report, "New this ingestion (1)") == ["- `C` + `D`: Ann K (typo)"]
+    assert _rows(report, "Carried over (1)") == ["- `A` + `B`: Joe M (nickname)"]
+    first = curation_report(recon, {}, SNAPSHOT)
+    assert len(_rows(first, "New this ingestion (2)")) == 2
+    assert "Carried over" not in first
+
+
+def test_a_hub_id_in_several_candidate_pairs_is_one_row_listing_its_partners():
+    # A bare first name against seven surnamed partners made seven rows on #262
+    # (Ryan), though whose deck it is is one question (issue #271). The row sits
+    # where the hub's first pair did, and the heading still counts the pairs.
+    recon = _recon(under_merges=[
+        {"display_name": "Ryan W", "relation": "first-name", "pilots": ["RyanW", "Ryan"]},
+        {"display_name": "Ann K", "relation": "typo", "pilots": ["C", "D"]},
+        {"display_name": "Ryan L-J", "relation": "first-name", "pilots": ["RyanLJ", "Ryan"]},
+    ])
+
+    rows = _rows(curation_report(recon, {}, SNAPSHOT), "New this ingestion (3)")
+
+    assert rows == [
+        "- `Ryan` against 2: `RyanW` Ryan W (first-name); `RyanLJ` Ryan L-J (first-name)",
+        "- `C` + `D`: Ann K (typo)",
+    ]
+
+
+def test_a_moved_hold_is_listed_in_the_round_its_evidence_moved_and_not_again():
+    # `new_decks` grades against the hold's own `as_of`, so once any deck arrived
+    # the hold was re-listed every round (60 of the 70 rows on #262 were on the
+    # previous issue). A hold whose deck delta is what the previous round already
+    # reported is in the tail; one whose delta grew is listed, naming the decks
+    # that arrived this round; one firing for the first time needs no such note,
+    # its detail being this round's news in full (issue #271).
+    previous = _recon(fired_holds=[_new_decks(["A", "B"], ["d1"]),
+                                   _new_decks(["C", "D"], ["d2"])])
+    recon = _recon(fired_holds=[_new_decks(["A", "B"], ["d1"]),
+                                _new_decks(["C", "D"], ["d2", "d3"]),
+                                _new_decks(["E", "F"], ["d4"])])
+    holds = {frozenset(pair): Hold("shared_event", SNAPSHOT)
+             for pair in [("A", "B"), ("C", "D"), ("E", "F")]}
+
+    report = curation_report(recon, holds, SNAPSHOT, previous=previous)
+
+    moved = _rows(report, "Evidence moved (2)")
+    assert any(row.startswith("- `C` + `D`") and row.endswith("; this round: d3")
+               for row in moved)
+    assert any(row.startswith("- `E` + `F`") and "this round" not in row for row in moved)
+    assert _rows(report, "Unchanged holds (1)") == [
+        f"- `A` + `B`: settles on `shared_event`, as of `{SNAPSHOT}`"]
+
+
+def test_a_round_whose_only_work_is_carried_over_still_files():
+    # The runbook closes the previous round's issue when it files the next, so
+    # carried rows have no open issue but this round's: a round with nothing
+    # new still opens with the words the runbook files on, and lists them.
+    joe = {"display_name": "Joe M", "relation": "nickname", "pilots": ["A", "B"]}
+
+    report = curation_report(_recon(under_merges=[joe]), {}, SNAPSHOT,
+                             previous=_recon(under_merges=[joe]))
+
+    assert report.startswith("Curation review")
+    assert _rows(report, "Carried over (1)") == ["- `A` + `B`: Joe M (nickname)"]

@@ -230,10 +230,7 @@ def build_graph(
     # this build never read.
     from_disk = curation is None
     curation = curation if curation is not None else load_curation()
-    snapshot = _apply_deck_events(_apply_deck_archetypes(snapshot, curation), curation)
-    pilots = resolve_pilots(
-        snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
-    )
+    snapshot, pilots = reconcile(snapshot, curation, snapshot_decks)
     # The direct signal of a merge goes first, so a merged event aborts naming
     # what happened rather than a year it cannot be dated; above the drop for
     # the reason the straddle guard gives below.
@@ -366,6 +363,23 @@ def graph_counts(conn: ladybug.Connection) -> BuildCounts:
         has_type=_count(conn, "MATCH ()-[r:HAS_TYPE]->() RETURN count(r)"),
         in_year=_count(conn, "MATCH ()-[r:IN_YEAR]->() RETURN count(r)"),
     )
+
+
+def reconcile(
+    snapshot: Snapshot, curation: Curation, snapshot_decks: dict[str, frozenset[str]] | None
+) -> tuple[Snapshot, PilotResolution]:
+    """The curated snapshot and its pilots resolved, as the build reads them.
+
+    The one spelling of "apply the dictionary, then resolve", so the review
+    brief can ask what the build would have written from an older sequence
+    (:func:`ingest.previous_reconciliation`, issue #271) and get the same answer
+    the build gave, not a re-derivation that drifts from it.
+    """
+    snapshot = _apply_deck_events(_apply_deck_archetypes(snapshot, curation), curation)
+    pilots = resolve_pilots(
+        snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
+    )
+    return snapshot, pilots
 
 
 def _decklists(containments: list[Containment]) -> dict[str, tuple]:

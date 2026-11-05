@@ -18,10 +18,12 @@ from graph7ph.ingest import (
     ingest,
     ingest_report_path,
     load_checked,
+    previous_reconciliation,
     promote,
     union_snapshots,
 )
 from graph7ph.build import reconciliation_path
+from graph7ph.curation import Curation
 from graph7ph.db import DB_FILENAME, NotABundle, database_path, open_for_reading, rows
 from graph7ph.models import Card, Containment, Deck, Snapshot
 from graph7ph.repairs import load_repairs
@@ -666,3 +668,48 @@ as_of = "20260201T000000Z"
          "from": {"snapshot": "20260201T000000Z", "pilot": "new"},
          "to": {"snapshot": "20260301T000000Z", "pilot": "newer"}},
     ]
+
+
+def _titled_snapshot_dir(path, decks):
+    # Each deck names its pilot and a title a name is recovered from, which is
+    # what puts two ids on the identity queue; the ingest's own fixtures recover
+    # no name and never raise a candidate.
+    path.mkdir(parents=True)
+    (path / "decks.json").write_text(json.dumps([
+        {"deckId": deck, "name": title, "deckName": "n", "pilot": pilot,
+         "event": event, "eventId": f"evt_{event}", "eventType": "Tournament",
+         "placement": 1, "placementNorm": 0.0, "eventSize": 1,
+         "createdAt": "2026-01-01T00:00:00+00:00", "colour": "colour:U",
+         "macro": "macro:control", "engineTags": [], "engineTagLabels": {},
+         "primaryTag": "", "primaryTagWeights": {}}
+        for deck, pilot, title, event in decks
+    ]))
+    (path / "cards_index.json").write_text(json.dumps({
+        "v": 2,
+        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
+                   "manaCost": None, "manaValue": 0.0, "reserved": False,
+                   "points": 0, "pointsCompanion": 0}],
+        "decks": {deck: {"m": [0], "s": []} for deck, *_ in decks},
+    }))
+
+
+def test_the_previous_reconciliation_is_what_the_sequence_before_a_snapshot_yields(tmp_path):
+    # The review brief diffs a round against the one before it, and reads that
+    # state from the snapshot sequence rather than from the issue it filed
+    # (issue #271): the reconciliation the build would have written from every
+    # snapshot older than the one named, through the same load, repair, gate
+    # and resolution. Before the first snapshot there is no round to diff against.
+    root = tmp_path / "snapshots"
+    _titled_snapshot_dir(root / "20260101T000000Z", [
+        ("d1", "P1", "01st Joe M - Grixis - E1", "E1"),
+        ("d2", "P2", "01st Joel M - Grixis - E2", "E2"),
+    ])
+    _titled_snapshot_dir(root / "20260201T000000Z", [
+        ("d3", "P3", "01st Ann K - Grixis - E3", "E3"),
+        ("d4", "P4", "01st Anne K - Grixis - E4", "E4"),
+    ])
+
+    previous = previous_reconciliation(root, "20260201T000000Z", Curation.empty())
+
+    assert [sorted(c["pilots"]) for c in previous["under_merges"]] == [["P1", "P2"]]
+    assert previous_reconciliation(root, "20260101T000000Z", Curation.empty()) is None
