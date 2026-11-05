@@ -824,6 +824,37 @@ def test_the_curation_report_writes_the_review_brief_for_the_promoted_bundle(
     assert all(pid in out for pid in ids)
 
 
+def test_the_curation_report_tells_this_round_s_candidates_from_the_previous_round_s(
+    tmp_path, monkeypatch, capsys
+):
+    # The brief says what changed (issue #271): a pair the snapshot before this
+    # one already raised is carried, not new, and the command reads that off the
+    # snapshot sequence it was pointed at, with nothing filed anywhere to consult.
+    snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
+    _titled_snapshot(snapshots / "20260101T000000Z", [
+        ("d1", "P1", "01st Joe M - Grixis - E1", "E1", 1),
+        ("d2", "P2", "01st Joel M - Grixis - E2", "E2", 1),
+    ])
+    _titled_snapshot(snapshots / "20260201T000000Z", [
+        ("d3", "P3", "01st Ann K - Grixis - E3", "E3", 1),
+        ("d4", "P4", "01st Anne K - Grixis - E4", "E4", 1),
+    ])
+    (tmp_path / "pilots.toml").write_text("")
+    curation = functools.partial(load_curation, tmp_path / "pilots.toml")
+    monkeypatch.setattr("graph7ph.build.load_curation", curation)
+    monkeypatch.setattr("graph7ph.__main__.load_curation", curation)
+    _build(argparse.Namespace(snapshots=snapshots, db=db))
+    capsys.readouterr()
+
+    _curation_report(argparse.Namespace(snapshots=snapshots, db=db))
+
+    out = capsys.readouterr().out
+    assert out.startswith("Curation review for snapshot `20260201T000000Z`")
+    assert "## New this ingestion (1)" in out
+    assert "## Carried over (1)" in out
+    assert out.index("`P3`") < out.index("## Carried over") < out.index("`P1`")
+
+
 def test_reporting_on_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
     # Nothing to report against is a sentence naming the remedy, not a traceback:
     # the command is a pipe into `gh issue create`, where a crash would file the

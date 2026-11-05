@@ -4,13 +4,17 @@ A review round used to start from `reconciliation.json`, which re-derives the
 same flat queue every build and says nothing about what moved (issue #227). This
 renders the same facts as a brief ranked on what changed, so a round starts from
 a written page: decisions the data has settled first, then what is genuinely new,
-then holds whose evidence moved, then the unchanged tail as one line each.
+then holds whose evidence moved this round, then what the previous round already
+listed and the unchanged tail as one line each.
 
-Every figure here is derived from the report the build just wrote and from the
-dictionary, never transcribed, so nothing in the brief can go stale the way a
-checked-in count would (issue #227).
+"Changed" is against the previous round, which the brief reads off the snapshot
+sequence (the reconciliation every older snapshot yields) and never off the issue
+that round filed (issue #271). Every figure here is derived from the report the
+build just wrote, from that sequence and from the dictionary, never transcribed,
+so nothing in the brief can go stale the way a checked-in count would (#227).
 """
 
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -72,33 +76,67 @@ def unreportable(artifact: Path, snapshot: str) -> str | None:
     return None
 
 
-def curation_report(recon: dict, holds: Holds, snapshot: str) -> str:
-    """The review brief for the bundle ``recon`` came from, as markdown."""
+def curation_report(
+    recon: dict, holds: Holds, snapshot: str, previous: dict | None = None
+) -> str:
+    """The review brief for the bundle ``recon`` came from, as markdown.
+
+    ``previous`` is the reconciliation the snapshot sequence before ``snapshot``
+    yields (:func:`ingest.previous_reconciliation`), which is what the brief
+    diffs against so it says what changed this round rather than what is open
+    (issue #271); ``None`` where no snapshot precedes this one.
+    """
+    previous = previous or {}
     fired = recon.get("fired_holds", [])
     settled = [f for f in fired if f["trigger"] in SETTLING_TRIGGERS]
-    moved = [f for f in fired if f["trigger"] not in SETTLING_TRIGGERS]
+    # `new_decks` grades against the hold's own `as_of`, so once any deck
+    # arrived the hold fired every round after. Evidence moved this round only
+    # where the delta holds a deck the previous round's firing did not (issue
+    # #271); a hold firing for the first time needs no note of what arrived,
+    # its detail being this round's news in full.
+    reported = {frozenset(f["pilots"]): set(f["decks"])
+                for f in previous.get("fired_holds", [])}
+    moved: list[tuple[dict, list[str]]] = []
+    for f in fired:
+        if f["trigger"] in SETTLING_TRIGGERS:
+            continue
+        known = reported.get(frozenset(f["pilots"]))
+        if arrived := [d for d in f["decks"] if d not in (known or ())]:
+            moved.append((f, arrived if known else []))
 
-    # Unexamined *is* new: both queues carry only what no pass has read, so a row
-    # reaching this section is a row this ingestion introduced (issues #231,
-    # #232). That every such row reaches it, and none is dropped on the way, is
-    # held by the suite (`test_curation_report.py::
-    # test_the_live_brief_states_exactly_what_the_live_report_holds`); whether the
-    # queue is empty is the round's issue to track, not the suite's (issue #270).
-    new = recon.get("under_merges", []) + recon.get("multi_name_ids", [])
+    # Both queues carry only what no pass has read (issues #231, #232), which is
+    # not the same as what this ingestion introduced: a row nobody read last
+    # round either is the same question again, listed on that round's issue, so
+    # it is carried and only the rest is new (issue #271). Keyed on ids, since
+    # the names that raised a pair are a majority vote a deck can flip (ADR
+    # 0007) while the pair stays. That every queue row reaches one of the two
+    # sections, and none is dropped on the way, is held by the suite
+    # (`test_curation_report.py::
+    # test_the_live_brief_states_exactly_what_the_live_report_holds`); whether
+    # the queue is empty is the round's issue to track, not the suite's (#270).
+    queue = recon.get("under_merges", []) + recon.get("multi_name_ids", [])
+    before = {_key(c) for c in previous.get("under_merges", [])
+              + previous.get("multi_name_ids", [])}
+    new = [c for c in queue if _key(c) not in before]
+    carried = [c for c in queue if _key(c) in before]
     named = {frozenset(h["pilots"]): h for h in recon.get("held_merges", [])} | {
         frozenset({h["pilot"]}): h for h in recon.get("held_names", [])}
-    has_fired = {frozenset(f["pilots"]) for f in fired}
+    listed = {frozenset(f["pilots"]) for f in settled} | {
+        frozenset(f["pilots"]) for f, _ in moved}
     unchanged = {ids: hold for ids, hold in sorted(holds.items(), key=lambda kv: sorted(kv[0]))
-                 if ids not in has_fired}
+                 if ids not in listed}
 
     # A brief filed after every ingestion is read only if its arrival means
     # something, so a round with no work says that in a sentence rather than in
-    # a page of empty headings. The held tail is not work and does not make a
-    # round loud, but it is still listed: a hold nobody lists is one nobody
-    # retires. With no tail either there is nothing to print but the sentence.
-    if not (fired or new):
+    # a page of empty headings. Carried rows are work: the runbook closes the
+    # previous round's issue when it files the next, so a round whose only work
+    # is carried still files, or those rows would be open nowhere. The held tail
+    # is not work and does not make a round loud, but it is still listed: a hold
+    # nobody lists is one nobody retires. With no tail either there is nothing
+    # to print but the sentence.
+    if not (settled or new or carried or moved):
         quiet = (f"Nothing to review for snapshot `{snapshot}`: no hold settled, "
-                 "no candidate is new, and no hold's evidence moved.")
+                 "no candidate is new or carried, and no hold's evidence moved.")
         if not unchanged:
             return quiet + "\n"
         lines = [quiet, ""]
@@ -109,10 +147,14 @@ def curation_report(recon: dict, holds: Holds, snapshot: str) -> str:
         lines += [_fired_line(f) for f in settled] + [""]
     if new:
         lines += [f"## New this ingestion ({len(new)})", ""]
-        lines += [_candidate_line(c) for c in new] + [""]
+        lines += _candidate_lines(new) + [""]
     if moved:
         lines += [f"## Evidence moved ({len(moved)})", ""]
-        lines += [_fired_line(f) for f in moved] + [""]
+        lines += [_fired_line(f) + (f"; this round: {', '.join(arrived)}" if arrived else "")
+                  for f, arrived in moved] + [""]
+    if carried:
+        lines += [f"## Carried over ({len(carried)})", ""]
+        lines += _candidate_lines(carried) + [""]
     if unchanged:
         lines += [f"## Unchanged holds ({len(unchanged)})", ""]
         lines += [_held_line(ids, hold, named.get(ids)) for ids, hold in unchanged.items()]
@@ -122,16 +164,53 @@ def curation_report(recon: dict, holds: Holds, snapshot: str) -> str:
                       "One decision closes several rows:", ""]
             lines += [f"- `{pid}`: held against {', '.join(f'`{p}`' for p in partners)}"
                       for pid, partners in hubs] + [""]
-    # Unexamined is the figure that means "open this many questions" (issue
-    # #228), and after the thorough passes it is what this ingestion introduced
-    # and nothing else. The rest are what keep it that small.
+    # New is the figure that means "open this many questions" (issue #228):
+    # what this ingestion introduced and nothing else, with what the previous
+    # round already listed counted beside it rather than inside it (issue #271).
+    # The rest are what keep it that small.
     lines += ["## Counts", "",
-              f"- unexamined: {len(new)}",
+              f"- new: {len(new)}",
+              f"- carried: {len(carried)}",
               f"- decisions available: {len(settled)}",
               f"- evidence moved: {len(moved)}",
               f"- unchanged holds: {len(unchanged)}",
               f"- curated: {recon['curated']}", ""]
     return "\n".join(lines)
+
+
+def _key(candidate: dict) -> frozenset[str]:
+    """The ids a queue row is about, whichever queue it came from."""
+    return frozenset(candidate.get("pilots") or [candidate["pilot"]])
+
+
+def _candidate_lines(candidates: list[dict]) -> list[str]:
+    """The queue's rows, an id recurring across pairs folded into one row.
+
+    A bare first name against several surnamed partners raised one pair per
+    partner (seven rows for one Ryan on #262), though whose deck it is is one
+    question, so the recurring id is the row and its partners the detail (issue
+    #271). A pair is filed under whichever of its ids recurs more, the row sits
+    where the hub's first pair did, and a pair with no recurring id is its own
+    row as before.
+    """
+    degree = Counter(pid for c in candidates for pid in c.get("pilots", ()))
+    hub_of = [max((pid for pid in c.get("pilots", ()) if degree[pid] > 1),
+                  key=degree.get, default=None) for c in candidates]
+    pairs_of: dict[str, list[dict]] = {}
+    for hub, c in zip(hub_of, candidates):
+        if hub is not None:
+            pairs_of.setdefault(hub, []).append(c)
+    lines: list[str] = []
+    written: set[str] = set()
+    for hub, c in zip(hub_of, candidates):
+        if hub is None:
+            lines.append(_candidate_line(c))
+        elif hub not in written:
+            written.add(hub)
+            lines.append(f"- `{hub}` against {len(pairs_of[hub])}: " + "; ".join(
+                f"`{next(p for p in pair['pilots'] if p != hub)}` {_describe(pair)}"
+                for pair in pairs_of[hub]))
+    return lines
 
 
 def _candidate_line(candidate: dict) -> str:

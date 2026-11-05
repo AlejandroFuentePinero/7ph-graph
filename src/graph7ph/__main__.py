@@ -22,7 +22,7 @@ from graph7ph.db import (
     open_for_reading,
 )
 from graph7ph.fetch import fetch_snapshot
-from graph7ph.ingest import SchemaError, ingest, ingest_report_path
+from graph7ph.ingest import SchemaError, ingest, ingest_report_path, previous_reconciliation
 from graph7ph.mirror import MirrorRefused, mirror_snapshots
 from graph7ph.pilots import SETTLING_TRIGGERS
 from graph7ph.provenance import staleness
@@ -210,6 +210,7 @@ def _curation_report(args: argparse.Namespace) -> None:
         json.loads(reconciliation_path(args.db).read_text()),
         curation.holds,
         snapshot,
+        previous=previous_reconciliation(args.snapshots, snapshot, curation),
     ))
 
 
