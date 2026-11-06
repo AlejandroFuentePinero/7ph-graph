@@ -13,11 +13,12 @@ from graph7ph.baseline import (
     Case,
     capture,
     check,
+    code_digest,
     compare,
     subgraph_blob,
 )
 from graph7ph.build import build_graph, graph_counts
-from graph7ph.db import open_for_reading, rows
+from graph7ph.db import artifact_path, open_for_reading, rows
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
     CardCooccurrence,
@@ -616,3 +617,38 @@ def test_a_dropped_row_does_not_drag_every_other_row_into_the_report():
 
     assert sum("card:x:a" in d or "card:x:b" in d for d in diffs) == 0
     assert any("card:x:c" in d for d in diffs)
+
+
+def test_the_live_bundle_reproduces_the_checked_in_oracle(live_graph):
+    # The gate's own compare over the real record, run by the suite and not only
+    # by the runbook. Every test above grades a fixture against a temporary
+    # baseline, so when PR #285 merged nine pilot pairs by rule (ADR 0028), an
+    # intended answer change the runbook handles by reading the differences and
+    # capturing the oracle fresh in its own commit, the suite was green and the
+    # checked-in oracle was red (issue #290). CI never builds, so this skips there
+    # on the fixture's terms; on the machine that built the bundle it fails on any
+    # difference, which is the author's cue to recapture before the PR.
+    diffs = check(live_graph, BASELINE_PATH)
+    assert diffs == [], (
+        f"{len(diffs)} difference(s) between {artifact_path()} and {BASELINE_PATH}: "
+        "`uv run graph7ph baseline --capture` names the remedy, and the gate "
+        "section of docs/development.md has the order.\n" + "\n".join(diffs)
+    )
+
+
+@pytest.mark.usefixtures("live_graph")
+def test_the_oracle_is_proven_under_the_working_tree():
+    # The milder slip behind the same issue: a gate input edited under a green
+    # gate, without the one-line proof commit (`--capture` over a green gate
+    # rewrites only the digest). #271, #283 and #286 each did it, so the recorded
+    # digest was already stale when #273 turned the oracle red, and the refusal
+    # that met the maintainer could no longer say which change moved the answers.
+    # Code against code, but it still waits on the bundle: a proof is only honest
+    # over a bundle the tree built, and CI, which has none, cannot make one.
+    recorded = _checked_in_baseline().get("code_digest")
+    assert recorded == code_digest(), (
+        f"{BASELINE_PATH} records a proof over other code than the working tree's: "
+        "a gate input moved since the oracle was last proven. With the gate green, "
+        "`uv run graph7ph baseline --capture` rewrites only the digest; commit that "
+        "one-line change as its own proof commit."
+    )

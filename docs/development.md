@@ -171,7 +171,7 @@ uv run playwright install chromium   # once, for the browser suite below
 ```
 
 Rebuild before running the suite after any ingest, build, schema, curation,
-repairs, query or trends edit. Twelve tests grade the real bundle through the
+repairs, query or trends edit. Fourteen tests grade the real bundle through the
 `live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
 (issue #55), so on a stale bundle they pass green having graded nothing. The
@@ -231,6 +231,16 @@ plain gate prints on the previous bundle, which is the record the ADR has to
 make anyway, then remove the oracle and `--capture` it fresh, in its own commit:
 the first capture of the new answers. That, and a corrupt oracle forced over,
 are the two captures that record a digest nothing graded.
+
+The suite catches either step left out, the fresh capture and the proof
+commit, on the machine that built the bundle:
+`test_the_live_bundle_reproduces_the_checked_in_oracle` grades the oracle
+against the live bundle through the gate's own compare and fails with its
+difference lines, and `test_the_oracle_is_proven_under_the_working_tree` fails
+when a gate input moved without the proof commit. Both skip on a missing or
+stale bundle on the `live_graph` fixture's terms, so CI, which never builds,
+sees neither; PR #285 merged with the suite green and the oracle red before
+they existed (issue #290).
 
 Both forms refuse outright on an artifact the working tree has moved past. The
 gate re-runs the queries live, but ingest, build, schema, curation and repairs
