@@ -10,7 +10,7 @@ callers can assert they match the source.
 """
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,7 +23,7 @@ from graph7ph.figures import write_figures
 from graph7ph.models import (
     COLOURS, Card, Containment, Deck, Snapshot, tier_width_from_title,
 )
-from graph7ph.pilots import PilotResolution, resolve_pilots
+from graph7ph.pilots import PilotResolution, refuse_moved, resolve_pilots
 from graph7ph.provenance import stamp
 
 _SCHEMA = [
@@ -374,11 +374,17 @@ def reconcile(
     brief can ask what the build would have written from an older sequence
     (:func:`ingest.previous_reconciliation`, issue #271) and get the same answer
     the build gave, not a re-derivation that drifts from it.
+
+    Before any entry is applied, every entry whose id upstream has handed to
+    someone else is refused (:func:`pilots.refuse_moved`, issue #283), read off
+    the raw ids the snapshot carries; the refusals ride into the report.
     """
+    curation, refused = refuse_moved(curation, snapshot.decks)
     snapshot = _apply_deck_events(_apply_deck_archetypes(snapshot, curation), curation)
     pilots = resolve_pilots(
         snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
     )
+    pilots = replace(pilots, report=replace(pilots.report, refused_entries=refused))
     return snapshot, pilots
 
 

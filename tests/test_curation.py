@@ -19,6 +19,7 @@ from graph7ph.curation import (
     Curation,
     CurationError,
     DeadEntry,
+    Entry,
     Hold,
     dead_entries,
     load_curation,
@@ -336,6 +337,8 @@ def test_a_hold_beside_an_unrelated_decision_loads(tmp_path):
     path = _write(tmp_path, """
         [[reject]]
         ids = ["A", "B"]
+        as_of = "20260815T140746Z"
+        names = { "A" = "Alex W", "B" = "Ben C" }
 
         [[hold]]
         ids = ["A", "C"]
@@ -355,6 +358,8 @@ def test_reject_with_three_ids_suppresses_every_pair(tmp_path):
     path = _write(tmp_path, """
         [[reject]]
         ids = ["A", "B", "C"]
+        as_of = "20260815T140746Z"
+        names = { "A" = "Alex W", "B" = "Ben C", "C" = "Cal T" }
     """)
     curation = load_curation(path)
     assert curation.is_rejected("A", "B")
@@ -369,6 +374,8 @@ def test_split_with_three_ids_keeps_every_pair_apart(tmp_path):
     path = _write(tmp_path, """
         [[split]]
         ids = ["A", "B", "C"]
+        as_of = "20260815T140746Z"
+        names = { "A" = "Alex W", "B" = "Alex W", "C" = "Alex W" }
     """)
     curation = load_curation(path)
     assert curation.is_split("A", "B")
@@ -421,15 +428,23 @@ def test_every_stored_pair_holds_exactly_two_ids(tmp_path):
     path = _write(tmp_path, """
         [[reject]]
         ids = ["A", "B"]
+        as_of = "20260815T140746Z"
+        names = { "A" = "Alex W", "B" = "Ben C" }
 
         [[reject]]
         ids = ["C", "D", "E"]
+        as_of = "20260815T140746Z"
+        names = { "C" = "Cal T", "D" = "Dan S", "E" = "Ed D" }
 
         [[split]]
         ids = ["F", "G"]
+        as_of = "20260815T140746Z"
+        names = { "F" = "James L", "G" = "James L" }
 
         [[split]]
         ids = ["H", "I", "J", "K"]
+        as_of = "20260815T140746Z"
+        names = { "H" = "Sam L", "I" = "Sam L", "J" = "Sam L", "K" = "Sam L" }
     """)
     curation = load_curation(path)
     assert len(curation.rejected) == 4 and len(curation.splits) == 7
@@ -445,6 +460,8 @@ def test_deck_event_entry_records_the_event_a_deck_was_really_played_at(tmp_path
         [[deck_event]]
         deck = "orphan"
         event = "CBR3"
+        as_of = "20260815T140746Z"
+        names = { "orphan" = "Peter K" }
     """)
     assert load_curation(path).deck_events == {"orphan": "CBR3"}
 
@@ -597,10 +614,14 @@ def test_merges_flatten_transitively_across_entries(tmp_path):
         [[merge]]
         ids = ["AlexJ", "AlexanderJ"]
         canonical = "AlexanderJ"
+        as_of = "20260815T140746Z"
+        names = { "AlexJ" = "Alex J", "AlexanderJ" = "Alexander J" }
 
         [[merge]]
         ids = ["AlexadnerJ", "AlexanderJ"]
         canonical = "AlexanderJ"
+        as_of = "20260815T140746Z"
+        names = { "AlexadnerJ" = "Alexadner J", "AlexanderJ" = "Alexander J" }
     """)
     curation = load_curation(path)
     assert curation.canonical("AlexJ") == "AlexanderJ"
@@ -621,4 +642,85 @@ def test_double_canonical_in_one_group_raises(tmp_path):
         canonical = "C"
     """)
     with pytest.raises(CurationError):
+        load_curation(path)
+
+
+# --- Provenance on every entry that applies to the graph (issue #283) ---
+
+STAMP = "20260713T232944Z"
+
+
+@pytest.mark.parametrize("kind, body", [
+    ("merge", 'ids = ["A", "B"]\ncanonical = "A"'),
+    ("reject", 'ids = ["A", "B"]'),
+    ("split", 'ids = ["A", "B"]'),
+    ("name", 'pilot = "A"\ndisplay_name = "Alex W"'),
+    ("deck_pilot", 'deck = "d1"\npilot = "A"'),
+    ("deck_archetype", 'deck = "d1"\ndeck_name = "N"\nengine = "engine:e"\nengine_label = "L"'),
+    ("deck_event", 'deck = "d1"\nevent = "CBR3"'),
+])
+@pytest.mark.parametrize("missing", ["as_of", "names"])
+def test_an_entry_that_applies_to_the_graph_needs_its_provenance(tmp_path, kind, body, missing):
+    # Upstream reuses a pilot id for a different person (issue #261), so an
+    # entry keyed on an id is only safe while the id still names the person it
+    # was written against. Every kind that applies to the graph therefore carries
+    # the snapshot it was written on and the name each of its ids recovered then,
+    # and the loader refuses one without them, where the author is still looking
+    # at the entry (issue #283).
+    provenance = {
+        "as_of": f'as_of = "{STAMP}"',
+        "names": 'names = { "A" = "Alex W", "B" = "Ben C", "d1" = "Alex W" }',
+    }
+    del provenance[missing]
+    path = _write(tmp_path, f"[[{kind}]]\n{body}\n" + "\n".join(provenance.values()))
+
+    with pytest.raises(CurationError, match=rf"\[\[{kind}\]\].*{missing}"):
+        load_curation(path)
+
+
+def test_a_well_formed_entry_loads_with_its_provenance(tmp_path):
+    # What the build compares against the snapshot: the kind and position of the
+    # table, the stamp, and the name under each id. A hold applies nothing to the
+    # graph and so carries no names (issue #283).
+    path = _write(tmp_path, f"""
+        [[merge]]
+        ids = ["A", "B"]
+        canonical = "A"
+        as_of = "{STAMP}"
+        names = {{ "A" = "Alexander W", "B" = "Alex W" }}
+
+        [[deck_pilot]]
+        deck = "d1"
+        pilot = "C"
+        as_of = "{STAMP}"
+        names = {{ "d1" = "Chris T", "C" = "Christopher T" }}
+
+        [[hold]]
+        ids = ["A", "D"]
+        settles_on = "shared_event"
+        as_of = "{STAMP}"
+    """)
+
+    curation = load_curation(path)
+
+    assert curation.entries == (
+        Entry("merge", 0, STAMP, {"A": "Alexander W", "B": "Alex W"}),
+        Entry("deck_pilot", 0, STAMP, {"d1": "Chris T", "C": "Christopher T"}),
+    )
+    assert curation.canonical("B") == "A" and curation.deck_pilots == {"d1": "C"}
+
+
+@pytest.mark.parametrize("names", [
+    '{ "A" = "Alex W" }',                       # one id unnamed
+    '{ "A" = "Alex W", "B" = "Ben C", "Z" = "Zed" }',  # a name under an id the entry does not name
+    '{ "A" = "Alex W", "B" = "" }',             # an empty name guards nothing
+])
+def test_names_must_cover_exactly_the_ids_the_entry_names(tmp_path, names):
+    path = _write(tmp_path, f"""
+        [[reject]]
+        ids = ["A", "B"]
+        as_of = "{STAMP}"
+        names = {names}
+    """)
+    with pytest.raises(CurationError, match=r"\[\[reject\]\].*names"):
         load_curation(path)

@@ -18,7 +18,7 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 # The eight kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
@@ -26,6 +26,13 @@ DeadKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype",
     "deck_event", "hold",
 ]
+
+# The seven kinds that apply to the graph, each of which carries its provenance
+# (issue #283). `hold` is the eighth: it applies nothing, so it carries none.
+AppliedKind = Literal[
+    "merge", "reject", "split", "name", "deck_pilot", "deck_archetype", "deck_event",
+]
+APPLIED_KINDS: tuple[AppliedKind, ...] = get_args(AppliedKind)
 
 # The dictionary is checked in, and lives apart from `snapshots/` (immutable
 # source) and `data/` (derived artifacts): it is neither, it is human judgement.
@@ -86,6 +93,27 @@ class Hold:
 
 
 @dataclass(frozen=True)
+class Entry:
+    """The provenance of one entry that applies to the graph (issue #283).
+
+    Upstream reuses a pilot id for a different person (two cases on 2026-10-17,
+    issue #261), so an entry keyed on an id is only right while the id still
+    names the person it was written against. Each applying entry therefore
+    records ``as_of``, the snapshot it was written on, and ``names``, the display
+    name each of its ids recovered then (for a ``name`` pin the recovered name,
+    never the pinned one; for a deck id, the name its title carried). The build
+    compares ``names`` against what each id recovers now and refuses the entry
+    where they no longer agree (:func:`pilots.refuse_moved`), so ``kind`` and
+    ``index`` say which table of the file that is.
+    """
+
+    kind: AppliedKind
+    index: int  # position among the file's tables of this kind
+    as_of: str
+    names: dict[str, str]  # id -> the display name it recovered at `as_of`
+
+
+@dataclass(frozen=True)
 class DeadEntry:
     """A recorded decision that matches no id or deck in the current snapshot.
 
@@ -124,6 +152,12 @@ class Curation:
     :func:`_refuse_merged_pair` refuses a dictionary that states both. No pair in
     ``holds`` is decided by any of the three: :func:`_refuse_decided_hold` refuses
     a dictionary that calls one pair both open and settled.
+
+    ``entries`` is the provenance of every applying entry and ``tables`` the
+    file's tables as parsed, which is what :func:`without` re-assembles the
+    dictionary from once the build has refused an entry (issue #283). A
+    dictionary built in code rather than read from a file carries neither, and
+    the build refuses nothing of it.
     """
 
     merges: dict[str, str]
@@ -134,6 +168,8 @@ class Curation:
     splits: frozenset[frozenset[str]] = field(default_factory=frozenset)
     deck_events: dict[str, str] = field(default_factory=dict)
     holds: dict[frozenset[str], Hold] = field(default_factory=dict)
+    entries: tuple[Entry, ...] = ()
+    tables: dict[str, list[dict]] = field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "Curation":
@@ -173,7 +209,29 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
         raw = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as exc:
         raise CurationError(f"{path} is not valid TOML: {exc}") from exc
+    return _assemble(raw, path)
 
+
+def without(curation: Curation, refused: list[Entry]) -> Curation:
+    """The dictionary with ``refused`` entries left out, re-assembled from its tables.
+
+    An entry's effect cannot be subtracted from the assembled maps (a merge is
+    flattened across entries by union-find), so the file is assembled again
+    without the table. Assembling again cannot newly contradict: every
+    contradiction the loader refuses is between two entries, so taking one away
+    removes contradictions and makes none.
+    """
+    dropped = {(e.kind, e.index) for e in refused}
+    tables = {
+        kind: [t for i, t in enumerate(curation.tables.get(kind, []))
+               if (kind, i) not in dropped]
+        for kind in curation.tables
+    }
+    return _assemble(tables, CURATION_PATH)
+
+
+def _assemble(raw: dict, path: Path) -> Curation:
+    """Every kind parsed and checked against the others, from the file's tables."""
     merges = _merges(raw.get("merge", []), path)
     rejected = _pairs(raw.get("reject", []), path, "reject")
     splits = _pairs(raw.get("split", []), path, "split")
@@ -213,7 +271,72 @@ def load_curation(path: Path = CURATION_PATH) -> Curation:
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
         splits=splits,
         deck_events=_deck_map(raw.get("deck_event", []), path, "deck_event", "event"),
+        entries=_entries(raw, path),
+        tables=raw,
     )
+
+
+def _entries(raw: dict, path: Path) -> tuple[Entry, ...]:
+    """The provenance of every applying entry, refused where it is missing.
+
+    Runs after the kind parsers above, so each table already holds the keys its
+    kind needs. ``names`` must key exactly the ids the entry names, deck id
+    included: a name under an id the entry does not name guards nothing, and an
+    id without a name is the exposure the field exists to close (issue #283).
+    """
+    entries: list[Entry] = []
+    for kind in APPLIED_KINDS:
+        for index, table in enumerate(raw.get(kind, [])):
+            as_of = _as_of(table, path, kind)
+            names = table.get("names")
+            ids = _entry_ids(kind, table)
+            if not isinstance(names, dict) or set(names) != ids or not all(
+                isinstance(n, str) and n for n in names.values()
+            ):
+                raise CurationError(
+                    f"{path}: a [[{kind}]] entry on {sorted(ids)} needs `names`, the "
+                    f"display name each of those ids recovered at `as_of` (inline, "
+                    f'names = {{ "<id>" = "Alex W" }}); scripts/entry_provenance.py '
+                    f"fills it in from the snapshots"
+                )
+            entries.append(Entry(kind, index, as_of, dict(names)))
+    return tuple(entries)
+
+
+def _entry_ids(kind: AppliedKind, table: dict) -> set[str]:
+    """Every pilot id and deck id one applying entry names."""
+    if kind in ("merge", "reject", "split"):
+        return set(table["ids"])
+    if kind == "name":
+        return {table["pilot"]}
+    if kind == "deck_pilot":
+        return {table["deck"], table["pilot"]}
+    return {table["deck"]}
+
+
+def _as_of(table: dict, path: Path, kind: str) -> str:
+    """The entry's ``as_of``, graded on its shape alone.
+
+    Presence of the directory is not a portable question (see ``SNAPSHOT_STAMP``).
+    ``isinstance`` before the shape, because an unquoted stamp is the likely slip
+    and TOML parses it as an int or a datetime rather than a string. Reaching
+    ``match`` with one raises TypeError, which is not a CurationError and so
+    escapes both the build's abort message and ``curation-report``'s refusal,
+    putting a traceback where a sentence belongs.
+    """
+    as_of = table.get("as_of")
+    if as_of is None:
+        raise CurationError(
+            f"{path}: a [[{kind}]] entry needs `as_of`, the snapshot it was written "
+            f'on, quoted ("20260815T140746Z")'
+        )
+    if not isinstance(as_of, str) or not SNAPSHOT_STAMP.match(as_of):
+        raise CurationError(
+            f"{path}: [[{kind}]] is `as_of` {as_of!r}, which is not a snapshot "
+            f"stamp; it dates the entry against the corpus it was written over, "
+            f'so it has to name a snapshot directory, quoted ("20260815T140746Z")'
+        )
+    return as_of
 
 
 def dead_entries(
@@ -403,19 +526,7 @@ def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
             raise CurationError(
                 f"{path}: a [[hold]] entry needs `settles_on` and `as_of`"
             )
-        # `isinstance` before the shape, because an unquoted stamp is the likely
-        # slip and TOML parses it as an int or a datetime rather than a string.
-        # Reaching `match` with one raises TypeError, which is not a CurationError
-        # and so escapes both the build's abort message and `curation-report`'s
-        # refusal, putting a traceback where a sentence belongs.
-        if not isinstance(as_of, str) or not SNAPSHOT_STAMP.match(as_of):
-            raise CurationError(
-                f"{path}: [[hold]] is `as_of` {as_of!r}, which is not a snapshot "
-                f"stamp; it dates the reasoning against the corpus it was written "
-                f"over, so it has to name a snapshot directory, quoted "
-                f'("20260815T140746Z")'
-            )
-        hold = Hold(settles_on=settles_on, as_of=as_of)
+        hold = Hold(settles_on=settles_on, as_of=_as_of(entry, path, "hold"))
         ids = _ids(entry, path, "hold")
         for pair in ([frozenset(ids)] if len(ids) == 1 else _all_pairs(ids)):
             if pair in holds:

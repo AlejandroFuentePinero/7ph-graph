@@ -1342,3 +1342,50 @@ def test_every_event_the_checked_in_repairs_build_carries_the_refile_rule(live_g
         "MATCH (e:Event) RETURN e.event, e.fieldImputed"))))
     assert {event: rules.get(event) for event in stated} == {
         event: "refiled" for event in stated}
+
+
+def test_the_record_refuses_no_entry_on_file(live_graph):
+    # The guard is only worth what the checked-in dictionary can pass: every
+    # entry was stamped with the name its ids recovered on the earliest snapshot
+    # holding them (scripts/entry_provenance.py), and today every one of those ids
+    # still recovers that name's family. An entry reddening here is one upstream
+    # has moved under since, which a rebuild also announces under a banner; the
+    # remedy is retiring or re-keying the entry, never relaxing the comparison
+    # (issue #283).
+    report = json.loads(reconciliation_path(artifact_path()).read_text())
+    assert report["refused_entries"] == []
+
+
+def test_a_refused_entry_applies_nothing_and_is_listed_in_the_report(tmp_path):
+    # The load-bearing property of the id-reuse guard (issue #283): an entry whose
+    # id upstream handed to someone else must leave the graph exactly as a build
+    # without the entry would, and say so in the report. Graded the way the hold's
+    # inertness is: the same snapshot built twice, with the entry and without.
+    _write_snapshot(tmp_path, [
+        _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
+              pilot="LunarAzureViper", name="01st Alexander W - Lands - E1"),
+        _deck("d2", "E2", "2026-02-01T00:00:00+00:00",
+              pilot="FrostyIvoryStag", name="01st Alex W - Lands - E2"),
+    ])
+    snapshot = load_snapshot(tmp_path)
+    (tmp_path / "pilots.toml").write_text("""
+        [[merge]]
+        ids = ["LunarAzureViper", "FrostyIvoryStag"]
+        canonical = "FrostyIvoryStag"
+        as_of = "20260713T232944Z"
+        names = { "LunarAzureViper" = "Lachie C", "FrostyIvoryStag" = "Alex W" }
+    """)
+    written = load_curation(tmp_path / "pilots.toml")
+
+    with_entry, entry_ids, entry_report = _identity(snapshot, tmp_path / "refused", written)
+    without, plain_ids, plain_report = _identity(snapshot, tmp_path / "plain", Curation.empty())
+
+    assert with_entry == without and with_entry.pilots == 2
+    assert entry_ids == plain_ids
+    assert entry_report["refused_entries"] == [{
+        "kind": "merge", "ids": ["FrostyIvoryStag", "LunarAzureViper"],
+        "key": "LunarAzureViper", "written": "Lachie C", "recovered": "Alexander W",
+    }]
+    assert plain_report["refused_entries"] == []
+    assert {k: v for k, v in entry_report.items() if k != "refused_entries"} == {
+        k: v for k, v in plain_report.items() if k != "refused_entries"}

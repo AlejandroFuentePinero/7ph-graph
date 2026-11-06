@@ -13,7 +13,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
-from graph7ph.curation import Curation, CurationError, DeadEntry, dead_entries
+from graph7ph.curation import (
+    AppliedKind, Curation, CurationError, DeadEntry, Entry, dead_entries, without,
+)
 from graph7ph.models import PLACEMENT_TOKEN
 
 # A deck title reads "<placement> <name> - <deck> - <event>". The name is what
@@ -217,6 +219,27 @@ class DroppedDuplicate:
 
 
 @dataclass(frozen=True)
+class RefusedEntry:
+    """An entry refused because one of its ids now recovers another person.
+
+    Upstream reuses a pilot id for a different person (two cases on 2026-10-17,
+    issue #261), and an entry keyed on a reused id keeps applying, to the wrong
+    person, with no dead-entry report, because the id is still present. So the
+    build compares the name each id recovered when the entry was written
+    (``Entry.names``) against what it recovers now, and an entry that no longer
+    agrees is applied to nothing and listed under a banner with both names
+    (issue #283). One row per id that moved, carrying every id the entry names so
+    the table can be found in the file.
+    """
+
+    kind: AppliedKind
+    ids: list[str]  # every id the entry names, sorted
+    key: str  # the id that moved
+    written: str  # the name it recovered when the entry was written
+    recovered: str  # the name it recovers now
+
+
+@dataclass(frozen=True)
 class JoinedName:
     """Several ids that recovered one display name, joined into one person.
 
@@ -329,6 +352,7 @@ class Reconciliation:
     held_merges: list[HeldPair] = field(default_factory=list)  # candidates examined and left undecided (issue #228)
     fired_holds: list[FiredHold] = field(default_factory=list)  # holds the corpus has now moved (issue #230)
     held_names: list[HeldName] = field(default_factory=list)  # multi-name ids examined and left undecided (issue #232)
+    refused_entries: list[RefusedEntry] = field(default_factory=list)  # entries whose id upstream handed to someone else (issue #283)
 
 
 @dataclass(frozen=True)
@@ -950,6 +974,65 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
     """Card-set overlap: shared cards over total (ADR 0005). Empty sets score 0."""
     union = a | b
     return len(a & b) / len(union) if union else 0.0
+
+
+def refuse_moved(curation: Curation, decks) -> tuple[Curation, list[RefusedEntry]]:
+    """The dictionary without every entry whose id upstream handed to someone else.
+
+    Each applying entry records the name each of its ids recovered when it was
+    written (:class:`curation.Entry`). An id that now recovers a name in another
+    surname family names another person, and the entry is refused whole: a merge
+    on it would fuse a stranger, a pin would rename one, a reject would separate
+    the wrong pair. Where the written name has no family (a handle, a bare first
+    name) the recovered name string is compared instead. An id the data no longer
+    holds is not a move: ``dead_entries`` reports it. Never an abort, the graph
+    without the entry being the safe one (issue #283).
+
+    Read off the raw upstream ids, before any entry is applied, because what the
+    dictionary would do to the ids is the thing in question.
+    """
+    recovered = recovered_names(decks)
+    refused: list[RefusedEntry] = []
+    moved: list[Entry] = []
+    for entry in curation.entries:
+        rows = [
+            RefusedEntry(entry.kind, sorted(entry.names), key, written, recovered[key])
+            for key, written in sorted(entry.names.items())
+            if key in recovered and not _same_person(written, recovered[key])
+        ]
+        if rows:
+            refused.extend(rows)
+            moved.append(entry)
+    return (without(curation, moved) if moved else curation), refused
+
+
+def recovered_names(decks) -> dict[str, str]:
+    """What each raw upstream pilot id and each deck id recovers as a name now.
+
+    A pilot id recovers the majority vote over its own decks' titles, falling
+    back to the id itself where no title names anyone, exactly as the build
+    names the node; a deck id recovers the name its title carries. Pilot and
+    deck ids share one map because they share one name space: a ``deck_pilot``
+    may mint a pilot id out of the deck id it moves.
+    """
+    by_pilot: dict[str, list[str | None]] = {}
+    recovered: dict[str, str] = {}
+    for deck in decks:
+        name = _display_name(deck)
+        by_pilot.setdefault(deck.pilot, []).append(name)
+        if name:
+            recovered[deck.deck_id] = name
+    for pilot_id, names in by_pilot.items():
+        recovered.setdefault(pilot_id, _choose_display_name(names, fallback=pilot_id)[0])
+    return recovered
+
+
+def _same_person(written: str, recovered: str) -> bool:
+    """Whether a name recovered now still names who ``written`` named."""
+    family = _surname_family(written)
+    if family:
+        return _surname_family(recovered) == family
+    return written == recovered
 
 
 def _choose_display_name(
