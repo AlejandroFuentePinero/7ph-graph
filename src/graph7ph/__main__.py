@@ -332,7 +332,9 @@ def _capture(conn, args: argparse.Namespace) -> None:
             f"{'' if proven else ' (it records no proof)'}: run the gate on the "
             f"previous bundle first (`uv run graph7ph baseline --capture`, green, "
             f"before the fetch), then recapture with --force; docs/development.md "
-            f"has the order."
+            f"has the order. An answer an ADR moved on purpose is the other case: "
+            f"read the differences, remove the oracle and --capture it fresh in "
+            f"its own commit."
         )
     # Unchanged code means nothing but data moved, and a forced capture is accepted
     # without printing a line of the difference.

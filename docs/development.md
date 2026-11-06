@@ -33,7 +33,9 @@ uses (`uvx --from huggingface_hub hf auth login`, once). Run it again straight
 after the fetch so the snapshot just downloaded is covered. The dataset holds
 each snapshot as it stood on disk the first time it was sent: for the rounds
 before the repairs file existed (below), that is the hand-edited copy of the
-time, not upstream's bytes.
+time, not upstream's bytes. That includes the 2026-11-04 snapshot, sent the
+night before its edits moved into the file, so the dataset's copy of it is
+the edited one while the local directory is upstream's bytes.
 
 A snapshot is upstream's bytes and is never edited (the rounds before the
 repairs file, to 2026-10-17, resolved their rulings by editing snapshot files,
@@ -140,13 +142,20 @@ corpus and goes stale silently:
   maintainer decision (ADR 0020), not a silent edit. ADR 0024's sign-test
   premise is also corpus-bound: a second partially published event that clears
   `MIN_FIELD_COVERAGE` reopens it, so check `_tail_bounds` still names one
-  event.
+  event. Both premises are held by tests that grade the live bundle
+  (`test_query.py::test_the_drawn_list_qualifies_under_the_sweeps_own_bar`,
+  `test_app.py::test_the_bounded_event_the_answers_describe_is_still_the_only_one`),
+  so `uv run pytest` after the build is their loud form.
 
 Restart any `graph7ph app` that was already running: it keeps serving the old
 data, silently. Promotion renames the live directory, so the running app's open
 files still point at the previous artifact, and the dropdown catalogues are read
 once at startup, so new pilots and cards would be missing from them regardless.
 The deploy path handles this on its own, since the Space restarts on upload.
+
+The round closes with the deploy, `scripts/deploy_space.sh Alejandrofupi/7ph-graph`
+(see `docs/deploy.md`), which grades the bundle against the oracle as a
+preflight. Until it runs, the site serves the previous graph.
 
 Fetch and build are the only steps that talk to 7phstats; the mirror and the
 deploy talk to the Hub, with the login `hf auth login` stores. Any credential
@@ -195,8 +204,9 @@ uv run graph7ph baseline --capture --force  # rewrite it: the data moved and the
 
 `--capture` grades against the existing baseline first. Green, it rewrites only
 the oracle's `code_digest`: the digest of the code its answers were just proven
-under, which is the build stamp's module list widened by the query layer the
-gate reads live, and without the two curation files, since a ruling there is
+under, which is the build stamp's module list plus the gate module itself (the
+query layer has been inside the stamp since issue #264), and without the two
+curation files, since a ruling there is
 made in the round about the data that just arrived, listed by the build, and
 accepted on the same terms as the data move. That is a one-line diff, so the
 proof rides in the same commit as the change it proves. Red, it refuses, because the oracle goes red *wholesale*
