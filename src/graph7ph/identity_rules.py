@@ -69,7 +69,7 @@ BASE_RATE_BARS = (TYPO_BAR, 0.5, 0.8, NAME_BAR, 1.0)
 # Why a side may hold several people (the hub guard).
 BARE_NAME = "bare first name"
 NUMBERED_FAMILY = "family of several entries at one event"
-TWO_PEOPLE = "match for two ids the rule keeps apart"
+TWO_PEOPLE = "match for two ids kept apart"
 NO_LIST: frozenset = frozenset()  # a deck whose list the snapshot does not carry
 
 
@@ -88,7 +88,9 @@ class RuledPair:
     floor). ``shared_events`` are the events both registered at and ``hubs``
     which of the two is a hub and why. ``canonical`` is the id the merged node
     keeps, set only on a merged pair. ``overridden_by`` names the dictionary
-    kind that overrode the rule, set only on the override list.
+    kind that overrode the rule, set only on the override list, and
+    ``kept_apart`` the pair that ruling is on where it reached this pair
+    through a chain (issue #288).
     """
 
     pilots: list[str]
@@ -103,6 +105,7 @@ class RuledPair:
     hubs: dict[str, str]
     canonical: str | None = None
     overridden_by: str | None = None
+    kept_apart: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -161,8 +164,9 @@ def rule_states(
             rejected += 1
             if ruled.state == "merged":
                 overrides.append(_overridden(ruled, kept_apart))
-    overrides += _separator_overrides(decks, curation, cards, strangers)
-    return RuleVerdicts(_guard_chains(pairs), overrides, rejected, strangers.base_rate())
+    pairs, chained = _guard_chains(pairs, kept_apart_by)
+    overrides += chained + _separator_overrides(decks, curation, cards, strangers)
+    return RuleVerdicts(pairs, overrides, rejected, strangers.base_rate())
 
 
 def _judge(a: str, b: str, names, relation: str, decks_of, cards, strangers) -> RuledPair:
@@ -204,13 +208,17 @@ def _judge(a: str, b: str, names, relation: str, decks_of, cards, strangers) -> 
     )
 
 
-def _guard_chains(pairs: list[RuledPair]) -> list[RuledPair]:
-    """Merged pairs demoted to watching where their chain holds a separated pair.
+def _guard_chains(pairs: list[RuledPair], kept_apart_by) -> tuple[list[RuledPair], list[RuledPair]]:
+    """Merged pairs demoted to watching where their chain holds a pair kept apart.
 
     Rule merges sharing an id fold transitively (:func:`fold_merges`), so an id
-    that clears the bar against two ids the rule itself separated would fuse
-    the two through it. No merge in such a chain folds: each watches, with the
-    id outside the separated pair marked as the side matching two people.
+    that clears the bar against two ids kept apart, by the rule's own separator
+    or by a dictionary ``reject`` or ``split`` (issue #288), would fuse the two
+    through it. No merge in such a chain folds: each watches, with the id
+    outside the kept-apart pair marked as the side matching two people. The
+    dictionary-apart pair never reaches ``pairs``, so it is read off the ids
+    under each chain with ``kept_apart_by``; the merges it held back are also
+    returned, marked with its kind, for the override list.
     """
     parent: dict[str, str] = {}
 
@@ -224,18 +232,34 @@ def _guard_chains(pairs: list[RuledPair]) -> list[RuledPair]:
     for pair in pairs:
         if pair.state == "merged":
             parent[find(pair.pilots[0])] = find(pair.pilots[1])
-    apart: dict[str, set[str]] = {}  # chain root -> ids of its separated pairs
+    chains: dict[str, list[str]] = {}  # chain root -> its ids
+    for pid in parent:
+        chains.setdefault(find(pid), []).append(pid)
+    apart: dict[str, set[str]] = {}  # chain root -> ids of its kept-apart pairs
+    # chain root -> the first dictionary ruling found on it, as (kind, pair)
+    ruling: dict[str, tuple[str, list[str]]] = {}
     for pair in pairs:
         a, b = pair.pilots
         if pair.state == "separated" and a in parent and b in parent and find(a) == find(b):
             apart.setdefault(find(a), set()).update((a, b))
-    return [
-        replace(pair, state="watching", canonical=None,
-                hubs={**pair.hubs, **{pid: TWO_PEOPLE for pid in pair.pilots
-                                      if pid not in apart[find(pid)]}})
-        if pair.state == "merged" and find(pair.pilots[0]) in apart else pair
-        for pair in pairs
-    ]
+    for root, ids in chains.items():
+        for a, b in combinations(sorted(ids), 2):
+            if (kind := kept_apart_by(a, b)) is not None:
+                apart.setdefault(root, set()).update((a, b))
+                ruling.setdefault(root, (kind, [a, b]))
+    guarded: list[RuledPair] = []
+    overridden: list[RuledPair] = []
+    for pair in pairs:
+        if pair.state != "merged" or find(pair.pilots[0]) not in apart:
+            guarded.append(pair)
+            continue
+        root = find(pair.pilots[0])
+        hubs = {**pair.hubs, **{pid: TWO_PEOPLE for pid in pair.pilots if pid not in apart[root]}}
+        guarded.append(replace(pair, state="watching", canonical=None, hubs=hubs))
+        if root in ruling:
+            kind, on = ruling[root]
+            overridden.append(_overridden(replace(pair, hubs=hubs, kept_apart=on), kind))
+    return guarded, overridden
 
 
 def _hub(name: str, relation: str, events: dict[str, list]) -> str | None:

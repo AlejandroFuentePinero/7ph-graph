@@ -32,12 +32,13 @@ def _recon(**overrides) -> dict:
 
 def _pair(a, b, names, state, *, shape="nickname", overlap=0.0, archetype=None,
           pool=None, at_or_above=None, shared=(), hubs=None, canonical=None,
-          overridden_by=None) -> dict:
+          overridden_by=None, kept_apart=None) -> dict:
     """A ruled pair as the build writes one."""
     return {"pilots": [a, b], "names": list(names), "shape": shape,
             "state": state, "overlap": overlap, "archetype": archetype, "pool": pool,
             "at_or_above": at_or_above, "shared_events": list(shared),
-            "hubs": hubs or {}, "canonical": canonical, "overridden_by": overridden_by}
+            "hubs": hubs or {}, "canonical": canonical, "overridden_by": overridden_by,
+            "kept_apart": kept_apart}
 
 
 def _multi(pilot, display, *others) -> dict:
@@ -203,6 +204,11 @@ def test_overrides_and_refused_entries_are_listed_every_round_unchanged_or_not()
               archetype="lands", canonical="A", overridden_by="reject"),
         _pair("C", "D", ("Zachary M", "Zachaery M"), "separated", shape="typo",
               overlap=0.2, archetype="lands", shared=["E3"], overridden_by="merge"),
+        # A merge the dictionary held back through a chain (issue #288): the
+        # reject is on another pair, so the line names it.
+        _pair("E", "H", ("Ben C", "BenC12"), "merged", shape="handle", overlap=1.0,
+              archetype="lands", hubs={"H": "match for two ids kept apart"}, canonical="E",
+              overridden_by="reject", kept_apart=["E", "F"]),
     ]
     refused = [{"kind": "merge", "ids": ["FrostyIvoryStag", "LunarAzureViper"],
                 "key": "LunarAzureViper", "written": "Lachie C", "recovered": "Alexander W"}]
@@ -211,15 +217,18 @@ def test_overrides_and_refused_entries_are_listed_every_round_unchanged_or_not()
     report = curation_report(recon, {}, SNAPSHOT, previous=recon)
 
     assert report.startswith("Curation review")
-    assert _rows(report, "Rule overridden by the dictionary (2)") == [
+    assert _rows(report, "Rule overridden by the dictionary (3)") == [
         "- `A` + `B`: Toby M = TobM7 (handle), 1.00 on lands, node `A`; the rule says "
         "merged, a [[reject]] keeps them apart",
         "- `C` + `D`: Zachary M / Zachaery M (typo), 0.20 on lands, both at E3; the rule "
         "says separated, a [[merge]] folds them",
+        "- `E` + `H`: Ben C = BenC12 (handle), 1.00 on lands, BenC12 is a match for two "
+        "ids kept apart, node `E`; the rule says merged, a [[reject]] on `E` + `F` keeps "
+        "the chain apart",
     ]
     assert _rows(report, "Entries refused (1)") == [
         "- merge `LunarAzureViper`: written against 'Lachie C', now recovers 'Alexander W'"]
-    assert "- overridden: 2" in report and "- refused: 1" in report
+    assert "- overridden: 3" in report and "- refused: 1" in report
     # Either alone is work: a refusal is a decision that stopped applying.
     assert curation_report(_recon(refused_entries=refused), {}, SNAPSHOT).startswith(
         "Curation review")

@@ -251,8 +251,15 @@ def _evidence(pair: dict) -> str:
 
 
 def _override_line(pair: dict) -> str:
-    """One overridden pair: what the rule said and the dictionary kind that beat it."""
-    verb = "keeps them apart" if pair["overridden_by"] in ("reject", "split") else "folds them"
+    """One overridden pair: what the rule said and the dictionary kind that beat it.
+
+    A merge held back through a chain (issue #288) names the pair the ruling is
+    on, which is not this one.
+    """
+    if pair.get("kept_apart"):
+        verb = f"on {_ids(pair['kept_apart'])} keeps the chain apart"
+    else:
+        verb = "keeps them apart" if pair["overridden_by"] in ("reject", "split") else "folds them"
     return (f"- {_ids(pair['pilots'])}: {_describe(pair)}; the rule says "
             f"{pair['state']}, a [[{pair['overridden_by']}]] {verb}")
 
