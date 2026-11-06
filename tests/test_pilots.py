@@ -1214,3 +1214,34 @@ def test_a_deck_keyed_entry_is_refused_on_the_name_its_title_now_carries(tmp_pat
 
     assert refused == [RefusedEntry("deck_event", ["d1"], "d1", "Jake S", "Connor P")]
     assert curation.deck_events == {} and set(curation.deck_archetypes) == {"d2"}
+
+
+def test_an_entry_is_refused_on_the_first_deck_a_stranger_registers_under_its_id(tmp_path):
+    # The majority vote names the node, and it cannot see a minority stranger:
+    # with Lachie C still out-registering Alexander W under LunarAzureViper, the
+    # id still votes "Lachie C" and a merge stamped against that name would pass
+    # and fuse Alexander W's deck into the merge. The refusal reads every family
+    # the id recovers, not the winner, so one stranger deck is enough, and the
+    # row lists the stranger (issue #286).
+    decks = [
+        _deck("d1", "LunarAzureViper", "01st Lachie C - Lands - E1", event="E1"),
+        _deck("d2", "LunarAzureViper", "02nd Lachie C - Lands - E2", event="E2"),
+        _deck("d3", "LunarAzureViper", "03rd Alexander W - Lands - E3", event="E3"),
+        _deck("d4", "FrostyIvoryStag", "04th Alex W - Lands - E4", event="E4"),
+    ]
+    path = tmp_path / "pilots.toml"
+    path.write_text("""
+        [[merge]]
+        ids = ["LunarAzureViper", "FrostyIvoryStag"]
+        canonical = "FrostyIvoryStag"
+        as_of = "20260713T232944Z"
+        names = { "LunarAzureViper" = "Lachie C", "FrostyIvoryStag" = "Alex W" }
+    """)
+
+    curation, refused = refuse_moved(load_curation(path), decks)
+
+    assert refused == [
+        RefusedEntry("merge", ["FrostyIvoryStag", "LunarAzureViper"],
+                     "LunarAzureViper", "Lachie C", "Alexander W"),
+    ]
+    assert curation.entries == ()

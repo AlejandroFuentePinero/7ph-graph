@@ -193,17 +193,17 @@ class RefusedEntry:
     issue #261), and an entry keyed on a reused id keeps applying, to the wrong
     person, with no dead-entry report, because the id is still present. So the
     build compares the name each id recovered when the entry was written
-    (``Entry.names``) against what it recovers now, and an entry that no longer
-    agrees is applied to nothing and listed under a banner with both names
-    (issue #283). One row per id that moved, carrying every id the entry names so
-    the table can be found in the file.
+    (``Entry.names``) against every surname family the id recovers now, and an
+    entry that no longer agrees is applied to nothing and listed under a banner
+    with both names (issues #283, #286). One row per id that moved, carrying
+    every id the entry names so the table can be found in the file.
     """
 
     kind: AppliedKind
     ids: list[str]  # every id the entry names, sorted
     key: str  # the id that moved
     written: str  # the name it recovered when the entry was written
-    recovered: str  # the name it recovers now
+    recovered: str  # the name it recovers now: a stranger, or the vote for a bare written name
 
 
 @dataclass(frozen=True)
@@ -953,24 +953,27 @@ def refuse_moved(curation: Curation, decks) -> tuple[Curation, list[RefusedEntry
 
     Each applying entry records the name each of its ids recovered when it was
     written (:class:`curation.Entry`). An id that now recovers a name in another
-    surname family names another person, and the entry is refused whole: a merge
-    on it would fuse a stranger, a pin would rename one, a reject would separate
-    the wrong pair. Where the written name has no family (a handle, a bare first
-    name) the recovered name string is compared instead. An id the data no longer
-    holds is not a move: ``dead_entries`` reports it. Never an abort, the graph
-    without the entry being the safe one (issue #283).
+    surname family, on any of its decks and not only on the majority that names
+    the node (issue #286), names another person, and the entry is refused whole:
+    a merge on it would fuse a stranger, a pin would rename one, a reject would
+    separate the wrong pair. Where the written name has no family (a handle, a
+    bare first name) the recovered name string is compared instead. An id the
+    data no longer holds is not a move: ``dead_entries`` reports it. Never an
+    abort, the graph without the entry being the safe one (issue #283).
 
     Read off the raw upstream ids, before any entry is applied, because what the
     dictionary would do to the ids is the thing in question.
     """
     recovered = recovered_names(decks)
+    families = _families_under(decks)
     refused: list[RefusedEntry] = []
     moved: list[Entry] = []
     for entry in curation.entries:
         rows = [
-            RefusedEntry(entry.kind, sorted(entry.names), key, written, recovered[key])
+            RefusedEntry(entry.kind, sorted(entry.names), key, written, other)
             for key, written in sorted(entry.names.items())
-            if key in recovered and not _same_person(written, recovered[key])
+            if key in recovered
+            and (other := _moved_to(written, recovered[key], families.get(key, {})))
         ]
         if rows:
             refused.extend(rows)
@@ -999,12 +1002,42 @@ def recovered_names(decks) -> dict[str, str]:
     return recovered
 
 
-def _same_person(written: str, recovered: str) -> bool:
-    """Whether a name recovered now still names who ``written`` named."""
+def _families_under(decks) -> dict[str, dict[str, str]]:
+    """Every surname family each raw pilot id recovers, with the name that spells it.
+
+    The majority vote (:func:`recovered_names`) cannot see a minority stranger:
+    an id upstream handed to someone else keeps voting for its old holder until
+    the newcomer out-registers them. So the refusal reads every family under
+    the id, and one stranger deck is enough (issue #286). Where a family has
+    several spellings the lowest stands for it, so deck order cannot change the
+    row (F7).
+    """
+    families: dict[str, dict[str, str]] = {}
+    for deck in decks:
+        name = _display_name(deck)
+        if name and (family := _surname_family(name)):
+            spelled = families.setdefault(deck.pilot, {})
+            spelled[family] = min(spelled.get(family, name), name)
+    return families
+
+
+def _moved_to(written: str, recovered: str, families: dict[str, str]) -> str | None:
+    """The name saying the id no longer names who ``written`` named, or ``None``.
+
+    A written name with a surname family is refused by any other family the
+    id recovers (``families``), the strangers listed together; a written name
+    with none (a handle, a bare first name) is compared as the string it is
+    against the name recovered now.
+    """
     family = _surname_family(written)
-    if family:
-        return _surname_family(recovered) == family
-    return written == recovered
+    if not family:
+        return None if written == recovered else recovered
+    strangers = [name for fam, name in sorted(families.items()) if fam != family]
+    if strangers:
+        return ", ".join(strangers)
+    # No other family under the id, but the vote itself may have gone to a name
+    # with none (a handle outvoting the surname): the #283 comparison still holds.
+    return None if _surname_family(recovered) == family else recovered
 
 
 def _choose_display_name(
