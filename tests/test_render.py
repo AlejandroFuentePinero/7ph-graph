@@ -160,6 +160,18 @@ def test_details_panel_has_field_labels_and_the_moxfield_affordance():
     assert "Open on Moxfield" in html  # as a link affordance, not a raw url
 
 
+def test_a_deck_that_knows_its_event_shows_it_in_the_details():
+    # The gem view labels a deck by pilot and finish, so two decks by one pilot who
+    # placed the same at two events read as one. The event is the detail that tells
+    # them apart, shown on click; a node without one shows no empty row.
+    with_event = Node("deck:abc123", "Liam W 1 · 3rd", "Deck", event="PogMay26")
+    without = Node("deck:def456", "Liam W 1 · 3rd", "Deck")
+    html = render_subgraph(Subgraph(nodes=[with_event, without], edges=[]))
+    assert '"event": "PogMay26"' in html
+    assert '"event": null' in html
+    assert 'row("Event", m.event)' in html
+
+
 def test_a_visible_rate_edge_hovers_its_own_counts():
     # #211: the usage archetype tier keeps every slice, however thin, because an
     # adoption rate is exact at any denominator; what the reader must not be denied

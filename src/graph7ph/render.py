@@ -217,6 +217,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
             "kind": node.kind,
             "label": node.label,
             "moxfield": _moxfield_url(node),
+            "event": node.event,
         }
         for node in subgraph.nodes
     }
@@ -417,7 +418,8 @@ _DOC_STYLE = f"""<style>
 </style>"""
 
 # A details panel keyed on the vis node id: on click it shows the selected node's
-# kind and name as labelled field rows, and for a deck its Moxfield page as a link
+# kind and name as labelled field rows, the event where the node carries one (a
+# gem view deck, whose label omits it), and for a deck its Moxfield page as a link
 # affordance. The script runs after pyvis's own ``drawGraph()`` has assigned the
 # global ``network``. The label is untrusted (a display name recovered from a
 # Moxfield deck title), so it is written through textContent and a built <a>
@@ -438,6 +440,7 @@ _PANEL = """
     const m = NODE_META[id];
     if (!m) return;
     panel.replaceChildren(row("Kind", m.kind), row("Name", m.label));
+    if (m.event) panel.appendChild(row("Event", m.event));
     if (m.moxfield) {
       const a = document.createElement("a");
       a.href = m.moxfield;
