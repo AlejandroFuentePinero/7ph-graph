@@ -10,11 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from graph7ph.curation import Curation, CurationError, Hold
+from graph7ph.curation import Curation, CurationError, Hold, load_curation
 from graph7ph.pilots import (
     UNNAMED_PILOT,
+    RefusedEntry,
     display_name_from_title,
     name_relation,
+    refuse_moved,
     resolve_pilots,
 )
 
@@ -1453,3 +1455,96 @@ def test_name_pin_on_live_canonical_not_reported_dead():
 
     assert next(p for p in res.pilots).display_name == "Alice A"  # pin fired
     assert res.report.dead_entries == []
+
+
+# --- An entry whose id upstream handed to someone else is refused (issue #283) ---
+
+
+def test_an_entry_whose_id_now_recovers_another_person_is_refused(tmp_path):
+    # Shaped after the 2026-10-17 reuse (issue #261): LunarAzureViper held
+    # Lachie C's one deck, and upstream handed the id to Alexander W. A merge
+    # written against Lachie C would fuse Alexander W into Alex W. The id's
+    # recovered name no longer agrees with the one the entry was written against,
+    # so the entry is refused: applied to nothing, and reported with both names.
+    # Compared by surname family, so a respelling inside one family is not a move,
+    # and a handle, which has no family, is compared as the string it is.
+    decks = [
+        _deck("d1", "LunarAzureViper", "01st Alexander W - Lands - E1", event="E1"),
+        _deck("d2", "FrostyIvoryStag", "02nd Alex W - Lands - E2", event="E2"),
+        _deck("d3", "OdeB", "03rd Jake P - Storm - E3", event="E3"),
+        _deck("d4", "BraveJadeEagle", "04th James LS - Grixis - E4", event="E4"),
+        _deck("d5", "NimbleIndigoPanda", "05th James L-S - Grixis - E5", event="E5"),
+    ]
+    path = tmp_path / "pilots.toml"
+    path.write_text("""
+        [[merge]]
+        ids = ["LunarAzureViper", "FrostyIvoryStag"]
+        canonical = "FrostyIvoryStag"
+        as_of = "20260713T232944Z"
+        names = { "LunarAzureViper" = "Lachie C", "FrostyIvoryStag" = "Alex W" }
+
+        [[name]]
+        pilot = "OdeB"
+        display_name = "Oden B"
+        as_of = "20260713T232944Z"
+        names = { "OdeB" = "OdeB" }
+
+        [[reject]]
+        ids = ["BraveJadeEagle", "NimbleIndigoPanda"]
+        as_of = "20260713T232944Z"
+        names = { "BraveJadeEagle" = "James LS", "NimbleIndigoPanda" = "James L-S" }
+
+        [[merge]]
+        ids = ["GoneId", "FrostyIvoryStag"]
+        canonical = "FrostyIvoryStag"
+        as_of = "20260713T232944Z"
+        names = { "GoneId" = "Alexander W", "FrostyIvoryStag" = "Alex W" }
+    """)
+
+    curation, refused = refuse_moved(load_curation(path), decks)
+
+    assert refused == [
+        RefusedEntry("merge", ["FrostyIvoryStag", "LunarAzureViper"],
+                     "LunarAzureViper", "Lachie C", "Alexander W"),
+        RefusedEntry("name", ["OdeB"], "OdeB", "OdeB", "Jake P"),
+    ]
+    # The refused merge and pin apply nothing; the respelled reject stands, and
+    # an id the data no longer holds is a dead entry, not a moved one.
+    assert curation.canonical("LunarAzureViper") == "LunarAzureViper"
+    assert curation.names == {}
+    assert curation.is_rejected("BraveJadeEagle", "NimbleIndigoPanda")
+    assert curation.canonical("GoneId") == "FrostyIvoryStag"
+    assert len(curation.entries) == 2
+
+
+def test_a_deck_keyed_entry_is_refused_on_the_name_its_title_now_carries(tmp_path):
+    # A deck id is checked the same way, on the name recovered from its own
+    # title; a handle, having no family, is matched as the string it is. The
+    # family rule is blind to a move inside one surname (Connor P to Jake P
+    # under SolarAmberViper), by ruling: the written name's family is the whole
+    # comparison.
+    decks = [
+        _deck("d1", "SolarAmberViper", "01st Connor P - Pod - E1", event="E1"),
+        _deck("d2", "RapidGoldBadger", "02nd AarY1 - Grixis - E2", event="E2"),
+    ]
+    path = tmp_path / "pilots.toml"
+    path.write_text("""
+        [[deck_event]]
+        deck = "d1"
+        event = "E9"
+        as_of = "20260713T232944Z"
+        names = { "d1" = "Jake S" }
+
+        [[deck_archetype]]
+        deck = "d2"
+        deck_name = "UR Prowess"
+        engine = "engine:izzet_prowess"
+        engine_label = "Izzet Prowess"
+        as_of = "20260713T232944Z"
+        names = { "d2" = "AarY1" }
+    """)
+
+    curation, refused = refuse_moved(load_curation(path), decks)
+
+    assert refused == [RefusedEntry("deck_event", ["d1"], "d1", "Jake S", "Connor P")]
+    assert curation.deck_events == {} and set(curation.deck_archetypes) == {"d2"}

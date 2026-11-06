@@ -230,6 +230,7 @@ def test_a_curation_decision_the_build_cannot_honour_aborts_cleanly(tmp_path, mo
     ])
     (tmp_path / "pilots.toml").write_text(
         '[[deck_event]]\ndeck = "d1"\nevent = "NYE_TYPO"\n'
+        'as_of = "20260101T000000Z"\nnames = { "d1" = "d1" }\n'
     )
     monkeypatch.setattr("graph7ph.build.load_curation",
                         functools.partial(load_curation, tmp_path / "pilots.toml"))
@@ -951,3 +952,41 @@ def test_a_repairs_file_the_build_cannot_honour_aborts_cleanly(tmp_path, monkeyp
     assert "Build aborted, live graph untouched" in str(exc.value)
     assert "held out and also adopts" in str(exc.value)
     assert not db.exists()
+
+
+def test_a_build_announces_an_entry_whose_id_upstream_handed_to_someone_else(
+    tmp_path, capsys, monkeypatch
+):
+    # An entry keyed on a reused id keeps applying, to the wrong person, with no
+    # dead-entry report, because the id is still present (issue #261). The build
+    # refuses it and says so with both names, under a banner a scrolling log
+    # cannot bury, since a refused entry is a decision that has stopped applying
+    # and a maintainer has to retire or re-key it (issue #283).
+    snapshots = tmp_path / "snapshots"
+    _titled_snapshot(snapshots / "20260101T000000Z", [
+        ("d1", "LunarAzureViper", "01st Alexander W - Lands - E1", "E1", 1),
+        ("d2", "FrostyIvoryStag", "01st Alex W - Lands - E2", "E2", 1),
+        ("d3", "RapidVioletHawk", "01st Connor E - Storm - E3", "E3", 1),
+    ])
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, tmp_path / "pilots.toml"))
+    # A family name on the merge, a handle on the pin: the two shapes the
+    # comparison takes (ADR 0005).
+    (tmp_path / "pilots.toml").write_text(
+        '[[merge]]\nids = ["LunarAzureViper", "FrostyIvoryStag"]\n'
+        'canonical = "FrostyIvoryStag"\nas_of = "20260101T000000Z"\n'
+        'names = { "LunarAzureViper" = "Lachie C", "FrostyIvoryStag" = "Alex W" }\n'
+        '[[name]]\npilot = "RapidVioletHawk"\ndisplay_name = "Edward D"\n'
+        'as_of = "20260101T000000Z"\nnames = { "RapidVioletHawk" = "EdwD7" }\n'
+    )
+
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "graph"))
+
+    out = capsys.readouterr().out
+    assert "ENTRY REFUSED: 2 id(s)" in out
+    assert "merge LunarAzureViper: written against 'Lachie C', now recovers 'Alexander W'" in out
+    assert "name RapidVioletHawk: written against 'EdwD7', now recovers 'Connor E'" in out
+    assert "pilots=3 " in out
+    report = json.loads((tmp_path / "graph" / "reconciliation.json").read_text())
+    assert [(r["kind"], r["key"]) for r in report["refused_entries"]] == [
+        ("merge", "LunarAzureViper"), ("name", "RapidVioletHawk")]

@@ -181,6 +181,22 @@ def _build(args: argparse.Namespace) -> None:
     if moved:
         print(f"  {moved} hold(s) whose evidence moved since they were written "
               "(re-read them in the report)")
+    # An entry whose id upstream handed to someone else was applied to nothing
+    # (issue #283). That is a recorded decision that has stopped applying, and
+    # nothing else reports it, since the id is still live: a banner, with both
+    # names, so a maintainer retires or re-keys the entry rather than reading
+    # the graph as curated.
+    refused = recon.get("refused_entries", [])
+    if refused:
+        bar = "!" * 74
+        print(f"  {bar}\n"
+              f"  !! ENTRY REFUSED: {len(refused)} id(s) in {CURATION_PATH} no longer "
+              f"recover the name the entry was written against.\n"
+              f"  !! Each entry was applied to nothing; retire or re-key it:")
+        for r in refused:
+            print(f"  !!   {r['kind']} {r['key']}: written against {r['written']!r}, "
+                  f"now recovers {r['recovered']!r}")
+        print(f"  {bar}")
     print(f"  reconciliation report: {reconciliation_path(args.db)}")
     # The promotion renamed the directory an already-running app opened, and its
     # catalogues were read at startup, so it will serve the old graph in silence.
