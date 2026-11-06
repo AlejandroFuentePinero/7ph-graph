@@ -951,6 +951,26 @@ def test_a_gem_is_drawn_between_its_archetype_and_its_best_decks(tmp_path, built
     }
 
 
+def test_a_drawn_gem_deck_names_the_event_it_was_played_at(tmp_path, built_graph):
+    # A drawn deck is labelled by pilot and finish alone, so one pilot who placed the
+    # same at two events is two nodes with one label. The event is what tells them
+    # apart, and it rides on the node for the details panel rather than in the label,
+    # which stays short so the picture stays readable.
+    decks = _slice("x", 200, {"tech": range(10)})
+    for position, deck in enumerate(decks):
+        deck["event"] = "spring" if position % 2 else "autumn"
+    _write_snapshot(tmp_path, decks, _canons(decks))
+    conn = built_graph(tmp_path, tmp_path)
+
+    sub = hidden_gems_subgraph(conn)
+
+    drawn = {n.id: n.event for n in sub.nodes if n.kind == "Deck"}
+    assert drawn == {
+        f"deck:x{i}": ("spring" if i % 2 else "autumn") for i in range(10)
+    }
+    assert all(n.event is None for n in sub.nodes if n.kind != "Deck")
+
+
 def test_a_gem_draws_every_deck_it_counts(tmp_path, built_graph):
     # The picture and the table state one number. `top_decks` is what the card did and
     # every one of those decks is a node, so a reader who counts the decks hanging off

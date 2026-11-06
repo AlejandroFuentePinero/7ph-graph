@@ -150,6 +150,11 @@ class Node:
     # turned up at), riding out as a value rather than only as the filter that produced
     # it. Low is the claim.
     gem_luck: float | None = None
+    # The event a drawn deck was played at. The gem view labels a deck by pilot and
+    # finish, so one pilot who placed the same at two events is two nodes with one
+    # label; the event is what tells them apart, carried here for the details panel
+    # rather than in the label, which stays short so the picture stays readable.
+    event: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1158,23 +1163,28 @@ def hidden_gems_subgraph(conn: ladybug.Connection) -> Subgraph:
     drawn = {deck_id for gem in gems for deck_id in gem.top}
     decks = sorted(drawn)
     by_deck: dict[str, str] = {}
+    event_of: dict[str, str] = {}
     boards: dict[tuple[str, str], set[str]] = {}
-    for deck_id, pilot, placement, canon, board in rows(conn.execute(
-        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[ct:CONTAINS]->(c:Card)
+    for deck_id, pilot, placement, event, canon, board in rows(conn.execute(
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[ct:CONTAINS]->(c:Card),
+                 (d)-[:PLAYED_AT]->(e:Event)
            WHERE d.deckId IN $decks AND c.canon IN $gems
-           RETURN d.deckId, p.displayName, d.placement, c.canon, ct.board""",
+           RETURN d.deckId, p.displayName, d.placement, e.event, c.canon, ct.board""",
         {"decks": decks, "gems": sorted({gem.canon for gem in gems})},
     )):
         by_deck[deck_id] = (
             f"{pilot} · {_ordinal(placement)}" if placement is not None else pilot
         )
+        event_of[deck_id] = event
         boards.setdefault((deck_id, canon), set()).add(board)
     for gem in gems:
         for deck_id in (deck_id for deck_id in gem.top if deck_id in drawn):
             node_id = f"deck:{deck_id}"
             if node_id not in seen:
                 seen.add(node_id)
-                nodes.append(Node(node_id, by_deck[deck_id], "Deck"))
+                nodes.append(
+                    Node(node_id, by_deck[deck_id], "Deck", event=event_of[deck_id])
+                )
             board = "/".join(sorted(boards[(deck_id, gem.canon)]))
             edges.append(Edge(
                 node_id, f"card:{gem.tag}:{gem.canon}", f"CONTAINS:{board}"
