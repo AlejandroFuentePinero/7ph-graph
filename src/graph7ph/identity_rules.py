@@ -69,6 +69,7 @@ BASE_RATE_BARS = (TYPO_BAR, 0.5, 0.8, NAME_BAR, 1.0)
 # Why a side may hold several people (the hub guard).
 BARE_NAME = "bare first name"
 NUMBERED_FAMILY = "several entries at one event"
+TWO_PEOPLE = "match for two ids the rule keeps apart"
 NO_LIST: frozenset = frozenset()  # a deck whose list the snapshot does not carry
 
 
@@ -161,7 +162,7 @@ def rule_states(
             if ruled.state == "merged":
                 overrides.append(_overridden(ruled, kept_apart))
     overrides += _separator_overrides(decks, curation, cards, strangers)
-    return RuleVerdicts(pairs, overrides, rejected, strangers.base_rate())
+    return RuleVerdicts(_guard_chains(pairs), overrides, rejected, strangers.base_rate())
 
 
 def _judge(a: str, b: str, names, relation: str, decks_of, cards, strangers) -> RuledPair:
@@ -201,6 +202,40 @@ def _judge(a: str, b: str, names, relation: str, decks_of, cards, strangers) -> 
         state=state, overlap=round(overlap, 3), archetype=archetype, pool=pool,
         at_or_above=at_or_above, shared_events=shared, hubs=hubs, canonical=canonical,
     )
+
+
+def _guard_chains(pairs: list[RuledPair]) -> list[RuledPair]:
+    """Merged pairs demoted to watching where their chain holds a separated pair.
+
+    Rule merges sharing an id fold transitively (:func:`fold_merges`), so an id
+    that clears the bar against two ids the rule itself separated would fuse
+    the two through it. No merge in such a chain folds: each watches, with the
+    id outside the separated pair marked as the side matching two people.
+    """
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for pair in pairs:
+        if pair.state == "merged":
+            parent[find(pair.pilots[0])] = find(pair.pilots[1])
+    apart: dict[str, set[str]] = {}  # chain root -> ids of its separated pairs
+    for pair in pairs:
+        a, b = pair.pilots
+        if pair.state == "separated" and a in parent and b in parent and find(a) == find(b):
+            apart.setdefault(find(a), set()).update((a, b))
+    return [
+        replace(pair, state="watching", canonical=None,
+                hubs={**pair.hubs, **{pid: TWO_PEOPLE for pid in pair.pilots
+                                      if pid not in apart[find(pid)]}})
+        if pair.state == "merged" and find(pair.pilots[0]) in apart else pair
+        for pair in pairs
+    ]
 
 
 def _hub(name: str, relation: str, events: dict[str, list]) -> str | None:
@@ -367,7 +402,8 @@ def fold_merges(pairs: list[RuledPair], names: dict[str, str], deck_count: Count
     Two rule merges sharing an id are one person three ways (every such case on
     file is three spellings of one name inside one dictionary merge), so merged
     pairs are unioned and each component keeps the id :func:`_canonical` picks
-    over the whole component.
+    over the whole component. A chain through a pair the rule separated never
+    reaches here: :func:`_guard_chains` demotes its merges to watching.
     """
     parent: dict[str, str] = {}
 

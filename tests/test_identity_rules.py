@@ -14,6 +14,7 @@ import pytest
 from types import SimpleNamespace
 
 from graph7ph.curation import Curation
+from graph7ph.identity_rules import TWO_PEOPLE
 from graph7ph.pilots import resolve_pilots
 
 T0 = datetime(2026, 1, 1)
@@ -368,6 +369,56 @@ def test_a_ruling_on_a_raw_id_the_name_join_folded_still_keeps_the_pair_apart(ki
         (["Handle", "RealB"], "merged", kind),
     ]
     assert res.report.curated == 1
+
+
+def test_a_merge_chain_through_a_pair_the_rule_separated_does_not_fold():
+    # A handle plays Ben C's list at one event and Benjamin C's at another, so
+    # it clears the bar against both; but Ben C and Benjamin C registered at
+    # one event with different decks, two people by the rule's own verdict.
+    # Folding transitively would fuse them through the handle, the one
+    # irreversible outcome, so neither merge folds: both watch, with the handle
+    # marked as the side that matches two people the rule keeps apart.
+    decks = [
+        _deck("d1", "H", "1st BenC12 - Lands - E1", "E1", None),
+        _deck("d2", "H", "1st BenC12 - Lands - E2", "E2", None, days=30),
+        _deck("d3", "BC", "1st Ben C - Lands - E3", "E3", None, days=60),
+        _deck("d4", "BJC", "1st Benjamin C - Lands - E4", "E4", None, days=90),
+        _deck("d5", "BC", "1st Ben C - Lands - E5", "E5", None, days=120),
+        _deck("d6", "BJC", "2nd Benjamin C - Lands - E5", "E5", None, days=120, placement=2),
+    ]
+    decklists = {"d1": _cards(70), "d2": _cards(70, 100), "d3": _cards(70),
+                 "d4": _cards(70, 100), "d5": _cards(70, 200), "d6": _cards(70, 300)}
+
+    res = _resolve(decks, decklists)
+
+    assert sorted(p.pilot for p in res.pilots) == ["BC", "BJC", "H"]
+    assert _state(res, "BC", "BJC").state == "separated"
+    for other in ("BC", "BJC"):
+        pair = _state(res, "H", other)
+        assert (pair.state, pair.canonical, pair.hubs) == ("watching", None, {"H": TWO_PEOPLE})
+
+
+def test_a_separated_pair_whose_sides_sit_in_different_chains_leaves_both_merges_folding():
+    # One handle plays Ben C's list elsewhere, another plays Benjamin C's; Ben
+    # C and Benjamin C are separated at a shared event. Each merge folds onto
+    # its own real name and the two nodes stay apart: only a chain that would
+    # fuse the separated pair through one id is held back.
+    decks = [
+        _deck("d1", "H1", "1st BenC12 - Lands - E1", "E1", None),
+        _deck("d2", "H2", "1st BenC9 - Lands - E2", "E2", None, days=30),
+        _deck("d3", "BC", "1st Ben C - Lands - E3", "E3", None, days=60),
+        _deck("d4", "BJC", "1st Benjamin C - Lands - E4", "E4", None, days=90),
+        _deck("d5", "BC", "1st Ben C - Lands - E5", "E5", None, days=120),
+        _deck("d6", "BJC", "2nd Benjamin C - Lands - E5", "E5", None, days=120, placement=2),
+    ]
+    decklists = {"d1": _cards(70), "d2": _cards(70, 100), "d3": _cards(70),
+                 "d4": _cards(70, 100), "d5": _cards(70, 200), "d6": _cards(70, 300)}
+
+    res = _resolve(decks, decklists)
+
+    assert sorted(p.pilot for p in res.pilots) == ["BC", "BJC"]
+    assert _state(res, "BC", "BJC").state == "separated"
+    assert (_state(res, "H1", "BC").state, _state(res, "H2", "BJC").state) == ("merged", "merged")
 
 
 def test_the_states_do_not_depend_on_the_order_decks_or_pairs_are_read_in():
