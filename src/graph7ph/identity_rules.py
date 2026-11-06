@@ -68,7 +68,7 @@ BASE_RATE_BARS = (TYPO_BAR, 0.5, 0.8, NAME_BAR, 1.0)
 
 # Why a side may hold several people (the hub guard).
 BARE_NAME = "bare first name"
-NUMBERED_FAMILY = "several entries at one event"
+NUMBERED_FAMILY = "family of several entries at one event"
 TWO_PEOPLE = "match for two ids the rule keeps apart"
 NO_LIST: frozenset = frozenset()  # a deck whose list the snapshot does not carry
 

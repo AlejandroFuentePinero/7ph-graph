@@ -175,7 +175,7 @@ def test_a_numbered_family_merges_when_it_shares_no_event_and_is_never_separated
 
     apart = _resolve(family + handle_apart, decklists)
     pair = _state(apart, "JamesL", "JamL9")
-    assert (pair.state, pair.hubs) == ("merged", {"JamesL": "several entries at one event"})
+    assert (pair.state, pair.hubs) == ("merged", {"JamesL": "family of several entries at one event"})
     assert apart.deck_pilot == {"d1": "JamesL", "d2": "JamesL#2", "d3": "JamesL"}
 
     together = _state(_resolve(family + handle_at_e1, decklists), "JamesL", "JamL9")
