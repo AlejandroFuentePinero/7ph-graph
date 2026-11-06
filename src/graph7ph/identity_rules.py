@@ -329,7 +329,7 @@ def _events(decks) -> dict[str, list]:
 
 def _gap_days(x, y) -> int:
     """Days between two decks' registrations."""
-    return abs((x.created_at - y.created_at).days)
+    return abs(x.created_at - y.created_at).days
 
 
 def _card_sets(decklists) -> dict[str, frozenset]:

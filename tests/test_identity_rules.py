@@ -511,6 +511,26 @@ def test_the_states_do_not_depend_on_the_order_decks_or_pairs_are_read_in():
     assert all(p.pool for p in forward)
 
 
+def test_a_pairs_pool_does_not_depend_on_the_order_decks_are_read_in():
+    # Registrations carry a time of day, and the gap between two decks is the
+    # same whichever was read first (issue #289). Under the pair's 40-day gap
+    # the window is 20 to 80 days: of the 132 stranger-pool pairs the 21
+    # strangers make, one stranger moved from day 30 to 19.5 days takes its 11
+    # pairs with the day-0 strangers and its pair with A out (19 days) and
+    # brings its pair with B in (20 days): 121, the pair itself the only one
+    # scoring as high.
+    decks, decklists = _pair_at(40, relation_names=("Ben C", "Benjamin C"))
+    pool, pool_lists = _strangers(21)
+    pool[1].created_at = T0 + timedelta(days=19, hours=12)
+    decks, decklists = decks + pool, decklists | pool_lists
+
+    forward = _state(_resolve(decks, decklists), "A", "B")
+    backward = _state(_resolve(list(reversed(decks)), dict(reversed(decklists.items()))), "A", "B")
+
+    assert (forward.pool, forward.at_or_above) == (backward.pool, backward.at_or_above)
+    assert (forward.pool, forward.at_or_above, forward.state) == (121, 1, "merged")
+
+
 # --- The record: the 2026-11-04 sequence, which the rules were measured on ----------
 
 LAST_SNAPSHOT = "20261104T091012Z"
@@ -585,7 +605,7 @@ def test_the_composed_rule_reproduces_the_dictionarys_labels_on_the_record(recor
     # independently from the review's row dump (the composed rule applied to
     # its rows gives 43) plus DylB25 / Dylan B, which the dump's sampled pool
     # kept under the top percentile and the exhaustive pool admits at 162 of
-    # 16,207.
+    # 16,223.
     assert sum(1 for pair in merged if states.get(pair) == "merged") == 44
 
 
