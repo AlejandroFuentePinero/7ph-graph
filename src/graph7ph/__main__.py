@@ -6,6 +6,7 @@ Paths default under the repo's ``data/`` directory and are overridable by flag.
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 from huggingface_hub import HfApi
@@ -93,15 +94,15 @@ def _build(args: argparse.Namespace) -> None:
               f"  {bar}")
 
     recon = json.loads(reconciliation_path(args.db).read_text())
-    dupes, joined, candidates, curated, multi, splits, unexplained, held, held_names = (
+    dupes, joined, curated, multi, splits, unexplained, held_names = (
         len(recon["dropped_duplicates"]), len(recon["joined_names"]),
-        len(recon["under_merges"]), recon["curated"],
+        recon["curated"],
         len(recon.get("multi_name_ids", [])),
         len(recon.get("name_splits", [])),
         len(recon.get("unexplained_names", [])),
-        len(recon.get("held_merges", [])),
         len(recon.get("held_names", [])),
     )
+    states = Counter(pair["state"] for pair in recon["ruled_pairs"])
     # Grouped by property and printed off the report's generated section, so a rule
     # this code has never heard of is still announced the build it first fires
     # (issue #162). "none" among them is a value nothing could recover, which is
@@ -137,12 +138,13 @@ def _build(args: argparse.Namespace) -> None:
     if unexplained:
         print(f"  {unexplained} id(s) discarded a name spelling nothing relates to the "
               "winner (review the report)")
-    # Three states, printed apart because only one of them is work (issue #228).
-    # A held pair has been reasoned about and cannot be settled on the evidence
-    # on file, so counting it beside the unexamined ones overstates the queue
-    # every build until that evidence arrives; "unexamined" is the figure that
-    # means "open this many questions".
-    print(f"  pilot identity: {held} held, {candidates} unexamined, "
+    # The three states the rules derive for every candidate pair (issue #273):
+    # merged by rule and separated are decisions the build made, watching is two
+    # nodes, the graph's default, and none of the three is work. The brief lists
+    # what changed since the previous round; the dictionary's own decisions are
+    # counted apart as curated.
+    print(f"  pilot identity: {states['merged']} merged by rule, "
+          f"{states['separated']} separated, {states['watching']} watching, "
           f"{curated} already curated")
     # The second identity queue, printed in the same three states and for the same
     # reason (issue #232): one id whose decks recovered several surnames is one id
@@ -153,19 +155,16 @@ def _build(args: argparse.Namespace) -> None:
         print(f"  names under one id: {held_names} held, {multi} unexamined")
     # A hold the data has settled is an available decision sitting unmade, not a
     # notice, so it gets the same banner a flagged record does rather than a line
-    # a scrolling build log buries (issue #230). A hold whose evidence merely
-    # moved decides nothing and is counted instead.
-    fired = recon.get("fired_holds", [])
-    settled = [f for f in fired if f["trigger"] in SETTLING_TRIGGERS]
-    moved = len(fired) - len(settled)
+    # a scrolling build log buries (issue #230).
+    settled = [f for f in recon.get("fired_holds", []) if f["trigger"] in SETTLING_TRIGGERS]
     if settled:
         bar = "!" * 74
         # Capped, because a line per settled hold is how this banner becomes the
-        # thing it guards against. 106 holds are on file and a fetch that lands
-        # several shared events settles them together, which would push the
-        # flagged-record banner above off the top of the terminal. The count is
-        # exact, the first few carry the fact that fired them, and the whole list
-        # is what `curation-report` is for (issue #233).
+        # thing it guards against: a fetch that lands several collisions settles
+        # them together, which would push the flagged-record banner above off
+        # the top of the terminal. The count is exact, the first few carry the
+        # fact that fired them, and the whole list is what `curation-report` is
+        # for (issue #233).
         shown, rest = settled[:BANNER_HOLDS], settled[BANNER_HOLDS:]
         print(f"  {bar}\n"
               f"  !! DECISION AVAILABLE: {len(settled)} hold(s) settled by the "
@@ -178,9 +177,6 @@ def _build(args: argparse.Namespace) -> None:
             print(f"  !!   ... and {len(rest)} more: read them all with "
                   f"`graph7ph curation-report`")
         print(f"  {bar}")
-    if moved:
-        print(f"  {moved} hold(s) whose evidence moved since they were written "
-              "(re-read them in the report)")
     # An entry whose id upstream handed to someone else was applied to nothing
     # (issue #283). That is a recorded decision that has stopped applying, and
     # nothing else reports it, since the id is still live: a banner, with both

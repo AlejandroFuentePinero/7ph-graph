@@ -144,14 +144,14 @@ class Curation:
     stranded at a malformed event rejoins its cohort. ``splits`` holds id pairs
     that share a display name but are different people, which keeps the
     identical-name join (ADR 0007) from folding them into one node -- the
-    inverse of a ``merge``. ``holds`` maps an id pair onto the :class:`Hold` a
+    inverse of a ``merge``. ``holds`` maps a single id onto the :class:`Hold` a
     human left against it: alone among the eight kinds it decides nothing and
-    applies nothing, it only records that the pair was examined (issue #228).
+    applies nothing, it only records that the id's own several names were
+    examined (issue #232). It held pairs too until issue #273, which left every
+    candidate pair's state to the build (:mod:`graph7ph.identity_rules`).
 
     No pair in ``rejected`` or ``splits`` is one ``merges`` folds together:
-    :func:`_refuse_merged_pair` refuses a dictionary that states both. No pair in
-    ``holds`` is decided by any of the three: :func:`_refuse_decided_hold` refuses
-    a dictionary that calls one pair both open and settled.
+    :func:`_refuse_merged_pair` refuses a dictionary that states both.
 
     ``entries`` is the provenance of every applying entry and ``tables`` the
     file's tables as parsed, which is what :func:`without` re-assembles the
@@ -187,13 +187,9 @@ class Curation:
         """Whether these two same-named ids were declared different people."""
         return frozenset({a, b}) in self.splits
 
-    def hold(self, *ids: str) -> "Hold | None":
-        """The hold recorded against these ids, if a human left one.
-
-        Two ids ask whether they are one person; one id asks whether its own
-        several names are one person (issue #232). Both are held by the same kind.
-        """
-        return self.holds.get(frozenset(ids))
+    def hold(self, pilot_id: str) -> "Hold | None":
+        """The hold recorded against this id's own several names, if any (#232)."""
+        return self.holds.get(frozenset({pilot_id}))
 
 
 def load_curation(path: Path = CURATION_PATH) -> Curation:
@@ -238,7 +234,6 @@ def _assemble(raw: dict, path: Path) -> Curation:
     _refuse_merged_pair(merges, rejected, path, "reject")
     _refuse_merged_pair(merges, splits, path, "split")
     holds = _holds(raw.get("hold", []), path)
-    _refuse_decided_hold(holds, merges, rejected, splits, path)
     # A hold on one id is matched against the canonical id a merge leaves
     # standing, the id the multi-name queue reports, so holding a folded-away
     # member examines nothing: the canonical stays on the queue as unexamined
@@ -386,29 +381,15 @@ def dead_entries(
                 split_partners.setdefault(pid, set()).update(pair - {pid})
     for pid, partners in split_partners.items():
         dead.append(DeadEntry("split", pid, f"split from {sorted(partners)}"))
-    hold_partners: dict[str, set[str]] = {}
     for ids in curation.holds:
-        for pid in ids:
-            if pid in pilot_ids:
-                continue
-            if len(ids) == 1:
-                # A hold on one id holds that id's own several names open, so it
-                # has no partner to name -- and its own row, since the same id
-                # can be held both alone and in a pair, and one row would let
-                # retiring the pair leave the other entry dead and unflagged
-                # (issue #232).
-                dead.append(DeadEntry("hold", pid, "held on its own several names"))
-            else:
-                hold_partners.setdefault(pid, set()).update(ids - {pid})
-    for pid, partners in hold_partners.items():
-        dead.append(DeadEntry("hold", pid, f"held against {sorted(partners)}"))
-    # One row per absent stamp, not per pair: a hold of three or more ids expands
-    # to all of its pairs (:func:`_holds`), which would otherwise put the one
-    # stamp in the report three times over.
+        (pid,) = ids
+        if pid not in pilot_ids:
+            dead.append(DeadEntry("hold", pid, "held on its own several names"))
+    # One row per absent stamp, naming every id dated against it.
     stale: dict[str, set[str]] = {}
-    for pair, hold in curation.holds.items():
+    for ids, hold in curation.holds.items():
         if snapshot_stamps is not None and hold.as_of not in snapshot_stamps:
-            stale.setdefault(hold.as_of, set()).update(pair)
+            stale.setdefault(hold.as_of, set()).update(ids)
     for as_of, ids in stale.items():
         dead.append(DeadEntry(
             "hold", as_of,
@@ -502,22 +483,23 @@ def _all_pairs(ids: list[str]) -> set[frozenset[str]]:
 
 
 def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
-    """Every held id set, pairs expanded the way :func:`_pairs` expands a decision.
+    """Every held id, keyed on the one id each entry holds open.
 
-    A hold of two or more ids marks them mutually *unsettled*, so three ids leave
-    three open pairs rather than one three-way question, and each pair carries
-    the same ``settles_on`` and ``as_of``. A hold of *one* id is the other
-    identity queue's question and is kept whole: it holds that id's own several
-    recovered names open, which is not a question about any pair it belongs to
-    (issue #232).
+    A hold names *one* id: it holds that id's own several recovered names open,
+    the multi-name queue's question (issue #232). A hold on two or more ids was
+    the pair watchlist, retired by issue #273: the build now derives every
+    candidate pair's state (merged by rule, separated by a shared event, or
+    watching), so a pair hold parks nothing and would only hide the pair from
+    the three-state report. It is refused with the remedy rather than ignored,
+    since an entry that loads and fires nothing is the quiet failure ADR 0005
+    names.
 
-    A pair held twice is refused rather than taken last-wins. A hold exists to be
+    An id held twice is refused rather than taken last-wins. A hold exists to be
     revisited, so appending a refreshed entry over an older one is the edit this
     kind invites, and silently keeping the lower block would make the condition
     the report carries a fact about file order rather than about either
     judgement, with the discarded one reported nowhere (``dead_entries`` cannot
-    see it, both ids being live). Same reasoning as :func:`_names`, and it fires
-    on overlap too, since a 3-id entry and a 2-id entry can share a pair.
+    see it, the id being live). Same reasoning as :func:`_names`.
     """
     holds: dict[frozenset[str], Hold] = {}
     for entry in entries:
@@ -528,68 +510,30 @@ def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
             )
         hold = Hold(settles_on=settles_on, as_of=_as_of(entry, path, "hold"))
         ids = _ids(entry, path, "hold")
-        for pair in ([frozenset(ids)] if len(ids) == 1 else _all_pairs(ids)):
-            if pair in holds:
-                named = " and ".join(repr(pid) for pid in sorted(pair))
-                raise CurationError(
-                    f"{path}: [[hold]] holds {named} twice, on "
-                    f"{holds[pair].settles_on!r} and {hold.settles_on!r}; file "
-                    f"order would decide which the report carries, so keep the "
-                    f"entry that supersedes and delete the other"
-                )
-            holds[pair] = hold
+        if len(ids) > 1:
+            named = " and ".join(repr(pid) for pid in ids)
+            raise CurationError(
+                f"{path}: [[hold]] holds {named} as a pair, but the build derives "
+                f"every pair's state by rule (merged, separated or watching; ADR "
+                f"0028) and a pair hold parks nothing. Delete it, or record the "
+                f"decision as a [[merge]] or [[reject]]"
+            )
+        if settles_on != "event_split":
+            raise CurationError(
+                f"{path}: [[hold]] settles_on {settles_on!r}, but the build "
+                f"evaluates one trigger for a hold, 'event_split' (issue #273 "
+                f"retired the others); restamp it or delete the hold"
+            )
+        key = frozenset(ids)
+        if key in holds:
+            raise CurationError(
+                f"{path}: [[hold]] holds {ids[0]!r} twice, on "
+                f"{holds[key].settles_on!r} and {hold.settles_on!r}; file "
+                f"order would decide which the report carries, so keep the "
+                f"entry that supersedes and delete the other"
+            )
+        holds[key] = hold
     return holds
-
-
-def _refuse_decided_hold(
-    holds: dict[frozenset[str], Hold],
-    merges: dict[str, str],
-    rejected: frozenset[frozenset[str]],
-    splits: frozenset[frozenset[str]],
-    path: Path,
-) -> None:
-    """Refuse a pair the dictionary both holds and decides.
-
-    A ``[[hold]]`` says a human looked and could not settle the pair; a
-    ``[[merge]]``, ``[[reject]]`` or ``[[split]]`` says one did. The two are not
-    degrees of the same claim, so no precedence resolves them, and the failure is
-    the quiet one :func:`_refuse_merged_pair` describes: whichever kind the code
-    consults first, the other is a recorded judgement that fires nothing and that
-    ``dead_entries`` cannot report, both ids being live.
-
-    It is also the shape a watchlist invites, since the point of a hold is to be
-    upgraded later: the upgrade is editing the ``[[hold]]`` into a decision, not
-    appending the decision beside it, so the message names that edit.
-
-    Merges are read off the folded group rather than the entry, since two ids
-    chained onto one canonical through separate blocks are as decided as two
-    named together. Sorted so the first of several contradictions is stable.
-
-    A hold on a single id has no contradiction to check for. Every kind that
-    settles an identity question keys on two ids (``merge``, ``reject``,
-    ``split``), so each answers a different question than "are this one id's
-    decks one person" (issue #232). What resolves that one is a ``deck_pilot``,
-    which keys on a deck and names only the id it moves the deck *to*: which id
-    it moves a deck away from is derived at build time rather than stated here,
-    and the report shows the id dropping off the queue when it does.
-    """
-    for pair in sorted(sorted(p) for p in holds if len(p) == 2):
-        a, b = pair
-        canonical = merges.get(a, a)
-        if canonical == merges.get(b, b):
-            kind, decided = "merge", f"already folds onto {canonical!r}"
-        elif frozenset(pair) in rejected:
-            kind, decided = "reject", "already separates them"
-        elif frozenset(pair) in splits:
-            kind, decided = "split", "already keeps them apart"
-        else:
-            continue
-        raise CurationError(
-            f"{path}: [[hold]] leaves {a!r} and {b!r} undecided, but a "
-            f"[[{kind}]] {decided}; a pair cannot be both open and settled. "
-            f"Delete the [[hold]] -- upgrading one means replacing it with the "
-            f"decision, not appending the decision beside it"
-        )
 
 
 def _refuse_merged_pair(

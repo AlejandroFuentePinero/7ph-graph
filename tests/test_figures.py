@@ -250,7 +250,7 @@ def test_the_cheap_figures_in_the_live_bundle_are_what_the_graph_holds(live_grap
     stems = count("MATCH (p:Pilot) WHERE p.displayName =~ '.* 1' RETURN count(*)")
     assert figures["pilots_numbered"] == numbered + stems
     report = json.loads((artifact_path() / "reconciliation.json").read_text())
-    open_pairs = report["under_merges"] + report["held_merges"]
-    assert figures["pilots_paired"] == len({pid for e in open_pairs for pid in e["pilots"]})
+    watching = [e for e in report["ruled_pairs"] if e["state"] == "watching"]
+    assert figures["pilots_paired"] == len({pid for e in watching for pid in e["pilots"]})
     assert figures["leaderboard_pilots"] == len(
         {cell.pilot for cell in player_leaderboard(live_graph).cells})

@@ -53,3 +53,5 @@ exact-name match is no longer a candidate to review; it is resolved. What remain
 for the dictionary is only the *non-identical* near-duplicates (typos, an initial
 expanded to a full surname, an added middle initial), which stay proposals until
 a human confirms them.
+
+> **Narrowed by ADR 0028 (issue #273, 2026-11-06).** The non-identical shapes are no longer proposals: a build derives merged, separated or watching for each on deck evidence, and the dictionary holds only overrides.

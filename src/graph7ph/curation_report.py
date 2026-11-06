@@ -1,11 +1,13 @@
-"""The post-ingestion curation brief: what this ingestion put on the table.
+"""The post-ingestion curation brief: what this ingestion changed.
 
 A review round used to start from `reconciliation.json`, which re-derives the
 same flat queue every build and says nothing about what moved (issue #227). This
 renders the same facts as a brief ranked on what changed, so a round starts from
-a written page: decisions the data has settled first, then what is genuinely new,
-then holds whose evidence moved this round, then what the previous round already
-listed and the unchanged tail as one line each.
+a written page: holds the data has settled first, then every pair whose derived
+state changed this round (merged by rule, separated, watching; issue #273), the
+rules the dictionary overrode and the entries the build refused, then the
+multi-name queue split into new and carried, and the unchanged holds as one line
+each.
 
 "Changed" is against the previous round, which the brief reads off the snapshot
 sequence (the reconciliation every older snapshot yields) and never off the issue
@@ -26,6 +28,10 @@ Holds = dict[frozenset[str], Hold]
 
 # How `fetch` names a snapshot directory.
 STAMP = "%Y%m%dT%H%M%SZ"
+
+# The three states a candidate pair can be in, in the order the brief lists them
+# (issue #273), each with its heading.
+STATES = (("merged", "Merged by rule"), ("separated", "Separated"), ("watching", "Watching"))
 
 
 def _fetched_at(snapshot: str) -> datetime | None:
@@ -84,59 +90,51 @@ def curation_report(
     ``previous`` is the reconciliation the snapshot sequence before ``snapshot``
     yields (:func:`ingest.previous_reconciliation`), which is what the brief
     diffs against so it says what changed this round rather than what is open
-    (issue #271); ``None`` where no snapshot precedes this one.
+    (issue #271); ``None`` where no snapshot precedes this one, so everything
+    is listed as changed.
     """
     previous = previous or {}
-    fired = recon.get("fired_holds", [])
-    settled = [f for f in fired if f["trigger"] in SETTLING_TRIGGERS]
-    # `new_decks` grades against the hold's own `as_of`, so once any deck
-    # arrived the hold fired every round after. Evidence moved this round only
-    # where the delta holds a deck the previous round's firing did not (issue
-    # #271); a hold firing for the first time needs no note of what arrived,
-    # its detail being this round's news in full.
-    reported = {frozenset(f["pilots"]): set(f["decks"])
-                for f in previous.get("fired_holds", [])}
-    moved: list[tuple[dict, list[str]]] = []
-    for f in fired:
-        if f["trigger"] in SETTLING_TRIGGERS:
-            continue
-        known = reported.get(frozenset(f["pilots"]))
-        if arrived := [d for d in f["decks"] if d not in (known or ())]:
-            moved.append((f, arrived if known else []))
+    settled = [f for f in recon.get("fired_holds", []) if f["trigger"] in SETTLING_TRIGGERS]
 
-    # Both queues carry only what no pass has read (issues #231, #232), which is
-    # not the same as what this ingestion introduced: a row nobody read last
+    # A pair is listed under its state only where that state is not what the
+    # sequence before this snapshot derived for it (issue #273): a pair the rules
+    # merged last round and this round is a settled fact, not news. A pair the
+    # previous sequence did not raise at all is news under whichever state it
+    # took. Keyed on ids, since the names that raised a pair are a majority vote
+    # a deck can flip (ADR 0007) while the pair stays.
+    pairs = recon.get("ruled_pairs", [])
+    before = {frozenset(p["pilots"]): p["state"] for p in previous.get("ruled_pairs", [])}
+    changed = [p for p in pairs if before.get(frozenset(p["pilots"])) != p["state"]]
+    blocks = [(title, [p for p in changed if p["state"] == state]) for state, title in STATES]
+    # Listed every build, derived and never diffed: a dictionary edit is
+    # invisible to a diff between two snapshot sequences read under the same
+    # dictionary, so an override or a refusal would otherwise be news exactly
+    # once and then silent.
+    overrides = recon.get("rule_overrides", [])
+    refused = recon.get("refused_entries", [])
+
+    # The multi-name queue carries only what no pass has read (issue #232), which
+    # is not the same as what this ingestion introduced: an id nobody read last
     # round either is the same question again, listed on that round's issue, so
-    # it is carried and only the rest is new (issue #271). Keyed on ids, since
-    # the names that raised a pair are a majority vote a deck can flip (ADR
-    # 0007) while the pair stays. That every queue row reaches one of the two
-    # sections, and none is dropped on the way, is held by the suite
-    # (`test_curation_report.py::
-    # test_the_live_brief_states_exactly_what_the_live_report_holds`); whether
-    # the queue is empty is the round's issue to track, not the suite's (#270).
-    queue = recon.get("under_merges", []) + recon.get("multi_name_ids", [])
-    before = {_key(c) for c in previous.get("under_merges", [])
-              + previous.get("multi_name_ids", [])}
-    new = [c for c in queue if _key(c) not in before]
-    carried = [c for c in queue if _key(c) in before]
-    named = {frozenset(h["pilots"]): h for h in recon.get("held_merges", [])} | {
-        frozenset({h["pilot"]}): h for h in recon.get("held_names", [])}
-    listed = {frozenset(f["pilots"]) for f in settled} | {
-        frozenset(f["pilots"]) for f, _ in moved}
+    # it is carried and only the rest is new (issue #271).
+    queue = recon.get("multi_name_ids", [])
+    before_ids = {c["pilot"] for c in previous.get("multi_name_ids", [])}
+    new = [c for c in queue if c["pilot"] not in before_ids]
+    carried = [c for c in queue if c["pilot"] in before_ids]
+    named = {h["pilot"]: h for h in recon.get("held_names", [])}
+    listed = {frozenset(f["pilots"]) for f in settled}
     unchanged = {ids: hold for ids, hold in sorted(holds.items(), key=lambda kv: sorted(kv[0]))
                  if ids not in listed}
 
     # A brief filed after every ingestion is read only if its arrival means
     # something, so a round with no work says that in a sentence rather than in
-    # a page of empty headings. Carried rows are work: the runbook closes the
-    # previous round's issue when it files the next, so a round whose only work
-    # is carried still files, or those rows would be open nowhere. The held tail
-    # is not work and does not make a round loud, but it is still listed: a hold
-    # nobody lists is one nobody retires. With no tail either there is nothing
-    # to print but the sentence.
-    if not (settled or new or carried or moved):
-        quiet = (f"Nothing to review for snapshot `{snapshot}`: no hold settled, "
-                 "no candidate is new or carried, and no hold's evidence moved.")
+    # a page of empty headings. The held tail is not work and does not make a
+    # round loud, but it is still listed: a hold nobody lists is one nobody
+    # retires. With no tail either there is nothing to print but the sentence.
+    if not (settled or changed or overrides or refused or new or carried):
+        quiet = (f"Nothing to review for snapshot `{snapshot}`: no pair changed state, "
+                 "no rule was overridden, no entry was refused, no hold settled, and "
+                 "no id is new or carried.")
         if not unchanged:
             return quiet + "\n"
         lines = [quiet, ""]
@@ -145,122 +143,147 @@ def curation_report(
     if settled:
         lines += [f"## Decisions available ({len(settled)})", ""]
         lines += [_fired_line(f) for f in settled] + [""]
+    for title, listed_pairs in blocks:
+        if listed_pairs:
+            lines += [f"## {title} ({len(listed_pairs)})", ""]
+            lines += _pair_lines(listed_pairs) + [""]
+    if overrides:
+        lines += [f"## Rule overridden by the dictionary ({len(overrides)})", ""]
+        lines += [_override_line(p) for p in overrides] + [""]
+    if refused:
+        lines += [f"## Entries refused ({len(refused)})", ""]
+        lines += [f"- {r['kind']} `{r['key']}`: written against {r['written']!r}, "
+                  f"now recovers {r['recovered']!r}" for r in refused] + [""]
     if new:
         lines += [f"## New this ingestion ({len(new)})", ""]
-        lines += _candidate_lines(new) + [""]
-    if moved:
-        lines += [f"## Evidence moved ({len(moved)})", ""]
-        lines += [_fired_line(f) + (f"; this round: {', '.join(arrived)}" if arrived else "")
-                  for f, arrived in moved] + [""]
+        lines += [_candidate_line(c) for c in new] + [""]
     if carried:
         lines += [f"## Carried over ({len(carried)})", ""]
-        lines += _candidate_lines(carried) + [""]
+        lines += [_candidate_line(c) for c in carried] + [""]
     if unchanged:
         lines += [f"## Unchanged holds ({len(unchanged)})", ""]
-        lines += [_held_line(ids, hold, named.get(ids)) for ids, hold in unchanged.items()]
+        lines += [_held_line(ids, hold, named.get(next(iter(ids))))
+                  for ids, hold in unchanged.items()]
         lines += [""]
-        if hubs := _hubs(unchanged):
-            lines += ["### Hubs", "",
-                      "One decision closes several rows:", ""]
-            lines += [f"- `{pid}`: held against {', '.join(f'`{p}`' for p in partners)}"
-                      for pid, partners in hubs] + [""]
-    # New is the figure that means "open this many questions" (issue #228):
-    # what this ingestion introduced and nothing else, with what the previous
-    # round already listed counted beside it rather than inside it (issue #271).
-    # The rest are what keep it that small.
-    lines += ["## Counts", "",
+    # The three states in full beside what changed, so the figure that means
+    # "this many pairs moved" sits next to the one that says where the whole
+    # population stands; the rest are what keep the round small.
+    states = Counter(p["state"] for p in pairs)
+    moved = Counter(p["state"] for p in changed)
+    lines += ["## Counts", ""]
+    lines += [f"- {title.lower()}: {states[state]} (changed: {moved[state]})"
+              for state, title in STATES]
+    lines += [f"- overridden: {len(overrides)}",
+              f"- refused: {len(refused)}",
+              f"- decisions available: {len(settled)}",
               f"- new: {len(new)}",
               f"- carried: {len(carried)}",
-              f"- decisions available: {len(settled)}",
-              f"- evidence moved: {len(moved)}",
               f"- unchanged holds: {len(unchanged)}",
-              f"- curated: {recon['curated']}", ""]
+              f"- curated: {recon['curated']}"]
+    # The out-of-sample instrument, re-measured by this build (ADR 0028): what
+    # strangers score at the bars the rules merge on, so the round can read a
+    # merge against the population it sits in.
+    if rate := recon.get("stranger_base_rate"):
+        lines += ["- stranger base rate: " + ", ".join(
+            f"{share:.1%} at {bar}" for bar, share in rate.items())]
+    lines += [""]
     return "\n".join(lines)
 
 
-def _key(candidate: dict) -> frozenset[str]:
-    """The ids a queue row is about, whichever queue it came from."""
-    return frozenset(candidate.get("pilots") or [candidate["pilot"]])
-
-
-def _candidate_lines(candidates: list[dict]) -> list[str]:
-    """The queue's rows, an id recurring across pairs folded into one row.
+def _pair_lines(pairs: list[dict]) -> list[str]:
+    """One block's rows, an id recurring across pairs folded into one row.
 
     A bare first name against several surnamed partners raised one pair per
     partner (seven rows for one Ryan on #262), though whose deck it is is one
-    question, so the recurring id is the row and its partners the detail (issue
-    #271). A pair is filed under whichever of its ids recurs more, the row sits
-    where the hub's first pair did, and a pair with no recurring id is its own
-    row as before.
+    question, so the recurring id is the row and its partners the detail, each
+    with its best overlap (issues #271, #273). A pair is filed under whichever
+    of its ids recurs more, the row sits where the hub's first pair did, and a
+    pair with no recurring id is its own row.
     """
-    degree = Counter(pid for c in candidates for pid in c.get("pilots", ()))
-    hub_of = [max((pid for pid in c.get("pilots", ()) if degree[pid] > 1),
-                  key=degree.get, default=None) for c in candidates]
+    degree = Counter(pid for p in pairs for pid in p["pilots"])
+    hub_of = [max((pid for pid in p["pilots"] if degree[pid] > 1),
+                  key=degree.get, default=None) for p in pairs]
     pairs_of: dict[str, list[dict]] = {}
-    for hub, c in zip(hub_of, candidates):
+    for hub, p in zip(hub_of, pairs):
         if hub is not None:
-            pairs_of.setdefault(hub, []).append(c)
+            pairs_of.setdefault(hub, []).append(p)
     lines: list[str] = []
     written: set[str] = set()
-    for hub, c in zip(hub_of, candidates):
+    for hub, p in zip(hub_of, pairs):
         if hub is None:
-            lines.append(_candidate_line(c))
+            lines.append(f"- {_ids(p['pilots'])}: {_describe(p)}")
         elif hub not in written:
             written.add(hub)
-            lines.append(f"- `{hub}` against {len(pairs_of[hub])}: " + "; ".join(
-                f"`{next(p for p in pair['pilots'] if p != hub)}` {_describe(pair)}"
-                for pair in pairs_of[hub]))
+            name = p["names"][p["pilots"].index(hub)]
+            lines.append(f"- `{hub}` ({name}) against {len(pairs_of[hub])}: " + "; ".join(
+                _partner(pair, hub) for pair in pairs_of[hub]))
     return lines
 
 
-def _candidate_line(candidate: dict) -> str:
-    """One unexamined row, whichever queue it came from.
+def _partner(pair: dict, hub: str) -> str:
+    """One partner of a hub: its id, its name and the evidence against the hub."""
+    other = 1 - pair["pilots"].index(hub)
+    return f"`{pair['pilots'][other]}` {pair['names'][other]} {_evidence(pair)}"
 
-    A pair asks whether two ids are one person and a single id asks whether one
-    id is two people (issue #232), so each prints the ids the question is about
-    and the names that raised it.
+
+def _describe(pair: dict) -> str:
+    """What the rules read on a pair: the names, the shape, and the evidence."""
+    a, b = pair["names"]
+    joiner = " = " if pair["state"] == "merged" else " / "
+    parts = [f"{a}{joiner}{b} ({pair['shape']}), {_evidence(pair)}"]
+    if pair["shared_events"]:
+        parts.append("both at " + ", ".join(pair["shared_events"]))
+    parts += [f"{pair['names'][pair['pilots'].index(pid)]} is a {why}"
+              for pid, why in pair["hubs"].items()]
+    if pair["canonical"]:
+        parts.append(f"node `{pair['canonical']}`")
+    return ", ".join(parts)
+
+
+def _evidence(pair: dict) -> str:
+    """The deck evidence in one phrase: the overlap, its archetype and its pool."""
+    if pair["archetype"] is None:
+        return "no deck on a shared archetype at different events"
+    text = f"{pair['overlap']:.2f} on {pair['archetype']}"
+    if pair["pool"] is not None:
+        text += f" ({pair['at_or_above']} of {pair['pool']} strangers as high)"
+    return text
+
+
+def _override_line(pair: dict) -> str:
+    """One overridden pair: what the rule said and the dictionary kind that beat it."""
+    verb = "keeps them apart" if pair["overridden_by"] in ("reject", "split") else "folds them"
+    return (f"- {_ids(pair['pilots'])}: {_describe(pair)}; the rule says "
+            f"{pair['state']}, a [[{pair['overridden_by']}]] {verb}")
+
+
+def _candidate_line(candidate: dict) -> str:
+    """One unexamined multi-name id: the id, the name that won it, and the rest.
+
+    One id asks whether its decks are one person (issue #232), so it prints the
+    id and every name its decks recovered, the minorities being the whole
+    question (ADR 0007).
     """
-    return f"- {_ids(candidate.get('pilots') or [candidate['pilot']])}: {_describe(candidate)}"
+    return f"- `{candidate['pilot']}`: {_also(candidate)}"
 
 
 def _held_line(ids: frozenset[str], hold: Hold, row: dict | None) -> str:
-    """One held row: the ids, what the queue calls them, and its condition.
+    """One held id: what the queue calls it, and its condition.
 
-    ``row`` is the queue's own line for the pair, and is absent where the hold
+    ``row`` is the queue's own line for the id, and is absent where the hold
     has dropped off the review list (a display name is a majority vote a new
-    deck can flip, ADR 0007). The ids are what identifies a hold either way, so
+    deck can flip, ADR 0007). The id is what identifies a hold either way, so
     an unnamed one is listed rather than dropped.
     """
-    fields = ([_describe(row)] if row else []) + [
+    fields = ([_also(row)] if row else []) + [
         f"settles on `{hold.settles_on}`", f"as of `{hold.as_of}`"]
     return f"- {_ids(sorted(ids))}: " + ", ".join(fields)
 
 
-def _describe(row: dict) -> str:
-    """What the queue calls a row: the names that put it on the list.
-
-    A pair carries how its two names relate, which is how much the shape can be
-    trusted; one id carries the names its own decks recovered, the minorities
-    being the whole question (ADR 0007).
-    """
-    if "relation" in row:
-        return f"{row['display_name']} ({row['relation']})"
+def _also(row: dict) -> str:
+    """The name that won an id and every other name its decks recovered."""
     others = [n for n in row["names"] if n != row["display_name"]]
     return f"{row['display_name']}, also {', '.join(others)}"
-
-
-def _hubs(holds: Holds) -> list[tuple[str, list[str]]]:
-    """Ids held against more than one partner, each with its partners.
-
-    Where the same id recurs, one decision about that id retires every row it
-    appears in, so the tail is worth reading top-down rather than row by row.
-    """
-    partners: dict[str, set[str]] = {}
-    for ids in holds:
-        for pid in ids:
-            partners.setdefault(pid, set()).update(ids - {pid})
-    return [(pid, sorted(theirs)) for pid, theirs in sorted(partners.items())
-            if len(theirs) > 1]
 
 
 def _ids(pilots: list[str]) -> str:

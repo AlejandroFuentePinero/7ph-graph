@@ -101,21 +101,27 @@ brief=$(uv run graph7ph curation-report) &&
   esac
 ```
 
-The brief ranks on what changed since the previous round: holds the data has now
-settled (decide each and retire its `[[hold]]`), candidates this ingestion
-introduced, holds whose evidence moved this round, then the candidates carried
-over unexamined from the previous round, the unchanged tail and the counts. The
-previous round's state is read off the snapshot sequence, never off the issue it
-filed: the command re-resolves every snapshot older than the newest through the
-build's own path, so a candidate that sequence already raised is carried rather
-than new, and a hold whose deck delta that sequence already fired is in the tail
-rather than listed again (issue #271). An id recurring across several pairs is
-one row listing its partners. A round with none of the first four says so in
-one line, and there is nothing to file, which is what the `case` guards: the
-brief opens with `Curation review` only when one of the four has something in
-it, and otherwise the line prints the reason rather than filing a round nobody
-has to work. Carried rows count, since the previous round's issue is closed when
-this one is filed and they would otherwise be open nowhere. The command refuses to report on a bundle that is
+The brief ranks on what changed since the previous round: holds the data has
+now settled (decide each and retire its `[[hold]]`), then every candidate pair
+whose derived state changed this round, in three blocks (merged by rule,
+separated by a shared event, watching; issue #273), the rules the dictionary
+overrode and the entries the build refused (both listed every round), the
+multi-name ids this ingestion introduced, the ones carried over unexamined from
+the previous round, the unchanged holds and the counts. Nothing in it is a queue
+to work: a watching pair is two nodes, the graph's default, and the dictionary
+holds only overrides (a `[[merge]]`, `[[reject]]` or `[[split]]` where a human
+disagrees with a rule). The previous round's state is read off the snapshot
+sequence, never off the issue it filed: the command re-resolves every snapshot
+older than the newest through the build's own path, so a pair whose state that
+sequence already derived is not listed again and an id it already raised is
+carried rather than new (issue #271). An id recurring across several pairs is
+one row listing its partners and each partner's overlap. A round with nothing
+settled, changed, overridden, refused, new or carried says so in one line, and
+there is nothing to file, which is what the `case` guards: the brief opens with
+`Curation review` only when one of those has something in it, and otherwise the
+line prints the reason rather than filing a round nobody has to work. Carried
+rows count, since the previous round's issue is closed when this one is filed
+and they would otherwise be open nowhere. The command refuses to report on a bundle that is
 missing, built from other sources, or older than the newest snapshot, so a brief
 always describes the corpus it names.
 

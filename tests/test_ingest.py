@@ -711,5 +711,5 @@ def test_the_previous_reconciliation_is_what_the_sequence_before_a_snapshot_yiel
 
     previous = previous_reconciliation(root, "20260201T000000Z", Curation.empty())
 
-    assert [sorted(c["pilots"]) for c in previous["under_merges"]] == [["P1", "P2"]]
+    assert [sorted(c["pilots"]) for c in previous["ruled_pairs"]] == [["P1", "P2"]]
     assert previous_reconciliation(root, "20260101T000000Z", Curation.empty()) is None
