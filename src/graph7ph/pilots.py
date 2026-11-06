@@ -12,11 +12,15 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from typing import TYPE_CHECKING
 
 from graph7ph.curation import (
     AppliedKind, Curation, CurationError, DeadEntry, Entry, dead_entries, without,
 )
 from graph7ph.models import PLACEMENT_TOKEN
+
+if TYPE_CHECKING:  # the rules read this module's name grammar, so the import runs at call time
+    from graph7ph.identity_rules import RuledPair
 
 # A deck title reads "<placement> <name> - <deck> - <event>". The name is what
 # is left after dropping the leading placement token and taking the segment
@@ -133,60 +137,23 @@ class VariantCluster:
     variants: dict[str, int]  # each merged spelling -> how many decks used it
 
 
-@dataclass(frozen=True)
-class UnderMerge:
-    """Two pilot ids whose names say they may be one person split in two.
-
-    A candidate only, never acted on by the heuristics: the build merges two ids
-    only when a human has recorded the decision in the dictionary (issue #9).
-    ``relation`` is how the names relate (see :func:`name_relation`), which is
-    how much the shape can be trusted and how the review list is ranked.
-    """
-
-    display_name: str
-    pilots: list[str]
-    relation: str
-
-
-@dataclass(frozen=True)
-class HeldPair:
-    """A candidate pair a human examined and could not settle (issue #228).
-
-    The same shape as :class:`UnderMerge` plus the two fields that make a hold
-    worth recording: what would settle the pair, and the snapshot the reasoning
-    was written against. Kept apart from ``under_merges`` so that list means what
-    its name says -- pairs nobody has reasoned about yet -- rather than growing a
-    permanent tail of pairs that have been read and cannot be decided.
-    """
-
-    display_name: str
-    pilots: list[str]
-    relation: str
-    settles_on: str
-    as_of: str
-
-
-# The triggers that *settle* a hold rather than only reopening it. A shared event
-# decides a pair outright (two entries at one event are two people, ADR 0005) and
-# an identical-name join has already decided it; `event_split` is that same
-# structural fact reaching a hold on one id, whose two surnames turned up at one
-# event (issue #232). All three are an available decision and take the build's
-# banner; `new_decks` moves the evidence without deciding anything and is counted
-# instead (issue #230).
-SETTLING_TRIGGERS = ("joined_name", "shared_event", "event_split")
+# The one trigger left, and it settles: `event_split` is the structural fact
+# (one entry per pilot per event) reaching a hold on one id, whose two surnames
+# turned up at one event (issue #232). It takes the build's banner. The pair
+# triggers retired with the pair holds (issue #273).
+SETTLING_TRIGGERS = ("event_split",)
 
 
 @dataclass(frozen=True)
 class FiredHold:
-    """A held pair the corpus has moved under, and the fact that moved it (#230).
+    """A held id the corpus has settled, and the fact that settled it (#230).
 
     A hold records the condition that would settle it, so the build re-evaluates
     that condition on every ingestion and growing data does the review work
-    instead of a human re-reading the list. ``trigger`` names which one fired;
-    :data:`SETTLING_TRIGGERS` says which of them decide the pair rather than
-    merely reopening it. ``settles_on`` and ``as_of`` are the hold's own record,
-    carried so a reader can tell what the human expected would settle it and
-    which corpus they wrote that against.
+    instead of a human re-reading the list. ``trigger`` names the one that
+    fired (:data:`SETTLING_TRIGGERS`). ``settles_on`` and ``as_of`` are the
+    hold's own record, carried so a reader can tell what the human expected
+    would settle it and which corpus they wrote that against.
 
     ``detail`` is the fact in one line and ``decks`` the deck ids it rests on, the
     shape :class:`DeadEntry` and the report's imputed-value index already use: a
@@ -299,7 +266,7 @@ class HeldName:
     """One multi-name id a human examined and could not settle (issue #232).
 
     :class:`MultiNameId` plus the two fields that make a hold worth recording,
-    exactly as :class:`HeldPair` extends a candidate pair. Kept apart from
+    the way a held pair once was (issue #228). Kept apart from
     ``multi_name_ids`` so that list means what its name says: ids nobody has
     reasoned about yet, rather than a permanent tail of ids that have been read
     and cannot be decided on the evidence on file.
@@ -339,7 +306,6 @@ class UnexplainedName:
 @dataclass(frozen=True)
 class Reconciliation:
     variant_clusters: list[VariantCluster]
-    under_merges: list[UnderMerge]  # UNEXAMINED candidates only; curated and held ones drop off
     null_pilots: list[ResolvedPilot]  # the re-keyed null bucket (ADR 0004)
     event_splits: list[EventSplit]  # ids split for same-event collisions (ADR 0004)
     dropped_duplicates: list[DroppedDuplicate]  # removed duplicate registrations
@@ -349,10 +315,12 @@ class Reconciliation:
     multi_name_ids: list[MultiNameId] = field(default_factory=list)  # UNEXAMINED ids spanning >1 surname (issue #39)
     name_splits: list[SplitName] = field(default_factory=list)  # same-name ids kept apart by a split or reject (issues #35, #74)
     unexplained_names: list[UnexplainedName] = field(default_factory=list)  # discarded spellings nothing relates to the winner (issue #103)
-    held_merges: list[HeldPair] = field(default_factory=list)  # candidates examined and left undecided (issue #228)
-    fired_holds: list[FiredHold] = field(default_factory=list)  # holds the corpus has now moved (issue #230)
+    fired_holds: list[FiredHold] = field(default_factory=list)  # single-id holds the corpus has now settled (issue #230)
     held_names: list[HeldName] = field(default_factory=list)  # multi-name ids examined and left undecided (issue #232)
     refused_entries: list[RefusedEntry] = field(default_factory=list)  # entries whose id upstream handed to someone else (issue #283)
+    ruled_pairs: list["RuledPair"] = field(default_factory=list)  # every candidate pair with its derived state (issue #273)
+    rule_overrides: list["RuledPair"] = field(default_factory=list)  # pairs a rule fired on that the dictionary overrode (issue #273)
+    stranger_base_rate: dict[str, float] = field(default_factory=dict)  # share of matched stranger pairs at or above each bar (ADR 0028)
 
 
 @dataclass(frozen=True)
@@ -473,11 +441,23 @@ def resolve_pilots(
         real_pilots + null_pilots, deck_pilot, curation
     )
     real_joined = [p for p in pilots if not p.pilot.startswith("nan:")]
-    # The map as the join left it, before the event split renumbers a colliding
-    # pilot into "<id>#2". A hold names two whole identities, so the trigger
-    # evaluation below asks which events each id registered at, and a career
-    # inside one of them is not an answer to that question (issue #230).
-    joined_deck_pilot = dict(deck_pilot)
+
+    # The rules decide the clear pairs on the node the dictionary and the join
+    # left (issue #273, ADR 0028): a pair merged by rule folds here, before the
+    # event split, so a collision the merge creates is renumbered below rather
+    # than fused. Imported here because the rules read this module's name
+    # grammar, and this is the one place they are called.
+    from graph7ph.identity_rules import fold_merges, rule_states
+
+    verdicts = rule_states(real_joined, decks, deck_pilot, decklists, curation)
+    folded = fold_merges(
+        verdicts.pairs, {p.pilot: p.display_name for p in real_joined},
+        Counter(deck_pilot.values()),
+    )
+    for deck_id, node in deck_pilot.items():
+        if node in folded:
+            deck_pilot[deck_id] = folded[node]
+    pilots = [p for p in pilots if p.pilot not in folded]
 
     # A resolved pilot with several decks at one event is several people sharing
     # a name; split them so every pilot holds at most one deck per event (ADR 0004).
@@ -492,16 +472,7 @@ def resolve_pilots(
         decks = [d for d in decks if d.deck_id not in gone]
         dropped = dropped + late_dropped
 
-    # Under-merges are scanned over real pilots only: the null bucket is already
-    # surfaced separately, so including it would just double-report the noise.
-    # A decided pair is off the review list either way: a rejection is counted in
-    # the scan, and a confirmed merge folds an id away before it, so those folded
-    # ids present in the data are counted here to complete the "already decided".
-    candidates, held, rejected = _under_merges(real_joined, curation)
-    fired = _fired_holds(
-        curation, joined_names, decks, joined_deck_pilot, own_deck_pilot,
-        snapshot_decks,
-    )
+    fired = _fired_holds(curation, decks, own_deck_pilot)
     merged = sum(1 for pid in {d.pilot for d in decks} if curation.canonical(pid) != pid)
     # Raw ids plus the buckets they resolve into (the real/null keys are exactly
     # those resolved ids), so a decision keyed on a live canonical is not misread
@@ -512,9 +483,10 @@ def resolve_pilots(
         None if snapshot_decks is None else set(snapshot_decks),
     )
     report = Reconciliation(
-        variant_clusters, candidates, null_pilots, event_splits, dropped,
-        joined_names, rejected + merged, dead, multi_name_ids, name_splits,
-        unexplained, held, fired, held_names,
+        variant_clusters, null_pilots, event_splits, dropped, joined_names,
+        verdicts.rejected + merged, dead, multi_name_ids, name_splits, unexplained,
+        fired, held_names, ruled_pairs=verdicts.pairs, rule_overrides=verdicts.overrides,
+        stranger_base_rate=verdicts.stranger_base_rate,
     )
     return PilotResolution(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
@@ -1072,225 +1044,65 @@ def _cluster_display(cluster: dict[str, int]) -> str:
     return max(cluster, key=lambda n: (cluster[n], n))
 
 
-def _under_merges(
-    pilots: list[ResolvedPilot], curation: Curation
-) -> tuple[list[UnderMerge], list[HeldPair], int]:
-    """Uncurated pilot-id pairs whose names say they may be one person.
-
-    Two ids are only ever a candidate here, never merged by this function: the
-    build merges only what the dictionary records (:mod:`graph7ph.curation`).
-    Returns three things, one per state a pair can be in. The *unexamined*
-    candidates, which is the queue a human works through. The *held* pairs, which
-    a human has read and could not settle (issue #228): off the queue, but not
-    decided, so they are listed with their condition rather than counted away. And
-    a count of pairs a human has *rejected* as two people, which drop off for good
-    so the review shrinks as decisions accrue. Confirmed merges never reach here
-    (they were collapsed onto one id upstream), so the caller counts those
-    separately (issue #9).
-    """
-    names = {p.pilot: p.display_name for p in pilots}
-    candidates: list[UnderMerge] = []
-    held: list[HeldPair] = []
-    rejected = 0
-    for a, b in sorted(_candidate_pairs(names)):
-        relation = name_relation(names[a], names[b])
-        if not relation:
-            continue
-        if curation.is_rejected(a, b):
-            rejected += 1
-        elif hold := curation.hold(a, b):
-            held.append(HeldPair(names[a], [a, b], relation, hold.settles_on, hold.as_of))
-        else:
-            candidates.append(UnderMerge(names[a], [a, b], relation))
-    return candidates, held, rejected
-
-
 def _fired_holds(
-    curation: Curation, joined: list[JoinedName],
-    decks, deck_pilot: dict[str, str], own_deck_pilot: dict[str, str],
-    snapshot_decks: dict[str, frozenset[str]] | None,
+    curation: Curation, decks, own_deck_pilot: dict[str, str]
 ) -> list[FiredHold]:
-    """Every hold the corpus has moved under since a human parked it (#230).
+    """Every single-id hold the corpus has settled since a human parked it (#230).
 
-    A hold of two ids and a hold of one are both evaluated here, and the triggers
-    divide between them (issue #232). ``joined_name`` and ``shared_event`` are
-    facts about two ids meeting and have no single-id shape; ``event_split`` is
-    the structural fact under ``shared_event`` asked of one id's own two surnames;
-    ``new_decks`` asks whether a held id's career has moved and has both shapes.
-    The two shapes are also read at different nodes, for which see below.
+    A hold names one id whose decks recovered several surnames (issue #232), and
+    ``event_split`` fires where that id registered at one event under two surname
+    families (:func:`_name_collision`): one deck is one pilot's single entry at
+    one event, so two entries there under two surnames are two people, and where
+    the id's several surnames are there because a ``[[merge]]`` folded them
+    together, firing refutes that merge. Firing is evaluation and never
+    application: the decision is still a human's, recorded as an edit to the
+    dictionary.
 
-    The population is every pair the dictionary holds, never the ``held_merges``
-    rows the name scan surfaced. Those are the subset whose two recovered names
-    still relate, and a display name is a majority vote new decks can flip (ADR
-    0007) while the curation queue reaches past name-similar pairs in the first
-    place (issue #227). A pair whose names have drifted apart reaches no
-    ``held_merges`` row and no :func:`curation.dead_entries` row either, both raw
-    ids being live, so evaluating off the review list would leave it settled by
-    the data and reported by nothing -- the hole this ticket exists to close, by
-    another route.
+    The population is every hold the dictionary holds, never the ``held_names``
+    rows the multi-name scan surfaced: a hold whose row stops surfacing keeps
+    its trigger live, and evaluating off the review list would leave it settled
+    by the data and reported by nothing (issue #230). The id is read at
+    ``own_deck_pilot``, the map before the identical-name join, which keys each
+    deck on the id it resolved to: that is the population :func:`_multi_name_id`
+    scanned to raise the row, and the row asks whether *this id's own decks* are
+    one person. Reading it at the joined node would answer with registrations
+    the held id never made (issue #241).
 
-    ``joined_name`` fires where the identical-name join (ADR 0007) folded the two
-    held ids onto one pilot. A hold applies nothing to the graph, so it does not
-    block that join, and it should not: an identical recovered name is this
-    project ruling on identity, which is evidence arriving. But the fold leaves
-    the pair reported nowhere else, for the same reason.
-
-    ``shared_event`` fires where the two held ids both registered at one event,
-    and is the settling condition for most holds, because the event is the one
-    structural fact the data carries: a deck is one pilot's single entry at one
-    event, so two ids at one event are two people (ADR 0005). Firing decides
-    nothing here -- nothing in this module decides a pair -- it reports that the
-    evidence to decide it has arrived, which is a decision available rather than
-    a question open. The ``"nan"`` sentinel a stranded deck carries is a hole
-    where the event should be, not an event, and never fires it.
-
-    ``event_split`` fires where a held single id registered at one event under two
-    surname families (:func:`_name_collision`). It settles the id on the same
-    structural fact, one entry per pilot per event, and where the id's several
-    surnames are there because a ``[[merge]]`` folded them together, firing
-    refutes that merge.
-
-    Both decisive triggers carry a caveat where their shared premise bends: an id
-    the source itself entered at one event twice is one the "two entries are two
-    people" reading is weaker for (:func:`_repeat_entrants`). The trigger still
-    fires, because the evidence has still arrived and suppressing it would park a
-    hold nothing else reports; what changes is that the detail says so, at the
-    line a maintainer decides on.
-
-    ``new_decks`` is the softer trigger, and fires where either id has gained a
-    deck since the snapshot the hold's ``as_of`` names. Nothing is settled, but
-    the evidence the reasoning was written against has moved, so the pair is up
-    for a re-read. A pair the shared event already settled is not re-reported
-    under it: the pair is decided, and its deck delta is noise.
-
-    Every trigger is evaluated against every hold rather than against one whose
-    ``settles_on`` names it, because the evidence arriving is a fact about the
-    data and not about what a human guessed would settle the pair: gating it on
-    the guess would leave a decided pair parked because the guess was different.
-    ``settles_on`` is carried into the report, never consulted.
-
-    Each id is read at the pilot it resolves to, since an id a ``[[merge]]`` or
-    the name join folded away carries no decks under its own key and its events
-    are its canonical's now. Holding a pair while merging one of its ids into a
-    third is not a decided hold (:func:`curation._refuse_decided_hold` refuses
-    only a merge that folds the two onto *each other*), so this is ordinary.
-    Where it is read at differs by shape, and one rule does not cover both
-    (issue #241). A **pair** is read at ``deck_pilot``, the map the name join
-    left, before the event split renumbers a colliding pilot: a hold there names
-    two whole identities, so a career inside one of them is not an answer to
-    which events an id registered at. A **single id** is read at
-    ``own_deck_pilot``, the map before that join, which keys each deck on the id
-    it resolved to. That is the population :func:`_multi_name_id` scanned to
-    raise the row, and the row asks whether *this id's own decks* are one person.
-    An identical-name join folds a sibling's decks onto the same node, and
-    reading a single-id hold there answers the question with registrations the
-    held id never made: at best a stranger's deck under ``new_decks``, at worst
-    ``event_split`` claiming a same-event collision built out of two ids' entries
-    and taking the loudest banner the build prints for it.
-
-    An ``as_of`` naming no snapshot in ``snapshot_decks`` fires nothing and is
-    reported as a dead entry instead (:func:`curation.dead_entries`).
+    The trigger carries a caveat where its premise bends: an id the source
+    itself entered at one event twice is one the "two entries are two people"
+    reading is weaker for (:func:`_repeat_entrants`). It still fires, because
+    the evidence has still arrived; what changes is that the detail says so, at
+    the line a maintainer decides on. The pair triggers (``shared_event``,
+    ``joined_name``, ``new_decks``) retired with the pair holds (issue #273): a
+    pair's state is derived by rule every build instead.
     """
-    def careers(by_pilot: dict[str, str]) -> dict[str, dict[str, list[str]]]:
-        events: dict[str, dict[str, list[str]]] = {}
-        for deck in decks:
-            events.setdefault(by_pilot[deck.deck_id], {}).setdefault(
-                deck.event, []
-            ).append(deck.deck_id)
-        return events
-
-    events_of = careers(deck_pilot)
-    own_events = careers(own_deck_pilot)
-    joined_as = {pid: join for join in joined for pid in join.merged}
+    events_of: dict[str, dict[str, list[str]]] = {}
+    for deck in decks:
+        events_of.setdefault(own_deck_pilot[deck.deck_id], {}).setdefault(
+            deck.event, []
+        ).append(deck.deck_id)
     name_of = {deck.deck_id: _display_name(deck) for deck in decks}
     raw_of = {deck.deck_id: deck.pilot for deck in decks}
     repeat_entrants = _repeat_entrants(decks)
 
-    def caveat(deck_ids: list[str]) -> str:
-        """The ", but" a decisive trigger owes when its own premise bends here."""
-        breaks = sorted({raw_of[deck] for deck in deck_ids} & repeat_entrants)
-        if not breaks:
-            return ""
-        return (f" (weak: upstream has {', '.join(breaks)} entering one event "
-                f"more than once elsewhere, so two entries need not be two people)")
-
     fired: list[FiredHold] = []
     for ids, hold in sorted(curation.holds.items(), key=lambda kv: sorted(kv[0])):
-        pilots = sorted(ids)
-        # Where each side ended up: a curated merge first, then the name join on
-        # top of it, since the join runs over already-folded ids. An id neither
-        # touched is its own pilot.
-        canonical = [curation.canonical(pid) for pid in pilots]
-        nodes = [joined_as[pid].canonical if pid in joined_as else pid
-                 for pid in canonical]
-        common = dict(
-            settles_on=hold.settles_on, as_of=hold.as_of, pilots=pilots
-        )
-        single = len(nodes) == 1
-        watched = canonical if single else nodes
-        events_at = own_events if single else events_of
-        # One decisive trigger per hold shape, then the soft one both share.
-        if single:
-            if collision := _name_collision(events_at.get(watched[0], {}), name_of):
-                event, at_event = collision
-                at = sorted(deck for deck, _ in at_event)
-                fired.append(FiredHold(
-                    **common, trigger="event_split",
-                    detail=f"registered at {event} under " + ", ".join(
-                        f"{name!r} with {deck}" for deck, name in at_event
-                    ) + caveat(at),
-                    decks=at,
-                ))
-                continue
-        elif nodes[0] == nodes[1]:
-            join = joined_as[canonical[0]]
-            fired.append(FiredHold(
-                **common, trigger="joined_name", decks=[],
-                detail=f"both recovered the display name "
-                       f"{join.display_name!r} and joined onto {join.canonical}",
-            ))
+        (pilot,) = ids
+        collision = _name_collision(events_of.get(pilot, {}), name_of)
+        if collision is None:
             continue
-        else:
-            # A deck the source stranded carries the "nan" event sentinel rather
-            # than an event (``models.Deck._null_to_nan``), so two ids sitting
-            # under it share a hole in the data and not a registration.
-            at = [set(events_of.get(node, ())) - {"nan"} for node in nodes]
-            if shared := sorted(at[0] & at[1]):
-                together = sorted(
-                    d for event in shared for node in nodes
-                    for d in events_of[node][event]
-                )
-                fired.append(FiredHold(
-                    **common, trigger="shared_event",
-                    detail="both registered at " + "; ".join(
-                        f"{event}: " + ", ".join(
-                            f"{pid} with {', '.join(sorted(events_of[node][event]))}"
-                            for pid, node in zip(pilots, nodes)
-                        )
-                        for event in shared
-                    ) + caveat(together),
-                    decks=together,
-                ))
-                continue
-        known = (snapshot_decks or {}).get(hold.as_of)
-        if known is None:
-            continue
-        gained = {
-            pid: sorted(
-                deck for decks_at in events_at.get(node, {}).values()
-                for deck in decks_at if deck not in known
-            )
-            for pid, node in zip(pilots, watched)
-        }
-        if not any(gained.values()):
-            continue
+        event, at_event = collision
+        at = sorted(deck for deck, _ in at_event)
+        breaks = sorted({raw_of[deck] for deck in at} & repeat_entrants)
+        caveat = (f" (weak: upstream has {', '.join(breaks)} entering one event "
+                  f"more than once elsewhere, so two entries need not be two people)"
+                  if breaks else "")
         fired.append(FiredHold(
-            **common, trigger="new_decks",
-            detail=f"gained decks since {hold.as_of}: " + ", ".join(
-                f"{pid} with {', '.join(decks_gained)}"
-                for pid, decks_gained in gained.items() if decks_gained
-            ),
-            decks=sorted(d for gained_by in gained.values() for d in gained_by),
+            pilots=[pilot], trigger="event_split", settles_on=hold.settles_on,
+            as_of=hold.as_of, decks=at,
+            detail=f"registered at {event} under " + ", ".join(
+                f"{name!r} with {deck}" for deck, name in at_event
+            ) + caveat,
         ))
     return fired
 
@@ -1435,11 +1247,12 @@ def name_relation(a: str, b: str) -> str | None:
     nothing; only the curation dictionary does (issue #9). The shape alone cannot
     tell "Chris"/"Christopher" (one person) from "Joe"/"Joel" (two), nor
     "Cordel"/"Cordell" (one) from "Ramona"/"Damon" (two), and deck overlap cannot
-    break the tie either (teammates play each other's lists). ``exact`` reaches
-    the sole caller (:func:`_under_merges`) only for a rejected pair whose names
-    have converged: the join folds every other case-only duplicate upstream, but
-    keeps a ``[[reject]]`` pair apart (issue #74), and :func:`_under_merges`
-    counts that pair as rejected rather than listing it as a candidate.
+    break the tie either (teammates play each other's lists). Since issue #273
+    the rules (:mod:`graph7ph.identity_rules`) decide the clear cases on deck
+    evidence, with a bar set per shape. ``exact`` reaches the rules only for a
+    rejected pair whose names have converged: the join folds every other
+    case-only duplicate upstream, but keeps a ``[[reject]]`` pair apart (issue
+    #74), and the rules count that pair as rejected rather than ruling on it.
     """
     if a.casefold() == b.casefold():
         return "exact"  # differs only in case: "Nathan S" / "Nathan s"

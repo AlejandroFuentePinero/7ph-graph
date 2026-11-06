@@ -41,6 +41,7 @@ BUILD_INPUTS = (
     "curation.py",
     "db.py",
     "figures.py",
+    "identity_rules.py",
     "ingest.py",
     "models.py",
     "numfmt.py",

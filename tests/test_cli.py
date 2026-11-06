@@ -60,58 +60,43 @@ def _titled_snapshot(path, decks):
     }))
 
 
-def test_a_build_announces_the_holds_the_data_has_now_moved(
+def test_a_build_announces_the_holds_the_data_has_now_settled(
     tmp_path, capsys, monkeypatch
 ):
-    # A hold records the condition that would settle it, so the build re-evaluates
-    # that condition every ingestion and growing data does the review work instead
-    # of a human re-reading the list (issue #230). A settled pair is an available
-    # decision sitting unmade, so it gets the banner a scrolling build log cannot
-    # bury; a hold whose evidence merely moved is softer and gets a counted line.
+    # A hold on one id records the condition that would settle it, so the build
+    # re-evaluates that condition every ingestion and growing data does the
+    # review work instead of a human re-reading the list (issue #230). A settled
+    # id is an available decision sitting unmade, so it gets the banner a
+    # scrolling build log cannot bury.
     snapshots = tmp_path / "snapshots"
-    ids = ["NimbleBlackEagle", "FrostyBlueOtter"]
-    apart = [
-        ("d1", ids[0], "01st Joe M - Grixis - E1", "E1", 1),
-        ("d2", ids[1], "01st Joel M - Grixis - E2", "E2", 1),
+    two_names = [
+        ("d1", "P", "01st Tom H - Storm - E1", "E1", 1),
+        ("d2", "P", "01st Tom M - Lands - E2", "E2", 1),
     ]
-    _titled_snapshot(snapshots / "20260101T000000Z", apart)
+    _titled_snapshot(snapshots / "20260101T000000Z", two_names)
     monkeypatch.setattr("graph7ph.build.load_curation",
                         functools.partial(load_curation, tmp_path / "pilots.toml"))
     (tmp_path / "pilots.toml").write_text(
-        f'[[hold]]\nids = {json.dumps(ids)}\n'
-        'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n'
+        '[[hold]]\nids = ["P"]\n'
+        'settles_on = "event_split"\nas_of = "20260101T000000Z"\n'
     )
 
-    # Nothing has moved since the reasoning was written: the pair is held, and
+    # Nothing has moved since the reasoning was written: the id is held, and
     # the build says nothing further about it.
     _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g1"))
     out = capsys.readouterr().out
-    assert "1 held, 0 unexamined" in out
+    assert "names under one id: 1 held, 0 unexamined" in out
     assert "DECISION AVAILABLE" not in out
-    assert "evidence moved" not in out
 
-    # A later fetch gives one side a deck the reasoning never saw. Nothing is
-    # settled, so this is a line, not a banner.
-    _titled_snapshot(snapshots / "20260201T000000Z", apart + [
-        ("d3", ids[1], "01st Joel M - Walks - E3", "E3", 1),
+    # A later fetch has both surnames register at E1, where only one person can
+    # have entered (ADR 0005), so the id is decided and the build says so loudly.
+    _titled_snapshot(snapshots / "20260201T000000Z", two_names + [
+        ("d3", "P", "02nd Tom M - Lands - E1", "E1", 2),
     ])
     _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g2"))
     out = capsys.readouterr().out
-    assert "1 hold(s) whose evidence moved" in out
-    assert "DECISION AVAILABLE" not in out
-
-    # A third fetch puts both ids at one event. Two entries at one event are two
-    # people (ADR 0005), so the pair is decided and the build says so loudly.
-    _titled_snapshot(snapshots / "20260301T000000Z", apart + [
-        ("d3", ids[1], "01st Joel M - Walks - E3", "E3", 1),
-        ("d4", ids[1], "02nd Joel M - Walks - E1", "E1", 2),
-    ])
-    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g3"))
-    out = capsys.readouterr().out
     assert "DECISION AVAILABLE" in out
     assert "1 hold(s) settled" in out
-    # Decided, so the deck delta is noise and is not re-reported beside it.
-    assert "evidence moved" not in out
 
     # An `as_of` naming a snapshot this build never read dates the reasoning
     # against a corpus nobody can reproduce. Load time cannot ask that, the
@@ -119,11 +104,11 @@ def test_a_build_announces_the_holds_the_data_has_now_moved(
     # rather than aborts, because a hold applies nothing to the graph and a
     # pruned snapshot must not become a build failure.
     (tmp_path / "pilots.toml").write_text(
-        f'[[hold]]\nids = {json.dumps(ids)}\n'
-        'settles_on = "shared_event"\nas_of = "20190101T000000Z"\n'
+        '[[hold]]\nids = ["P"]\n'
+        'settles_on = "event_split"\nas_of = "20190101T000000Z"\n'
     )
-    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g4"))
-    report = json.loads((tmp_path / "g4" / "reconciliation.json").read_text())
+    _build(argparse.Namespace(snapshots=snapshots, db=tmp_path / "g3"))
+    report = json.loads((tmp_path / "g3" / "reconciliation.json").read_text())
 
     assert [(d["kind"], d["key"]) for d in report["dead_entries"]] == [
         ("hold", "20190101T000000Z")]
@@ -134,18 +119,17 @@ def test_a_round_that_settles_many_holds_caps_the_banner_rather_than_scrolling(
 ):
     # The banner exists so a scrolling build log cannot bury an available decision
     # (issue #230), and a line per settled hold turns it into the thing it guards
-    # against: 106 holds are on file, and a fetch landing several shared events
-    # settles them together, pushing the flagged-record banner above it off the
-    # top of the terminal. So the count stays exact and the first few carry the
-    # fact that fired them, while the whole list stays the brief's job (#233).
+    # against: a fetch landing several collisions settles them together, pushing
+    # the flagged-record banner above it off the top of the terminal. So the
+    # count stays exact and the first few carry the fact that fired them, while
+    # the whole list stays the brief's job (#233).
     snapshots = tmp_path / "snapshots"
     decks, holds = [], []
     for i in range(8):
-        a, b = f"IdA{i}", f"IdB{i}"
-        decks += [(f"d{i}a", a, f"01st Joe M{i} - Grixis - E{i}", f"E{i}", 1),
-                  (f"d{i}b", b, f"02nd Joel M{i} - Walks - E{i}", f"E{i}", 2)]
-        holds.append(f'[[hold]]\nids = {json.dumps([a, b])}\n'
-                     'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n')
+        decks += [(f"d{i}a", f"Id{i}", f"01st Joe M{i} - Grixis - E{i}", f"E{i}", 1),
+                  (f"d{i}b", f"Id{i}", f"02nd Joe N{i} - Walks - E{i}", f"E{i}", 2)]
+        holds.append(f'[[hold]]\nids = ["Id{i}"]\n'
+                     'settles_on = "event_split"\nas_of = "20260101T000000Z"\n')
     _titled_snapshot(snapshots / "20260101T000000Z", decks)
     monkeypatch.setattr("graph7ph.build.load_curation",
                         functools.partial(load_curation, tmp_path / "pilots.toml"))
@@ -156,7 +140,7 @@ def test_a_round_that_settles_many_holds_caps_the_banner_rather_than_scrolling(
 
     # The number is the whole truth; the enumeration is a sample of it.
     assert "8 hold(s) settled" in out
-    assert len([ln for ln in out.splitlines() if "both registered at" in ln]) == 5
+    assert len([ln for ln in out.splitlines() if "registered at" in ln]) == 5
     assert "... and 3 more" in out
     assert "graph7ph curation-report" in out
 
@@ -285,17 +269,15 @@ def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
     assert "restart" in capsys.readouterr().out
 
 
-def test_a_build_counts_held_pairs_apart_from_the_ones_awaiting_a_human(
+def test_a_build_counts_the_three_states_a_pair_can_be_in(
     tmp_path, capsys, monkeypatch
 ):
-    # The line a maintainer reads to decide whether there is curation work to do
-    # (issue #228). A held pair has been reasoned about and cannot be settled yet,
-    # so counting it with the unexamined ones overstates the queue every build
-    # until the evidence arrives. The two states are printed apart, and the
-    # unexamined figure is the one that means "open this many questions".
-    # Through `_titled_snapshot` rather than `_snapshot`, which seats every deck
-    # at rank 1: two ids have to place differently to sit in one event at all,
-    # and they have to sit in one event to recover the two names this needs.
+    # The line a maintainer reads to know what the rules did this build (issue
+    # #273): pairs merged by rule, pairs a shared event separated, and pairs
+    # watching, which are two nodes, the graph's default. A pair the dictionary
+    # decided is counted apart as curated. Through `_titled_snapshot` rather
+    # than `_snapshot`, which seats every deck at rank 1: two ids have to place
+    # differently to sit in one event at all.
     ids = ["01st Joe M - Grixis - NYE", "02nd Joel M - Grixis - NYE"]
     _titled_snapshot(tmp_path / "snapshots" / "20260101T000000Z", [
         (title, title, title, "NYE", rank + 1) for rank, title in enumerate(ids)
@@ -303,28 +285,26 @@ def test_a_build_counts_held_pairs_apart_from_the_ones_awaiting_a_human(
     monkeypatch.setattr("graph7ph.build.load_curation",
                         functools.partial(load_curation, tmp_path / "pilots.toml"))
 
-    # First with nothing recorded: the pair is a live question.
+    # Both at NYE with different decks: the structural fact separates them.
     (tmp_path / "pilots.toml").write_text("")
     _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "g1"))
-    assert "0 held, 1 unexamined" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "pilot identity: 0 merged by rule, 1 separated, 0 watching, 0 already curated" in out
 
-    # Then held: the same pair, off the queue and still undecided.
+    # Rejected by a human: off the rules' list and counted as curated.
     (tmp_path / "pilots.toml").write_text(
-        f'[[hold]]\nids = {json.dumps(ids)}\n'
-        'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n'
+        f'[[reject]]\nids = {json.dumps(ids)}\nas_of = "20260101T000000Z"\n'
+        f'names = {{ {json.dumps(ids[0])} = "Joe M", {json.dumps(ids[1])} = "Joel M" }}\n'
     )
     _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "g2"))
     out = capsys.readouterr().out
-
-    assert "1 held, 0 unexamined" in out
-    # Held is not curated: the pair is parked, not decided.
-    assert "0 already curated" in out
+    assert "pilot identity: 0 merged by rule, 0 separated, 0 watching, 1 already curated" in out
 
     # A malformed `as_of` is a bad dictionary, so it aborts the build with the
     # sentence every other curation fault gets rather than a traceback.
     (tmp_path / "pilots.toml").write_text(
-        f'[[hold]]\nids = {json.dumps(ids)}\n'
-        'settles_on = "shared_event"\nas_of = "yesterday"\n'
+        '[[hold]]\nids = ["P"]\n'
+        'settles_on = "event_split"\nas_of = "yesterday"\n'
     )
     with pytest.raises(SystemExit) as exc:
         _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "g3"))
@@ -790,15 +770,15 @@ def test_a_baseline_missing_a_section_aborts_cleanly(tmp_path, snapshot_dir):
 
 
 def _held_bundle(tmp_path, monkeypatch, snapshots, db):
-    """A built bundle whose dictionary holds the one pair its snapshot carries."""
-    ids = ["NimbleBlackEagle", "FrostyBlueOtter"]
+    """A built bundle whose dictionary holds the one two-surname id its snapshot carries."""
+    ids = ["NimbleBlackEagle"]
     _titled_snapshot(snapshots / "20260101T000000Z", [
-        ("d1", ids[0], "01st Joe M - Grixis - E1", "E1", 1),
-        ("d2", ids[1], "01st Joel M - Grixis - E2", "E2", 1),
+        ("d1", ids[0], "01st Tom H - Grixis - E1", "E1", 1),
+        ("d2", ids[0], "01st Tom M - Grixis - E2", "E2", 1),
     ])
     (tmp_path / "pilots.toml").write_text(
         f'[[hold]]\nids = {json.dumps(ids)}\n'
-        'settles_on = "shared_event"\nas_of = "20260101T000000Z"\n'
+        'settles_on = "event_split"\nas_of = "20260101T000000Z"\n'
     )
     curation = functools.partial(load_curation, tmp_path / "pilots.toml")
     monkeypatch.setattr("graph7ph.build.load_curation", curation)
@@ -825,12 +805,14 @@ def test_the_curation_report_writes_the_review_brief_for_the_promoted_bundle(
     assert all(pid in out for pid in ids)
 
 
-def test_the_curation_report_tells_this_round_s_candidates_from_the_previous_round_s(
+def test_the_curation_report_tells_this_round_s_changes_from_the_previous_round_s(
     tmp_path, monkeypatch, capsys
 ):
-    # The brief says what changed (issue #271): a pair the snapshot before this
-    # one already raised is carried, not new, and the command reads that off the
-    # snapshot sequence it was pointed at, with nothing filed anywhere to consult.
+    # The brief says what changed (issues #271, #273): a pair whose state the
+    # snapshot before this one already derived is not listed again, and the
+    # command reads that off the snapshot sequence it was pointed at, with
+    # nothing filed anywhere to consult. Every fixture deck carries the same
+    # one-card list, so each nickname pair merges by rule on it.
     snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
     _titled_snapshot(snapshots / "20260101T000000Z", [
         ("d1", "P1", "01st Joe M - Grixis - E1", "E1", 1),
@@ -851,9 +833,9 @@ def test_the_curation_report_tells_this_round_s_candidates_from_the_previous_rou
 
     out = capsys.readouterr().out
     assert out.startswith("Curation review for snapshot `20260201T000000Z`")
-    assert "## New this ingestion (1)" in out
-    assert "## Carried over (1)" in out
-    assert out.index("`P3`") < out.index("## Carried over") < out.index("`P1`")
+    assert "## Merged by rule (1)" in out
+    assert "`P3` + `P4`" in out and "`P1`" not in out
+    assert "- merged by rule: 2 (changed: 1)" in out
 
 
 def test_reporting_on_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
@@ -963,9 +945,12 @@ def test_a_build_announces_an_entry_whose_id_upstream_handed_to_someone_else(
     # cannot bury, since a refused entry is a decision that has stopped applying
     # and a maintainer has to retire or re-key it (issue #283).
     snapshots = tmp_path / "snapshots"
+    # Alex W at Alexander W's event, so the rules separate rather than merge the
+    # pair on its identical fixture list (issue #273): only the entry under test
+    # could fold them.
     _titled_snapshot(snapshots / "20260101T000000Z", [
         ("d1", "LunarAzureViper", "01st Alexander W - Lands - E1", "E1", 1),
-        ("d2", "FrostyIvoryStag", "01st Alex W - Lands - E2", "E2", 1),
+        ("d2", "FrostyIvoryStag", "02nd Alex W - Lands - E1", "E1", 2),
         ("d3", "RapidVioletHawk", "01st Connor E - Storm - E3", "E3", 1),
     ])
     monkeypatch.setattr("graph7ph.build.load_curation",

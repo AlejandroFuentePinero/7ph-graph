@@ -23,19 +23,21 @@ from graph7ph.pilots import (
 
 def _deck(deck_id, pilot, title, event=None, placement=1, deck_name=None,
           created_at=datetime(2020, 1, 1)):
-    """A minimal stand-in for a Deck: resolution reads these seven fields.
+    """A minimal stand-in for a Deck: resolution reads these nine fields.
 
     ``event`` defaults to the deck id so unrelated decks never collide on a
     shared event; collision tests pass an explicit shared event. ``deck_name``
     is the source's own parse of the deck, which name recovery subtracts from
     separator-less titles. ``created_at`` is the registration time career
     threading anchors on (issue #68); it defaults to a fixed instant so decks
-    that do not set it tie and fall back to deck-id order.
+    that do not set it tie and fall back to deck-id order. The archetype and
+    colour are what the identity rules match a stranger pool on (issue #273);
+    one value each here, since these tests hand the rules no card lists.
     """
     return SimpleNamespace(
         deck_id=deck_id, pilot=pilot, name=title,
         event=event or deck_id, placement=placement, deck_name=deck_name,
-        created_at=created_at,
+        created_at=created_at, primary_tag="", colour="colour:U",
     )
 
 
@@ -159,10 +161,11 @@ def test_name_relation_classifies_how_two_recovered_names_relate(a, b, expected)
     assert name_relation(b, a) == expected  # the relation is symmetric
 
 
-def test_name_candidates_are_reported_but_never_merged_by_heuristics():
-    # The heuristics only ever propose. "Noelle"/"Noelle T" and every "Dan"
-    # pairing are surfaced as candidates, each tagged with its relation, but the
-    # ids stay separate until the dictionary says otherwise (issue #9, wave 1).
+def test_name_candidates_are_reported_and_watched_not_merged_on_the_name_alone():
+    # A name match is a candidate, never a merge on its own. "Noelle"/"Noelle T"
+    # and every "Dan" pairing are surfaced with their relation, and with no deck
+    # evidence behind any of them the rules leave every pair watching: two
+    # nodes, the graph's default (issue #9, ADR 0028).
     decks = [
         _deck("d1", "HiddenGreenPanda", "01st Noelle - Storm - CFWAT25"),
         _deck("d2", "FrostyIndigoStag", "02nd Noelle T - Storm - PogNov25"),
@@ -176,10 +179,11 @@ def test_name_candidates_are_reported_but_never_merged_by_heuristics():
     assert {p.pilot for p in res.pilots} == {
         "HiddenGreenPanda", "FrostyIndigoStag", "MistyAzureHawk", "BraveGreenOrca"
     }
-    # Every relation, "first-name" included, is only ever surfaced as a
-    # candidate for a human -- none is auto-applied by the heuristics (F12).
-    by_name = {u.display_name: u for u in res.report.under_merges}
-    assert by_name["Noelle"].relation == "first-name"
+    # Every relation, "first-name" included, is surfaced with the state the
+    # rules derived, and a name alone merges nothing (F12).
+    by_names = {frozenset(u.names): u for u in res.report.ruled_pairs}
+    assert by_names[frozenset({"Noelle", "Noelle T"})].shape == "first-name"
+    assert {u.state for u in res.report.ruled_pairs} == {"watching"}
     assert res.report.curated == 0
 
 
@@ -353,7 +357,7 @@ def test_identical_display_names_join_into_one_person():
 
     assert {p.pilot for p in res.pilots} == {"BraveCyanWolf"}
     assert {res.deck_pilot[d] for d in ("d1", "d2", "d3")} == {"BraveCyanWolf"}
-    assert res.report.under_merges == []
+    assert res.report.ruled_pairs == []
     joined = res.report.joined_names
     assert len(joined) == 1
     assert joined[0].canonical == "BraveCyanWolf"
@@ -361,9 +365,9 @@ def test_identical_display_names_join_into_one_person():
     assert joined[0].merged == ["BraveCyanWolf", "Tom M"]
 
 
-def test_null_bucket_is_reported_and_excluded_from_under_merges():
+def test_null_bucket_is_reported_and_excluded_from_the_candidate_pairs():
     # A null-derived name that collides with a real pilot must not inflate the
-    # under-merge list (the null bucket is surfaced on its own instead).
+    # candidate pairs (the null bucket is surfaced on its own instead).
     decks = [
         _deck("d1", "AmberRedGecko", "01st Kyle G - Jund - CFWAT25"),
         _deck("d2", "nan", "Kyle G - Burn - Area52IQ"),
@@ -371,7 +375,7 @@ def test_null_bucket_is_reported_and_excluded_from_under_merges():
 
     res = resolve_pilots(decks)
 
-    assert res.report.under_merges == []
+    assert res.report.ruled_pairs == []
     assert [p.display_name for p in res.report.null_pilots] == ["Kyle G"]
     assert all(p.low_confidence for p in res.report.null_pilots)
 
@@ -614,7 +618,7 @@ def test_curated_merge_collapses_ids_carrying_every_deck():
     assert [p.pilot for p in res.pilots] == ["ShinyCrimsonHeron"]
     assert set(res.deck_pilot.values()) == {"ShinyCrimsonHeron"}  # all three decks
     # The merged pair no longer appears as a candidate to decide again.
-    assert res.report.under_merges == []
+    assert res.report.ruled_pairs == []
     assert res.report.curated == 1  # the confirmed merge counts as a decision made
 
 
@@ -732,41 +736,10 @@ def test_rejected_candidate_stays_suppressed_across_a_rebuild():
 
     res = resolve_pilots(decks, curation)
 
-    assert res.report.under_merges == []       # suppressed
+    assert res.report.ruled_pairs == []        # suppressed
     assert res.report.curated == 1             # and counted, so the list shrinks
     # Without the rejection it would be a live candidate.
-    assert resolve_pilots(decks).report.under_merges != []
-
-
-def test_held_candidate_leaves_the_review_list_without_being_decided():
-    # A hold is the third state, between "nobody has looked" and "settled"
-    # (issue #228). It takes the pair off the list a human works through, records
-    # what would settle it, and changes nothing about who these two ids are: they
-    # stay two pilots, exactly as they were before the hold was written.
-    decks = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Grixis - E2", event="E2"),
-    ]
-    holds = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-             Hold("shared_event", "20260815T140746Z")}
-    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
-                        holds=holds)
-
-    res = resolve_pilots(decks, curation)
-
-    # Off the unexamined list, on the held one, and carrying its condition so the
-    # report says what would move it rather than only that it was parked.
-    assert res.report.under_merges == []
-    held = res.report.held_merges
-    assert [set(h.pilots) for h in held] == [{"NimbleBlackEagle", "FrostyBlueOtter"}]
-    assert (held[0].settles_on, held[0].as_of) == ("shared_event", "20260815T140746Z")
-    # Not a decision: it is counted with neither the curated nor the merged.
-    assert res.report.curated == 0
-    # And the resolution itself is what it would be with no hold at all.
-    plain = resolve_pilots(decks)
-    assert res.deck_pilot == plain.deck_pilot
-    assert res.pilots == plain.pilots
-    assert [c.pilots for c in plain.report.under_merges] == [h.pilots for h in held]
+    assert resolve_pilots(decks).report.ruled_pairs != []
 
 
 def test_a_held_id_leaves_the_multi_name_queue_without_being_decided():
@@ -797,102 +770,6 @@ def test_a_held_id_leaves_the_multi_name_queue_without_being_decided():
     assert res.pilots == plain.pilots
     assert res.deck_pilot == plain.deck_pilot
     assert [m.pilot for m in plain.report.multi_name_ids] == ["P"]
-
-
-def test_a_shared_event_fires_the_hold_the_corpus_has_now_settled():
-    # A hold records the condition that would settle it, and the build re-evaluates
-    # that condition every ingestion, so growing data does the review work (issue
-    # #230). Two ids that both entered one event are two people (ADR 0005), so a
-    # shared event decides the pair outright: it is announced with the fact that
-    # decided it rather than left on the held list for a human to re-read.
-    held_pair = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-                 Hold("shared_event", "20260815T140746Z")}
-    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
-                        holds=held_pair)
-    apart = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Grixis - E2", event="E2"),
-    ]
-
-    # Nothing has moved: the pair is still held, and nothing has fired.
-    assert resolve_pilots(apart, curation).report.fired_holds == []
-
-    # One more registration puts them at one event, and the hold settles.
-    together = apart + [
-        _deck("d3", "FrostyBlueOtter", "02nd Joel M - Walks - E1", event="E1",
-              placement=2),
-    ]
-    fired = resolve_pilots(together, curation).report.fired_holds
-
-    assert [f.trigger for f in fired] == ["shared_event"]
-    assert sorted(fired[0].pilots) == ["FrostyBlueOtter", "NimbleBlackEagle"]
-    # The fact that fired it, so the report shows a decision rather than asserts
-    # one: the shared event, and each side's deck there to go and look at.
-    assert "E1" in fired[0].detail
-    assert sorted(fired[0].decks) == ["d1", "d3"]
-    # The hold's own record rides along, so a reader can tell what the human
-    # expected would settle it and which corpus they wrote that against.
-    assert (fired[0].settles_on, fired[0].as_of) == ("shared_event", "20260815T140746Z")
-
-
-def test_a_settling_trigger_says_so_where_its_own_premise_bends():
-    # Both decisive triggers rest on one entry per pilot per event, and the corpus
-    # keeps that 4571 times in 4634 and breaks it 63, concentrated at the large
-    # multi-flight events. So an id the source itself entered twice somewhere is
-    # one the "two entries are two people" reading is weaker for, and the trigger
-    # firing on it has to say so on the line the decision gets made. It still
-    # fires: the evidence has still arrived, and a suppressed trigger parks a hold
-    # nothing else reports (issue #227).
-    held = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-            Hold("shared_event", "20260815T140746Z")}
-    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
-                        holds=held)
-    shared = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Walks - E1", event="E1"),
-    ]
-
-    # With neither side a repeat entrant the fact stands unqualified.
-    assert "weak" not in resolve_pilots(shared, curation).report.fired_holds[0].detail
-
-    # The source's own testimony that this id multi-enters: two registrations of
-    # its own at one other event, under the one name.
-    with_habit = shared + [
-        _deck("d3", "FrostyBlueOtter", "03rd Joel M - Storm - E2", event="E2"),
-        _deck("d4", "FrostyBlueOtter", "04th Joel M - Mardu - E2", event="E2",
-              placement=4),
-    ]
-
-    fired = resolve_pilots(with_habit, curation).report.fired_holds
-
-    assert [f.trigger for f in fired] == ["shared_event"]
-    assert "E1" in fired[0].detail  # the fact still leads
-    assert "weak" in fired[0].detail and "FrostyBlueOtter" in fired[0].detail
-
-
-def test_this_projects_own_join_does_not_manufacture_that_caveat():
-    # The caveat is the source's testimony about one upstream id, so it is read
-    # off the raw id and never off the pilot an id resolves to. The identical-name
-    # join (ADR 0007) puts two ids' decks under one pilot, which at a shared event
-    # is two entries there by construction: this project ruling on identity, not
-    # evidence about how a human enters events. Reading it off the resolved pilot
-    # would caveat every trigger that fires on a joined id.
-    held = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-            Hold("shared_event", "20260815T140746Z")}
-    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
-                        holds=held)
-    joined = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "02nd Joel M - Walks - E1", event="E1"),
-        # Same recovered name as d2's id, so the join folds them onto one pilot
-        # and that pilot now holds two of E1's entries.
-        _deck("d3", "SwiftGoldTiger", "03rd Joel M - Storm - E1", event="E1"),
-    ]
-
-    fired = resolve_pilots(joined, curation).report.fired_holds
-
-    assert [f.trigger for f in fired] == ["shared_event"]
-    assert "weak" not in fired[0].detail
 
 
 def test_two_of_a_held_ids_names_at_one_event_settle_it():
@@ -975,234 +852,23 @@ def test_a_single_id_hold_is_watched_over_that_ids_own_decks():
     assert res.report.fired_holds == []
 
 
-def test_a_hold_is_evaluated_off_the_dictionary_not_off_the_review_list():
-    # The population under evaluation is every [[hold]] on file, not the held
-    # pairs the name scan happens to surface (issue #230). A display name is a
-    # majority vote new decks can flip (ADR 0007), and the curation queue reaches
-    # past name-similar pairs to ids registering under two names at all (issue
-    # #227), so a held pair whose recovered names do not relate is ordinary. Such
-    # a pair reaches no `held_merges` row, and `dead_entries` cannot flag it
-    # either, both raw ids being live: evaluating off the review list would leave
-    # it settled by the data and reported by nothing.
-    decks = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "02nd Zara Q - Walks - E1", event="E1",
-              placement=2),
-    ]
-    curation = Curation(
-        merges={}, rejected=frozenset(), names={}, deck_pilots={},
-        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-               Hold("shared_event", "20260815T140746Z")},
-    )
-
-    res = resolve_pilots(decks, curation)
-
-    # The name scan cannot see this pair: the two names relate in no way.
-    assert res.report.held_merges == []
-    assert res.report.under_merges == []
-    # The dictionary can, and the shared event settles it all the same.
-    fired = res.report.fired_holds
-    assert [f.trigger for f in fired] == ["shared_event"]
-    assert sorted(fired[0].pilots) == ["FrostyBlueOtter", "NimbleBlackEagle"]
-    assert sorted(fired[0].decks) == ["d1", "d2"]
-
-
-def test_a_hold_is_read_at_the_pilot_each_id_resolves_to():
-    # A hold names raw upstream ids, and a later curation round can fold one of
-    # them into a third id: holding {A, B} while merging A into C is not the
-    # contradiction `_refuse_decided_hold` refuses, since the merge decides A
-    # against C and says nothing about B. But A's decks are C's decks from then
-    # on, so evaluating the triggers under the raw id would find an empty career
-    # on that side and quietly settle nothing (issue #230).
-    decks = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "02nd Zara Q - Walks - E1", event="E1",
-              placement=2),
-        _deck("d3", "CalmGreenYak", "01st Joe Mc - Walks - E9", event="E9"),
-    ]
-    curation = Curation(
-        merges={"NimbleBlackEagle": "CalmGreenYak"}, rejected=frozenset(),
-        names={}, deck_pilots={},
-        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-               Hold("shared_event", "20260815T140746Z")},
-    )
-
-    fired = resolve_pilots(decks, curation).report.fired_holds
-
-    # E1 holds a deck from each side of the pair, one of them under the id the
-    # merge folded the held id into, and the hold settles on it all the same.
-    assert [f.trigger for f in fired] == ["shared_event"]
-    assert sorted(fired[0].decks) == ["d1", "d2"]
-    # Reported under the ids the human wrote, so the entry to retire is findable.
-    assert sorted(fired[0].pilots) == ["FrostyBlueOtter", "NimbleBlackEagle"]
-
-
 def test_the_null_event_sentinel_never_settles_a_hold():
-    # `shared_event` is decisive because a deck is one pilot's single entry at
-    # one event, so two ids at one event are two people (ADR 0005). "nan" is the
-    # sentinel a deck carries when the source lost its event, not an event, and
-    # the ids stranded under it share nothing. Firing there would put the
-    # loudest claim the build makes behind the one key that breaks its warrant.
+    # `event_split` is decisive because a deck is one pilot's single entry at
+    # one event, so two surnames under one id at one event are two people (ADR
+    # 0005). "nan" is the sentinel a deck carries when the source lost its
+    # event, not an event, and two decks stranded under it share nothing. Firing
+    # there would put the loudest claim the build makes behind the one key that
+    # breaks its warrant.
     decks = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis", event="nan"),
-        _deck("d2", "FrostyBlueOtter", "02nd Zara Q - Walks", event="nan",
-              placement=2),
+        _deck("d1", "P", "01st Tom H - Grixis", event="nan"),
+        _deck("d2", "P", "02nd Tom M - Walks", event="nan", placement=2),
     ]
     curation = Curation(
         merges={}, rejected=frozenset(), names={}, deck_pilots={},
-        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-               Hold("shared_event", "20260815T140746Z")},
+        holds={frozenset({"P"}): Hold("event_split", "20260815T140746Z")},
     )
 
     assert resolve_pilots(decks, curation).report.fired_holds == []
-
-
-def test_a_deck_gained_since_the_holds_snapshot_puts_it_up_for_re_reading():
-    # The softer trigger (issue #230): nothing is settled, but the evidence the
-    # reasoning was written against has moved, so the hold is up for a re-read.
-    # Derived by comparing against the snapshot the entry names, never against a
-    # deck count transcribed into the file: that copy would go stale on the next
-    # ingestion, and a hold carrying no evidence is the whole design (issue #227).
-    decks = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "01st Joel M - Grixis - E2", event="E2"),
-        _deck("d3", "FrostyBlueOtter", "01st Joel M - Walks - E3", event="E3"),
-    ]
-    # What each snapshot this build read held, oldest first: the third deck
-    # arrived after the hold was written.
-    history = {
-        "20260101T000000Z": frozenset({"d1", "d2"}),
-        "20260201T000000Z": frozenset({"d1", "d2", "d3"}),
-    }
-
-    def fired(as_of):
-        curation = Curation(
-            merges={}, rejected=frozenset(), names={}, deck_pilots={},
-            holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-                   Hold("shared_event", as_of)},
-        )
-        return resolve_pilots(
-            decks, curation, snapshot_decks=history
-        ).report.fired_holds
-
-    moved = fired("20260101T000000Z")
-
-    assert [f.trigger for f in moved] == ["new_decks"]
-    assert sorted(moved[0].pilots) == ["FrostyBlueOtter", "NimbleBlackEagle"]
-    # Only the deck that actually arrived, and only the side that gained it.
-    assert moved[0].decks == ["d3"]
-    assert "FrostyBlueOtter" in moved[0].detail
-    assert "NimbleBlackEagle" not in moved[0].detail
-
-    # A hold written against the corpus this build read has nothing to re-read.
-    assert fired("20260201T000000Z") == []
-
-
-def test_a_held_id_that_gained_a_deck_is_up_for_re_reading_too():
-    # The one pair trigger that carries over to a hold on a single id unchanged
-    # (issue #232): it already reads each held id's own career, and an id that has
-    # registered again is an id whose recovered names may have moved, which is
-    # what the reasoning was written against. Nothing is settled -- a third deck
-    # under a third spelling is still one account -- so it stays the softer
-    # trigger it is for a pair.
-    decks = [
-        _deck("d1", "P", "1st Tom H - Storm - E1", event="E1"),
-        _deck("d2", "P", "2nd Tom M - Lands - E2", event="E2"),
-        _deck("d3", "P", "3rd Tom M - Lands - E3", event="E3"),
-    ]
-    history = {
-        "20260101T000000Z": frozenset({"d1", "d2"}),
-        "20260201T000000Z": frozenset({"d1", "d2", "d3"}),
-    }
-
-    def fired(as_of):
-        curation = Curation(
-            merges={}, rejected=frozenset(), names={}, deck_pilots={},
-            holds={frozenset({"P"}): Hold("event_split", as_of)},
-        )
-        return resolve_pilots(
-            decks, curation, snapshot_decks=history
-        ).report.fired_holds
-
-    moved = fired("20260101T000000Z")
-
-    assert [f.trigger for f in moved] == ["new_decks"]
-    assert (moved[0].pilots, moved[0].decks) == (["P"], ["d3"])
-
-    # A hold written against the corpus this build read has nothing to re-read.
-    assert fired("20260201T000000Z") == []
-
-
-def test_a_siblings_new_deck_is_not_the_held_ids_evidence_moving():
-    # `new_decks` has the same asymmetry as `event_split` (issue #241): what the
-    # reasoning was written against is this id's own career, so a deck arriving
-    # under the sibling the join folded in has moved nothing a re-read would look
-    # at. Read at the node, every registration by a joined stranger would put the
-    # hold back up for review.
-    own = [
-        _deck("d1", "BraveJadeEagle", "1st Tom H - Storm - E1", event="E1"),
-        _deck("d2", "BraveJadeEagle", "2nd Tom H - Storm - E2", event="E2"),
-        _deck("d3", "BraveJadeEagle", "3rd Tom M - Lands - E3", event="E3"),
-    ]
-    curation = Curation(
-        merges={}, rejected=frozenset(), names={}, deck_pilots={},
-        holds={frozenset({"BraveJadeEagle"}): Hold("event_split", "20260101T000000Z")},
-    )
-
-    def fired(decks, gained):
-        return resolve_pilots(decks, curation, snapshot_decks={
-            "20260101T000000Z": frozenset(d.deck_id for d in own),
-            "20260201T000000Z": frozenset(d.deck_id for d in own) | gained,
-        }).report.fired_holds
-
-    # The sibling registered at an event of its own after the hold was written.
-    sibling = own + [
-        _deck("d4", "BraveMagentaPanda", "4th Tom H - Walks - E4", event="E4"),
-    ]
-    assert [j.merged for j in resolve_pilots(sibling, curation).report.joined_names
-            ] == [["BraveJadeEagle", "BraveMagentaPanda"]]
-    assert fired(sibling, {"d4"}) == []
-
-    # The held id registering again is its own evidence moving, and still is.
-    mine = own + [
-        _deck("d5", "BraveJadeEagle", "5th Tom M - Lands - E5", event="E5"),
-    ]
-    moved = fired(mine, {"d5"})
-
-    assert [f.trigger for f in moved] == ["new_decks"]
-    assert (moved[0].pilots, moved[0].decks) == (["BraveJadeEagle"], ["d5"])
-
-
-def test_a_held_pair_the_name_join_folds_is_announced_as_settled():
-    # A hold applies nothing to the graph, so it does not keep the identical-name
-    # join (ADR 0007) from folding its pair once a later snapshot flips one id's
-    # majority name onto the other's. The join firing is the right answer -- an
-    # identical name is this project ruling on identity, which is evidence
-    # arriving, exactly what a watchlist waits for -- but it takes the pair out of
-    # `held_merges` with both raw ids still live, so `dead_entries` cannot flag it
-    # and the entry would go quietly un-retirable. So the fold is announced
-    # (issue #230).
-    decks = [
-        _deck("d1", "NimbleBlackEagle", "01st Joe M - Grixis - E1", event="E1"),
-        _deck("d2", "FrostyBlueOtter", "01st Joe M - Grixis - E2", event="E2"),
-    ]
-    holds = {frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-             Hold("shared_event", "20260815T140746Z")}
-    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
-                        holds=holds)
-
-    res = resolve_pilots(decks, curation)
-
-    # The join fired: one pilot, and the pair is no longer two ids to hold apart.
-    assert [p.pilot for p in res.pilots] == ["NimbleBlackEagle"]
-    assert res.report.held_merges == []
-    fired = res.report.fired_holds
-    assert [f.trigger for f in fired] == ["joined_name"]
-    assert sorted(fired[0].pilots) == ["FrostyBlueOtter", "NimbleBlackEagle"]
-    # The name that joined them and the id they landed on, so the entry can be
-    # retired against the same fact the join acted on.
-    assert "Joe M" in fired[0].detail
-    assert "NimbleBlackEagle" in fired[0].detail
 
 
 def test_reject_survives_a_display_name_convergence():
@@ -1422,7 +1088,7 @@ def test_build_pilot_nodes_carry_display_name_and_rekey_nulls(tmp_path):
     # The reconciliation report is emitted for human review, including the
     # re-keyed null bucket.
     report = json.loads(reconciliation_path(db_path).read_text())
-    assert {"variant_clusters", "under_merges", "null_pilots"} <= report.keys()
+    assert {"variant_clusters", "ruled_pairs", "null_pilots"} <= report.keys()
     assert [p["display_name"] for p in report["null_pilots"]] == ["Darcy"]
 
 

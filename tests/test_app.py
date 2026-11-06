@@ -3502,17 +3502,13 @@ def test_the_pilot_identity_answer_counts_what_the_graph_holds(live_graph):
     stems = count("MATCH (p:Pilot) WHERE p.displayName =~ '.* 1' RETURN count(*)")
     assert f"{numbered + stems} of the" in identity
 
-    # Both queues, because the sentence is about open questions and a held pair is one
-    # (issues #228, #231). `under_merges` has meant *unexamined* since #228, and the
-    # thorough pass moved every open pair onto `held_merges`, so reading the first alone
-    # would have this answer tell a reader that no name in the graph is paired with
-    # another: the figure become a fact about the review queue rather than about what the
-    # graph shows them. A hold records that a human could not settle the pair, not that
-    # the two ids became one person, so both names are still offered, still apart, and
-    # still the thing a reader may find themselves in twice.
+    # The pairs the rules left watching (issue #273): several ids the project has
+    # not read as one person, which are two nodes until the evidence says
+    # otherwise. A pair merged or separated by rule is no longer a question, so
+    # both names are not offered apart any more, or are offered apart for good.
     report = json.loads((artifact_path() / "reconciliation.json").read_text())
-    open_pairs = report["under_merges"] + report["held_merges"]
-    paired = len({pid for e in open_pairs for pid in e["pilots"]})
+    watching = [e for e in report["ruled_pairs"] if e["state"] == "watching"]
+    paired = len({pid for e in watching for pid in e["pilots"]})
     assert f"{paired} of the names offered" in identity
 
 

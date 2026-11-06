@@ -17,6 +17,13 @@ The surface was called the "Best player race" until it was renamed: **best** ass
 The human-readable name for a Pilot, recovered from deck titles. The primary player identity (ADR 0007): ids that recover an identical name (case-insensitively) are the same person, joined automatically on every build, unless a curated `[[split]]` or `[[reject]]` keeps them apart (ADR 0009). Not the graph key: the node keeps a canonical upstream id.
 _Avoid_: Real name, player name (as a key)
 
+**Candidate pair**:
+Two Pilots whose Display Names relate by shape (a nickname, a handle, a one-letter typo, a bare first name against a surnamed one) and so may be one person. Every build derives one of three states for each, writes nothing, and reports the pairs whose state changed (ADR 0028): **merged by rule** (their decks say one person: the closest lists on one primary archetype at different events clear the bar set for that name shape, judged raw and against the matched stranger pool), **separated** (both registered at one event, so two people), or **watching** (everything else, which is two nodes, the graph's default). The dictionary holds only overrides: a `[[reject]]` or `[[split]]` beats a rule merge, a `[[merge]]` beats the separator.
+_Avoid_: Under-merge, queue, held pair (the pair watchlist retired with issue #273)
+
+**Hub**:
+A Pilot that may hold several people: a bare first name, or an id the event split numbers into a family because it entered one event more than once. A hub is never separated by rule, a numbered family merges by rule only when it shares no event with its partner, and a bare first name merges by rule only as a single deck (ADR 0028).
+
 **Event**:
 A 7PH tournament or teams competition at which pilots register decks. It happened at some point in time, but the source records no date for it, so the graph places it no more precisely than its Year.
 _Avoid_: Meet, comp

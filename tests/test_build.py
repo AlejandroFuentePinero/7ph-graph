@@ -739,47 +739,6 @@ def _identity(snapshot, db_path, curation):
         reconciliation_path(db_path).read_text())
 
 
-def test_a_hold_moves_a_pair_off_the_review_list_and_changes_no_graph(tmp_path):
-    # The load-bearing property of the eighth kind (issue #228): a hold is a note
-    # about a decision not taken, so it must be inert. Deleting every [[hold]] has
-    # to leave the same graph, or the watchlist has quietly become a way to change
-    # who the pilots are without recording a decision. Graded by building the same
-    # snapshot twice and comparing the identity the graph actually holds.
-    _write_snapshot(tmp_path, [
-        _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
-              pilot="NimbleBlackEagle", name="01st Joe M - Grixis - E1"),
-        _deck("d2", "E2", "2026-02-01T00:00:00+00:00",
-              pilot="FrostyBlueOtter", name="01st Joel M - Grixis - E2"),
-    ])
-    snapshot = load_snapshot(tmp_path)
-    held = Curation(
-        merges={}, rejected=frozenset(), names={}, deck_pilots={},
-        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-               Hold("shared_event", "20260815T140746Z")},
-    )
-
-    with_hold, held_ids, held_report = _identity(snapshot, tmp_path / "held", held)
-    without, plain_ids, plain_report = _identity(snapshot, tmp_path / "plain", Curation.empty())
-
-    # Same counts, and the same deck-to-pilot identity deck by deck.
-    assert with_hold == without
-    assert held_ids == plain_ids
-    # The pair moved between the two lists and nowhere else: it is the one entry
-    # the report gained, and the one the review queue lost.
-    assert plain_report["held_merges"] == []
-    assert len(plain_report["under_merges"]) == 1
-    assert held_report["under_merges"] == []
-    assert [set(h["pilots"]) for h in held_report["held_merges"]] == [
-        {"NimbleBlackEagle", "FrostyBlueOtter"}]
-    # A hold decides nothing, so it is counted with neither the merged nor the
-    # rejected: the "already curated" figure cannot inflate on a parked pair.
-    assert held_report["curated"] == plain_report["curated"] == 0
-    assert {k: v for k, v in held_report.items()
-            if k not in {"under_merges", "held_merges"}} == {
-        k: v for k, v in plain_report.items()
-        if k not in {"under_merges", "held_merges"}}
-
-
 def test_a_hold_on_one_id_moves_it_off_the_multi_name_queue_and_changes_no_graph(
     tmp_path
 ):
@@ -819,30 +778,29 @@ def test_a_hold_on_one_id_moves_it_off_the_multi_name_queue_and_changes_no_graph
 
 def test_a_fired_trigger_changes_the_report_and_leaves_the_graph_alone(tmp_path):
     # A trigger is evaluation, never application (issue #230). Firing says the
-    # evidence to decide the pair has arrived, and the decision is still a
-    # human's, recorded as an edit to the dictionary; nothing about who these two
-    # ids are may move on the strength of the build noticing. Graded the way the
-    # inert hold above is: the same snapshot built with the hold and without,
-    # compared on the identity the graph actually holds.
+    # evidence to decide the id has arrived, and the decision is still a
+    # human's, recorded as an edit to the dictionary; nothing about whose decks
+    # these are may move on the strength of the build noticing. Graded the way
+    # the inert hold above is: the same snapshot built with the hold and
+    # without, compared on the identity the graph actually holds.
     _write_snapshot(tmp_path, [
         _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
-              pilot="NimbleBlackEagle", name="01st Joe M - Grixis - E1"),
+              pilot="NimbleBlackEagle", name="01st Tom H - Grixis - E1"),
         _deck("d2", "E1", "2026-01-01T00:00:00+00:00", placement=2,
-              pilot="FrostyBlueOtter", name="02nd Joel M - Walks - E1"),
+              pilot="NimbleBlackEagle", name="02nd Tom M - Walks - E1"),
     ])
     snapshot = load_snapshot(tmp_path)
     held = Curation(
         merges={}, rejected=frozenset(), names={}, deck_pilots={},
-        holds={frozenset({"NimbleBlackEagle", "FrostyBlueOtter"}):
-               Hold("shared_event", "20260815T140746Z")},
+        holds={frozenset({"NimbleBlackEagle"}): Hold("event_split", "20260815T140746Z")},
     )
 
     with_hold, held_ids, held_report = _identity(snapshot, tmp_path / "held", held)
     without, plain_ids, plain_report = _identity(snapshot, tmp_path / "plain", Curation.empty())
 
-    # The pair is settled by the shared event, and named with what settled it.
+    # The id is settled by its two surnames at one event, and named with what settled it.
     fired = held_report["fired_holds"]
-    assert [f["trigger"] for f in fired] == ["shared_event"]
+    assert [f["trigger"] for f in fired] == ["event_split"]
     assert sorted(fired[0]["decks"]) == ["d1", "d2"]
     assert "E1" in fired[0]["detail"]
     # And the graph is the one the same snapshot builds with no hold on file.
@@ -850,9 +808,9 @@ def test_a_fired_trigger_changes_the_report_and_leaves_the_graph_alone(tmp_path)
     assert held_ids == plain_ids
     assert plain_report["fired_holds"] == []
     assert {k: v for k, v in held_report.items()
-            if k not in {"under_merges", "held_merges", "fired_holds"}} == {
+            if k not in {"multi_name_ids", "held_names", "fired_holds"}} == {
         k: v for k, v in plain_report.items()
-        if k not in {"under_merges", "held_merges", "fired_holds"}}
+        if k not in {"multi_name_ids", "held_names", "fired_holds"}}
 
 
 def test_deck_event_decision_returns_a_stranded_deck_to_its_cohort(tmp_path):
@@ -1361,11 +1319,13 @@ def test_a_refused_entry_applies_nothing_and_is_listed_in_the_report(tmp_path):
     # id upstream handed to someone else must leave the graph exactly as a build
     # without the entry would, and say so in the report. Graded the way the hold's
     # inertness is: the same snapshot built twice, with the entry and without.
+    # On different archetypes, so the identity rules, which merge Alex W onto
+    # Alexander W on an identical list (issue #273), leave this pair to the entry.
     _write_snapshot(tmp_path, [
-        _deck("d1", "E1", "2026-01-01T00:00:00+00:00",
+        _deck("d1", "E1", "2026-01-01T00:00:00+00:00", primaryTag="lands",
               pilot="LunarAzureViper", name="01st Alexander W - Lands - E1"),
-        _deck("d2", "E2", "2026-02-01T00:00:00+00:00",
-              pilot="FrostyIvoryStag", name="01st Alex W - Lands - E2"),
+        _deck("d2", "E2", "2026-02-01T00:00:00+00:00", primaryTag="walks",
+              pilot="FrostyIvoryStag", name="01st Alex W - Walks - E2"),
     ])
     snapshot = load_snapshot(tmp_path)
     (tmp_path / "pilots.toml").write_text("""

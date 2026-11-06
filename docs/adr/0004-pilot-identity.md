@@ -7,7 +7,9 @@
 > that flagged cases are "never merged automatically" is reversed for identical
 > recovered names, which now join automatically on every build
 > ([ADR 0007](0007-display-name-identity.md)); only non-identical name shapes
-> remain review candidates.
+> remain review candidates. Since [ADR 0028](0028-rules-decide-the-clear-identity-cases-at-build.md)
+> the clear ones among those merge by rule at build too, on deck evidence, and
+> the rest are watching rather than reviewed.
 
 We key each Pilot node on the upstream `pilot` field. Although it is often a pseudonym or handle, it is a stable identity: the same string always refers to the same source record. The real name is recovered from the deck title into a separate Display Name (majority vote per pilot, with fuzzy consolidation of spelling variants).
 

@@ -71,12 +71,13 @@ def derive(conn: ladybug.Connection, reconciliation: dict, cut_floor: int) -> di
             conn, "MATCH (p:Pilot) WHERE p.pilot =~ '.*#[0-9]+' RETURN count(*)"
         ) + _scalar(
             conn, "MATCH (p:Pilot) WHERE p.displayName =~ '.* 1' RETURN count(*)"),
-        # Several ids the project has not yet read as one person: the unexamined
-        # queue and the held one both, since a hold is an open question too
-        # (issues #228, #231).
+        # Several ids the project has not read as one person: every pair the
+        # rules left watching, which is two nodes until the evidence says
+        # otherwise (issue #273). A pair merged or separated by rule is no
+        # longer a question.
         "pilots_paired": len({
             pilot
-            for entry in reconciliation["under_merges"] + reconciliation["held_merges"]
+            for entry in reconciliation["ruled_pairs"] if entry["state"] == "watching"
             for pilot in entry["pilots"]
         }),
     } | _finishes(conn) | _archetypes(conn) | _leaderboard(conn) | _gems(conn) \
