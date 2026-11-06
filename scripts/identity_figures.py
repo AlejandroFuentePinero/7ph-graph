@@ -33,7 +33,6 @@ from graph7ph.ingest import _snapshot_dirs, gate_sequence, load_checked
 from graph7ph.repairs import apply_repairs, load_repairs
 
 SHAPES = ("typo", "handle", "nickname", "first-name", "look-alike")
-BARS = (0.4, 0.5, 0.8, 0.9, 1.0)
 
 
 def main() -> None:

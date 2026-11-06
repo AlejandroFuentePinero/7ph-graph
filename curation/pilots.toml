@@ -2482,7 +2482,7 @@ as_of = "20260901T071551Z"
 # above at 0.97 on Grixis Oko. Nothing has registered under this id since
 # 2025-11-18.
 ids = ["CleverVioletGecko8DC"]
-settles_on = "new_decks"
+settles_on = "event_split"
 as_of = "20260815T140746Z"
 
 [[hold]]
@@ -2491,7 +2491,7 @@ as_of = "20260815T140746Z"
 # registered under this id since ETEAE 2025-11-20, so nothing can meet until it
 # does.
 ids = ["FrostyTealFox"]
-settles_on = "new_decks"
+settles_on = "event_split"
 as_of = "20260815T140746Z"
 
 
@@ -2517,7 +2517,7 @@ as_of = "20260901T071551Z"
 # and 0.81 on shared Grixis, with the display name pinned to the correct form.
 # Last registered ETEAE 2025-11-19.
 ids = ["LunarJadeRaven"]
-settles_on = "new_decks"
+settles_on = "event_split"
 as_of = "20260815T140746Z"
 
 

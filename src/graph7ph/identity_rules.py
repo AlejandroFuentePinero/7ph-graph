@@ -20,12 +20,13 @@ fires on that the dictionary overrode is listed so the override stays visible.
 """
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 
 from graph7ph.curation import Curation
 from graph7ph.pilots import (
-    _FIRST_INITIAL, _HANDLE, _candidate_pairs, name_relation, recovered_names,
+    _FIRST_INITIAL, _HANDLE, _candidate_pairs, _card_set, _jaccard, name_relation,
+    recovered_names,
 )
 
 # The deck bar per name shape, raw card-set overlap (Jaccard over the whole 75)
@@ -68,6 +69,7 @@ BASE_RATE_BARS = (TYPO_BAR, 0.5, 0.8, NAME_BAR, 1.0)
 # Why a side may hold several people (the hub guard).
 BARE_NAME = "bare first name"
 NUMBERED_FAMILY = "several entries at one event"
+NO_LIST: frozenset = frozenset()  # a deck whose list the snapshot does not carry
 
 
 @dataclass(frozen=True)
@@ -127,11 +129,21 @@ def rule_states(
     names = {p.pilot: p.display_name for p in pilots}
     cards = _card_sets(decklists)
     decks_of: dict[str, list] = {pid: [] for pid in names}
+    raw_ids: dict[str, set[str]] = {pid: {pid} for pid in names}
     for deck in sorted(decks, key=lambda d: d.deck_id):
         node = deck_pilot[deck.deck_id]
         if node in decks_of:
             decks_of[node].append(deck)
+            raw_ids[node].add(deck.pilot)
     strangers = _Strangers(decks_of, cards)
+
+    def kept_apart_by(a: str, b: str) -> str | None:
+        # A reject or split is recorded on raw ids, and the join or a merge may
+        # have folded one into its node: the ruling travels with the raw id.
+        for kind, is_kept in (("reject", curation.is_rejected), ("split", curation.is_split)):
+            if any(is_kept(x, y) for x in raw_ids[a] for y in raw_ids[b]):
+                return kind
+        return None
 
     pairs: list[RuledPair] = []
     overrides: list[RuledPair] = []
@@ -140,8 +152,7 @@ def rule_states(
         relation = name_relation(names[a], names[b])
         if not relation:
             continue
-        kept_apart = ("reject" if curation.is_rejected(a, b)
-                      else "split" if curation.is_split(a, b) else None)
+        kept_apart = kept_apart_by(a, b)
         ruled = _judge(a, b, names, relation, decks_of, cards, strangers)
         if kept_apart is None:
             pairs.append(ruled)
@@ -242,7 +253,7 @@ def _best_overlap(decks_a, decks_b, cards) -> tuple[float, str | None, tuple | N
         for y in decks_b:
             if x.primary_tag != y.primary_tag or x.event == y.event:
                 continue
-            overlap = _jaccard(cards.get(x.deck_id), cards.get(y.deck_id))
+            overlap = _jaccard(cards.get(x.deck_id, NO_LIST), cards.get(y.deck_id, NO_LIST))
             if overlap > best:
                 best, archetype, pair = overlap, x.primary_tag, (x, y)
     return best, archetype, pair
@@ -263,21 +274,8 @@ def _gap_days(x, y) -> int:
 
 
 def _card_sets(decklists) -> dict[str, frozenset]:
-    """Each deck's whole 75 as one set: 7PH decks are singleton, so a deck is a set."""
-    cards: dict[str, frozenset] = {}
-    for deck_id, signature in (decklists or {}).items():
-        whole: set = set()
-        for part in signature:
-            whole |= part if isinstance(part, (set, frozenset)) else {part}
-        cards[deck_id] = frozenset(whole)
-    return cards
-
-
-def _jaccard(a: frozenset | None, b: frozenset | None) -> float:
-    """Card-set overlap: shared cards over total; a deck with no list scores 0."""
-    if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
+    """Each deck's whole 75 as one set; a deck with no list scores 0 against everything."""
+    return {deck_id: _card_set(signature) for deck_id, signature in (decklists or {}).items()}
 
 
 class _Strangers:
@@ -320,7 +318,7 @@ class _Strangers:
         key = (archetype, colour)
         if key not in self._scored:
             self._scored[key] = [
-                (_gap_days(x, y), _jaccard(self._cards.get(x.deck_id), self._cards.get(y.deck_id)))
+                (_gap_days(x, y), _jaccard(self._cards.get(x.deck_id, NO_LIST), self._cards.get(y.deck_id, NO_LIST)))
                 for (node_x, x), (node_y, y) in combinations(self._groups.get(key, []), 2)
                 if node_x != node_y
             ]
@@ -329,7 +327,7 @@ class _Strangers:
 
 def _overridden(ruled: RuledPair, by: str) -> RuledPair:
     """The same pair, marked with the dictionary kind that overrode the rule."""
-    return RuledPair(**{**ruled.__dict__, "overridden_by": by})
+    return replace(ruled, overridden_by=by)
 
 
 def _separator_overrides(decks, curation, cards, strangers) -> list[RuledPair]:

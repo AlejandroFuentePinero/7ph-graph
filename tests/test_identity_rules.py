@@ -342,6 +342,34 @@ def test_a_reject_beats_a_rule_merge_and_a_merge_beats_the_separator_both_listed
     assert res.report.curated == 2
 
 
+@pytest.mark.parametrize("kind", ["reject", "split"])
+def test_a_ruling_on_a_raw_id_the_name_join_folded_still_keeps_the_pair_apart(kind):
+    # The rules read the node after the identical-name join, and a [[reject]]
+    # or [[split]] is recorded on raw ids: here on the one the join folded into
+    # its namesake. The ruling travels with the raw id into the node, so the
+    # pair is kept apart and listed as an override, never merged by rule.
+    decks = [
+        _deck("d1", "RealA", "1st Toby M - Lands - E1", "E1", None),
+        _deck("d2", "RealB", "2nd Toby M - Lands - E2", "E2", None, days=30, placement=2),
+        _deck("d3", "Handle", "5th TobM7 - Lands - E3", "E3", None, days=60),
+    ]
+    decklists = {"d1": _cards(70), "d2": _cards(70, 100), "d3": _cards(70)}
+    apart = frozenset({frozenset({"RealA", "Handle"})})
+    curation = Curation(
+        merges={}, rejected=apart if kind == "reject" else frozenset(), names={}, deck_pilots={},
+        splits=apart if kind == "split" else frozenset(),
+    )
+
+    res = _resolve(decks, decklists, curation)
+
+    assert sorted(p.pilot for p in res.pilots) == ["Handle", "RealB"]
+    assert [p.pilots for p in res.report.ruled_pairs] == []
+    assert [(p.pilots, p.state, p.overridden_by) for p in res.report.rule_overrides] == [
+        (["Handle", "RealB"], "merged", kind),
+    ]
+    assert res.report.curated == 1
+
+
 def test_the_states_do_not_depend_on_the_order_decks_or_pairs_are_read_in():
     # Two builds on the same snapshots produce identical states (ruling 11 on
     # #266): the pool is exhaustive, so a pair's percentile cannot depend on
@@ -349,7 +377,9 @@ def test_the_states_do_not_depend_on_the_order_decks_or_pairs_are_read_in():
     first, first_lists = _pair_at(40, relation_names=("Ben C", "Benjamin C"))
     second, second_lists = _pair_at(40, relation_names=("Dan T", "Daniel T"))
     for d in second:
-        d.deck_id = d.deck_id.replace("1", "2"); d.pilot += "2"; d.event += "x"
+        d.deck_id = d.deck_id.replace("1", "2")
+        d.pilot += "2"
+        d.event += "x"
     second_lists = {k.replace("1", "2"): v for k, v in second_lists.items()}
     pool, pool_lists = _strangers(21)
     decks, decklists = first + second + pool, first_lists | second_lists | pool_lists

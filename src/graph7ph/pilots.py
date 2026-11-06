@@ -349,8 +349,8 @@ def resolve_pilots(
 
     ``snapshot_decks`` is what each snapshot this build read held, cumulatively:
     a snapshot directory name against the deck ids known as of it. It is the only
-    input a hold's ``as_of`` can be graded against, so without it the deck-delta
-    trigger is not evaluated and no ``as_of`` is called stale (issue #230).
+    input a hold's ``as_of`` can be graded against, so without it no ``as_of`` is
+    called stale (issue #230).
 
     The report surfaces what still needs a human: variant clusters that were
     merged, the re-keyed null bucket, and the uncurated under-merge candidates.

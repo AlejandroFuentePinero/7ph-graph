@@ -73,6 +73,21 @@ def test_a_hold_records_the_single_id_a_human_examined_and_left_undecided(tmp_pa
     assert curation.hold("B") is None
 
 
+def test_a_hold_that_settles_on_a_retired_trigger_is_refused_at_load(tmp_path):
+    # The build evaluates one trigger for a single-id hold, the event split
+    # (#273 retired the rest), so a hold naming another would sit unexamined
+    # forever while reading as watched.
+    path = _write(tmp_path, """
+        [[hold]]
+        ids = ["A"]
+        settles_on = "new_decks"
+        as_of = "20260815T140746Z"
+    """)
+
+    with pytest.raises(CurationError, match="settles_on.*'new_decks'.*event_split"):
+        load_curation(path)
+
+
 def test_name_pin_on_non_canonical_merge_member_raises(tmp_path):
     # `names` is looked up by the canonical bucket id, so a pin on a member that
     # merges away can never fire: an authoring contradiction, not a dead entry.

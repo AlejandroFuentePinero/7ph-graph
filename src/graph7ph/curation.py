@@ -518,6 +518,12 @@ def _holds(entries: list[dict], path: Path) -> dict[frozenset[str], Hold]:
                 f"0028) and a pair hold parks nothing. Delete it, or record the "
                 f"decision as a [[merge]] or [[reject]]"
             )
+        if settles_on != "event_split":
+            raise CurationError(
+                f"{path}: [[hold]] settles_on {settles_on!r}, but the build "
+                f"evaluates one trigger for a hold, 'event_split' (issue #273 "
+                f"retired the others); restamp it or delete the hold"
+            )
         key = frozenset(ids)
         if key in holds:
             raise CurationError(
