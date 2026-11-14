@@ -23,6 +23,27 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 # code deployed beside it always come from the same tree.
 DB="${GRAPH7PH_DB:-$ROOT/data/graph}"
 
+# The deploy stages the working tree, so what ships has to be what a commit holds:
+# several sessions edit this checkout at once, and without this another session's
+# half-made edit under src/ goes up with whatever deploy runs next (issue #299).
+# The staleness guard below cannot see that, because the bundle was built from the
+# same tree and the two agree. The commit is then named on the upload, since
+# nothing else on the Space says which code it runs.
+#
+# Asked only of what reaches the Space, plus `curation/`: that is not staged, but
+# the graph is built from it and the staleness guard holds the bundle to this
+# tree's copy, so with it committed the commit named accounts for the graph as
+# well as the code. A doc being edited holds nothing back. Untracked files count,
+# because a new module under src/ would be copied up with the rest.
+UNCOMMITTED=$(cd "$ROOT" && git status --porcelain -- src/graph7ph app.py requirements.txt deploy curation)
+if [ -n "$UNCOMMITTED" ]; then
+    echo "Refusing to deploy: what ships has changes no commit holds:" >&2
+    printf '%s\n' "$UNCOMMITTED" | sed 's/^/  /' >&2
+    echo "Commit them, or wait for the session making them, and re-run." >&2
+    exit 1
+fi
+COMMIT=$(cd "$ROOT" && git rev-parse HEAD)
+
 # The artifact is a directory holding the database, so an existing directory is
 # not proof of a graph: a half-cleared one would stage and ship a Space that dies
 # at startup. The database inside it is what makes the bundle deployable. Its name
@@ -156,7 +177,7 @@ fi
 # One commit: code and artifact land together, and large files go up as LFS.
 # `delete_patterns` clears what a previous deploy left behind (.gitattributes is
 # spared by the library, so LFS tracking survives).
-STAGE="$STAGE" SPACE="$SPACE" hf_python '
+STAGE="$STAGE" SPACE="$SPACE" COMMIT="$COMMIT" hf_python '
 import os
 from huggingface_hub import HfApi
 url = HfApi().upload_folder(
@@ -164,9 +185,9 @@ url = HfApi().upload_folder(
     repo_id=os.environ["SPACE"],
     repo_type="space",
     delete_patterns="*",
-    commit_message="Deploy explorer and graph artifact",
+    commit_message="Deploy " + os.environ["COMMIT"],
 )
 print(url)
 '
 
-echo "Deployed to https://huggingface.co/spaces/$SPACE"
+echo "Deployed $COMMIT to https://huggingface.co/spaces/$SPACE"
