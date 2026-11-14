@@ -27,7 +27,7 @@ dependencies = [
     "ladybug>=0.18,<0.19",
     # The extras are the ones the Space installs gradio with, so the lock the Space's
     # requirements are written from resolves the same set the Space does (issue #298).
-    "gradio[oauth,mcp]>=5,<6",
+    "gradio[oauth,mcp]>=6,<7",
     "plotly>=5,<7",
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",
@@ -62,7 +62,7 @@ packages = ["src/graph7ph"]
 # ungraded (issue #197). The browser itself is a separate download, which CI
 # installs and `docs/development.md` tells a contributor to.
 dev = [
-    "pytest>=8,<9",
+    "pytest>=8,<10",
     "playwright>=1.49,<2",
     # tests/test_mirror.py builds the Hub's own not-found error, which carries an
     # httpx response. huggingface-hub depends on it, but the test's import is this

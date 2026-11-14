@@ -6,10 +6,8 @@ code path. ``GRAPH7PH_DB`` points at the artifact, which the deploy step uploads
 alongside this file.
 """
 
-from graph7ph.app import build_app
+from graph7ph.app import build_app, launch_kwargs
 from graph7ph.db import artifact_path, database_path
-from graph7ph.serve import APP_KWARGS
-from graph7ph.theme import favicon_file
 
 DB_PATH = artifact_path()
 
@@ -24,4 +22,4 @@ if not database_path(DB_PATH).exists():
 demo = build_app(DB_PATH)
 
 if __name__ == "__main__":
-    demo.launch(app_kwargs=APP_KWARGS, favicon_path=favicon_file())
+    demo.launch(**launch_kwargs())

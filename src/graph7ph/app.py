@@ -59,6 +59,7 @@ from graph7ph.query import (
 )
 from graph7ph.provenance import built_at
 from graph7ph.render import render_subgraph
+from graph7ph.serve import APP_KWARGS
 from graph7ph.trends import (
     ArchetypeLandscape,
     ArchetypeTimeline,
@@ -3573,10 +3574,6 @@ def build_app(artifact: Path) -> gr.Blocks:
         # full one. A tab strip shows a few characters: "7PH Graph" survives that,
         # "7 Point Highlander Graph" arrives as "7 Point High...".
         title="7PH Graph",
-        theme=theme.dark_theme(),
-        css=theme.build_css(),
-        js=theme.FORCE_DARK_JS,
-        head=theme.build_head(),  # real favicon + social preview (#115)
     ) as demo:
         gr.Markdown("# 7 Point Highlander Graph")
 
@@ -3747,10 +3744,10 @@ def build_app(artifact: Path) -> gr.Blocks:
             # Card overview: one card + board, two plots (usage graph and the adoption
             # trend, both scoped to the board). Results stack hidden until a Draw (§14).
             with gr.Group(visible=cov_default) as g_card_overview:
-                cov_subject = gr.HTML(visible=False)
+                cov_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as cov_results:
                     with gr.Group(elem_classes="insight-card"):
-                        cov_usage_out = gr.HTML()
+                        cov_usage_out = gr.HTML(padding=True)
                     with gr.Group(elem_classes="insight-card"):
                         cov_adopt_heading = gr.HTML(visible=False, padding=False)
                         cov_adopt_note = gr.Markdown(visible=False)
@@ -3760,10 +3757,10 @@ def build_app(artifact: Path) -> gr.Blocks:
             # plots. Board-agnostic: no board control, so the adoption trend counts
             # across both boards and carries no board qualifier text.
             with gr.Group(visible=cooc_default) as g_card_cooccurrence:
-                cooc_subject = gr.HTML(visible=False)
+                cooc_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as cooc_results:
                     with gr.Group(elem_classes="insight-card"):
-                        cooc_graph_out = gr.HTML()
+                        cooc_graph_out = gr.HTML(padding=True)
                     with gr.Group(elem_classes="insight-card"):
                         cooc_adopt_heading = gr.HTML(visible=False, padding=False)
                         cooc_adopt_note = gr.Markdown(visible=False)
@@ -3863,7 +3860,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "decks.",
                 elem_classes="t-lede",
             )
-            gr.HTML(run_graph("meta_gems", {}), elem_classes="insight-card")
+            gr.HTML(run_graph("meta_gems", {}), elem_classes="insight-card", padding=True)
 
         with gr.Tab("Pilots"):
             gr.Markdown("## Pilots")
@@ -3905,12 +3902,12 @@ def build_app(artifact: Path) -> gr.Blocks:
             # controls over empty ground rather than a row of duplicated empty-prompt
             # cards. The subject line sits above the stack.
             with gr.Group(visible=po_default) as g_pilot_overview:
-                po_subject = gr.HTML(visible=False)
+                po_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as po_results:
                     with gr.Group(elem_classes="insight-card"):
-                        po_nb_out = gr.HTML()
+                        po_nb_out = gr.HTML(padding=True)
                     with gr.Group(elem_classes="insight-card"):
-                        po_af_out = gr.HTML()
+                        po_af_out = gr.HTML(padding=True)
                     with gr.Group(elem_classes="insight-card"):
                         po_perf_heading = gr.HTML(visible=False, padding=False)
                         po_perf_note = gr.Markdown(visible=False)
@@ -3919,10 +3916,10 @@ def build_app(artifact: Path) -> gr.Blocks:
             # Head-to-head: two pilots, the second required, two plots (the pair's
             # neighbourhood and their shared-event timeline).
             with gr.Group(visible=h2h_default) as g_pilot_head_to_head:
-                h2h_subject = gr.HTML(visible=False)
+                h2h_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as h2h_results:
                     with gr.Group(elem_classes="insight-card"):
-                        h2h_nb_out = gr.HTML()
+                        h2h_nb_out = gr.HTML(padding=True)
                     with gr.Group(elem_classes="insight-card", visible=False) as h2h_plot_card:
                         h2h_heading = gr.HTML(visible=False, padding=False)
                         h2h_note = gr.Markdown(visible=False)
@@ -4082,3 +4079,23 @@ def build_app(artifact: Path) -> gr.Blocks:
         gr.HTML(_provenance_html(coverage(catalogue), built_at(artifact)), padding=False)
 
     return demo
+
+
+def launch_kwargs() -> dict:
+    """What every launch of the explorer passes to ``Blocks.launch``.
+
+    Gradio 6 moved the theme, the stylesheet, the page script and the head from the
+    ``Blocks`` constructor to ``launch()``, so the page's whole look now belongs to
+    whoever launches it, and there are three of those: the Space's ``app.py``,
+    ``graph7ph app``, and the Colab cell in ``docs/deploy.md``. Spelled once here so
+    none of them can launch a page missing its theme or the middleware that serves
+    the graph library (``serve.APP_KWARGS``).
+    """
+    return {
+        "theme": theme.dark_theme(),
+        "css": theme.build_css(),
+        "js": theme.FORCE_DARK_JS,
+        "head": theme.build_head(),  # real favicon + social preview (#115)
+        "favicon_path": theme.favicon_file(),
+        "app_kwargs": APP_KWARGS,
+    }

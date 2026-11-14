@@ -10,7 +10,7 @@ import re
 
 import gradio as gr
 import pytest
-from gradio.routes import INTERNAL_ROUTES, App
+from gradio.routes import INTERNAL_ROUTES
 from starlette.testclient import TestClient
 
 from graph7ph.query import Node, Subgraph
@@ -28,7 +28,13 @@ def client():
     with gr.Blocks() as demo:
         gr.Dropdown(choices=_CHOICES, label="Card")
         gr.Dropdown(choices=_CHOICES, label="Second card")
-    return TestClient(App.create_app(demo, app_kwargs=APP_KWARGS))
+    # Launched, as the app is, rather than assembled with `App.create_app`: since
+    # Gradio 6 the theme is set at launch, and the page template reads it, so an app
+    # that was never launched answers `/config` and fails on `/`. The server it
+    # binds is not used; the requests below go to the same ASGI app in process.
+    demo.launch(prevent_thread_lock=True, app_kwargs=APP_KWARGS)
+    yield TestClient(demo.app)
+    demo.close()
 
 
 @pytest.mark.parametrize("path", ["/", "/config"])
