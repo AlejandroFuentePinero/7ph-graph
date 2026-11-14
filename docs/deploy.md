@@ -56,9 +56,17 @@ after a refresh by re-running the script.
 
 ### Preflights
 
-The script refuses four kinds of unfit bundle, all of them before it stages
-anything, so a refusal leaves the Space exactly as it was:
+The script refuses a checkout whose shipped files no commit holds, and four kinds
+of unfit bundle, all of them before it stages anything, so a refusal leaves the
+Space exactly as it was:
 
+- **Uncommitted changes to what ships.** The deploy stages the working tree, so
+  an edit nobody has committed under `src/graph7ph`, `app.py`,
+  `requirements.txt`, `deploy/` or `curation/` would go up with it, another
+  session's half-made one included. The refusal names the files. Commit them, or
+  wait for the session making them. `curation/` is not staged, but the graph is
+  built from it, so it is held to the same rule. Every upload is then named
+  `Deploy <commit>`, which is how to tell which code a Space is running.
 - **No database at the artifact path.** Nothing to deploy: run
   `uv run graph7ph build`.
 - **An uncheckpointed write-ahead log in the bundle.** A build is running or

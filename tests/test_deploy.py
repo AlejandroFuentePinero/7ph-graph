@@ -17,6 +17,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from contextlib import chdir
 from pathlib import Path
 
@@ -29,14 +30,80 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "deploy_space.sh"
 
 
+# The commit every deploy here is made from, as the stand-in `git` names HEAD.
+COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+# The checkout is a boundary too: what git calls uncommitted is answered from
+# FAKE_CHANGES, filtered by the paths asked about as git filters them, so no test
+# depends on the state of the tree it happens to run in. That matters here more
+# than most places, because several sessions edit this checkout at once and the
+# script under test is the real one, run against the real repo. Every other `git`
+# call reaches the real one.
+FAKE_GIT = '''
+import os
+import sys
+
+args = sys.argv[1:]
+if args[:2] == ["status", "--porcelain"]:
+    asked = args[args.index("--") + 1:]
+    for path in filter(None, os.environ.get("FAKE_CHANGES", "").split("|")):
+        if any(path == spec or path.startswith(spec + "/") for spec in asked):
+            print(" M " + path)
+elif args == ["rev-parse", "HEAD"]:
+    print(os.environ["FAKE_COMMIT"])
+else:
+    os.execv(os.environ["REAL_GIT"], ["git", *args])
+'''
+
+# A Hub that says the Space exists and records an upload instead of making one.
+# Stubbed at the library rather than inside the script, so the script under test
+# is the one that ships: it shells out to `uvx --from huggingface_hub python`, and
+# this is what that import resolves to.
+FAKE_HUB = '''
+def repo_exists(repo_id, repo_type=None):
+    return True
+
+
+class HfApi:
+    def upload_folder(self, *, folder_path, repo_id, repo_type, delete_patterns,
+                      commit_message):
+        print("UPLOADED", repo_id, commit_message)
+        return "https://hub.invalid/" + repo_id
+'''
+
+
+def _stand_ins(home: Path, uvx: str) -> Path:
+    """A ``PATH`` prefix holding the given ``uvx`` and the stand-in ``git``."""
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True)
+    (home / "fake_git.py").write_text(FAKE_GIT)
+    for name, body in [
+        ("uvx", uvx),
+        ("git", f'exec "{sys.executable}" "{home / "fake_git.py"}" "$@"'),
+    ]:
+        stub = bin_dir / name
+        stub.write_text(f"#!/bin/sh\n{body}\n")
+        stub.chmod(0o755)
+    return bin_dir
+
+
 @pytest.fixture
 def no_hub(tmp_path) -> Path:
     """A ``PATH`` prefix whose ``uvx`` refuses, so no run can reach the Hub."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "uvx"
-    stub.write_text("#!/bin/sh\nexit 1\n")
-    stub.chmod(0o755)
+    return _stand_ins(tmp_path / "no-hub", "exit 1")
+
+
+@pytest.fixture
+def recording_hub(tmp_path) -> Path:
+    """A ``PATH`` prefix whose ``uvx`` reaches ``FAKE_HUB`` and nothing else.
+
+    The script calls ``uvx --from huggingface_hub python -c <code>``, so the code
+    it wants run is the fifth argument, and the stand-in module is put on the
+    import path for that one interpreter.
+    """
+    home = tmp_path / "recording-hub"
+    bin_dir = _stand_ins(home, f'PYTHONPATH="{home}" exec "{sys.executable}" -c "$5"')
+    (home / "huggingface_hub.py").write_text(FAKE_HUB)
     return bin_dir
 
 
@@ -75,7 +142,9 @@ def passing_gate(tmp_path) -> Path:
     return bin_dir
 
 
-def _deploy(artifact: Path, no_hub: Path, *also: Path) -> subprocess.CompletedProcess:
+def _deploy(
+    artifact: Path, no_hub: Path, *also: Path, changes: str = ""
+) -> subprocess.CompletedProcess:
     """Run the script as a caller standing outside the repo with a relative bundle.
 
     Both halves of that are load-bearing, and together they are what make the
@@ -89,6 +158,10 @@ def _deploy(artifact: Path, no_hub: Path, *also: Path) -> subprocess.CompletedPr
     ``no_hub`` stays a required argument, and any further ``PATH`` prefix comes
     after it, so that no call can be written that leaves the Hub unstubbed. The
     order between them does not matter, since each stub holds a different command.
+    ``recording_hub`` goes in the same place when a test has to see the upload.
+
+    ``changes`` is what the stand-in ``git`` reports as uncommitted, paths joined
+    by ``|``. Empty, the default, is a checkout with nothing outstanding.
     """
     return subprocess.run(
         [str(SCRIPT), "someone/some-space"],
@@ -97,6 +170,9 @@ def _deploy(artifact: Path, no_hub: Path, *also: Path) -> subprocess.CompletedPr
             **os.environ,
             "GRAPH7PH_DB": artifact.name,
             "PATH": os.pathsep.join([str(no_hub), *map(str, also), os.environ["PATH"]]),
+            "FAKE_CHANGES": changes,
+            "FAKE_COMMIT": COMMIT,
+            "REAL_GIT": shutil.which("git"),
         },
         capture_output=True,
         text=True,
@@ -235,6 +311,59 @@ def test_a_settled_bundle_is_not_refused(tmp_path, no_hub, passing_gate):
     assert "uncheckpointed write-ahead log" not in result.stderr
     assert "Refusing to deploy" not in result.stderr
     assert "No Space at someone/some-space" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "src/graph7ph/query.py",
+        "app.py",
+        "requirements.txt",
+        "deploy/README.md",
+        "curation/pilots.toml",
+    ],
+)
+def test_changes_no_commit_holds_are_refused_before_anything_is_staged(
+    tmp_path, no_hub, changed
+):
+    # The script stages the working tree, and several sessions edit this checkout
+    # at once, so without this guard another session's half-made edit ships with
+    # whatever deploy runs next (issue #299). The staleness guard does not catch
+    # it: the bundle was built from that same tree, so the two agree.
+    #
+    # `curation/` is not staged, but the graph is built from it and that guard
+    # holds the bundle to the tree's copy, so it has to be committed for the commit
+    # the Space names to account for the graph as well as the code.
+    result = _deploy(_bundle(tmp_path), no_hub, changes=changed)
+
+    assert result.returncode != 0
+    assert "changes no commit holds" in result.stderr
+    assert changed in result.stderr
+    assert "No Space at" not in result.stderr
+
+
+def test_changes_to_what_does_not_ship_hold_nothing_back(tmp_path, no_hub, passing_gate):
+    # A doc being edited or a test being written is no reason to refuse: neither
+    # reaches the Space or the graph. Reaching the Space-exists check is what says
+    # the deploy went on, as in the settled-bundle test above.
+    result = _deploy(
+        _bundle(tmp_path), no_hub, passing_gate,
+        changes="docs/deploy.md|tests/test_deploy.py",
+    )
+
+    assert "changes no commit holds" not in result.stderr
+    assert "No Space at someone/some-space" in result.stderr
+
+
+def test_the_space_names_the_commit_its_code_came_from(
+    tmp_path, recording_hub, passing_gate
+):
+    # The upload's message is the only record on the Space of which code it runs,
+    # so it names the commit rather than describing the deploy (issue #299).
+    result = _deploy(_bundle(tmp_path), recording_hub, passing_gate)
+
+    assert result.returncode == 0, result.stderr
+    assert f"UPLOADED someone/some-space Deploy {COMMIT}" in result.stdout
 
 
 def test_the_suite_runs_on_the_interpreter_the_space_runs():
