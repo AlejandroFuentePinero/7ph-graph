@@ -1,0 +1,17 @@
+# Actions only. The Python packages are not bumped here: `requirements.txt` pins what
+# the Space installs by hand and has to move with `uv.lock` (a Ladybug release can change
+# the storage format, and gradio has to match the Space card's `sdk_version`), so a PR
+# that moved the lock alone would arrive green and leave the Space on other versions.
+# Security fixes for them are the job of Dependabot alerts, a repo setting.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    # A release waits a week before it is proposed, so one pulled for being bad never is.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
