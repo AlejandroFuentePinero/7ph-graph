@@ -35,7 +35,7 @@ DB="${GRAPH7PH_DB:-$ROOT/data/graph}"
 # tree's copy, so with it committed the commit named accounts for the graph as
 # well as the code. A doc being edited holds nothing back. Untracked files count,
 # because a new module under src/ would be copied up with the rest.
-UNCOMMITTED=$(cd "$ROOT" && git status --porcelain -- src/graph7ph app.py requirements.txt deploy curation)
+UNCOMMITTED=$(cd "$ROOT" && git status --porcelain -- src/graph7ph app.py pyproject.toml uv.lock deploy curation)
 if [ -n "$UNCOMMITTED" ]; then
     echo "Refusing to deploy: what ships has changes no commit holds:" >&2
     printf '%s\n' "$UNCOMMITTED" | sed 's/^/  /' >&2
@@ -139,12 +139,50 @@ fi
 hf_python() { uvx --from huggingface_hub python -c "$1"; }
 
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+SPACE_INSTALL=$(mktemp)
+trap 'rm -rf "$STAGE" "$SPACE_INSTALL"' EXIT
 
 # The Space card (front matter pins the SDK and runtime) becomes the Space's
 # README; the repo's own README stays a GitHub page.
 cp "$ROOT/deploy/README.md" "$STAGE/README.md"
-cp "$ROOT/app.py" "$ROOT/requirements.txt" "$STAGE/"
+cp "$ROOT/app.py" "$STAGE/"
+# What the Space installs is the runtime half of uv.lock, every package pinned, so
+# it runs the versions the suite ran on: the Space resolves this file fresh on
+# every build, and a package left out of it is whatever was newest that day (37 of
+# 73 differed on 2026-11-15, when the file pinned five by hand; issue #298). The
+# pins matter most for Ladybug, since a release can change the on-disk storage
+# format and the app has to read an artifact the same version built. The dev group
+# stays behind, and so does the project itself, which the Space cannot install
+# (below). pydantic and requests go up although only fetch and build use them:
+# they are the project's runtime dependencies, and two unused packages cost less
+# than a second list to keep. `--locked`, as CI syncs: a tree whose pyproject.toml
+# has drifted from uv.lock is refused here rather than exported stale.
+if ! (cd "$ROOT" && uv export --quiet --locked --no-dev --no-emit-project --no-hashes) \
+    > "$STAGE/requirements.txt"; then
+    echo "Refusing to deploy: uv.lock does not match pyproject.toml, above. Run" >&2
+    echo "'uv lock', run the suite on the result, commit, and re-run." >&2
+    exit 1
+fi
+# The Space installs that file together with a line of its own, and its build
+# refuses the lot when the two disagree. That refusal comes after the upload, so it
+# leaves the site down until a build succeeds: arena-insights' was on 2026-11-12,
+# when its lock pinned a pydantic the `mcp` extra of gradio caps. Resolved here
+# first, for the card's Python on the Space's Linux, the same disagreement stops
+# the deploy with the Space as it was. The Space's line is the one a Gradio Space's
+# build log shows, copied from mtgo-insights' deploy, so a build that fails where
+# this passed means the line changed there, and this copy is what to correct.
+CARD="$ROOT/deploy/README.md"
+SDK=$(sed -n 's/^sdk_version: *//p' "$CARD")
+PYTHON=$(sed -n 's/^python_version: *"\(.*\)"$/\1/p' "$CARD")
+printf '%s\n' "gradio[oauth,mcp]==$SDK" "uvicorn>=0.14.0" "websockets>=10.4" spaces \
+    > "$SPACE_INSTALL"
+if ! uv pip compile --quiet --python-version "$PYTHON" \
+    --python-platform x86_64-unknown-linux-gnu \
+    "$STAGE/requirements.txt" "$SPACE_INSTALL" > /dev/null; then
+    echo "Refusing to deploy: the Space could not install these packages, above." >&2
+    echo "Nothing on it has been touched. Correct the lock and re-run." >&2
+    exit 1
+fi
 # The package sits at the Space's root, not under src/, and no pyproject goes up:
 # a Space installs requirements.txt before the repo exists, so it can never pip
 # install this project. Beside app.py it needs no install, because the app's

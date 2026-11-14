@@ -56,14 +56,14 @@ after a refresh by re-running the script.
 
 ### Preflights
 
-The script refuses a checkout whose shipped files no commit holds, and four kinds
-of unfit bundle, all of them before it stages anything, so a refusal leaves the
-Space exactly as it was:
+The script refuses a checkout whose shipped files no commit holds, four kinds of
+unfit bundle, and a set of packages the Space could not install, all of them
+before it uploads anything, so a refusal leaves the Space exactly as it was:
 
 - **Uncommitted changes to what ships.** The deploy stages the working tree, so
   an edit nobody has committed under `src/graph7ph`, `app.py`,
-  `requirements.txt`, `deploy/` or `curation/` would go up with it, another
-  session's half-made one included. The refusal names the files. Commit them, or
+  `pyproject.toml`, `uv.lock`, `deploy/` or `curation/` would go up with it,
+  another session's half-made one included. The refusal names the files. Commit them, or
   wait for the session making them. `curation/` is not staged, but the graph is
   built from it, so it is held to the same rule. Every upload is then named
   `Deploy <commit>`, which is how to tell which code a Space is running.
@@ -86,14 +86,31 @@ Space exactly as it was:
   or malformed, and when the database will not open. If the difference is
   intended, recapture the oracle as [development.md](development.md) describes.
 
-[requirements.txt](../requirements.txt) is what the Space installs, and it stands
-alone rather than installing this project: a Space mounts only that file and runs
-`pip` before the repo exists, so it cannot pip install the package. The deploy
-instead stages the package at the Space's root, where Python imports it without
-an install. The pins are exact and must move with `uv.lock`: a Ladybug release
-can change the on-disk storage format, and the app must read an artifact built by
-the same version. `gradio` and `python_version` match what the Space card
-declares (see [deploy/README.md](../deploy/README.md)).
+- **A lock that has drifted, or packages the Space could not install.** The
+  Space's `requirements.txt` is written from `uv.lock` at deploy time, so a lock
+  that no longer matches `pyproject.toml` is refused: run `uv lock`, run the suite
+  on the result, and commit. The file is then resolved together with the line a
+  Gradio Space installs on its own (`gradio[oauth,mcp]` at the card's
+  `sdk_version`), for the card's Python on Linux, and a disagreement between the
+  two stops the deploy. Left to the Space, the same disagreement fails its build
+  after the upload and takes the site down.
+
+### What the Space installs
+
+There is no `requirements.txt` in the repo. The deploy writes one from `uv.lock`
+(`uv export`, the runtime packages only, each pinned), so the Space runs the
+versions the suite ran on and a lock upgrade reaches it with nothing to edit by
+hand. The pins matter most for Ladybug: a release can change the on-disk storage
+format, and the app must read an artifact built by the same version. The file
+stands alone rather than installing this project: a Space mounts only that file
+and runs `pip` before the repo exists, so it cannot pip install the package. The
+deploy instead stages the package at the Space's root, where Python imports it
+without an install.
+
+Two things are still typed by hand in the Space card
+([deploy/README.md](../deploy/README.md)), and the suite holds both: `sdk_version`
+to the lock's gradio, and `python_version` to the interpreter in
+`.python-version`. A gradio upgrade therefore edits the card in the same commit.
 
 ## Colab
 
