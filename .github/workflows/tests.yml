@@ -1,18 +1,64 @@
+# The suite, on every pull request and every push to main.
+#
+# Tests only. There is no deploy job and there should not be one: the Space is handed
+# the graph built on the machine that holds the snapshots, and that machine is where
+# `scripts/deploy_space.sh` runs (docs/deploy.md). A runner has neither the snapshots nor
+# the bundle, so the most it could deploy is an explorer over nothing.
+#
+# For the same reason the tests that grade the real record skip here: they read the
+# built bundle, which is gitignored, and run where the graph is built. Everything else
+# builds its own graph from a hand-authored snapshot, so a bare checkout is the whole of
+# what a run is given.
+#
+# `main` requires this job's check before a merge (branch protection), and the rule
+# names the job, so renaming `pytest` below unhooks the gate until the rule is renamed
+# with it.
 name: tests
 
-on: [push, pull_request]
+on:
+  # A branch's own pushes are covered by its pull request, which tests the merge result.
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only, written here rather than left to the repo setting, so the job keeps it if the
+# setting ever changes.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A superseded PR run is cancelled; a run on main is not, so every merge commit keeps
+  # its own result.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    # A named image rather than `ubuntu-latest`: the Playwright step below installs system
+    # packages by name, and those names move between Ubuntu releases, so the image changes
+    # in a commit here and not on the day the label is repointed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      # Actions are pinned to a commit, because a tag can be moved to code nobody reviewed;
+      # Dependabot keeps the pins and their version comments current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.12.12"
-      - run: uv sync --frozen
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      # `--locked` rather than `--frozen`: the run fails if `uv.lock` has drifted from
+      # `pyproject.toml`, instead of quietly installing the old lock and testing that.
+      # The interpreter is the one `.python-version` names, the Space's own, which uv
+      # downloads if the runner lacks it rather than taking the newest it can find.
+      - run: uv sync --locked
+
       # The browser tests/test_graph_desktop.py measures on. It is a download
       # rather than a wheel, so `uv sync` cannot bring it, and without it that
       # suite skips itself and #178's acceptance goes ungraded (issue #197).
       - run: uv run playwright install --with-deps chromium
+
       - run: uv run pytest
