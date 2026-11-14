@@ -68,7 +68,7 @@ class _CompressPageAndConfig(BrotliMiddleware):
 
 # pyvis ships the library it would otherwise inline, so hosting it ourselves adds
 # no vendored copy and no third party to be reachable at runtime. The version is
-# the one pyvis 0.3.2 inlines (pinned in requirements.txt); a bump that renamed
+# the one pyvis 0.3.2 inlines (pinned in uv.lock); a bump that renamed
 # this directory would fail loudly here at import rather than serve a 404.
 _VIS = Path(pyvis.__file__).parent / "lib" / "vis-9.1.2"
 

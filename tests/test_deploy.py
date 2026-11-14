@@ -18,6 +18,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tomllib
 from contextlib import chdir
 from pathlib import Path
 
@@ -55,11 +56,15 @@ else:
     os.execv(os.environ["REAL_GIT"], ["git", *args])
 '''
 
-# A Hub that says the Space exists and records an upload instead of making one.
-# Stubbed at the library rather than inside the script, so the script under test
+# A Hub that says the Space exists and records an upload instead of making one,
+# keeping a copy of what it was handed. Stubbed at the library rather than inside the script, so the script under test
 # is the one that ships: it shells out to `uvx --from huggingface_hub python`, and
 # this is what that import resolves to.
 FAKE_HUB = '''
+import os
+import shutil
+
+
 def repo_exists(repo_id, repo_type=None):
     return True
 
@@ -67,6 +72,7 @@ def repo_exists(repo_id, repo_type=None):
 class HfApi:
     def upload_folder(self, *, folder_path, repo_id, repo_type, delete_patterns,
                       commit_message):
+        shutil.copytree(folder_path, os.environ["FAKE_UPLOADED"])
         print("UPLOADED", repo_id, commit_message)
         return "https://hub.invalid/" + repo_id
 '''
@@ -109,7 +115,7 @@ def recording_hub(tmp_path) -> Path:
 
 @pytest.fixture
 def passing_gate(tmp_path) -> Path:
-    """A ``PATH`` prefix whose ``uv`` answers the baseline gate green.
+    """A ``PATH`` prefix whose ``uv`` answers the baseline gate green, and PyPI.
 
     The one guard no bundle a test can build will ever clear honestly: the gate
     re-runs every case in ``baseline.CASES`` against the checked-in oracle, and
@@ -120,9 +126,15 @@ def passing_gate(tmp_path) -> Path:
     ``test_a_bundle_whose_graph_the_engine_will_not_open_is_refused`` runs the
     real one.
 
-    Only the gate is answered. Every other ``uv`` the script runs is handed to the
-    real one, because the script asks the package for its database filename and its
-    provenance judgement through ``uv run python`` and those must stay honest.
+    PyPI is the other boundary, and it sits past the gate, so it is answered here
+    too: the Space's install is resolved before anything is uploaded (issue #298).
+    The stand-in records what the resolver was asked, each file as it stood, and
+    refuses in the resolver's words when a test says the Space could not install it.
+
+    Only those two are answered. Every other ``uv`` the script runs is handed to
+    the real one, because the script asks the package for its database filename and
+    its provenance judgement through ``uv run python``, and writes the Space's
+    requirements with ``uv export``, and those must stay honest.
     """
     real_uv = shutil.which("uv")
     # Named here rather than left to become the string "None" inside the stub,
@@ -136,6 +148,12 @@ def passing_gate(tmp_path) -> Path:
     stub.write_text(
         '#!/bin/sh\n'
         'if [ "$2" = "graph7ph" ] && [ "$3" = "baseline" ]; then exit 0; fi\n'
+        'if [ "$1 $2" = "pip compile" ]; then\n'
+        '    for arg in "$@"; do printf "%s\\n" "$arg"; [ -f "$arg" ] && cat "$arg"; done'
+        ' >> "$FAKE_RESOLVED"\n'
+        '    [ -z "$FAKE_UNINSTALLABLE" ] || { echo "$FAKE_UNINSTALLABLE" >&2; exit 1; }\n'
+        '    exit 0\n'
+        'fi\n'
         f'exec "{real_uv}" "$@"\n'
     )
     stub.chmod(0o755)
@@ -143,7 +161,7 @@ def passing_gate(tmp_path) -> Path:
 
 
 def _deploy(
-    artifact: Path, no_hub: Path, *also: Path, changes: str = ""
+    artifact: Path, no_hub: Path, *also: Path, changes: str = "", uninstallable: str = ""
 ) -> subprocess.CompletedProcess:
     """Run the script as a caller standing outside the repo with a relative bundle.
 
@@ -162,6 +180,8 @@ def _deploy(
 
     ``changes`` is what the stand-in ``git`` reports as uncommitted, paths joined
     by ``|``. Empty, the default, is a checkout with nothing outstanding.
+    ``uninstallable`` is what the stand-in resolver refuses with; empty, it accepts.
+    What the stand-ins record lands beside them: see ``_recorded``.
     """
     return subprocess.run(
         [str(SCRIPT), "someone/some-space"],
@@ -173,10 +193,19 @@ def _deploy(
             "FAKE_CHANGES": changes,
             "FAKE_COMMIT": COMMIT,
             "REAL_GIT": shutil.which("git"),
+            "FAKE_UNINSTALLABLE": uninstallable,
+            "FAKE_UPLOADED": str(_recorded(no_hub) / "uploaded"),
+            "FAKE_RESOLVED": str(_recorded(no_hub) / "resolved.txt"),
         },
         capture_output=True,
         text=True,
     )
+
+
+def _recorded(hub: Path) -> Path:
+    """Where a run's stand-ins leave what they were handed: ``uploaded/`` is the
+    folder the Hub was given, ``resolved.txt`` what the resolver was asked."""
+    return hub.parent
 
 
 def _bundle(tmp_path) -> Path:
@@ -318,7 +347,8 @@ def test_a_settled_bundle_is_not_refused(tmp_path, no_hub, passing_gate):
     [
         "src/graph7ph/query.py",
         "app.py",
-        "requirements.txt",
+        "pyproject.toml",
+        "uv.lock",
         "deploy/README.md",
         "curation/pilots.toml",
     ],
@@ -364,6 +394,133 @@ def test_the_space_names_the_commit_its_code_came_from(
 
     assert result.returncode == 0, result.stderr
     assert f"UPLOADED someone/some-space Deploy {COMMIT}" in result.stdout
+
+
+def _runtime_packages() -> dict[str, str]:
+    """Every package the project needs at runtime, at its locked version: its own
+    dependencies and theirs, followed through uv.lock with the extras each one is
+    asked for. The dev group the suite runs on is not reached, and neither is the
+    project itself."""
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    locked = {package["name"]: package for package in lock["package"]}
+    wanted = list(locked["graph7ph"]["dependencies"])
+    reached = {}
+    followed = set()
+    while wanted:
+        dependency = wanted.pop()
+        package = locked[dependency["name"]]
+        reached[package["name"]] = package["version"]
+        # The package's own dependencies, then those of each extra asked for here,
+        # each followed once.
+        for extra in [None, *dependency.get("extra", [])]:
+            if (package["name"], extra) not in followed:
+                followed.add((package["name"], extra))
+                if extra is None:
+                    wanted += package.get("dependencies", [])
+                else:
+                    wanted += package["optional-dependencies"][extra]
+    return reached
+
+
+def test_the_space_installs_every_runtime_package_at_its_locked_version(
+    tmp_path, recording_hub, passing_gate
+):
+    # The Space resolves its requirements fresh from PyPI on every build, so a
+    # package left unpinned there is whatever was newest that day rather than what
+    # the suite ran on: 37 of 73 differed on 2026-11-15, while the file pinned five
+    # by hand (issue #298). Read off what the Hub was handed, because the
+    # requirements are written at deploy time rather than kept in the tree.
+    result = _deploy(_bundle(tmp_path), recording_hub, passing_gate)
+    assert result.returncode == 0, result.stderr
+
+    requirements = (_recorded(recording_hub) / "uploaded" / "requirements.txt").read_text()
+    lines = [
+        line.split(" ;")[0]
+        for line in requirements.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    # Pins only. A line naming the project itself fails the Space's build: it
+    # installs this file before the repo exists, so `.` is an empty directory there.
+    assert all("==" in line for line in lines)
+    assert dict(line.split("==") for line in lines) == _runtime_packages()
+
+
+# The resolver's words for a set the Space cannot install, as arena-insights' Space
+# build refused one on 2026-11-12 and mtgo-insights' suite records it.
+UNINSTALLABLE = (
+    "Because gradio[mcp]==6.22.0 depends on pydantic>=2.11.10,<=2.12.5 and you require"
+    " pydantic==2.13.4, we can conclude that your requirements and gradio[mcp]==6.22.0 are"
+    " incompatible."
+)
+
+
+def test_packages_the_space_could_not_install_are_refused_before_anything_is_uploaded(
+    tmp_path, recording_hub, passing_gate
+):
+    # The Space installs the requirements beside a line of its own, and its build
+    # refuses the lot when the two disagree. That refusal comes after the upload, so
+    # it leaves the site down until a build succeeds, which is how arena-insights'
+    # went down on 2026-11-12. Resolved here first, the same disagreement stops the
+    # deploy with the Space as it was.
+    result = _deploy(
+        _bundle(tmp_path), recording_hub, passing_gate, uninstallable=UNINSTALLABLE
+    )
+
+    assert result.returncode != 0
+    assert UNINSTALLABLE in result.stderr
+    assert "UPLOADED" not in result.stdout
+
+
+def test_the_install_is_resolved_as_the_space_runs_it(tmp_path, recording_hub, passing_gate):
+    # The requirements the deploy uploads, beside gradio with the Space's extras at
+    # the card's version, for the card's Python on the Space's Linux.
+    result = _deploy(_bundle(tmp_path), recording_hub, passing_gate)
+    assert result.returncode == 0, result.stderr
+
+    asked = (_recorded(recording_hub) / "resolved.txt").read_text().splitlines()
+    locked = tomllib.loads((ROOT / "uv.lock").read_text())
+    version = {package["name"]: package["version"] for package in locked["package"]}
+    uploaded = (
+        (_recorded(recording_hub) / "uploaded" / "requirements.txt").read_text().splitlines()
+    )
+
+    gradio = [line for line in asked if line.startswith("gradio[")]
+    assert gradio and gradio[0].endswith(f"]=={version['gradio']}")
+    assert platform.python_version() in asked
+    assert "x86_64-unknown-linux-gnu" in asked
+    assert set(uploaded) <= set(asked)
+
+
+def test_the_lock_resolves_the_gradio_extras_the_space_installs_beside_it(
+    tmp_path, recording_hub, passing_gate
+):
+    # The Space installs gradio with extras at the card's version on top of the
+    # requirements written from the lock, so the lock has to have resolved those
+    # extras too, or what they pull in is whatever was newest on the day of the
+    # build. The extras are read off the line the deploy resolves, which is its
+    # copy of the Space's, the one kept by hand.
+    result = _deploy(_bundle(tmp_path), recording_hub, passing_gate)
+    assert result.returncode == 0, result.stderr
+
+    asked = (_recorded(recording_hub) / "resolved.txt").read_text().splitlines()
+    (space_line,) = [line for line in asked if line.startswith("gradio[")]
+    space_extras = space_line[len("gradio["):space_line.index("]")].split(",")
+    locked = tomllib.loads((ROOT / "uv.lock").read_text())
+    project = next(p for p in locked["package"] if p["name"] == "graph7ph")
+    gradio = next(d for d in project["dependencies"] if d["name"] == "gradio")
+
+    assert set(space_extras) <= set(gradio.get("extra", []))
+
+
+def test_the_space_card_declares_the_gradio_this_tree_was_tested_against():
+    # The deploy writes the Space's requirements from the lock, but the Space card
+    # pins gradio a second time, as its SDK, and that copy is typed by hand. A card
+    # left behind a lock upgrade runs a gradio the tests never saw, so the agreement
+    # is held here rather than in a comment asking the next person to remember.
+    locked = tomllib.loads((ROOT / "uv.lock").read_text())
+    version = {package["name"]: package["version"] for package in locked["package"]}
+
+    assert f"sdk_version: {version['gradio']}" in (ROOT / "deploy" / "README.md").read_text()
 
 
 def test_the_suite_runs_on_the_interpreter_the_space_runs():

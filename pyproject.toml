@@ -25,7 +25,9 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "ladybug>=0.18,<0.19",
-    "gradio>=5,<6",
+    # The extras are the ones the Space installs gradio with, so the lock the Space's
+    # requirements are written from resolves the same set the Space does (issue #298).
+    "gradio[oauth,mcp]>=5,<6",
     "plotly>=5,<7",
     "pyvis>=0.3.2,<0.4",
     "pydantic>=2.9,<3",

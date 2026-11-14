@@ -1,8 +1,7 @@
-# Actions only. The Python packages are not bumped here: `requirements.txt` pins what
-# the Space installs by hand and has to move with `uv.lock` (a Ladybug release can change
-# the storage format, and gradio has to match the Space card's `sdk_version`), so a PR
-# that moved the lock alone would arrive green and leave the Space on other versions.
-# Security fixes for them are the job of Dependabot alerts, a repo setting.
+# Actions only. The Python packages are not bumped here: a gradio bump also needs the
+# Space card's `sdk_version` edited by hand (tests/test_deploy.py holds the two together),
+# so every such PR would arrive red. Security fixes for them are the job of Dependabot
+# alerts and security updates, repo settings.
 version: 2
 updates:
   - package-ecosystem: github-actions
