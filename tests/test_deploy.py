@@ -14,6 +14,7 @@ deploy path.
 """
 
 import os
+import platform
 import shutil
 import subprocess
 from contextlib import chdir
@@ -234,3 +235,15 @@ def test_a_settled_bundle_is_not_refused(tmp_path, no_hub, passing_gate):
     assert "uncheckpointed write-ahead log" not in result.stderr
     assert "Refusing to deploy" not in result.stderr
     assert "No Space at someone/some-space" in result.stderr
+
+
+def test_the_suite_runs_on_the_interpreter_the_space_runs():
+    # The Space card pins its Python exactly, and `.python-version` names the same
+    # one for uv, which is what picks the interpreter for CI and for a local run.
+    # Before that file the version was written a second time in the workflow, and a
+    # local run took whatever the venv had been built on, so nothing held the three
+    # together: a card bumped alone would leave a green run saying nothing about
+    # the Space.
+    card = (ROOT / "deploy" / "README.md").read_text()
+
+    assert f'python_version: "{platform.python_version()}"' in card
