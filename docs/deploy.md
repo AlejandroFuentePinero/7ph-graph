@@ -122,7 +122,7 @@ to the lock's gradio, and `python_version` to the interpreter in
 # or two), or upload a prebuilt data/graph bundle next to this notebook instead.
 !graph7ph fetch && graph7ph build
 
-from graph7ph.app import build_app
+from graph7ph.app import build_app, launch_kwargs
 from graph7ph.db import artifact_path
-build_app(artifact_path()).launch(share=True)
+build_app(artifact_path()).launch(share=True, **launch_kwargs())
 ```

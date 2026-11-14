@@ -150,6 +150,17 @@ def build_css() -> str:
 {root}
 }}
 
+/* Everything below is nested in this one block, which adds three pseudo-classes of
+   specificity to every rule in it and changes nothing else: `:root:root:root .x` matches
+   exactly what `.x` matches. Gradio 6 needs it. Its own component rules now outrank a
+   bare class from the app's stylesheet, so without the lift the page keeps the tokens
+   and loses the design: the title falls to Gradio's 26px, a card to Gradio's group
+   surface and radius, a plot gains Gradio's block border (issue #307). Lifted once
+   here rather than with `!important` on each declaration, so a rule added later is
+   lifted with the rest and none can be forgotten. The tokens stay outside, on a plain
+   `:root`, and so do the `@font-face` rules, which cannot be nested. */
+:root:root:root {{
+
 .gradio-container {{ font-family: {FONT_STACK}; }}
 
 /* §3 type system. Titles take the display serif; body, ledes, captions, labels and
@@ -178,7 +189,10 @@ def build_css() -> str:
 .t-lede, .t-lede .prose p {{
   font-size: 17px; font-weight: 400; line-height: 1.5; color: var(--text-dim);
 }}
-.prose p, .prose li, .t-body {{ font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text); }}
+/* `.info-text` is a control's help line. Gradio 5 drew it as Markdown, so it took the
+   body role through `.prose p`; Gradio 6 draws it as a plain div of its own, which
+   would otherwise fall to Gradio's small muted caption. */
+.prose p, .prose li, .t-body, .info-text {{ font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text); }}
 .t-caption {{ font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--text-mute); }}
 /* State message (#114): the one on-theme surface for every state with nothing (or not
    yet) to draw (nothing picked, empty result, a refused trend, too-large-to-draw). It
@@ -213,6 +227,8 @@ def build_css() -> str:
 /* Reading measure: bound prose, not the widgets, so paragraphs stay legible on a
    wide monitor while controls and charts still fill their space. */
 .prose p, .prose li, .t-lede, .t-body {{ max-width: {MEASURE_CH}ch; }}
+/* The help line again, which had the measure through `.prose p` while it was Markdown. */
+.info-text {{ max-width: {MEASURE_CH}ch; }}
 
 /* The FAQ tab is the one place the reading measure is dropped: its boxes are full-width,
    one per row, and the answer runs the width of its box. A measure-bound paragraph in a
@@ -257,14 +273,40 @@ def build_css() -> str:
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 1rem 1.25rem 1.25rem; margin-bottom: 1.25rem;
 }}
-/* Every block inside the card, at any depth: Gradio nests a component's block as deep as
-   it likes, and the two levels this used to name left the heading and the FAQ prose
-   sitting on a lighter inner slab, a card drawn inside a card. `.styler` is the wrapper
-   a `gr.Group` puts around its children; it fills itself with the block *border* colour
-   so that a 1px gap between grouped children reads as a divider, which over a card of
-   our own is one more inner surface. The card is the only surface it needs. */
+/* Gradio 6 draws a `gr.Group` as two nested elements and puts `elem_classes` on both,
+   where Gradio 5 put them on one. Left alone, every surface the app gives a group (a
+   card, a control panel, the privacy note) is drawn twice, one inside the other, with
+   its padding and edge doubled. The inner copy is flattened, for any group and any
+   class, so the outer element is the one surface, as it was. */
+.gr-group > .gr-group {{
+  background: transparent; border: 0; border-radius: 0; box-shadow: none;
+  padding: 0; margin: 0;
+}}
+/* A `gr.HTML` is padded when its `padding` argument says so, and only then, as in
+   Gradio 5. Gradio 6 pads the container inside the block whatever the argument says,
+   which pushes every heading the app sets flush (`padding=False`) off its line. What
+   the argument still does is mark the block `.padded`, so the container's padding is
+   put back on exactly those. */
+.html-container {{ padding: 0; }}
+.block.padded > .html-container {{ padding: var(--block-padding); }}
+/* The one `gr.HTML` that is itself a card (the gem view): Gradio gives `elem_classes`
+   to the block and to the content inside it, so it has always drawn as a bordered card
+   inset in a surface of the same colour. Kept as Gradio 5 drew it, where the outer
+   block took no edge of its own. */
+.block.insight-card {{ border: 0; }}
+/* A link in a `gr.HTML` is text in its line. Gradio 6 pads every one as if it were a
+   button, which opens a gap either side of the address in the footer. */
+.gradio-style a {{ padding: 0; }}
+/* The radio and checkbox marks take their edge from the theme, where it is the input's
+   border width (none). Gradio 6 resets both to a 1px edge in a rule that outranks the
+   component's own, which drew an outline round every unselected mark. */
+[type="checkbox"], [type="radio"] {{ border-width: var(--checkbox-border-width); }}
+/* `border: 0`, not `border: none`: Gradio 6 writes `border-style: solid` on a block's
+   own style attribute, which no stylesheet rule outranks, so a rule that only removes
+   the style leaves the width at the shorthand's `medium` and the block draws a 3px
+   frame in the text colour. A width of zero draws nothing whatever the style. */
 .insight-card .block, .insight-card .form, .insight-card .styler {{
-  background: transparent; border: none; box-shadow: none;
+  background: transparent; border: 0; box-shadow: none;
 }}
 .insight-card .t-result-title {{ margin-bottom: 0.1rem; }}
 /* The plot's subtitle, under its title inside the card: it names what the plot is
@@ -284,7 +326,9 @@ def build_css() -> str:
    The swatch is the tie back to the chart: a drawn contender's row is dotted in the hue
    their line takes, and a row past the eighth keeps the same indent with no dot, so the
    names stay in one column rather than stepping in and out of it. */
-.leaderboard {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+/* `margin-top` and `padding` are zeroed because Gradio 6 gives a table in an HTML block
+   both, which Gradio 5 did not. */
+.leaderboard {{ width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 0; padding: 0; }}
 .leaderboard th {{
   padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border);
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
@@ -321,7 +365,7 @@ def build_css() -> str:
    in the control's help text, not a row of duplicated "nothing yet" cards), shown once
    a Draw fills it. It is a bare container: no surface of its own, so only the cards
    inside it read as objects. */
-.results-stack {{ background: transparent; border: none; box-shadow: none; padding: 0; }}
+.results-stack {{ background: transparent; border: 0; box-shadow: none; padding: 0; }}
 
 /* §13 control panel: the controls for a view read as one raised input surface, one
    step lighter than the cards below so it reads as more prominent, obviously the
@@ -481,6 +525,8 @@ footer {{ display: none !important; }}
 }}
 .provenance .coverage b {{ color: var(--text); font-weight: 650; }}
 .provenance .t-caption {{ color: var(--text-mute); }}
+
+}}
 """
 
 
