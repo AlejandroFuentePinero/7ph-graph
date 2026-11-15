@@ -27,6 +27,7 @@ from graph7ph.query import (
     hidden_gems_subgraph,
     land_cards,
     pilot_affinity_subgraph,
+    pilot_record,
     pilot_subgraph,
     run_query,
 )
@@ -1828,3 +1829,37 @@ def test_the_lands_are_named_whether_or_not_a_deck_runs_them(tmp_path, built_gra
     conn = built_graph(tmp_path, tmp_path)
 
     assert land_cards(conn) == {"island", "unplayed land"}
+
+
+def test_a_pilots_record_is_every_result_newest_first(tmp_path, snapshot_dir, built_graph):
+    # Issue #329: the record table's rows. Each is one deck at one event, with what a
+    # reader asks of a result: where, when, on what, how it finished and in what
+    # field, and which list. Read off the fixture's own decks.json.
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    record = pilot_record(conn, "Jordan C")
+
+    assert [(r.event, r.archetype, r.placement, r.field_size, r.deck_id) for r in record] == [
+        ("CFWAT25", "Grixis", 5, 19, "BsegXnsDsEWxh-vNbUrn0w"),
+        ("PogNov25", "Grixis", 12, 31, "pkUbzmgN3UeqaWdYQYRgRg"),
+    ]
+    assert [r.date.date().isoformat() for r in record] == ["2025-12-06", "2025-12-01"]
+    # The source counted both finishes and both fields, so neither is marked as ours.
+    assert all(r.placement_imputed is None and r.field_imputed is None for r in record)
+
+
+def test_a_result_is_dated_by_its_events_first_registration(tmp_path, snapshot_dir, built_graph):
+    # One date per event, the earliest registration across its whole field (ADR 0013),
+    # so two pilots at one event are dated alike and the table agrees with the
+    # head-to-head's axis. Tom S registered at 05:41, eight minutes after Jordan C.
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    (tom,) = pilot_record(conn, "AmberTealViper")
+    jordan = next(r for r in pilot_record(conn, "Jordan C") if r.event == "PogNov25")
+
+    assert tom.date == jordan.date
+    assert (tom.date.hour, tom.date.minute) == (5, 33)
+
+
+def test_an_unknown_pilot_has_no_record(tmp_path, snapshot_dir, built_graph):
+    assert pilot_record(built_graph(tmp_path, snapshot_dir), "nobody") == []

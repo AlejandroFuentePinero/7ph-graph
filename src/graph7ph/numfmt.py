@@ -28,6 +28,24 @@ def share(fraction: float) -> str:
     return f"{pct}%"
 
 
+def share_change(now: float, before: float) -> str:
+    """How far a share moved, signed, in the form the shares take:
+    ``share_change(0.3412, 0.3181)`` -> ``"+2.31%"``.
+
+    The difference of the two shares as :func:`share` writes them, not of the
+    fractions behind them, so the three numbers a reader sees add up: 31.82% and
+    +2.3% make 34.12%, where the unrounded gap would print +2.31%. Read beside the
+    share it started from, so it reads as the points between two shares and not as a
+    rate of growth. No movement at that precision is ``"0%"`` with no sign, since a
+    signed nothing claims a direction.
+    """
+    moved = round(now * 100, 2) - round(before * 100, 2)
+    written = share(abs(moved) / 100)
+    if written == share(0):
+        return written
+    return ("+" if moved > 0 else "\u2212") + written
+
+
 def count_of(
     count: int,
     total: int,

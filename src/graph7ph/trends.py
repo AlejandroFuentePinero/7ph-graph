@@ -699,6 +699,14 @@ class CardAdoptionOverTime:
 
 
 @dataclass(frozen=True)
+class PairAdoptionOverTime:
+    """Spec for :func:`pair_adoption_over_time`; takes two cards' ``canon``."""
+
+    a: str
+    b: str
+
+
+@dataclass(frozen=True)
 class PilotPerformanceOverTime:
     """Spec for :func:`pilot_performance_over_time`; takes a pilot's ``pilot`` key."""
 
@@ -739,7 +747,8 @@ class ArchetypeTimeline:
 
 
 SeriesSpec = (
-    MetaShareOverTime | CardAdoptionOverTime | PilotPerformanceOverTime
+    MetaShareOverTime | CardAdoptionOverTime | PairAdoptionOverTime
+    | PilotPerformanceOverTime
     | HeadToHeadTimeline | ArchetypeLandscape | ArchetypeTimeline | PlayerLeaderboard
 )
 
@@ -1310,14 +1319,35 @@ def card_adoption_over_time(
            RETURN y.year, count(DISTINCT d)""",
         params,
     )))
-    year_total = _year_totals(conn)
-    cells = []
-    for year, total in sorted(year_total.items()):
-        count = adoption.get(year, 0)
-        cells.append(
-            AdoptionCell(year=year, count=count, share=count / total, year_total=total)
-        )
-    return Series(cells=cells)
+    return _adoption_series(conn, adoption)
+
+
+def _adoption_series(conn: ladybug.Connection, adoption: dict[int, int]) -> Series:
+    """Per-year deck counts as an adoption series: a cell for every year in the
+    graph, a year with no count a real zero, each with its year's total decks."""
+    return Series(cells=[
+        AdoptionCell(year=year, count=adoption.get(year, 0),
+                     share=adoption.get(year, 0) / total, year_total=total)
+        for year, total in sorted(_year_totals(conn).items())
+    ])
+
+
+def pair_adoption_over_time(conn: ladybug.Connection, a: str, b: str) -> Series:
+    """Two cards' adoption together per year: the decks running both, their share of
+    the year, and the year base (issue #329).
+
+    The same shape and the same reading as :func:`card_adoption_over_time`: a direct
+    observation with no floor, a cell for every year in the graph, and a year no
+    deck ran both a real zero. A deck runs both when each card is in it on either
+    board, the deck-level membership the two-card co-occurrence view counts its hub
+    by (``query._shared_deck_cooccurrence``), so the counts here sum to that hub.
+    """
+    return _adoption_series(conn, dict(rows(conn.execute(
+        """MATCH (:Card {canon: $a})<-[:CONTAINS]-(d:Deck)-[:CONTAINS]->(:Card {canon: $b})
+           MATCH (d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year)
+           RETURN y.year, count(DISTINCT d)""",
+        {"a": a, "b": b},
+    ))))
 
 
 def _cut_only_events(conn: ladybug.Connection) -> list[str]:
@@ -2010,6 +2040,8 @@ def run_series(conn: ladybug.Connection, spec: SeriesSpec) -> Series:
             return meta_share_over_time(conn)
         case CardAdoptionOverTime(canon, board):
             return card_adoption_over_time(conn, canon, board)
+        case PairAdoptionOverTime(a, b):
+            return pair_adoption_over_time(conn, a, b)
         case PilotPerformanceOverTime(pilot):
             return pilot_performance_over_time(conn, pilot)
         case HeadToHeadTimeline(a, b):

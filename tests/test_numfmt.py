@@ -1,5 +1,6 @@
 """The one numeric convention (v1 visual direction §4), tested on its strings."""
 
+from graph7ph import numfmt
 from graph7ph.numfmt import count_of, score, share
 
 
@@ -66,3 +67,18 @@ def test_score_drops_the_sense_where_the_reader_is_already_told_it():
     # module exists to prevent. The value is unchanged, only the parenthetical goes.
     assert score(0.62, sense=False) == "0.62"
     assert score(0.617, places=3, sense=False) == "0.617"
+
+
+def test_a_change_in_a_share_is_signed_and_written_as_the_share_is():
+    # Issue #329: a card's adoption against last year's. The difference of two
+    # shares, in the form the shares themselves take, so 31.81% up to 34.12% reads
+    # +2.31%. The sign is always there, since the direction is the figure.
+    assert numfmt.share_change(0.3412, 0.3181) == "+2.31%"
+    assert numfmt.share_change(0.05, 0.054) == "\u22120.4%"
+    assert numfmt.share_change(0.2, 0.2) == "0%"
+    # Too small to write is no change, not a signed nothing.
+    assert numfmt.share_change(0.20001, 0.2) == "0%"
+    # The difference of the two shares as they are written: 34.1249% and 31.8151%
+    # read 34.12% and 31.82%, which are 2.30 apart, where the fractions are 2.3098
+    # apart and would print +2.31% beside two numbers a reader can subtract.
+    assert numfmt.share_change(0.341249, 0.318151) == "+2.3%"

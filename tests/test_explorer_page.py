@@ -230,7 +230,7 @@ def test_the_standings_and_the_gems_draw_no_table_frame_on_the_real_record(chrom
         for tab in ("Player leaderboard", "Hidden gems"):
             shots.tab(page, tab)
             table = page.evaluate(
-                "() => { const table = " + _OPEN_TAB + """.querySelector('table.leaderboard');
+                "() => { const table = " + _OPEN_TAB + """.querySelector('table.data-table');
                      const cells = [...table.querySelectorAll('th, td')];
                      const width = (el, side) => getComputedStyle(el)['border' + side + 'Width'];
                      return {
@@ -661,7 +661,7 @@ def test_picking_a_card_draws_it_with_no_button_press(page):
     shots.pick(page, "Card", CARD)
 
     _results_on_show(page).first.wait_for(timeout=20_000)
-    assert page.locator(".subject-line").locator("visible=true").inner_text() == f"Card {CARD}"
+    assert page.locator(".page-name").locator("visible=true").inner_text() == CARD
 
 
 def test_picking_a_pilot_draws_it_with_no_button_press(page):
@@ -673,7 +673,7 @@ def test_picking_a_pilot_draws_it_with_no_button_press(page):
     shots.pick(page, "Pilot", PILOT)
 
     _results_on_show(page).first.wait_for(timeout=20_000)
-    assert page.locator(".subject-line").locator("visible=true").inner_text() == f"Pilot {PILOT}"
+    assert page.locator(".page-name").locator("visible=true").inner_text() == PILOT
 
 
 def _chips(page) -> dict[str, list[str]]:
@@ -723,16 +723,16 @@ def test_the_small_options_are_chips_and_a_chip_redraws(page):
     assert _dropdown_labels(page) == ["Card"]
 
     # With no button, a chip has to redraw what it changes: a filter, then the view.
-    captions = page.locator(".results-stack .t-caption").locator("visible=true")
+    captions = page.locator(".results-stack .caption").locator("visible=true")
     shots.pick(page, "Card", CARD)
     _results_on_show(page).first.wait_for(timeout=20_000)
     shots.chip(page, "Board", "Side")
-    captions.filter(has_text="Side board").wait_for(timeout=20_000)
+    captions.filter(has_text="on the side board").first.wait_for(timeout=20_000)
     shots.chip(page, "View", "Co-occurrence")
     page.locator(".results-stack .t-result-title", has_text="Co-occurrence").locator(
         "visible=true").wait_for(timeout=20_000)
     shots.chip(page, "Cards to show", "5")
-    captions.filter(has_text="top 5").wait_for(timeout=20_000)
+    captions.filter(has_text="The 5 cards").wait_for(timeout=20_000)
     assert _chips(page) == {
         "View": ["Card overview", "Co-occurrence"],
         "Cards to show": ["5", "15", "25"],
@@ -832,9 +832,7 @@ def test_cards_opens_on_examples_that_draw_in_one_click_and_pilots_offers_none(p
 
     _example_chips(page).first.click()
     _results_on_show(page).first.wait_for(timeout=20_000)
-    assert page.locator(".subject-line").locator("visible=true").inner_text() == (
-        f"Card {names[0]}"
-    )
+    assert page.locator(".page-name").locator("visible=true").inner_text() == names[0]
     assert shots.field(page, "Card").input_value() == names[0]
     # An invitation to a first pick, so it leaves once there is one, and is back
     # when the card is cleared.
@@ -1032,7 +1030,7 @@ def test_a_pick_brings_its_result_into_view(page):
     focus = _card_titled(page, "Selected archetypes")
     assert _in_view(page, _settled_top(page, focus))
 
-    subject = page.locator(".view-body", has=page.locator(".subject-line")).locator(
+    subject = page.locator(".view-body", has=page.locator(".page-head")).locator(
         "visible=true").first
     shots.tab(page, "Cards")
     shots.pick(page, "Card", CARD)
@@ -1077,7 +1075,7 @@ def test_a_result_brought_into_view_on_a_phone_leaves_its_controls_on_screen(
     try:
         shots.tab(page, "Cards")
         shots.pick(page, "Card", CARD)
-        result = page.locator(".view-body", has=page.locator(".subject-line")).locator(
+        result = page.locator(".view-body", has=page.locator(".page-head")).locator(
             "visible=true").first
         top = _settled_top(page, result)
         in_view, moved = _in_view(page, top), page.evaluate("() => window.scrollY")
@@ -1148,3 +1146,275 @@ def test_what_sits_on_the_control_panel_is_legible_there(page, tab):
     assert contrast_ratio(_over(label, panel), _over(panel, panel)) >= 4.5
     # The clear button's fill is a tint, so its ground is that tint over the panel.
     assert contrast_ratio(_over(clear, panel), _over(clear_fill, panel)) >= 4.5
+
+
+# --- The pilot and card pages (issue #329) ---
+
+
+# What the open tab draws from the top down: the page head's three parts, then each
+# card by its title.
+_PAGE_FROM_THE_TOP = "() => { const open = " + _OPEN_TAB + """;
+    const shown = el => el.getBoundingClientRect().height > 0;
+    const parts = [...open.querySelectorAll(
+      '.page-name, .page-descriptor, .tiles, .insight-card .t-result-title')].filter(shown);
+    return {
+      order: parts.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+        .map(el => el.classList.contains('t-result-title') ? el.innerText : el.className),
+      tiles: [...open.querySelectorAll('.tile')].filter(shown).length,
+      face: getComputedStyle(open.querySelector('.page-name')).fontFamily,
+      rows: [...open.querySelectorAll('table.data-table')].filter(shown)
+        .map(table => table.querySelectorAll('tbody tr').length),
+    }; }"""
+
+_HEAD = ["page-name", "page-descriptor", "tiles"]
+
+
+def _display_face(read: dict) -> bool:
+    return read["face"].strip("'\"").startswith(FONTS["display"]["family"])
+
+
+def test_a_drawn_pilot_page_runs_head_then_graphs_then_record(page):
+    # Issue #329: a pilot's page was graphs first with no table. It opens with the
+    # name in the display face, a descriptor and four tiles, and closes with the
+    # whole record. The suite's pilot has no year to average, so no chart is drawn.
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    _results_on_show(page).first.wait_for(timeout=20_000)
+
+    read = page.evaluate(_PAGE_FROM_THE_TOP)
+
+    assert read["order"] == [*_HEAD, "Neighbourhood", "Archetype affinity", "Record"]
+    assert read["tiles"] == 4 and _display_face(read)
+    assert read["rows"] == [2]  # the pilot's two results
+
+
+def test_a_drawn_pilot_page_puts_the_record_after_the_chart_on_the_real_record(
+    chromium, record
+):
+    page = _loaded(chromium, record)
+    try:
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", shots.PILOT)
+        _card_titled(page, "Performance over time").wait_for(timeout=30_000)
+        read = page.evaluate(_PAGE_FROM_THE_TOP)
+    finally:
+        page.close()
+
+    assert read["order"] == [*_HEAD, "Neighbourhood", "Archetype affinity",
+                             "Performance over time", "Record"]
+    assert read["tiles"] == 4 and read["rows"][0] > 2
+
+
+def test_a_drawn_card_page_opens_with_its_head_and_carries_a_list_on_each_view(page):
+    # Issue #329: the usage graph's archetypes as a table grouped by broad class, and
+    # on the co-occurrence view the cards drawn beside the subject, ranked.
+    shots.tab(page, "Cards")
+    shots.pick(page, "Card", CARD)
+    _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+    overview = page.evaluate(_PAGE_FROM_THE_TOP)
+
+    shots.chip(page, "View", "Co-occurrence")
+    _card_titled(page, "Played with").wait_for(timeout=20_000)
+    cooccurrence = page.evaluate(_PAGE_FROM_THE_TOP)
+
+    assert overview["order"] == [*_HEAD, "Usage", "Adoption over time", "Archetypes"]
+    assert overview["tiles"] == 4 and _display_face(overview)
+    # Brainstorm is in all three decks: two broad classes, each heading one archetype.
+    assert overview["rows"] == [4]
+    assert cooccurrence["order"] == [
+        *_HEAD, "Co-occurrence", "Adoption over time", "Played with"]
+    assert cooccurrence["tiles"] == 4 and cooccurrence["rows"] == [15]
+
+
+# Every table on show on the open tab: how far it runs past the inside of its card
+# (in CSS pixels, 0 where it fits), and how its rows and numbers are set.
+_TABLES = "(accent) => { const open = " + _OPEN_TAB + """;
+    return [...open.querySelectorAll('table.data-table')]
+      .filter(table => table.getBoundingClientRect().height > 0).map(table => {
+        const card = table.closest('.insight-card');
+        const box = card.getBoundingClientRect(), style = getComputedStyle(card);
+        const inside = {
+          left: box.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth),
+          right: box.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
+        };
+        const rect = table.getBoundingClientRect();
+        const set = (els, property) => [...new Set(els.map(el => getComputedStyle(el)[property]))];
+        const numbers = [...table.querySelectorAll('.num')];
+        return {
+          past: Math.max(0, rect.right - inside.right, inside.left - rect.left),
+          fills: set([...table.querySelectorAll('tr, th, td')], 'backgroundColor'),
+          numbers: numbers.length,
+          aligned: set(numbers, 'textAlign'),
+          figures: set(numbers, 'fontVariantNumeric'),
+          // What is drawn in the accent, by tag: only a link may be.
+          accented: [...new Set([...table.querySelectorAll('*')]
+            .filter(el => accent.includes(getComputedStyle(el).color))
+            .map(el => el.tagName.toLowerCase()))],
+        }; }); }"""
+
+_ACCENTS = [_rgb(TOKENS["accent"]), _rgb(TOKENS["accent-bright"])]
+
+
+def _sideways_scroll(page) -> int:
+    return page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
+
+
+def _assert_tables_fit_and_are_plain(page, where: str) -> None:
+    tables = page.evaluate(_TABLES, _ACCENTS)
+    assert tables, where
+    for table in tables:
+        assert table["past"] <= 0.5, (where, table)
+        # Hairline rows only: no row, header or cell is filled.
+        assert table["fills"] == ["rgba(0, 0, 0, 0)"], (where, table)
+        assert table["numbers"] > 0, where
+        assert table["aligned"] == ["right"], (where, table)
+        assert table["figures"] == ["tabular-nums"], (where, table)
+        assert set(table["accented"]) <= {"a"}, (where, table)
+    assert _sideways_scroll(page) <= 0, where
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_no_table_runs_past_its_card_and_each_is_hairline_rows_and_set_numbers(
+    chromium, explorer, width
+):
+    # Issue #329: one table for every page, which fits a phone. Text breaks wherever
+    # it must and a number never does, so a table is as wide as its card and no wider.
+    page = _loaded(chromium, explorer, width)
+    try:
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", PILOT)
+        _card_titled(page, "Record").wait_for(timeout=20_000)
+        _assert_tables_fit_and_are_plain(page, "Pilots")
+
+        shots.tab(page, "Cards")
+        shots.pick(page, "Card", CARD)
+        _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+        _assert_tables_fit_and_are_plain(page, "Cards, overview")
+        shots.chip(page, "View", "Co-occurrence")
+        _card_titled(page, "Played with").wait_for(timeout=20_000)
+        _assert_tables_fit_and_are_plain(page, "Cards, co-occurrence")
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_no_table_runs_past_its_card_on_any_tab_of_the_real_record(chromium, record, width):
+    # The tables the suite's snapshot cannot fill or draw at all. At 390px the
+    # standings were 306px wide in a 284px card and the gems table ran 125 to 157px
+    # past its card (#314); a pilot's record here runs to dozens of events with names
+    # as long as TabernacleGamesHighlanderChampionship2023, and a staple card's
+    # archetypes to over a hundred rows.
+    page = _loaded(chromium, record, width)
+    try:
+        for tab in ("Hidden gems", "Player leaderboard"):
+            shots.tab(page, tab)
+            shots.wait(page, 500)
+            _assert_tables_fit_and_are_plain(page, tab)
+
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", shots.PILOT)
+        _card_titled(page, "Record").wait_for(timeout=30_000)
+        _assert_tables_fit_and_are_plain(page, "Pilots")
+
+        shots.tab(page, "Cards")
+        shots.pick(page, "Card", shots.CARD_B)
+        _card_titled(page, "Archetypes").wait_for(timeout=30_000)
+        _assert_tables_fit_and_are_plain(page, "Cards, overview")
+        shots.chip(page, "View", "Co-occurrence")
+        _card_titled(page, "Played with").wait_for(timeout=30_000)
+        _assert_tables_fit_and_are_plain(page, "Cards, co-occurrence")
+    finally:
+        page.close()
+
+
+# Every caption on show on the open tab: its colour, how many figures it sets apart,
+# and whether any card still carries a caption in one of the two older roles.
+_CAPTIONS = "() => { const open = " + _OPEN_TAB + """;
+    const shown = el => el.getBoundingClientRect().height > 0;
+    return {
+      captions: [...open.querySelectorAll('.caption')].filter(shown).map(el => ({
+        said: el.innerText, colour: getComputedStyle(el).color,
+        figures: el.querySelectorAll('.figure').length,
+      })),
+      older: [...open.querySelectorAll('.insight-card .t-caption, .insight-card .t-fieldstat')]
+        .filter(shown).map(el => el.innerText),
+    }; }"""
+
+
+def test_a_caption_on_the_pilot_and_card_pages_is_text_with_at_most_one_figure(page):
+    # The caption rule (#329): a caption was set in the accent, the colour of what can
+    # be clicked. It is ordinary text in the text colour, with at most one figure
+    # set apart, on every card of both tabs.
+    read = []
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    _card_titled(page, "Record").wait_for(timeout=20_000)
+    read.append(page.evaluate(_CAPTIONS))
+    shots.tab(page, "Cards")
+    shots.pick(page, "Card", CARD)
+    _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+    read.append(page.evaluate(_CAPTIONS))
+    shots.chip(page, "View", "Co-occurrence")
+    _card_titled(page, "Played with").wait_for(timeout=20_000)
+    read.append(page.evaluate(_CAPTIONS))
+
+    for view in read:
+        assert len(view["captions"]) >= 2
+        assert view["older"] == []
+        for caption in view["captions"]:
+            assert caption["colour"] == _rgb(TOKENS["text"]), caption
+            assert caption["figures"] <= 1, caption
+            assert "·" not in caption["said"] and "node" not in caption["said"], caption
+
+
+# How far the first card of a drawn page starts below its tiles, and how a table's
+# group heading is set beside the rows under it.
+_HEAD_GAP = "() => { const open = " + _OPEN_TAB + """;
+    const shown = el => el.getBoundingClientRect().height > 0;
+    const tiles = [...open.querySelectorAll('.tiles')].find(shown);
+    const card = [...open.querySelectorAll('.results-stack .insight-card')].find(shown);
+    return card.getBoundingClientRect().top - tiles.getBoundingClientRect().bottom; }"""
+
+
+@pytest.mark.parametrize("width", ["phone", "desktop"])
+def test_the_tiles_stand_clear_of_the_first_card(chromium, explorer, width):
+    # After the maintainer's look (#329): the tiles sat 2px over the first graph's
+    # card, as one block. They stand apart from it by at least the space that parts
+    # one card from the next.
+    page = _loaded(chromium, explorer, width)
+    try:
+        gaps = {}
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", PILOT)
+        _card_titled(page, "Record").wait_for(timeout=20_000)
+        gaps["Pilots"] = page.evaluate(_HEAD_GAP)
+        shots.tab(page, "Cards")
+        shots.pick(page, "Card", CARD)
+        _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+        gaps["Cards"] = page.evaluate(_HEAD_GAP)
+    finally:
+        page.close()
+
+    assert all(gap >= 20 for gap in gaps.values()), gaps
+
+
+def test_a_tables_group_heading_reads_as_a_heading_not_as_a_row(page):
+    # After the maintainer's look (#329): a broad class over its archetypes, or an
+    # archetype over its gems, was set like the rows under it and read as one more
+    # row. It takes the display face the app's titles are in, a size up from a row.
+    shots.tab(page, "Cards")
+    shots.pick(page, "Card", CARD)
+    _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+
+    set_as = page.evaluate(
+        "() => { const open = " + _OPEN_TAB + """;
+             const of = sel => { const s = getComputedStyle(open.querySelector(sel));
+               return [s.fontFamily.split(',')[0].replace(/['"]/g, ''), parseFloat(s.fontSize)]; };
+             return { heading: of('table.data-table .group th'),
+                      row: of('table.data-table tr:not(.group) td') }; }"""
+    )
+
+    assert set_as["heading"][0] == FONTS["display"]["family"]
+    assert set_as["row"][0] == FONTS["body"]["family"]
+    assert set_as["heading"][1] > set_as["row"][1]

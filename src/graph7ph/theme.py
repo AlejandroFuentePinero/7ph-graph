@@ -114,9 +114,9 @@ def contrast_ratio(fg: str, bg: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-# The highlighted figure in a field-standing line (`.t-fieldstat .pct`), taken from the
-# shared categorical set rather than named again here, so the number the eye lands on is
-# the same blue the charts draw a series in.
+# The highlighted figure in a caption (`.caption .figure`) and in a field-standing line
+# (`.t-fieldstat .pct`), taken from the shared categorical set rather than named again
+# here, so the number the eye lands on is the same blue the charts draw a series in.
 FIGURE_BLUE = palette.CATEGORICAL[0]
 
 
@@ -283,7 +283,7 @@ def build_css() -> str:
 /* Control label (§3). Size, weight and colour ride Gradio's own theme vars (set in
    `dark_theme`); the uppercase and tracking, which those vars cannot carry, land on
    the field-title span here. `.t-control-label` is the standalone utility. */
-.t-control-label {{
+.t-control-label, .tile-label {{
   font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-mute);
 }}
 .gradio-container span[data-testid="block-info"] {{ letter-spacing: 0.06em; text-transform: uppercase; }}
@@ -375,52 +375,102 @@ def build_css() -> str:
    subtitle should not change colour with which of the two a plot happens to use. */
 .insight-card .t-caption, .insight-card .t-fieldstat {{ color: var(--accent-bright); }}
 
-/* The player leaderboard's standings, the one table the app draws (#135). It sits inside
-   an insight card, so it carries no surface or border of its own: the rules between rows
-   are the card's own hairline token and the header is set in the control-label role, so
-   the table reads as part of the card rather than as an embedded spreadsheet. Figures are
-   tabular and right-aligned, since the whole point of the column is comparing thousandths
-   down it; the rank stays muted because the name is what a reader is scanning for.
-   The swatch is the tie back to the chart: a drawn contender's row is dotted in the hue
-   their line takes, and a row past the eighth keeps the same indent with no dot, so the
-   names stay in one column rather than stepping in and out of it. */
-/* `margin-top` and `padding` are zeroed because Gradio 6 gives a table in an HTML block
-   both, which Gradio 5 did not. It also frames the table, every row and every cell
-   with a 1px line in the text colour, which showed as a light rule either side of each
-   cell and a box round the table. All of it is cleared first, so the one line a cell
-   draws is the hairline under it that the rules below put back (issue #324). */
-.leaderboard {{ width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 0; padding: 0; }}
-.leaderboard, .leaderboard tr, .leaderboard th, .leaderboard td {{ border: 0; }}
-.leaderboard th {{
-  padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border);
+/* The parts every page shares (#329, `graph7ph.parts`): the page head with its
+   tiles, the caption, and the one table.
+
+   A subject's page opens with its name in the display face, a one-line descriptor
+   and four tiles. A tile is a small card: what the figure is in the control-label
+   role (`.tile-label`, set with `.t-control-label` above), the figure in the display
+   face, and a quiet note under it. Four across, two across at 640px and under. */
+/* The space under the tiles is padding and not a margin: the block Gradio sets the
+   head in is as tall as its content box, so a bottom margin fell outside it and the
+   tiles sat 1px over the first card. A step more than the gap between two cards, so
+   the head reads apart from the stack under it. */
+.page-head {{ margin-top: 0.25rem; padding-bottom: 1.5rem; }}
+.page-name {{
+  font-family: {DISPLAY_STACK}; font-size: 30px; font-weight: 600; letter-spacing: -0.01em;
+  line-height: 1.15; color: var(--text); margin: 0;
+}}
+.page-descriptor {{ font-size: 15px; line-height: 1.5; color: var(--text-dim); margin: 0.2rem 0 0.9rem; }}
+.tiles {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }}
+.tile {{
+  min-width: 0; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 0.7rem 1rem 0.8rem;
+}}
+.tile-value {{
+  font-family: {DISPLAY_STACK}; font-size: 26px; font-weight: 600; line-height: 1.2;
+  color: var(--text); margin-top: 0.15rem; overflow-wrap: anywhere;
+}}
+.tile-note {{ font-size: 13px; line-height: 1.4; color: var(--text-mute); }}
+
+/* The caption rule (#329): a caption is ordinary text in the text colour, and never
+   in the accent, which is kept for what can be clicked. At most one figure in it is
+   set apart, in the blue the charts draw with (§5). */
+.caption {{ font-size: 14px; font-weight: 400; line-height: 1.5; color: var(--text); }}
+.caption .figure {{ color: {FIGURE_BLUE}; font-weight: 650; font-variant-numeric: tabular-nums; }}
+
+/* The one table. It sits inside a card, so it carries no surface or frame of its
+   own: a hairline under each row in the card's border token and nothing else, the
+   header in the control-label role, and numbers right-aligned in tabular figures so
+   a column of them reads down. Text breaks wherever it must, so a table is never
+   wider than the card it is in; a number never breaks.
+   `margin-top` and `padding` are zeroed because Gradio 6 gives a table in an HTML
+   block both. It also frames the table, every row and every cell with a 1px line in
+   the text colour, all cleared first so the one line a cell draws is the hairline
+   under it (issue #324). */
+.data-table {{ width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 0; padding: 0; }}
+.data-table, .data-table tr, .data-table th, .data-table td {{ border: 0; }}
+.data-table th {{
+  padding: 0.4rem 0.5rem; text-align: left; vertical-align: bottom;
+  border-bottom: 1px solid var(--border);
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--text-mute);
 }}
-.leaderboard td {{
+.data-table td {{
   padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); color: var(--text);
+  overflow-wrap: anywhere;
 }}
-.leaderboard tbody tr:last-child td {{ border-bottom: none; }}
-.leaderboard .rank, .leaderboard .score {{
-  text-align: right; font-variant-numeric: tabular-nums;
+.data-table tbody tr:last-child td {{ border-bottom: none; }}
+.data-table .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
+.data-table td.num {{ white-space: nowrap; }}
+/* A figure that qualifies the one beside it is set back, so the eye reads the
+   name and the main figure first. */
+.data-table td.quiet {{ color: var(--text-mute); }}
+/* A link is the one thing in a table in the accent. */
+.data-table a {{ color: var(--accent-bright); text-decoration: none; white-space: nowrap; }}
+.data-table a:hover {{ text-decoration: underline; }}
+/* A line that heads the rows under it: the group's name in the display face, a size
+   up from a row, so it reads as a heading over them and not as one more row (the
+   titles on the page are in that face, and nothing else in a table is). Any figures
+   of its own sit under the columns they belong to. Space over it is what parts one
+   group from the last. */
+.data-table .group th {{
+  font-family: {DISPLAY_STACK}; font-size: 16px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--text);
 }}
-.leaderboard .rank {{ width: 3ch; color: var(--text-mute); }}
-/* The rank interval is the column that qualifies the rank, so it is set back like the
-   rank itself rather than competing with the score: a reader scanning the board reads
-   name and score, and reads this when they stop to ask how firm a place is. */
-.leaderboard .spread {{ color: var(--text-mute); white-space: nowrap; }}
-.leaderboard .swatch {{
+.data-table .group th, .data-table .group td {{ padding-top: 1.1rem; vertical-align: bottom; }}
+/* The standings' tie back to their chart (#135): a drawn contender's row is dotted in
+   the hue their line takes, and a row past the eighth keeps the same indent with no
+   dot, so the names stay in one column rather than stepping in and out of it. */
+.data-table .swatch {{
   display: inline-block; width: 9px; height: 9px; border-radius: 999px;
   margin-right: 0.6rem; vertical-align: middle;
 }}
-.leaderboard .swatch-hue {{ box-shadow: 0 0 0 3px var(--surface); }}
-
-/* The gem table is grouped by archetype rather than ranked outright (#184), so every
-   other archetype is banded whole: the blocks read apart at a glance, and a block of
-   one row bands as plainly as a block of six. The band is the well surface, one step
-   off the card and the same step an inset takes, since a group is a grouping and not a
-   category: a hue per archetype would read as a key, and the graph beside the table
-   gives archetypes no hue to key against. */
-.leaderboard tbody tr.band td {{ background: var(--surface-2); }}
+.data-table .swatch-hue {{ box-shadow: 0 0 0 3px var(--surface); }}
+/* A cell's second line, and a column left out, both for a narrow screen (below). */
+.data-table .sub {{ display: none; }}
+@media (max-width: 640px) {{
+  .page-name {{ font-size: 24px; }}
+  .tiles {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }}
+  .tile {{ padding: 0.6rem 0.75rem 0.7rem; }}
+  .tile-value {{ font-size: 22px; }}
+  .data-table {{ font-size: 13px; }}
+  .data-table th, .data-table td {{ padding: 0.35rem 0.3rem; }}
+  .data-table th:first-child, .data-table td:first-child {{ padding-left: 0; }}
+  .data-table th:last-child, .data-table td:last-child {{ padding-right: 0; }}
+  .data-table .wide-only {{ display: none; }}
+  .data-table .sub {{ display: block; font-size: 12px; color: var(--text-mute); }}
+}}
 
 /* The results stack wraps a view's insight cards and is toggled as a whole: hidden
    before a Draw (so the view opens as controls over empty ground, the guidance living
