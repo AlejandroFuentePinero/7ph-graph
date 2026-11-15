@@ -860,9 +860,24 @@ def _controls(page) -> list[dict]:
                const label = control.querySelector('[data-testid=block-info]');
                return {name: (label || control).textContent.trim(),
                        search: !!control.querySelector('input[role=combobox]'),
+                       label: label ? label.getBoundingClientRect().top : null,
                        top: box.top, bottom: box.bottom, left: box.left,
                        right: box.right, width: box.width}; })"""
     )
+
+
+def _panel(page) -> dict:
+    """The box of the open tab's control panel."""
+    return page.evaluate(
+        "() => { const box = " + _OPEN_TAB + ".querySelector('.control-panel')"
+        ".getBoundingClientRect(); return {width: box.width, height: box.height}; }"
+    )
+
+
+def _label_lines(controls: list[dict]) -> set[float]:
+    """The lines the controls' labels are set on, as tops to a tenth of a pixel. A
+    button and the one checkbox carry no label."""
+    return {round(c["label"], 1) for c in controls if c["label"] is not None}
 
 
 # Every state of every control panel: the tab, and the chip that turns it to its
@@ -892,6 +907,10 @@ def _assert_every_panel_is_one_row(page) -> None:
             assert before["right"] <= after["left"], state
         subject = next(c for c in controls if c["search"])
         assert subject["width"] == max(c["width"] for c in controls), state
+        # The labels on one line, and no search run out to the panel's far edge
+        # for want of anything else to do with the room.
+        assert len(_label_lines(controls)) == 1, state
+        assert subject["width"] <= _panel(page)["width"] / 2, state
         for button in (c for c in controls if c["name"] == "Draw"):
             assert button["width"] <= 120, state
 
@@ -918,6 +937,48 @@ def test_each_tabs_controls_are_one_row_on_the_real_record(chromium, record, wid
         _assert_every_panel_is_one_row(page)
     finally:
         page.close()
+
+
+def test_focusing_an_archetype_leaves_the_meta_row_on_its_line(page):
+    # The maintainer's look at #328: the focus search was 1.6px taller than the cut's
+    # chips and 9px taller once it held a pick, and the row lined its controls up on
+    # their bottoms, so the search's label sat above the chips' and the panel grew
+    # under the reader on a first pick.
+    empty = _panel(page)["height"]
+
+    shots.pick(page, "Or focus on specific archetypes", "Grixis")
+    page.keyboard.press("Escape")
+    _card_titled(page, "Selected archetypes").wait_for(timeout=30_000)
+
+    assert len(_label_lines(_controls(page))) == 1
+    assert _panel(page)["height"] == empty
+
+
+def test_a_head_to_head_searches_its_two_pilots_in_fields_of_one_size(page):
+    # The maintainer's look at #328: the first pilot's search was 448px and the
+    # second's 266px. The two pilots of a rivalry are peers.
+    shots.tab(page, "Pilots")
+    shots.chip(page, "View", "Head-to-head")
+
+    first, second = (c["width"] for c in _controls(page) if c["search"])
+    assert first == second
+
+
+@pytest.mark.parametrize("tab, view", [
+    ("Cards", "Co-occurrence"), ("Pilots", "Head-to-head"),
+])
+def test_taking_a_view_leaves_the_view_chips_under_the_pointer(page, tab, view):
+    # The subject's search took whatever room the row had left, so taking a view
+    # that adds a control shrank it and slid the chips just clicked 440px to the
+    # left on Pilots. The search holds one width whatever else is in the row.
+    def view_chips():
+        return next(c["left"] for c in _controls(page) if c["name"] == "View")
+
+    shots.tab(page, tab)
+    before = view_chips()
+    shots.chip(page, "View", view)
+
+    assert view_chips() == before
 
 
 def test_each_tabs_controls_stack_on_a_phone(chromium, explorer):

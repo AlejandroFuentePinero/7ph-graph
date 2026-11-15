@@ -459,8 +459,11 @@ def build_css() -> str:
      bottom edge. It is the height Gradio builds a dropdown's input at. */
   --control-size: 38px;
 }}
+/* Lined up on their tops, so every label is on one line whatever is under it: the
+   focus search grows a line of picks at a time, and a row lined up on its bottoms
+   lifted that search's label above the chips' beside it. */
 .control-panel .styler {{
-  display: flex; flex-flow: row wrap; align-items: flex-end; gap: 0.6rem 1.25rem;
+  display: flex; flex-flow: row wrap; align-items: flex-start; gap: 0.6rem 1.25rem;
   background: transparent;
 }}
 /* Cleared as well as taken out of the layout: Gradio fills a form with the border
@@ -487,10 +490,12 @@ def build_css() -> str:
   align-items: center;
 }}
 /* A chip selector's chips carry no radio mark. The mark costs 24px a chip. Measured
-   at 1440 on the Cards co-occurrence view, the row with the most in it: with the
-   marks the Card search is 222px beside View chips of 292px, so the subject's search
-   is not the widest thing in its row, and the second card's search is on its 160px
-   floor. Without them the two searches are 282px and 183px and the View chips 244px.
+   at 1440 on the Cards co-occurrence view, the row with the most in it, while a
+   search still took the room that was left: with the marks the Card search was 222px
+   beside View chips of 292px, so the subject's search was not the widest thing in
+   its row, and the second card's search was on its 160px floor; without them the two
+   were 282px and 183px beside View chips of 244px. The searches' widths are set
+   since (below), and without the marks that row fits its line with 42px to spare.
    The picked chip is told apart by its fill, its edge and its ink. The mark stays in
    the page for the keyboard and a screen reader, and the ring a focused mark would
    wear is drawn on its chip instead. */
@@ -516,22 +521,63 @@ def build_css() -> str:
   flex: 0 0 auto; width: auto; min-width: 5.5rem; height: var(--control-size);
   padding: 0 1.1rem; font-size: 15px;
 }}
-/* A search takes the room that is left, and the subject's search (`.primary-control`,
-   the control everything else in a tab hangs off) twice the share of any other, so
-   it is the first and the widest thing in the row. That is what marks it primary.
+/* The two controls with no label over them sit on the fields' line, not the labels'. */
+.control-panel button.primary, .control-panel .block:has(> .checkbox-container) {{
+  align-self: flex-end;
+}}
+/* The subject's search (`.primary-control`, the control everything else in a tab
+   hangs off) is the first thing in the row and holds one width, `--search-size`,
+   whatever else the row holds. It took the room that was left at first: 930px for a
+   pilot's name, and 492px the moment Head-to-head was taken, which slid the View
+   chips 440px out from under the pointer that had just clicked one. Any other
+   search grows to that width where there is room and no further, so the widest
+   thing in a row is still the subject's search, and a second subject (the other
+   pilot of a rivalry, the other archetype of a comparison) is searched in a field
+   the size of the first. With no room, the searches give way and the rest keep the
+   width of their words.
    The class used to draw an accent edge down the field's left side and inset the
    field from it; the edge had not been drawn since the move to Gradio 6, which left
    the inset alone, and in a row the inset only put the first label off the panel's
    edge. A search's input is a well in the panel, one hairline round it like a
    chip's; the label sits on the panel. */
 .gradio-container .control-panel .row.clearable {{
-  flex: 1 1 12rem; width: auto; background: transparent; --clear-size: var(--control-size);
+  --search-size: 20rem; --clear-size: var(--control-size);
+  flex: 1 1 12rem; max-width: var(--search-size); width: auto; background: transparent;
 }}
-.gradio-container .control-panel .row.clearable:has(.primary-control) {{ flex: 2 1 16rem; }}
-.gradio-container .control-panel .row.clearable:has(.token) {{ --clear-size: 45px; }}
+.gradio-container .control-panel .row.clearable:has(.primary-control) {{
+  flex: 0 1 var(--search-size);
+}}
+/* The second pilot of a head-to-head is a subject as much as the first: the view
+   needs both. While it is on show the two share the row's room evenly, so they are
+   one size at every width and not only where the row has room for both in full. A
+   row wraps before it squeezes, and two searches that each held the full width
+   put the Draw on a line of its own at 1100px. */
+.gradio-container .control-panel:has(#second-pilot-search) .row.clearable {{
+  flex: 1 1 12rem;
+}}
+/* The one search that takes several picks is wider: at this width Grixis, Walks and
+   Jeskai Ascendancy sit on one line with the cursor after them, and a fourth pick
+   starts a second line. It ran to the panel's far edge, 846px for a field that
+   opens holding nothing. */
+.gradio-container .control-panel .row.clearable:has(#meta-focus) {{ --search-size: 36rem; }}
 .control-panel .row.clearable .block {{ flex: 1 1 0; min-width: 0; }}
 .control-panel .row.clearable .container > .wrap {{
   background: var(--surface); box-shadow: inset 0 0 0 1px var(--border);
+}}
+/* A search is the row's height whether it holds nothing, a name or a line of picks.
+   Gradio builds the several-pick field 39.6px tall empty and 47px with a pick in
+   it (a 35px token inside 6px of padding), against 38px for a single pick, so that
+   search stood 1.6px proud of the chips beside it and the panel grew 7px under the
+   reader on a first pick. A token here is 31px and the field's padding 3px, which
+   is 37px, and the field's floor is the row's height. The clear button beside it
+   stays the row's height with it, where it stepped up to the taller field. */
+.control-panel .row.clearable .wrap-inner {{
+  box-sizing: border-box; min-height: var(--control-size);
+  padding-top: 3px; padding-bottom: 3px;
+}}
+.control-panel .row.clearable .token {{ padding: 4px 10px; }}
+.gradio-container .control-panel .row.clearable:has(.token) {{
+  --clear-size: var(--control-size);
 }}
 /* The clear button's tint is over the panel's well too, where its resting ink is
    4.29. It takes the bright accent, 5.5 there: the step up the picked chip already
@@ -644,7 +690,13 @@ def build_css() -> str:
   /* The row stacks (#328): one control under another, each the width of the panel. */
   .control-panel .styler {{ flex-flow: column nowrap; align-items: stretch; }}
   .gradio-container .control-panel .row.clearable,
-  .gradio-container .control-panel .row.clearable:has(.primary-control) {{ flex: 0 0 auto; }}
+  .gradio-container .control-panel .row.clearable:has(.primary-control),
+  .gradio-container .control-panel:has(#second-pilot-search) .row.clearable {{
+    flex: 0 0 auto; max-width: none;
+  }}
+  .control-panel button.primary, .control-panel .block:has(> .checkbox-container) {{
+    align-self: stretch;
+  }}
   /* The strip scrolls sideways here, and a tab cut at its edge is what says so
      (#172). At 390px the wider strip ended in the gap after the fourth tab, with
      nothing of the fifth on screen. Four pixels off each side of a tab puts the
