@@ -108,21 +108,6 @@ def test_the_default_gradio_footer_is_retired():
     assert footer and "display: none" in footer.group(1)
 
 
-def test_every_tab_stays_on_the_strip_at_phone_width():
-    # AC (#172): at 390px the seven tabs need 607px against 326px of container, and
-    # Gradio's overflow pass measures the `visually-hidden` mirror of the strip, so a
-    # wrapping mirror is what stops it slicing four tabs into a "..." menu they cannot
-    # be seen selected from. The real strip scrolls instead of wrapping, which is what
-    # keeps the fix free of vertical cost. Both halves are load-bearing: either one on
-    # its own puts tabs back out of reach, so both are held here.
-    css = theme.build_css()
-
-    mirror = re.search(r"\.tab-container\.visually-hidden\s*\{(.*?)\}", css, re.DOTALL)
-    assert mirror and "flex-wrap: wrap" in mirror.group(1)
-    strip = re.search(r'\.tab-container\[role="tablist"\]\s*\{(.*?)\}', css, re.DOTALL)
-    assert strip and "overflow-x: auto" in strip.group(1)
-
-
 def test_the_floating_component_label_over_a_plot_is_retired():
     # AC (#118): the same default furniture the footer rule retires, one level down.
     # Gradio floats a chip reading "Plot" over every `gr.Plot`, naming the component's

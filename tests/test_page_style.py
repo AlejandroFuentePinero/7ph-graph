@@ -8,8 +8,8 @@ each plot gained a frame. None of it is visible to a test that reads the stylesh
 as text, or to one that asks the server for the page: which rule wins is decided in
 the browser. These tests ask the running page instead.
 
-A stand-in page with the same parts (a title, a card holding HTML blocks and a
-control) rather than the real explorer: what is under test is that the stylesheet
+A stand-in page with the same parts (a title, the seven tabs, a card holding HTML
+blocks and a control) rather than the real explorer: what is under test is that the stylesheet
 lands on Gradio's markup, not the data. It is launched with ``launch_kwargs``, the
 settings every real launch passes, so the stylesheet and theme are the shipped ones.
 
@@ -24,6 +24,11 @@ from graph7ph.app import launch_kwargs
 from graph7ph.theme import TOKENS
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+
+# The explorer's own tab names: what is under test at phone width is that these seven,
+# at the width they are actually set in, stay on the strip.
+TABS = ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "Player leaderboard", "FAQ"]
+PHONE = {"width": 390, "height": 844}
 
 
 def _rgb(hex_: str) -> str:
@@ -43,14 +48,18 @@ def page(request):
     """
     with gr.Blocks() as demo:
         gr.Markdown("# The page title")
-        with gr.Group(elem_classes="insight-card"):
-            gr.HTML("<div class='flush'>set flush</div>", padding=False)
-            gr.HTML(
-                "<div class='inset'>set in <a href='mailto:someone@example.com'>"
-                "someone@example.com</a></div>",
-                padding=True,
-            )
-            gr.Radio(["one", "two"], value="one", label="Pick", info="A help line.")
+        with gr.Tab(TABS[0]):
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML("<div class='flush'>set flush</div>", padding=False)
+                gr.HTML(
+                    "<div class='inset'>set in <a href='mailto:someone@example.com'>"
+                    "someone@example.com</a></div>",
+                    padding=True,
+                )
+                gr.Radio(["one", "two"], value="one", label="Pick", info="A help line.")
+        for name in TABS[1:]:
+            with gr.Tab(name):
+                gr.Markdown(name)
     _, url, _ = demo.launch(prevent_thread_lock=True, ssr_mode=request.param, **launch_kwargs())
     try:
         # Server rendering needs Node, and without it Gradio falls back to the browser
@@ -150,3 +159,35 @@ def test_an_unselected_mark_has_no_outline(page):
     # The theme gives the radio and checkbox marks the input's border width, which is
     # none. Gradio 6 resets both to 1px in a rule that outranks the component's own.
     assert _style(page, "input[type=radio]:not(:checked)", "border-top-width") == ["0px"]
+
+
+def test_every_tab_stays_on_the_strip_at_phone_width(page):
+    # AC (#172): at 390px the seven tabs need about 607px against 326px of container,
+    # and Gradio's answer is to slice the ones that do not fit into a "..." menu. The
+    # design keeps all seven on one strip that scrolls sideways instead. Gradio decides
+    # the slice by measuring a hidden copy of the strip, and how it measures changed
+    # from 5 to 6 (where a button's right edge fell, then the sum of the buttons'
+    # widths), so a rule written against the first passed every stylesheet check while
+    # five tabs went behind the menu. Only the running page shows which tabs are drawn.
+    phone = page.context.browser.new_page(viewport=PHONE)
+    try:
+        phone.goto(page.url, wait_until="networkidle")
+        phone.wait_for_selector("[role=tablist] [role=tab]")
+        # Gradio's own pass runs a frame after the strip is laid out.
+        phone.wait_for_timeout(500)
+        strip = phone.evaluate(
+            "() => { const strip = document.querySelector('[role=tablist]');"
+            " const tabs = [...strip.querySelectorAll('[role=tab]')];"
+            " return {names: tabs.map(tab => tab.textContent.trim()),"
+            " rows: new Set(tabs.map(tab => Math.round(tab.getBoundingClientRect().top))).size,"
+            " scrolls: strip.scrollWidth > strip.clientWidth,"
+            " menu: getComputedStyle(document.querySelector('.overflow-menu')).display}; }"
+        )
+        assert strip == {"names": TABS, "rows": 1, "scrolls": True, "menu": "none"}
+
+        # The last tab is off the right edge, and still one tap away.
+        last = phone.get_by_role("tab", name=TABS[-1], exact=True)
+        last.click()
+        assert last.get_attribute("aria-selected") == "true"
+    finally:
+        phone.close()
