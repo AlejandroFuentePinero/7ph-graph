@@ -96,6 +96,44 @@ def _hosted_library(doc: str) -> str:
     return doc
 
 
+# pyvis's template also loads Bootstrap, a stylesheet and a script, from a CDN. The
+# graph uses none of its components and rested on three of its rules, which
+# `_DOC_STYLE` now states itself, so both tags are dropped and a visitor's browser
+# asks nobody but the app for anything (issue #312).
+_BOOTSTRAP_TAGS = (
+    r"<link[^>]*jsdelivr[^>]*bootstrap[^>]*>",
+    r"<script[^>]*jsdelivr[^>]*bootstrap[^>]*>\s*</script>",
+)
+
+# A file the document would have the browser fetch from another host.
+_OUTSIDE_FILE = re.compile(
+    r'<(?:link|script)\b[^>]*\b(?:href|src)\s*=\s*"((?:https?:)?//[^"]*)"'
+)
+
+
+def _nothing_from_outside(doc: str) -> str:
+    """Drop pyvis's Bootstrap tags, and refuse a document that loads anything else
+    from another host.
+
+    The tags are removed by name, so on their own they would let a later pyvis bring
+    a third party back unnoticed. Whatever outside file is left once they are gone
+    is one this module has never seen, and the render stops on it by name.
+    """
+    for pattern in _BOOTSTRAP_TAGS:
+        doc, found = re.subn(pattern, "", doc)
+        if found != 1:
+            raise RuntimeError(
+                f"pyvis emitted {found} tags matching {pattern}, expected 1: its "
+                "template has changed, and the graph may be loading Bootstrap again."
+            )
+    if outside := _OUTSIDE_FILE.findall(doc):
+        raise RuntimeError(
+            f"pyvis's document loads {outside} from outside the app: its template "
+            "has changed. Serve the file from the app (`serve.py`) or drop the tag."
+        )
+    return doc
+
+
 # A group whose members are a set rather than one named thing, named for what the set
 # means. The co-occurrence view buckets every partner card under one group value, so
 # there is nothing in it to take a name from; the head-to-head and single-seed groups
@@ -233,7 +271,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
     else:
         kinds_present = {n.kind for n in subgraph.nodes}
         legend = [(k, _KIND_COLOURS[k]) for k in _KIND_ORDER if k in kinds_present]
-    doc = _hosted_library(net.generate_html(notebook=False))
+    doc = _nothing_from_outside(_hosted_library(net.generate_html(notebook=False)))
     return _compose(doc, meta, _legend(legend), all_pinned)
 
 
@@ -370,10 +408,19 @@ _SETTLE = """
 # the height is whatever the embedding iframe gives it and the details stay visible
 # without scrolling. It also retires pyvis/bootstrap's own light chrome: the white
 # `.card`, the `lightgray` graph border, and the empty centred heading.
+#
+# Bootstrap itself is not loaded (`_nothing_from_outside`). The layout rested on three
+# of its rules, stated here in its place: every box sized to its border, a line height
+# of 1.5, and the 16px `.card-body` put round the graph. Measured element by element
+# against the document that loaded Bootstrap, no box moves (issue #312). A fourth,
+# `text-size-adjust`, is carried unmeasured: it stops a phone's browser resizing the
+# text when the phone is turned, which a desktop browser cannot show.
 _DOC_STYLE = f"""<style>
+  *, ::before, ::after {{ box-sizing: border-box; }}
   html, body {{ height: 100%; margin: 0; }}
   body {{
-    display: flex; flex-direction: column;
+    display: flex; flex-direction: column; line-height: 1.5;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
     background: {TOKENS['surface']}; color: {TOKENS['text']}; font-family: {FONT_STACK};
   }}
   center {{ display: none; }}
@@ -382,7 +429,7 @@ _DOC_STYLE = f"""<style>
     margin: 0; border: none !important; background: transparent !important;
   }}
   #mynetwork {{
-    flex: 1 1 auto; height: auto !important; min-height: 0;
+    flex: 1 1 auto; height: auto !important; min-height: 0; padding: 16px;
     float: none !important; border: none !important; background: {TOKENS['surface']} !important;
   }}
   /* A neutral hairline under the key, ruling it off from the canvas below. An accent

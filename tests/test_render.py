@@ -1,6 +1,9 @@
 import json
 import re
 
+import pytest
+from pyvis.network import Network
+
 from graph7ph.palette import CATEGORICAL
 from graph7ph import render
 from graph7ph.query import Edge, Node, Subgraph
@@ -43,6 +46,35 @@ def test_render_points_at_the_hosted_library_instead_of_carrying_it():
     # The library alone is ~690 KB, so a result this size cannot be carrying it,
     # with room to spare for the largest graph the render threshold allows.
     assert len(html) < 50_000
+
+
+def test_a_graph_document_loads_nothing_from_outside_the_app():
+    """pyvis's template also asks a CDN for Bootstrap, a stylesheet and a script the
+    graph uses three rules of (issue #312). A visitor's browser fetched both for every
+    graph drawn, from a host the deployment does not control. A Deck is drawn because
+    its Moxfield address is the one outside address the document should still carry,
+    as a link for the reader to follow and not as a file for the browser to load."""
+    html = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
+
+    loaded = re.findall(r'<(?:link|script)\b[^>]*\b(?:href|src)\s*=\s*"((?:https?:)?//[^"]*)"', html)
+    assert loaded == []
+    assert "moxfield.com/decks/d1" in html
+
+
+def test_a_pyvis_template_that_loads_another_outside_file_fails_loudly(monkeypatch):
+    """The tags are removed by name, so a pyvis that started loading something new
+    would bring a third party back with every test above still green. The render
+    refuses the document instead, naming what it found."""
+    generate = Network.generate_html
+
+    def with_one_more(self, **kwargs):
+        return generate(self, **kwargs).replace(
+            "</head>", '<script src="https://cdn.example/extra.js"></script></head>', 1)
+
+    monkeypatch.setattr(Network, "generate_html", with_one_more)
+
+    with pytest.raises(RuntimeError, match="cdn.example/extra.js"):
+        render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
 
 
 def test_render_empty_subgraph_is_still_valid_html():
