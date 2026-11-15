@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · Community landing (#339)</title>
+<!-- PROTOTYPE, throwaway. Two variants of the community landing page, switchable
+     via ?variant=A|B or the arrow keys. Built by build.py from the live graph. -->
+<style>
+@font-face { font-family: "Fraunces"; font-weight: 600; font-display: swap;
+  src: url(data:font/woff2;base64,__FRAUNCES__) format("woff2"); }
+@font-face { font-family: "Hanken Grotesk"; font-weight: 100 900; font-display: swap;
+  src: url(data:font/woff2;base64,__HANKEN__) format("woff2"); }
+
+:root {
+  --bg: #131110; --surface: #1c1917; --surface-2: #24201d; --border: #37312b;
+  --text: #f2ede6; --text-dim: #b4aca2; --text-mute: #8a8178;
+  --accent: #e26a2c; --accent-bright: #f4823f;
+  /* the app's node-kind hues (palette.CATEGORICAL by render._KIND_ORDER) */
+  --k-deck: #3987e5; --k-pilot: #d95926; --k-card: #199e70; --k-arch: #c98500; --k-event: #008300;
+  /* first-played year, one hue stepped oldest to newest */
+  --c0: #9c3a12; --c1: #d95926; --c2: #ee8f5f; --c3: #f6c3a3;
+  --display: "Fraunces", Georgia, serif;
+  --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --gutter: 32px;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased; padding-bottom: 96px; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 3px; border-radius: 4px; }
+
+/* ---- shell mock (#327): one slim header ---- */
+.shell { border-bottom: 1px solid var(--border); }
+.shell-in { max-width: 1280px; margin: 0 auto; padding: 0 var(--gutter); height: 52px;
+  display: flex; align-items: center; gap: 28px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 17px/1 var(--display); white-space: nowrap; }
+.tabs { display: flex; gap: 22px; align-self: stretch; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs span { display: flex; align-items: center; font-size: 14px; color: var(--text-dim);
+  white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs span.on { color: var(--text); border-bottom-color: var(--accent-bright); }
+.fresh { margin-left: auto; font-size: 13px; color: var(--text-mute); white-space: nowrap; }
+
+.page { max-width: 1280px; margin: 0 auto; padding: 0 var(--gutter); }
+.variant { display: none; }
+body[data-variant="A"] #A, body[data-variant="B"] #B { display: block; }
+
+h1 { font: 600 34px/1.1 var(--display); letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h2 { font: 600 20px/1.25 var(--display); margin: 0; }
+.lede { font-size: 17px; line-height: 1.5; color: var(--text-dim); max-width: 62ch; margin: 14px 0 0; }
+.cap { font-size: 13px; line-height: 1.5; color: var(--text-mute); margin: 4px 0 0; }
+.label { font: 600 12px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-mute);
+  display: flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--k); }
+.source { font-size: 13px; color: var(--text-mute); margin: 0; }
+.num { font-weight: 600; color: var(--text); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--text-dim); margin-top: 14px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px;
+  vertical-align: -1px; background: var(--k); }
+.legend i.sq { border-radius: 2px; }
+.legend i.soft { background: color-mix(in srgb, var(--k) 28%, transparent); box-shadow: inset 0 0 0 1.2px var(--k); }
+.legend .foot { margin-left: auto; color: var(--text-mute); }
+
+svg { display: block; overflow: visible; }
+svg text { font-family: var(--sans); fill: var(--text-mute); font-size: 12px; font-variant-numeric: tabular-nums; }
+svg text.ink { fill: var(--text); font-weight: 600; font-size: 13px; }
+svg text.in { fill: #fff; font-weight: 600; font-size: 11px; pointer-events: none; }
+.grid { stroke: var(--border); stroke-width: 1; }
+
+/* ================= Variant A ================= */
+#A .intro { padding: 56px 0 0; }
+#A .figures { display: grid; grid-template-columns: repeat(6, 1fr); margin: 40px 0 14px;
+  border-top: 1px solid var(--border); }
+#A .fig { padding: 20px 20px 6px 0; }
+#A .fig + .fig { padding-left: 20px; border-left: 1px solid var(--border); }
+.fig .v { font: 600 38px/1.1 var(--sans); letter-spacing: -0.02em; margin: 12px 0 2px; }
+.fig .s { font-size: 13px; color: var(--text-mute); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 24px 28px 22px; margin-top: 28px; }
+.card .plot { margin-top: 18px; }
+
+.strata { display: grid; gap: 12px; margin-top: 20px; }
+.srow { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 12px; }
+.srow .yr { font: 600 14px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
+.srow .yr small { display: block; font-weight: 400; font-size: 12px; color: var(--text-mute); }
+.track { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bar { display: flex; gap: 2px; height: 28px; min-width: 0; }
+.seg { border-radius: 4px; background: var(--k); color: #131110; font: 600 13px/28px var(--sans);
+  padding-left: 8px; white-space: nowrap; overflow: visible; min-width: 3px; font-variant-numeric: tabular-nums; }
+.seg.deep { color: #fff; }
+.seg:hover, .seg.hot { filter: brightness(1.12); }
+.track .tot { font: 600 14px/1 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
+.note { font-size: 15px; color: var(--text-dim); margin: 20px 0 0; }
+
+.doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; }
+.door { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px 22px 20px; transition: border-color .15s, background .15s; position: relative; }
+.door:hover { border-color: var(--accent); background: var(--surface-2); }
+.door .arrow { position: absolute; top: 18px; right: 20px; color: var(--text-mute); transition: color .15s, transform .15s; }
+.door:hover .arrow { color: var(--accent-bright); transform: translateX(3px); }
+.door h3 { font: 600 20px/1.25 var(--display); margin: 0 0 6px; }
+.pair .sub { font: 600 12px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-mute); margin: 22px 0 8px; }
+.pair .sub:first-child { margin-top: 18px; }
+.door p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-dim); }
+.door .q { margin-top: 12px; font-size: 14px; color: var(--text-mute); }
+
+/* ================= Variant B ================= */
+#B .hero { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 64px; padding: 56px 0 0; align-items: start; }
+#B .ledger { margin: 32px 0 14px; border-top: 1px solid var(--border); }
+#B .ledger div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 13px 0; border-bottom: 1px solid var(--border); }
+#B .ledger dt { font-size: 15px; color: var(--text-dim); display: flex; align-items: center; gap: 10px; }
+#B .ledger dt small { font-size: 13px; color: var(--text-mute); }
+#B .ledger dd { margin: 0; font: 600 22px/1 var(--sans); letter-spacing: -0.01em; }
+#B .plots h2 + .cap { margin-bottom: 14px; }
+#B .plots .sub { font: 600 12px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-mute); margin: 26px 0 10px; }
+#B .band { margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--border); }
+#B .one { display: flex; gap: 2px; height: 28px; margin-top: 18px; }
+#B .rows { margin-top: 48px; border-top: 1px solid var(--border); }
+.rowlink { display: grid; grid-template-columns: 200px 1fr auto 24px; align-items: baseline; gap: 24px;
+  padding: 18px 4px; border-bottom: 1px solid var(--border); transition: background .15s; }
+.rowlink:hover { background: var(--surface); }
+.rowlink h3 { font: 600 20px/1.25 var(--display); margin: 0; display: flex; align-items: center; gap: 12px; }
+.rowlink p { margin: 0; font-size: 15px; color: var(--text-dim); }
+.rowlink .q { font-size: 14px; color: var(--text-mute); white-space: nowrap; }
+.rowlink .arrow { color: var(--text-mute); transition: color .15s, transform .15s; }
+.rowlink:hover .arrow { color: var(--accent-bright); transform: translateX(3px); }
+
+/* ---- tooltip ---- */
+#tip { position: fixed; z-index: 20; pointer-events: none; display: none; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px; font-size: 13px; line-height: 1.4;
+  color: var(--text-dim); box-shadow: 0 8px 24px rgba(0,0,0,.45); max-width: 240px; }
+#tip b { display: block; color: var(--text); font-weight: 600; font-size: 14px; }
+
+/* ---- prototype switcher: deliberately not part of the design ---- */
+.proto { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 30; display: flex;
+  align-items: center; gap: 4px; background: #fff; color: #111; border-radius: 999px; padding: 5px;
+  font: 600 13px/1 system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+.proto button { all: unset; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; text-align: center; }
+.proto button:hover { background: #e5e5e5; }
+.proto span { padding: 0 10px; white-space: nowrap; }
+
+@media (min-width: 601px) and (max-width: 1000px) {
+  #A .figures { grid-template-columns: repeat(3, 1fr); }
+  #A .fig:nth-child(3n+1) { border-left: 0; padding-left: 0; }
+  #A .fig:nth-child(n+4) { border-top: 1px solid var(--border); }
+}
+@media (max-width: 900px) {
+  #B .hero { grid-template-columns: 1fr; gap: 36px; }
+  .doors { grid-template-columns: repeat(2, 1fr); }
+  .rowlink { grid-template-columns: 1fr auto 20px; }
+  .rowlink p { grid-column: 1 / -1; grid-row: 2; }
+}
+@media (max-width: 600px) {
+  :root { --gutter: 16px; }
+  .shell-in { gap: 16px; }
+  .fresh { display: none; }
+  h1 { font-size: 28px; }
+  #A .intro, #B .hero { padding-top: 32px; }
+  #A .figures { grid-template-columns: repeat(2, 1fr); }
+  #A .fig { padding: 16px 12px 12px 0; }
+  #A .fig + .fig { padding-left: 16px; }
+  #A .fig:nth-child(odd) { border-left: 0; padding-left: 0; }
+  #A .fig:nth-child(n+3) { border-top: 1px solid var(--border); }
+  .fig .v { font-size: 32px; }
+  .card { padding: 18px 16px 16px; border-radius: 8px; }
+  .srow { grid-template-columns: 52px 1fr; gap: 8px; }
+  .doors { gap: 10px; }
+  .door { padding: 16px; }
+  .door h3 { font-size: 18px; }
+  .legend .foot { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+
+<header class="shell"><div class="shell-in">
+  <div class="brand">
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 14 10 5l5 9z" fill="none" stroke="#8a8178" stroke-width="1.2"/><circle cx="10" cy="5" r="2.6" fill="#e26a2c"/><circle cx="5" cy="14" r="2.2" fill="#f2ede6"/><circle cx="15" cy="14" r="2.2" fill="#f2ede6"/></svg>
+    7PH Graph
+  </div>
+  <nav class="tabs" aria-label="Sections (mock of the #327 header)">
+    <span class="on">Community</span><span>Metagame</span><span>Archetypes</span><span>Cards</span>
+    <span>Hidden gems</span><span>Pilots</span><span>Leaderboard</span><span>FAQ</span>
+  </nav>
+  <div class="fresh" data-f="fresh"></div>
+</div></header>
+
+<div class="page">
+
+<!-- ============ A: the record, drawn event by event; pilots as yearly strata ============ -->
+<main id="A" class="variant">
+  <section class="intro">
+    <h1>Australian 7&nbsp;Point&nbsp;Highlander</h1>
+    <p class="lede">7 Point Highlander is a singleton Magic format run by the people who play it. This app maps the tournament results they report: events, pilots, decks and cards, with some extra depth for the Spikes among us.</p>
+  </section>
+
+  <section class="figures" aria-label="The record in six numbers">
+    <div class="fig"><div class="label"><span class="dot" style="--k:var(--k-pilot)"></span>Pilots</div><div class="v" data-f="pilots"></div><div class="s" data-f="pilotsYear"></div></div>
+    <div class="fig"><div class="label"><span class="dot" style="--k:var(--k-event)"></span>Events</div><div class="v" data-f="events"></div><div class="s" data-f="eventsYear"></div></div>
+    <div class="fig"><div class="label"><span class="dot" style="--k:var(--k-deck)"></span>Decks</div><div class="v" data-f="decks"></div><div class="s" data-f="decksYear"></div></div>
+    <div class="fig"><div class="label"><span class="dot" style="--k:var(--k-card)"></span>Cards</div><div class="v" data-f="cards"></div><div class="s" data-f="cardsYear"></div></div>
+    <div class="fig"><div class="label"><span class="dot" style="--k:var(--k-arch)"></span>Archetypes</div><div class="v" data-f="archetypes"></div><div class="s" data-f="archetypesYear"></div></div>
+    <div class="fig"><div class="label"><span class="dot" style="--k:var(--k-event)"></span>Largest field</div><div class="v" data-f="largest"></div><div class="s" data-f="largestName"></div></div>
+  </section>
+  <p class="source">Built from results the community reports on Moxfield.</p>
+
+  <section class="card">
+    <h2>Every event on record</h2>
+    <p class="cap">One dot per event, placed when its lists were registered and sized by its players.</p>
+    <div class="plot" id="swarm"></div>
+    <div class="legend">
+      <span><i style="--k:var(--k-event)"></i><span data-f="majorsKey"></span></span>
+      <span><i class="soft" style="--k:var(--k-event)"></i><span data-f="othersKey"></span></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Pilots on record, and events each month</h2>
+    <p class="cap">Everyone who has registered a list, counted from their first. Events are counted in the month their lists were registered.</p>
+    <div class="pair" id="pair">
+      <div class="sub">Pilots on record</div>
+      <div id="pairCurve"></div>
+      <div class="sub">Events each month</div>
+      <div id="pairCols"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Pilots each year, by the year they first played</h2>
+    <div class="legend" id="strataKey"></div>
+    <div class="strata" id="strata"></div>
+    <p class="note" data-f="note"></p>
+  </section>
+
+  <section class="doors" aria-label="What the app holds">
+    <a class="door" href="#"><span class="arrow">→</span><h3>Metagame</h3><p>What the field plays, and how that has shifted year by year.</p></a>
+    <a class="door" href="#"><span class="arrow">→</span><h3>Archetypes</h3><p>One archetype's share, finishes and cards.</p></a>
+    <a class="door" href="#"><span class="arrow">→</span><h3>Cards</h3><p>Where a card is played, and what it is played beside.</p></a>
+    <a class="door" href="#"><span class="arrow">→</span><h3>Hidden gems</h3><p>Cards that finish better than their archetype usually does.</p></a>
+    <a class="door" href="#"><span class="arrow">→</span><h3>Pilots</h3><p>One pilot's events, decks and finishes.</p></a>
+    <a class="door" href="#"><span class="arrow">→</span><h3>Leaderboard</h3><p>Standings across the largest events.</p></a>
+  </section>
+</main>
+
+<!-- ============ B: one continuous line of pilots, events as spikes beneath it ============ -->
+<main id="B" class="variant">
+  <section class="hero">
+    <div class="side">
+      <h1>Australian 7&nbsp;Point&nbsp;Highlander</h1>
+      <p class="lede">7 Point Highlander is a singleton Magic format run by the people who play it. This app maps the tournament results they report: events, pilots, decks and cards, with some extra depth for the Spikes among us.</p>
+      <dl class="ledger">
+        <div><dt><span class="dot" style="--k:var(--k-pilot)"></span>Pilots <small data-f="pilotsYear"></small></dt><dd data-f="pilots"></dd></div>
+        <div><dt><span class="dot" style="--k:var(--k-event)"></span>Events <small data-f="eventsYear"></small></dt><dd data-f="events"></dd></div>
+        <div><dt><span class="dot" style="--k:var(--k-deck)"></span>Decks <small data-f="decksYear"></small></dt><dd data-f="decks"></dd></div>
+        <div><dt><span class="dot" style="--k:var(--k-event)"></span>Largest field <small data-f="largestName"></small></dt><dd data-f="largest"></dd></div>
+        <div><dt><span class="dot" style="--k:var(--k-pilot)"></span>Played every year since 2023</dt><dd data-f="everyYear"></dd></div>
+      </dl>
+      <p class="source">Built from results the community reports on Moxfield.</p>
+    </div>
+    <div class="plots">
+      <h2>Pilots on record</h2>
+      <p class="cap">Everyone who has registered a list, counted from their first.</p>
+      <div id="curve"></div>
+      <div class="sub">Events, by players</div>
+      <div id="spikes"></div>
+      <div class="legend">
+        <span><i style="--k:var(--k-event)"></i><span data-f="majorsKey"></span></span>
+        <span><i class="soft" style="--k:var(--k-event)"></i><span data-f="othersKey"></span></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2 data-f="bandTitle"></h2>
+    <div class="one" id="one"></div>
+    <div class="legend" id="oneKey"></div>
+  </section>
+
+  <section class="rows" aria-label="What the app holds">
+    <a class="rowlink" href="#"><h3><span class="dot" style="--k:var(--k-arch)"></span>Metagame</h3><p>What the field plays, and how that has shifted year by year.</p><span class="q" data-f="dArch"></span><span class="arrow">→</span></a>
+    <a class="rowlink" href="#"><h3><span class="dot" style="--k:var(--k-card)"></span>Cards</h3><p>Where a card is played, and what it is played beside.</p><span class="q" data-f="dCards"></span><span class="arrow">→</span></a>
+    <a class="rowlink" href="#"><h3><span class="dot" style="--k:var(--k-pilot)"></span>Pilots</h3><p>One pilot's events, decks and finishes.</p><span class="q" data-f="dPilots"></span><span class="arrow">→</span></a>
+    <a class="rowlink" href="#"><h3><span class="dot" style="--k:var(--k-event)"></span>Leaderboard</h3><p>Standings across the largest events.</p><span class="q" data-f="dMajors"></span><span class="arrow">→</span></a>
+  </section>
+</main>
+
+</div>
+
+<div id="tip" role="status"></div>
+<div class="proto"><button id="prev" aria-label="Previous variant">◀</button><span id="which"></span><button id="next" aria-label="Next variant">▶</button></div>
+
+<script>
+const D = __DATA__;
+const NS = "http://www.w3.org/2000/svg";
+const fmt = n => n.toLocaleString("en-AU");
+const T = D.totals, Y = D.thisYear, LY = D.latest;
+const COHORT = ["var(--c0)", "var(--c1)", "var(--c2)", "var(--c3)"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const T0 = Date.UTC(D.years[0], 0, 1), T1 = Date.UTC(LY + 1, 0, 1);
+
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+
+/* ---- copy filled from the data ---- */
+const others = D.events.length - T.majors;
+const copy = {
+  fresh: `${fmt(T.events)} events, updated ${D.updated}`,
+  pilots: fmt(T.pilots), pilotsYear: `${fmt(Y.pilots)} in ${LY}`,
+  events: fmt(T.events), eventsYear: `${fmt(Y.events)} in ${LY}`,
+  decks: fmt(T.decks), decksYear: `${fmt(Y.decks)} in ${LY}`,
+  largest: fmt(T.largest), largestName: `${T.largestName}, ${T.largestYear}`,
+  cards: fmt(T.cards), cardsYear: `${fmt(Y.cards)} in ${LY}`,
+  archetypes: fmt(T.archetypes), archetypesYear: `${fmt(Y.archetypes)} in ${LY}`,
+  everyYear: fmt(D.everyYear),
+  majorsKey: `Major, a field over 64 (${T.majors})`, othersKey: `Other events (${others})`,
+  bandTitle: `${LY}'s pilots, by the year they first played`,
+  dArch: `${fmt(T.archetypes)} archetypes`, dCards: `${fmt(T.cards)} cards`,
+  dPilots: `${fmt(T.pilots)} pilots`, dMajors: `${fmt(T.majors)} majors`,
+};
+document.querySelectorAll("[data-f]").forEach(n => { if (n.dataset.f in copy) n.textContent = copy[n.dataset.f]; });
+const note = document.querySelector('[data-f="note"]');
+note.innerHTML = `<span class="num">${fmt(Y.returning)}</span> of ${LY}'s ${fmt(Y.pilots)} pilots had played before. <span class="num">${fmt(D.everyYear)}</span> have played every year since ${D.years[0]}.`;
+
+/* ---- tooltip ---- */
+const tip = document.getElementById("tip");
+function showTip(x, y, strong, rest) {
+  tip.textContent = "";
+  const b = document.createElement("b"); b.textContent = strong; tip.appendChild(b);
+  if (rest) tip.appendChild(document.createTextNode(rest));
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(x - w / 2, innerWidth - w - 8)) + "px";
+  tip.style.top = (y - h - 14 < 8 ? y + 18 : y - h - 14) + "px";
+}
+const hideTip = () => { tip.style.display = "none"; };
+const eventTip = e => [`${fmt(e.n)} players`, e.name ? `${e.name} · ${e.y}` : `${e.y}`];
+
+/* ---- shared axis: year lines and labels, and where the record stops ---- */
+function yearAxis(svg, x, top, base, labels) {
+  for (const y of D.years) {
+    const px = x(Date.UTC(y, 0, 1));
+    el("line", { class: "grid", x1: px, x2: px, y1: top, y2: base }, svg);
+    if (labels) el("text", { x: px + 6, y: base + 17 }, svg).textContent = y;
+  }
+  const end = x(T1);
+  el("line", { class: "grid", x1: end, x2: end, y1: top, y2: base }, svg);
+}
+
+/* ================= A: swarm ================= */
+function drawSwarm() {
+  const host = document.getElementById("swarm");
+  host.textContent = "";
+  const W = host.clientWidth, k = Math.max(0.52, Math.min(1, W / 1100));
+  const x = t => 1 + (t - T0) / (T1 - T0) * (W - 2);
+  const pts = D.events.map(e => ({ e, x: x(e.t), r: Math.max(2.2, Math.sqrt(e.n) * 0.95 * k), y: 0 }));
+  const placed = [];
+  for (const p of [...pts].sort((a, b) => b.r - a.r)) {
+    const near = placed.filter(q => Math.abs(q.x - p.x) < q.r + p.r + 1.5);
+    for (let i = 0; i < 4000; i++) {
+      const y = Math.ceil(i / 2) * (i % 2 ? 1 : -1);
+      if (near.every(q => (q.x - p.x) ** 2 + (q.y - y) ** 2 >= (q.r + p.r + 1.5) ** 2)) { p.y = y; break; }
+    }
+    placed.push(p);
+  }
+  const lo = Math.min(...pts.map(p => p.y - p.r)), hi = Math.max(...pts.map(p => p.y + p.r));
+  const padTop = 10, base = padTop + (hi - lo) + 10, H = base + 26, cy = padTop - lo;
+  const svg = el("svg", { width: W, height: H, role: "img",
+    "aria-label": `${D.events.length} events from ${D.years[0]} to ${LY}, one dot each, sized by players` }, host);
+  yearAxis(svg, x, 0, base, true);
+  el("line", { class: "grid", x1: 0, x2: W, y1: base, y2: base }, svg);
+  const dots = pts.map(p => el("circle", p.e.major
+    ? { cx: p.x, cy: cy + p.y, r: p.r, fill: "var(--k-event)" }
+    : { cx: p.x, cy: cy + p.y, r: p.r - 0.6, fill: "var(--k-event)", "fill-opacity": 0.28,
+        stroke: "var(--k-event)", "stroke-width": 1.2 }, svg));
+  // selective direct labels: a dot wide enough to hold its own number carries it
+  for (const p of pts) if (p.r >= 12.5) el("text", { class: "in", x: p.x, y: cy + p.y + 4, "text-anchor": "middle" }, svg).textContent = p.e.n;
+  let hot = -1;
+  svg.addEventListener("pointermove", ev => {
+    const b = svg.getBoundingClientRect(), mx = ev.clientX - b.left, my = ev.clientY - b.top;
+    let best = -1, bd = 1e9;
+    pts.forEach((p, i) => { const d = Math.hypot(p.x - mx, cy + p.y - my) - p.r; if (d < bd) { bd = d; best = i; } });
+    if (hot >= 0) cool(hot);
+    if (bd > 14) { hot = -1; return hideTip(); }
+    hot = best;
+    dots[hot].setAttribute("stroke", "var(--text)"); dots[hot].setAttribute("stroke-width", 1.5);
+    const p = pts[hot];
+    showTip(b.left + p.x, b.top + cy + p.y - p.r, ...eventTip(p.e));
+  });
+  svg.addEventListener("pointerleave", () => { if (hot >= 0) cool(hot); hot = -1; hideTip(); });
+  function cool(i) {
+    if (pts[i].e.major) dots[i].removeAttribute("stroke");
+    else { dots[i].setAttribute("stroke", "var(--k-event)"); dots[i].setAttribute("stroke-width", 1.2); }
+  }
+}
+
+/* ================= A: pilots on record over events each month, one time axis ================= */
+function drawPair() {
+  const wrap = document.getElementById("pair"), hostC = document.getElementById("pairCurve"), hostE = document.getElementById("pairCols");
+  hostC.textContent = ""; hostE.textContent = "";
+  const L = 1, R = 1, W = hostC.clientWidth, x = t => L + (t - T0) / (T1 - T0) * (W - L - R);
+  // pilots on record
+  const H = W < 500 ? 190 : 250, top = 14, base = H - 6;
+  const ymax = Math.ceil(T.pilots / 500) * 500, y = v => base - v / ymax * (base - top);
+  const svg = el("svg", { width: W, height: H, role: "img",
+    "aria-label": `Pilots on record, rising to ${fmt(T.pilots)} by ${D.anchorLabel} ${LY}` }, hostC);
+  // the same year lines as the swarm above, so the three time axes line up
+  for (const yr of [...D.years, LY + 1]) { const px = x(Date.UTC(yr, 0, 1)); el("line", { class: "grid", x1: px, x2: px, y1: top, y2: base }, svg); }
+  for (let v = 0; v <= ymax; v += 500) {
+    el("line", { class: "grid", x1: L, x2: W - R, y1: y(v), y2: y(v) }, svg);
+    if (v) el("text", { x: L + 6, y: y(v) - 6 }, svg).textContent = fmt(v);
+  }
+  let d = `M${x(D.curve[0][0])},${y(0)}`;
+  for (const [t, n] of D.curve) d += `H${x(t)}V${y(n)}`;
+  d += `H${x(D.anchor)}`;
+  el("path", { d: d + `V${y(0)}Z`, fill: "var(--k-pilot)", "fill-opacity": 0.1 }, svg);
+  el("path", { d, fill: "none", stroke: "var(--k-pilot)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+  el("circle", { cx: x(D.anchor), cy: y(T.pilots), r: 5, fill: "var(--k-pilot)", stroke: "var(--surface)", "stroke-width": 2 }, svg);
+  const roomy = W - x(D.anchor) > 52;
+  el("text", roomy ? { class: "ink", x: x(D.anchor) + 10, y: y(T.pilots) + 4 }
+                   : { class: "ink", x: x(D.anchor) - 10, y: y(T.pilots) - 6, "text-anchor": "end" }, svg).textContent = fmt(T.pilots);
+  // events each month
+  const months = (LY - D.years[0] + 1) * 12, counts = new Array(months).fill(0);
+  for (const e of D.events) { const dt = new Date(e.t); counts[(dt.getUTCFullYear() - D.years[0]) * 12 + dt.getUTCMonth()]++; }
+  const eTop = 18, eBase = 96, cmax = Math.max(...counts) * 1.12, ey = v => eBase - v / cmax * (eBase - eTop);
+  const slot = (W - L - R) / months, bw = Math.max(2, Math.min(24, slot - 2));
+  const svg2 = el("svg", { width: W, height: eBase + 26, role: "img",
+    "aria-label": `Events each month, from ${D.years[0]} to ${D.anchorLabel} ${LY}` }, hostE);
+  for (let v = 10; v <= cmax; v += 10) {
+    el("line", { class: "grid", x1: L, x2: W - R, y1: ey(v), y2: ey(v) }, svg2);
+    el("text", { x: L + 6, y: ey(v) - 5 }, svg2).textContent = v;
+  }
+  for (const yr of D.years) el("text", { x: x(Date.UTC(yr, 0, 1)) + 6, y: eBase + 17 }, svg2).textContent = yr;
+  for (const yr of [...D.years, LY + 1]) { const px = x(Date.UTC(yr, 0, 1)); el("line", { class: "grid", x1: px, x2: px, y1: eTop - 8, y2: eBase }, svg2); }
+  el("line", { class: "grid", x1: L, x2: W - R, y1: eBase, y2: eBase }, svg2);
+  const peak = counts.indexOf(Math.max(...counts));
+  const bars = counts.map((c, m) => {
+    if (!c) return null;
+    const x0 = L + m * slot + (slot - bw) / 2, h = eBase - ey(c), r = Math.min(4, bw / 2, h);
+    return el("path", { fill: "var(--k-event)",
+      d: `M${x0},${eBase}V${ey(c) + r}Q${x0},${ey(c)} ${x0 + r},${ey(c)}H${x0 + bw - r}Q${x0 + bw},${ey(c)} ${x0 + bw},${ey(c) + r}V${eBase}Z` }, svg2);
+  });
+  el("text", { class: "ink", x: L + peak * slot + slot / 2, y: ey(counts[peak]) - 6, "text-anchor": "middle" }, svg2).textContent = counts[peak];
+  // one crosshair through both
+  const hair = el("line", { y1: top, y2: base, stroke: "var(--text-mute)", "stroke-width": 1, visibility: "hidden" }, svg);
+  const mark = el("circle", { r: 4, fill: "var(--k-pilot)", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }, svg);
+  let hot = -1;
+  const cool = () => { if (hot >= 0 && bars[hot]) bars[hot].setAttribute("fill", "var(--k-event)"); hot = -1; };
+  wrap.onpointermove = ev => {
+    const b = svg.getBoundingClientRect(), mx = ev.clientX - b.left;
+    const t = Math.max(D.curve[0][0], Math.min(D.anchor, T0 + (mx - L) / (W - L - R) * (T1 - T0)));
+    let n = 0; for (const [ct, cn] of D.curve) { if (ct > t) break; n = cn; }
+    const px = x(t), dt = new Date(t), m = (dt.getUTCFullYear() - D.years[0]) * 12 + dt.getUTCMonth();
+    hair.setAttribute("x1", px); hair.setAttribute("x2", px); hair.setAttribute("visibility", "visible");
+    mark.setAttribute("cx", px); mark.setAttribute("cy", y(n)); mark.setAttribute("visibility", "visible");
+    cool(); hot = m; if (bars[m]) bars[m].setAttribute("fill", "#2fb52f");
+    showTip(b.left + px, b.top + y(n), `${fmt(n)} pilots on record`,
+      `by ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()} · ${counts[m]} ${counts[m] === 1 ? "event" : "events"} that month`);
+  };
+  wrap.onpointerleave = () => { hair.setAttribute("visibility", "hidden"); mark.setAttribute("visibility", "hidden"); cool(); hideTip(); };
+}
+
+/* ================= cohort segments (A strata, B single bar) ================= */
+function segment(row, year, i, total, parent) {
+  const n = row.by[year];
+  const s = document.createElement("div");
+  s.className = "seg" + (i === 0 ? " deep" : "");
+  s.style.setProperty("--k", COHORT[i]);
+  s.style.flex = `${n} 0 0`;
+  s.textContent = fmt(n);
+  s.tabIndex = 0;
+  const say = () => { const b = s.getBoundingClientRect();
+    showTip(b.left + b.width / 2, b.top, `${fmt(n)} pilots`,
+      `${year === row.year ? "first played in" : "first played"} ${year} · ${Math.round(n / total * 100)}% of ${row.year}`); };
+  s.addEventListener("pointerenter", say); s.addEventListener("focus", say);
+  s.addEventListener("pointerleave", hideTip); s.addEventListener("blur", hideTip);
+  parent.appendChild(s);
+  return s;
+}
+function fitLabels(root) {
+  root.querySelectorAll(".seg").forEach(s => {
+    const need = s.dataset.n.length * 7.6 + 14;
+    s.style.color = s.offsetWidth < need ? "transparent" : "";
+  });
+}
+function cohortKey(host) {
+  host.textContent = "";
+  D.years.forEach((y, i) => {
+    const s = document.createElement("span"), sw = document.createElement("i");
+    sw.className = "sq"; sw.style.setProperty("--k", COHORT[i]);
+    s.appendChild(sw); s.appendChild(document.createTextNode(`First played ${y}`));
+    host.appendChild(s);
+  });
+}
+function drawStrata() {
+  const host = document.getElementById("strata");
+  host.textContent = "";
+  cohortKey(document.getElementById("strataKey"));
+  const max = Math.max(...D.cohorts.map(c => c.total));
+  for (const row of D.cohorts) {
+    const r = document.createElement("div"); r.className = "srow";
+    const yr = document.createElement("div"); yr.className = "yr"; yr.textContent = row.year;
+    if (row.year === LY) { const sm = document.createElement("small"); sm.textContent = `to ${D.anchorLabel}`; yr.appendChild(sm); }
+    const track = document.createElement("div"); track.className = "track";
+    const bar = document.createElement("div"); bar.className = "bar";
+    bar.style.flex = `0 1 calc((100% - 56px) * ${row.total / max})`;
+    D.years.filter(y => y <= row.year).forEach(y => {
+      segment(row, y, D.years.indexOf(y), row.total, bar).dataset.n = fmt(row.by[y]);
+    });
+    const tot = document.createElement("span"); tot.className = "tot"; tot.textContent = fmt(row.total);
+    track.appendChild(bar); track.appendChild(tot);
+    r.appendChild(yr); r.appendChild(track); host.appendChild(r);
+  }
+  fitLabels(host);
+}
+function drawOne() {
+  const host = document.getElementById("one");
+  host.textContent = "";
+  cohortKey(document.getElementById("oneKey"));
+  const row = D.cohorts[D.cohorts.length - 1];
+  D.years.forEach((y, i) => { segment(row, y, i, row.total, host).dataset.n = fmt(row.by[y]); });
+  fitLabels(host);
+}
+
+/* ================= B: the line, and events as spikes on the same axis ================= */
+const ML = 40, MR = 52;
+function drawCurve() {
+  const host = document.getElementById("curve");
+  host.textContent = "";
+  const W = host.clientWidth, H = W < 500 ? 200 : 280, top = 14, base = H - 8;
+  const x = t => ML + (t - T0) / (T1 - T0) * (W - ML - MR);
+  const ymax = Math.ceil(T.pilots / 500) * 500;
+  const y = v => base - v / ymax * (base - top);
+  const svg = el("svg", { width: W, height: H, role: "img",
+    "aria-label": `Pilots on record, rising to ${fmt(T.pilots)} by ${D.anchorLabel} ${LY}` }, host);
+  for (let v = 0; v <= ymax; v += 500) {
+    el("line", { class: "grid", x1: ML, x2: W - MR, y1: y(v), y2: y(v) }, svg);
+    el("text", { x: ML - 8, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = fmt(v);
+  }
+  let d = `M${x(D.curve[0][0])},${y(0)}`;
+  for (const [t, n] of D.curve) d += `H${x(t)}V${y(n)}`;
+  d += `H${x(D.anchor)}`;
+  el("path", { d: d + `V${y(0)}Z`, fill: "var(--k-pilot)", "fill-opacity": 0.1 }, svg);
+  el("path", { d, fill: "none", stroke: "var(--k-pilot)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+  const ex = x(D.anchor), ey = y(T.pilots);
+  el("circle", { cx: ex, cy: ey, r: 5, fill: "var(--k-pilot)", stroke: "var(--bg)", "stroke-width": 2 }, svg);
+  el("text", { class: "ink", x: ex + 10, y: ey + 4 }, svg).textContent = fmt(T.pilots);
+  const hair = el("line", { class: "grid", y1: top, y2: base, visibility: "hidden", stroke: "var(--text-mute)" }, svg);
+  const mark = el("circle", { r: 4, fill: "var(--k-pilot)", stroke: "var(--bg)", "stroke-width": 2, visibility: "hidden" }, svg);
+  svg.addEventListener("pointermove", ev => {
+    const b = svg.getBoundingClientRect(), mx = ev.clientX - b.left;
+    const t = Math.max(D.curve[0][0], Math.min(D.anchor, T0 + (mx - ML) / (W - ML - MR) * (T1 - T0)));
+    let n = 0; for (const [ct, cn] of D.curve) { if (ct > t) break; n = cn; }
+    const px = x(t), dt = new Date(t);
+    hair.setAttribute("x1", px); hair.setAttribute("x2", px); hair.setAttribute("visibility", "visible");
+    mark.setAttribute("cx", px); mark.setAttribute("cy", y(n)); mark.setAttribute("visibility", "visible");
+    showTip(b.left + px, b.top + y(n), `${fmt(n)} pilots`, `on record by ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`);
+  });
+  svg.addEventListener("pointerleave", () => { hair.setAttribute("visibility", "hidden"); mark.setAttribute("visibility", "hidden"); hideTip(); });
+}
+function drawSpikes() {
+  const host = document.getElementById("spikes");
+  host.textContent = "";
+  const W = host.clientWidth, top = 6, base = 96, H = base + 26;
+  const x = t => ML + (t - T0) / (T1 - T0) * (W - ML - MR);
+  const ymax = Math.ceil(T.largest / 100) * 100;
+  const y = v => base - v / ymax * (base - top);
+  const svg = el("svg", { width: W, height: H, role: "img",
+    "aria-label": `${D.events.length} events, one line each, as tall as its players` }, host);
+  for (const v of [100, 200, 300].filter(v => v <= ymax)) {
+    el("line", { class: "grid", x1: ML, x2: W - MR, y1: y(v), y2: y(v) }, svg);
+    el("text", { x: ML - 8, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = v;
+  }
+  for (const yr of D.years) el("text", { x: x(Date.UTC(yr, 0, 1)) + 6, y: base + 17 }, svg).textContent = yr;
+  for (const yr of D.years.slice(1)) { const px = x(Date.UTC(yr, 0, 1)); el("line", { class: "grid", x1: px, x2: px, y1: base, y2: base + 22 }, svg); }
+  el("line", { class: "grid", x1: ML, x2: W - MR, y1: base, y2: base }, svg);
+  const order = [...D.events].sort((a, b) => a.major - b.major);
+  const lines = order.map(e => el("line", { x1: x(e.t), x2: x(e.t), y1: base, y2: y(e.n), stroke: "var(--k-event)",
+    "stroke-width": e.major ? 2 : 1.5, "stroke-opacity": e.major ? 1 : 0.7, "stroke-linecap": "round" }, svg));
+  let hot = -1;
+  svg.addEventListener("pointermove", ev => {
+    const b = svg.getBoundingClientRect(), mx = ev.clientX - b.left, my = ev.clientY - b.top;
+    let best = -1, bd = 1e9;
+    order.forEach((e, i) => { const dx = Math.abs(x(e.t) - mx), over = my < y(e.n) ? y(e.n) - my : 0, d = dx + over * 0.25; if (d < bd) { bd = d; best = i; } });
+    if (hot >= 0) { lines[hot].setAttribute("stroke", "var(--k-event)"); }
+    if (bd > 10) { hot = -1; return hideTip(); }
+    hot = best; lines[hot].setAttribute("stroke", "var(--text)");
+    const e = order[hot];
+    showTip(b.left + x(e.t), b.top + y(e.n), ...eventTip(e));
+  });
+  svg.addEventListener("pointerleave", () => { if (hot >= 0) lines[hot].setAttribute("stroke", "var(--k-event)"); hot = -1; hideTip(); });
+}
+
+/* ================= variant switcher ================= */
+const NAMES = { A: "A · event swarm, yearly bars", B: "B · one line, event spikes" };
+const KEYS = Object.keys(NAMES);
+function draw() {
+  const v = document.body.dataset.variant;
+  if (v === "A") { drawSwarm(); drawPair(); drawStrata(); } else { drawCurve(); drawSpikes(); drawOne(); }
+}
+function setVariant(v, push) {
+  document.body.dataset.variant = v;
+  document.getElementById("which").textContent = NAMES[v];
+  if (push) { const u = new URL(location); u.searchParams.set("variant", v); history.replaceState(null, "", u); }
+  hideTip(); draw();
+}
+const step = d => setVariant(KEYS[(KEYS.indexOf(document.body.dataset.variant) + d + KEYS.length) % KEYS.length], true);
+document.getElementById("prev").onclick = () => step(-1);
+document.getElementById("next").onclick = () => step(1);
+addEventListener("keydown", e => { if (e.key === "ArrowLeft") step(-1); if (e.key === "ArrowRight") step(1); });
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(draw, 80); });
+const want = new URL(location).searchParams.get("variant");
+document.fonts.ready.then(() => setVariant(KEYS.includes(want) ? want : "A", false));
+</script>
+</body>
+</html>
