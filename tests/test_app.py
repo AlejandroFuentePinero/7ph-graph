@@ -1336,6 +1336,39 @@ def test_chart_chrome_is_set_in_the_app_face_not_plotly_default():
         assert "verdana" not in fig.to_json().lower()
 
 
+def test_every_charts_hover_box_is_set_in_the_app_face_and_tokens():
+    # AC (#325): the box over a hovered point takes the app's body face and its
+    # surface, border and text tokens. Left unstated the chart library fills it with
+    # the colour of the trace under it, outlines and letters it in whichever of dark
+    # grey and white contrasts with that, and sets it in Arial whatever the figure's
+    # own font is. The running page holds the drawn box for the chart Meta opens on
+    # (`tests/test_explorer_page.py`); this holds what all seven charts ask for.
+    figures = [
+        _trend_figure(_meta_series(("aggro", 2024, 0.3)), {"aggro"}),
+        _adoption_figure([("Sol Ring", Series(cells=[
+            AdoptionCell(year=2024, count=30, share=0.03, year_total=1000),
+        ]))]),
+        _performance_figure("Ada L", Series(cells=[
+            _performance_cell(2024, 0.4, 3),
+        ])),
+        _race_figure(*_race_figure_args()),
+        _landscape_figure(_landscape_cells(("grixis", 30, 0.45), ("storm", 20, 0.4))),
+        _head_to_head_figure("Ada L", "Bob C", Series(cells=[
+            _h2h_point("SSWam", datetime(2024, 3, 1), 88),
+            _h2h_point("PBB", datetime(2024, 6, 1), 24),
+        ])),
+        _archetype_timeline_figure(
+            "Storm", "Lands", _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4)),
+        ),
+    ]
+    for fig in figures:
+        box = fig.layout.hoverlabel
+        assert box.font.family == theme.FONT_STACK
+        assert box.font.color == theme.TOKENS["text"]
+        assert box.bgcolor == theme.TOKENS["surface"]
+        assert box.bordercolor == theme.TOKENS["border"]
+
+
 def test_a_wrapping_legend_costs_the_plot_no_width():
     # AC (#85, criterion 12): "graph and charts fill their space from phone width to a
     # wide monitor". Plotly's default legend sits to the right *inside the figure's

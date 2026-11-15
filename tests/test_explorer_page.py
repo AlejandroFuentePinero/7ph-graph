@@ -28,7 +28,7 @@ from graph7ph.build import build_graph
 from graph7ph.db import artifact_path, database_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
-from graph7ph.theme import TOKENS
+from graph7ph.theme import FONTS, TOKENS
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -80,9 +80,9 @@ def _explorer_over(artifact: Path):
         demo.close()
 
 
-def _loaded(chromium, url: str):
-    """The explorer freshly loaded at desktop width."""
-    tab = chromium.new_page(viewport={"width": 1440, "height": 900})
+def _loaded(chromium, url: str, width: str = "desktop"):
+    """The explorer freshly loaded at one of the acceptance script's three widths."""
+    tab = chromium.new_page(**shots.VIEWPORTS[width])
     # Asked for dark outright, so the page does not send itself there mid-load.
     tab.goto(url + "?__theme=dark", wait_until="networkidle")
     tab.get_by_role("tab", name="Meta", exact=True).wait_for()
@@ -94,6 +94,22 @@ def explorer(tmp_path_factory, snapshot_dir):
     """The explorer over the suite's snapshot."""
     artifact = tmp_path_factory.mktemp("explorer") / "graph"
     build_graph(load_snapshot(snapshot_dir), artifact)
+    with _explorer_over(artifact) as url:
+        yield url
+
+
+@pytest.fixture(scope="module")
+def record():
+    """The explorer over the real record, for what the suite's snapshot cannot draw.
+
+    Skipped where the record is absent or built from other sources, as
+    `conftest.live_graph` is.
+    """
+    artifact = artifact_path()
+    if not database_path(artifact).exists():
+        pytest.skip(f"no graph artifact at {artifact}; build one with `uv run graph7ph build`")
+    if staleness(artifact):
+        pytest.skip(f"cannot grade the real record: {staleness(artifact)}")
     with _explorer_over(artifact) as url:
         yield url
 
@@ -227,3 +243,144 @@ def test_the_standings_and_the_gems_draw_no_table_frame_on_the_real_record(chrom
             )
             assert table["cells"] > 0, tab
             assert table["lines"] == ["0px"], tab
+
+
+# Every tab, the picks that put its charts on screen, and how many charts that is.
+# Cards is walked twice, since its two views each draw a chart of their own. The
+# suite's snapshot draws the two on Meta and a card's adoption in both views; it
+# has no archetype with a timeline, no pilot with a year to average or a rivalry
+# to chart, and no race.
+SUITE_WALK = [
+    ("Meta", [("Or focus on specific archetypes", "Grixis")], 2),
+    ("Archetypes", [], 0),
+    ("Cards", [("Card", CARD)], 1),
+    ("Cards", [("View", "Co-occurrence"), ("Card", CARD)], 1),
+    ("Hidden gems", [], 0),
+    ("Pilots", [("Pilot", PILOT)], 0),
+    ("Player leaderboard", [], 0),
+    ("FAQ", [], 0),
+]
+
+
+def _toolbar_buttons_on_show(page) -> list[list[int]]:
+    """For each chart on the open tab, how many of the chart library's toolbar buttons
+    a reader can see, with the pointer off the chart and then on it."""
+    seen = []
+    drawn = page.locator(".js-plotly-plot").locator("visible=true")
+    for i in range(drawn.count()):
+        chart = drawn.nth(i)
+
+        def on_show():
+            return chart.evaluate(
+                "chart => [...chart.querySelectorAll('.modebar-btn')].filter(button =>"
+                " button.checkVisibility({opacityProperty: true, visibilityProperty: true})"
+                ").length"
+            )
+
+        page.mouse.move(0, 0)
+        off = on_show()
+        chart.hover()
+        # The library fades its toolbar in over 300ms once the pointer is on the chart.
+        page.wait_for_timeout(500)
+        seen.append([off, on_show()])
+    return seen
+
+
+def _walked(page, walk) -> list:
+    """Each tab of ``walk`` in turn with its charts drawn, and the toolbar buttons on
+    show on each chart."""
+    found = []
+    for name, picks, charts in walk:
+        shots.tab(page, name)
+        for label, text in picks:
+            shots.pick(page, label, text)
+        # A multiselect stays open after a pick, with its list over the chart below it.
+        page.keyboard.press("Escape")
+        if picks and page.get_by_role("button", name="Draw", exact=True).locator(
+                "visible=true").count():
+            shots.draw(page, settle=500)
+        if charts:
+            page.locator(".js-plotly-plot").locator("visible=true").nth(charts - 1).wait_for(
+                timeout=60_000)
+            page.wait_for_timeout(500)
+        found.append((name, _toolbar_buttons_on_show(page)))
+    return found
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_no_chart_shows_the_chart_librarys_toolbar(chromium, explorer, width):
+    # Issue #325: the chart library draws a row of its own icons (camera, zoom, pan,
+    # select, reset) over the top right of every chart, 272 by 24px. On a desktop it
+    # fades in under the pointer; on a phone it is always there and covers the top
+    # axis label. Nothing on it is needed to read a chart.
+    page = _loaded(chromium, explorer, width)
+    try:
+        found = _walked(page, SUITE_WALK)
+    finally:
+        page.close()
+
+    assert found == [(name, [[0, 0]] * charts) for name, _, charts in SUITE_WALK]
+
+
+# The same walk over the real record, which draws the charts the suite's snapshot
+# cannot: the landscape and an archetype's timeline, a pilot's performance, a
+# rivalry, and the race. Pilots is walked twice as Cards is, so the walk covers all
+# nine of the app's plots. The picks are the acceptance script's own.
+RECORD_WALK = [
+    ("Meta", [("Or focus on specific archetypes", shots.ARCHETYPE)], 2),
+    ("Archetypes", [("Archetype", shots.ARCHETYPE)], 2),
+    ("Cards", [("Card", shots.CARD)], 1),
+    ("Cards", [("View", "Co-occurrence"), ("Card", shots.CARD),
+               ("Second card (optional)", shots.CARD_B)], 1),
+    ("Hidden gems", [], 0),
+    ("Pilots", [("Pilot", shots.PILOT)], 1),
+    ("Pilots", [("View", "Head-to-head"), ("Pilot", shots.PILOT_RIVAL),
+                ("Second pilot (required)", shots.PILOT_B)], 1),
+    ("Player leaderboard", [], 1),
+    ("FAQ", [], 0),
+]
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_no_chart_shows_the_chart_librarys_toolbar_on_the_real_record(chromium, record, width):
+    page = _loaded(chromium, record, width)
+    try:
+        found = _walked(page, RECORD_WALK)
+    finally:
+        page.close()
+
+    assert found == [(name, [[0, 0]] * charts) for name, _, charts in RECORD_WALK]
+
+
+def test_the_box_over_a_data_point_is_set_in_the_apps_face_and_tokens(page):
+    # Issue #325: the box the chart library draws over a hovered point was never
+    # styled, so it took the library's own: Arial, on a fill taken from the trace
+    # under the pointer, outlined and lettered in whichever of dark grey and white
+    # contrasts with it (white on both, over this point). Read off the box as the
+    # browser drew it, over a real point of the chart Meta opens on.
+    point = page.locator(".js-plotly-plot .scatterlayer path.point").locator(
+        "visible=true").first.bounding_box()
+    x, y = point["x"] + point["width"] / 2, point["y"] + point["height"] / 2
+    # Moved onto the point rather than placed on it: the library answers movement.
+    page.mouse.move(x - 40, y - 40)
+    page.mouse.move(x, y, steps=5)
+    box = page.locator(".js-plotly-plot .hoverlayer .hovertext")
+    box.wait_for()
+
+    drawn = box.evaluate(
+        """box => { const frame = getComputedStyle(box.querySelector('path'));
+             const text = getComputedStyle(box.querySelector('text'));
+             return {
+               says: box.textContent,
+               face: text.fontFamily.split(',')[0].replaceAll(/['"]/g, '').trim(),
+               text: text.fill, surface: frame.fill, border: frame.stroke,
+             }; }"""
+    )
+
+    assert "Grixis" in drawn.pop("says")
+    assert drawn == {
+        "face": FONTS["body"]["family"],
+        "text": _rgb(TOKENS["text"]),
+        "surface": _rgb(TOKENS["surface"]),
+        "border": _rgb(TOKENS["border"]),
+    }
