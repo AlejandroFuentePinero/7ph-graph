@@ -483,8 +483,14 @@ footer {{ display: none !important; }}
    need 607px against 326px of container at 390px, so four of them go behind that menu.
    Worse, when a hidden tab is the selected one, no button on the real strip carries
    `.selected` or `aria-selected`: four of seven tabs show no "you are here" on the
-   device most of the reading happens on. Letting the mirror wrap leaves the pass with
-   nothing overflowing, so the menu hides itself and all seven render on the real strip.
+   device most of the reading happens on. Giving the mirror's buttons no width leaves the
+   pass with nothing overflowing, so the menu hides itself and all seven render on the
+   real strip. No width, because Gradio 6 decides the slice by summing those buttons'
+   widths. Gradio 5 asked where each one's right edge fell, and a mirror left to wrap was
+   the answer to that; on Gradio 6 it sliced five tabs away with every stylesheet test
+   green (#307), so what holds this now is a measurement of the running page
+   (`tests/test_page_style.py`). Gradio 6 also offers `overflow_behavior="wrap"` on the
+   tabs themselves, which is the wrapping measured and turned down in the next paragraph.
 
    The real strip then scrolls sideways rather than wrapping, measured both ways: wrapping
    the visible strip costs 39px off the top of every phone page for a ragged three-row
@@ -500,7 +506,9 @@ footer {{ display: none !important; }}
    rules are (0,3,0), so anything at or below that ties and loses on order. None of them
    names the `svelte-` hash, deliberately, so a Gradio upgrade that rehashes cannot
    silently drop them. */
-.gradio-container .tabs > .tab-wrapper > .tab-container.visually-hidden {{ flex-wrap: wrap; }}
+.gradio-container .tabs > .tab-wrapper > .tab-container.visually-hidden > button {{
+  width: 0; min-width: 0; padding: 0; border: 0; overflow: hidden;
+}}
 .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] {{
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   border-bottom: 1px solid var(--border);
