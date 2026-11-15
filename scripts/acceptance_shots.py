@@ -1,9 +1,9 @@
 """The v1 acceptance pass (issue #118): the screenshot matrix and the WCAG AA
 contrast check, captured from the running app rather than asserted about the tokens.
 
-Every tab and state is driven to on a real browser at phone and desktop width, and
-each one is both photographed and measured: the screenshot is the visual evidence
-#85 asks for, and the same visit walks every rendered text node (page, Plotly SVG,
+Every tab and state is driven to on a real browser at phone, desktop and wide desktop
+width, and each one is both photographed and measured: the screenshot is the visual
+evidence #85 asks for, and the same visit walks every rendered text node (page, Plotly SVG,
 and the pyvis iframe alike) and computes its contrast against the background it is
 actually painted on. Measuring the live document is what makes the pass an
 acceptance check rather than a restatement of ``theme.TOKENS``: it covers the
@@ -35,14 +35,16 @@ from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
 
-# The two widths #85 asks for: a phone, and a desktop. The phone is emulated as a
-# device (touch, mobile UA, 2x pixels), so the page reflows at 390 CSS pixels the
-# way it does in a hand; the desktop is captured at 1x, since a 2x full-page shot of
-# a 1440-wide page is four times the bytes for evidence read at a glance.
+# The two widths #85 asks for, a phone and a desktop, and the wide desktop the
+# refurbish is also checked at (#324). The phone is emulated as a device (touch,
+# mobile UA, 2x pixels), so the page reflows at 390 CSS pixels the way it does in a
+# hand; the desktops are captured at 1x, since a 2x full-page shot of a 1440-wide
+# page is four times the bytes for evidence read at a glance.
 VIEWPORTS = {
     "phone": dict(viewport={"width": 390, "height": 844}, device_scale_factor=2,
                   is_mobile=True, has_touch=True),
     "desktop": dict(viewport={"width": 1440, "height": 900}, device_scale_factor=1),
+    "wide": dict(viewport={"width": 1920, "height": 1080}, device_scale_factor=1),
 }
 
 # Entities picked off the shipped artifact for states that need one, so each shot
@@ -127,15 +129,22 @@ def pick(page: Page, label: str, text: str) -> None:
 
     Prefix, not equality: the archetype timeline's options carry an event count
     (``Grixis (85 events)``) and a duplicate display name carries its key, so the
-    caller names the entity and this takes the row it opens."""
+    caller names the entity and this takes the row it opens.
+
+    Typed as keystrokes, over whatever the field holds. Gradio 6 filters a dropdown's
+    options on key events, which ``fill`` does not send, and a single-select that
+    already has a pick opens with that pick as its text. The options are found by
+    role and read by ``aria-label``, which is where Gradio 6 puts both: the list is no
+    longer a ``ul.options`` and an option's text now leads with its tick mark."""
     box = field(page, label)
     box.click()
-    box.fill(text)
+    box.press("ControlOrMeta+a")
+    box.press_sequentially(text)
     wait(page, 500)
-    options = page.locator("ul.options li").locator("visible=true")
+    options = page.locator('[role="option"]').locator("visible=true")
     for i in range(options.count()):
         option = options.nth(i)
-        if option.inner_text().strip().startswith(text):
+        if (option.get_attribute("aria-label") or "").startswith(text):
             option.click()
             wait(page, 400)
             return
@@ -245,10 +254,7 @@ def recipes() -> list[Shot]:
     def cards_cooccurrence(page):
         tab(page, "Cards")
         pick(page, "Card", CARD)
-        page.locator('input[aria-label="View"]').locator("visible=true").first.click()
-        page.locator("ul.options li").locator("visible=true").filter(
-            has_text="Co-occurrence").first.click()
-        wait(page, 600)
+        pick(page, "View", "Co-occurrence")
         pick(page, "Second card (optional)", CARD_B)
         draw(page)
 
@@ -290,32 +296,28 @@ def recipes() -> list[Shot]:
     def pilots_head_to_head(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT_RIVAL)
-        page.locator('input[aria-label="View"]').locator("visible=true").first.click()
-        page.locator("ul.options li").locator("visible=true").filter(
-            has_text="Head-to-head").first.click()
-        wait(page, 600)
+        pick(page, "View", "Head-to-head")
         pick(page, "Second pilot (required)", PILOT_B)
         draw(page, settle=8000)
 
     def pilots_same_pilot(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT_RIVAL)
-        page.locator('input[aria-label="View"]').locator("visible=true").first.click()
-        page.locator("ul.options li").locator("visible=true").filter(
-            has_text="Head-to-head").first.click()
-        wait(page, 600)
+        pick(page, "View", "Head-to-head")
         pick(page, "Second pilot (required)", PILOT_RIVAL)
         draw(page, settle=3000)
 
     def pilots_never_met(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT_RIVAL)
-        page.locator('input[aria-label="View"]').locator("visible=true").first.click()
-        page.locator("ul.options li").locator("visible=true").filter(
-            has_text="Head-to-head").first.click()
-        wait(page, 600)
+        pick(page, "View", "Head-to-head")
         pick(page, "Second pilot (required)", PILOT_STRANGER)
         draw(page, settle=6000)
+
+    def leaderboard(page):
+        # Fixed at build time like the gems: the chart and the standings under it.
+        tab(page, "Player leaderboard")
+        wait(page, 2000)
 
     def faq(page):
         tab(page, "FAQ")
@@ -340,6 +342,7 @@ def recipes() -> list[Shot]:
         Shot("pilots-head-to-head", "Pilots, a rivalry drawn", pilots_head_to_head),
         Shot("pilots-same-pilot", "Pilots, the same pilot picked twice", pilots_same_pilot),
         Shot("pilots-never-met", "Pilots, a pair who never met (refusal)", pilots_never_met),
+        Shot("leaderboard", "Player leaderboard, the race and the standings", leaderboard),
         Shot("faq", "FAQ", faq),
     ]
 
@@ -482,9 +485,9 @@ def report(out: Path) -> str:
 
 
 def gallery(out: Path) -> str:
-    """The matrix as one local page: each state's phone and desktop shot side by side.
+    """The matrix as one local page: each state's shot at every width, side by side.
 
-    Sign-off is a person looking at every state, and that is 42 files in two folders.
+    Sign-off is a person looking at every state, and that is 63 files in three folders.
     The page puts each state on one row under its own caption, in matrix order, so the
     review is a scroll. Local and gitignored, like the shots it links.
     """
@@ -516,8 +519,8 @@ def gallery(out: Path) -> str:
   img {{ max-height: 900px; width: auto; border: 1px solid #37312b; border-radius: 8px; }}
 </style>
 <h1>v1 acceptance matrix (#118)</h1>
-<p>Every tab and state at phone (390) and desktop (1440) width, in the shipped dark
-theme. Click a shot for the full-size image.</p>
+<p>Every tab and state at phone (390), desktop (1440) and wide desktop (1920) width,
+in the shipped dark theme. Click a shot for the full-size image.</p>
 {"".join(rows)}
 """
 
@@ -559,7 +562,6 @@ def main() -> None:
     from graph7ph import app as app_module
     from graph7ph import explore
     from graph7ph.db import artifact_path
-    from graph7ph.serve import APP_KWARGS
 
     shots = forced_recipes() if args.forced else recipes()
     if args.only:
@@ -571,8 +573,10 @@ def main() -> None:
         app_module.assess = lambda subgraph: explore.assess(subgraph, threshold=20)
 
     port = free_port()
-    demo.launch(server_port=port, app_kwargs=APP_KWARGS, quiet=True,
-                prevent_thread_lock=True, share=False, inbrowser=False)
+    # With the settings every real launch passes: Gradio 6 takes the theme and the
+    # stylesheet at launch, so a page launched without them is not the shipped one.
+    demo.launch(server_port=port, quiet=True, prevent_thread_lock=True, share=False,
+                inbrowser=False, **app_module.launch_kwargs())
     url = f"http://127.0.0.1:{port}/?__theme=dark"
 
     measurements: list[dict] = []

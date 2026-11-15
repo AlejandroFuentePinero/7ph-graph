@@ -3743,7 +3743,7 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             # Card overview: one card + board, two plots (usage graph and the adoption
             # trend, both scoped to the board). Results stack hidden until a Draw (§14).
-            with gr.Group(visible=cov_default) as g_card_overview:
+            with gr.Group(visible=cov_default, elem_classes="view-body") as g_card_overview:
                 cov_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as cov_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -3756,7 +3756,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # Co-occurrence: card + second card (optional) + top-N + drop-lands, two
             # plots. Board-agnostic: no board control, so the adoption trend counts
             # across both boards and carries no board qualifier text.
-            with gr.Group(visible=cooc_default) as g_card_cooccurrence:
+            with gr.Group(visible=cooc_default, elem_classes="view-body") as g_card_cooccurrence:
                 cooc_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as cooc_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -3860,7 +3860,11 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "decks.",
                 elem_classes="t-lede",
             )
-            gr.HTML(run_graph("meta_gems", {}), elem_classes="insight-card", padding=True)
+            # In a group like every other result, and not as an HTML block classed as
+            # a card itself: Gradio gives a block's classes to the block and to the
+            # content inside it, which drew one card inset in another (issue #324).
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML(run_graph("meta_gems", {}), padding=True)
 
         with gr.Tab("Pilots"):
             gr.Markdown("## Pilots")
@@ -3901,7 +3905,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # results stack is hidden until a Draw fills it (§14), so the view opens as
             # controls over empty ground rather than a row of duplicated empty-prompt
             # cards. The subject line sits above the stack.
-            with gr.Group(visible=po_default) as g_pilot_overview:
+            with gr.Group(visible=po_default, elem_classes="view-body") as g_pilot_overview:
                 po_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as po_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -3915,7 +3919,7 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             # Head-to-head: two pilots, the second required, two plots (the pair's
             # neighbourhood and their shared-event timeline).
-            with gr.Group(visible=h2h_default) as g_pilot_head_to_head:
+            with gr.Group(visible=h2h_default, elem_classes="view-body") as g_pilot_head_to_head:
                 h2h_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as h2h_results:
                     with gr.Group(elem_classes="insight-card"):

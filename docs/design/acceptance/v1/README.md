@@ -11,14 +11,14 @@ by hand:
 ```sh
 uv run --with playwright python scripts/acceptance_shots.py
 uv run --with playwright python scripts/acceptance_shots.py --forced
-open docs/design/acceptance/v1/gallery.html   # every state, both widths, one page
+open docs/design/acceptance/v1/gallery.html   # every state, every width, one page
 ```
 
 **The shots themselves are not in the repo**, only this index and the generated
-contrast report: 42 screenshots and the raw per-node measurements are megabytes of
+contrast report: 63 screenshots and the raw per-node measurements are megabytes of
 regenerable output, and the two commands above rebuild them in about fifteen
-minutes. `gallery.html` is the review page — each state's phone and desktop shot
-side by side, in matrix order — which is how the sign-off pass is meant to be read.
+minutes. `gallery.html` is the review page, each state's shot at every width side by
+side, in matrix order, which is how the sign-off pass is meant to be read.
 
 The script drives the real app on a real browser (Chromium), photographs each state
 full-page, and while it is there walks every rendered text node — the page, the
@@ -30,8 +30,9 @@ automated rather than captured by hand.
 
 ## The matrix
 
-Every state below was captured at both widths: `phone/<name>.png` and
-`desktop/<name>.png`.
+Every state below is captured at three widths: `phone/<name>.png` (390px),
+`desktop/<name>.png` (1440px) and, since #324, `wide/<name>.png` (1920px). The
+contrast pass and the findings further down are from the two-width run of #118.
 
 | State | What it shows |
 |---|---|
@@ -53,6 +54,7 @@ Every state below was captured at both widths: `phone/<name>.png` and
 | `pilots-head-to-head` | A rivalry drawn |
 | `pilots-same-pilot` | The same pilot picked twice |
 | `pilots-never-met` | A pair who never met: the refusal |
+| `leaderboard` | The player leaderboard: the race and the standings under it (added by #324) |
 | `faq` | The FAQ tab |
 | `forced-too-large` | Too large to draw, with the draw limit lowered to 20 nodes |
 
