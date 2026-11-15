@@ -84,8 +84,7 @@ def _explorer_over(artifact: Path):
 def _loaded(chromium, url: str, width: str = "desktop"):
     """The explorer freshly loaded at one of the acceptance script's three widths."""
     tab = chromium.new_page(**shots.VIEWPORTS[width])
-    # Asked for dark outright, so the page does not send itself there mid-load.
-    tab.goto(url + "?__theme=dark", wait_until="networkidle")
+    tab.goto(url, wait_until="networkidle")
     tab.get_by_role("tab", name="Meta", exact=True).wait_for()
     return tab
 
@@ -432,3 +431,200 @@ def test_typing_an_archetype_and_pressing_enter_picks_it_on_the_real_record(
 
     assert focus == [name]
     assert re.fullmatch(rf"{name} \(\d+ events\)", timeline)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_a_first_visit_fetches_the_page_once_and_ends_dark(chromium, explorer, scheme):
+    # Issue #327: every visit downloaded the page twice. It arrived, found no dark
+    # marker in its address, and sent itself to the same address with one, with a
+    # blank flash between: about 1.5s more from the live site. The page is counted
+    # as the browser fetches it, under each setting an operating system can hand it,
+    # at an address that carries a query of the visitor's own.
+    context = chromium.new_context(color_scheme=scheme)
+    page = context.new_page()
+    documents = []
+    page.on("request", lambda request: request.resource_type == "document"
+            and documents.append(request.url))
+    try:
+        page.goto(explorer + "?from=a-link&year=2025", wait_until="networkidle")
+        page.get_by_role("tab", name="Meta", exact=True).wait_for()
+        # Long enough for a page that means to send itself elsewhere to have done so.
+        page.wait_for_timeout(1000)
+        dark, ground, query = page.evaluate(
+            "() => [document.body.classList.contains('dark'),"
+            " getComputedStyle(document.body).backgroundColor, location.search]"
+        )
+    finally:
+        context.close()
+
+    assert len(documents) == 1
+    # Gradio's own dark rules are the ones in force, on the app's ground.
+    assert dark
+    assert ground == _rgb(TOKENS["bg"])
+    # And the address is the one the visitor arrived at.
+    assert query == "?from=a-link&year=2025"
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_page_as_served_is_dark_before_any_script_runs(chromium, explorer, scheme):
+    # Issue #327: the stylesheet arrives with the page's script, so until that runs
+    # the page is whatever the document itself paints, which was nothing: a white
+    # screen ahead of a dark app. Loaded with scripts off, so what is measured is
+    # the document as served and nothing a script did to it.
+    context = chromium.new_context(color_scheme=scheme, java_script_enabled=False)
+    page = context.new_page()
+    try:
+        page.goto(explorer, wait_until="load")
+        painted = page.evaluate(
+            """() => { for (const el of [document.body, document.documentElement]) {
+                 const fill = getComputedStyle(el).backgroundColor;
+                 if (fill !== 'rgba(0, 0, 0, 0)') return fill;
+               } return 'nothing'; }"""
+        )
+    finally:
+        context.close()
+
+    assert painted == _rgb(TOKENS["bg"])
+
+
+def test_the_page_is_one_capped_column_centred_on_a_wide_screen(chromium, explorer):
+    # Issue #327: the page ran the width of the window, 1,856px of content at 1920,
+    # and an FAQ answer ran the width of it. It is held to the column a 1440 window
+    # already gave it, and that column sits in the middle.
+    page = _loaded(chromium, explorer, "wide")
+    try:
+        left, right, window = page.evaluate(
+            "() => { const box = " + _OPEN_TAB + ".getBoundingClientRect();"
+            " return [box.left, box.right, document.documentElement.clientWidth]; }"
+        )
+    finally:
+        page.close()
+
+    assert window == 1920
+    assert 1200 <= right - left <= 1280
+    assert abs(left - (window - right)) <= 1
+
+
+def _header_parts(page) -> dict[str, dict]:
+    """The box of each part of the header, as the browser laid it out."""
+    return page.evaluate(
+        """() => Object.fromEntries(Object.entries({
+             mark: '.brand-mark svg', name: '.brand-name',
+             tabs: '[role=tablist]', freshness: '.freshness',
+           }).map(([part, selector]) => {
+             const box = document.querySelector(selector).getBoundingClientRect();
+             return [part, {left: box.left, right: box.right, top: box.top,
+                            bottom: box.bottom}];
+           }))"""
+    )
+
+
+def test_one_slim_row_carries_the_mark_the_name_the_tabs_and_the_freshness(page):
+    # Issue #327: the title, the tab strip and a heading repeating the open tab took
+    # three rows, and the first result on Meta started 454px down a 900px window.
+    # Where each part lands is the browser's answer to Gradio's markup and the
+    # stylesheet together, so it is read off the running page.
+    parts = _header_parts(page)
+    order = [parts[part] for part in ("mark", "name", "tabs", "freshness")]
+
+    # One row: there is a line across the page that passes through all four.
+    assert max(box["top"] for box in order) < min(box["bottom"] for box in order)
+    # Side by side in reading order, none over another.
+    for before, after in zip(order, order[1:]):
+        assert before["right"] <= after["left"]
+    # And slim: from the top of the tallest part to the foot of the lowest.
+    assert max(b["bottom"] for b in order) - min(b["top"] for b in order) <= 48
+
+    assert page.locator(".brand-name").inner_text() == "7PH Graph"
+    assert re.fullmatch(r"\d+ events(, updated \d{1,2} [A-Z][a-z]{2} \d{4})?",
+                        page.locator(".freshness").inner_text())
+    # Every tab is on the strip, with none scrolled out of it at this width.
+    strip = page.locator("[role=tablist]")
+    assert strip.get_by_role("tab").count() == 7
+    assert strip.evaluate("strip => strip.scrollWidth <= strip.clientWidth")
+
+
+def test_the_first_result_on_meta_starts_high_on_a_desktop(page):
+    # AC (#327): at 1440 the first result card on Meta starts at or above 370px,
+    # from 454px under the three-row header.
+    top = page.evaluate(
+        "() => " + _OPEN_TAB + ".querySelector('.insight-card').getBoundingClientRect().top"
+    )
+
+    assert top <= 370
+
+
+@pytest.mark.parametrize("tab", ["Pilots", "Player leaderboard"])
+def test_the_privacy_line_is_one_line_whose_link_opens_the_note_in_full(page, tab):
+    # Issue #327: the note in full stood above the picker on the two tabs that name
+    # people, 384px of a phone's 844. It is one line there now, and the note is the
+    # FAQ's answer, on another tab: so the line's link has to open that tab and bring
+    # the answer into view, which only a click on the running page can show.
+    shots.tab(page, tab)
+    line = page.locator(".privacy-line .t-body").locator("visible=true")
+
+    height, one_line, drawn_below = line.evaluate(
+        "line => [line.getBoundingClientRect().height,"
+        " parseFloat(getComputedStyle(line).lineHeight),"
+        " " + _OPEN_TAB + ".querySelector('.control-panel, .insight-card')"
+        ".getBoundingClientRect().top - line.getBoundingClientRect().bottom]"
+    )
+    assert height == pytest.approx(one_line, abs=1)
+    # Above the picker on Pilots, and above the chart on the leaderboard.
+    assert drawn_below >= 0
+
+    line.get_by_role("link").click()
+    # Gradio draws a group as two nested elements and gives both its id; the outer
+    # one is the box.
+    note = page.locator("#faq-privacy").first
+    note.wait_for()
+    assert page.get_by_role("tab", name="FAQ", exact=True).get_attribute(
+        "aria-selected") == "true"
+    assert "I'll pull your identifiable records in the next update" in note.inner_text()
+    # In view, not merely on the open tab: the FAQ is several screens long.
+    assert 0 <= note.bounding_box()["y"] < page.viewport_size["height"] / 2
+    # And the address is as it was, since nothing here is reached by one.
+    assert page.evaluate("() => location.hash") == ""
+
+
+def test_a_phone_gets_tabs_a_finger_can_hit_and_a_chart_with_room(chromium, explorer):
+    # Issue #327, the phone floor. Tab buttons were 31px tall, under the 44px a
+    # finger needs. And of a 390px screen a chart's plot area had 217px, the rest
+    # going to the page's margin, the card's and the axis labels: the first two are
+    # tightened, which is worth 48px to the chart.
+    page = _loaded(chromium, explorer, "phone")
+    try:
+        parts = _header_parts(page)
+        tabs = page.evaluate(
+            "() => [...document.querySelectorAll('[role=tablist] [role=tab]')]"
+            ".map(tab => tab.getBoundingClientRect().height)"
+        )
+        # How much of a tab's label shows at the strip's right edge, for the one tab
+        # the edge cuts through: its text starts inside the strip and ends outside.
+        cut_label_showing = page.evaluate(
+            """() => { const edge = document.querySelector('[role=tablist]')
+                 .getBoundingClientRect().right;
+               return [...document.querySelectorAll('[role=tablist] [role=tab]')].map(tab => {
+                 const text = document.createRange(); text.selectNodeContents(tab);
+                 const box = text.getBoundingClientRect();
+                 return box.left < edge && box.right > edge ? edge - box.left : 0;
+               }).filter(Boolean); }"""
+        )
+        plot_area = page.evaluate(
+            "() => " + _OPEN_TAB + ".querySelector('.js-plotly-plot .nsewdrag')"
+            ".getBoundingClientRect().width"
+        )
+    finally:
+        page.close()
+
+    assert len(tabs) == 7 and min(tabs) >= 44
+    # No room for one row here: the name and the freshness share a line, clear of
+    # each other, and the strip has the full width of the line below.
+    assert parts["name"]["right"] < parts["freshness"]["left"]
+    assert parts["tabs"]["top"] >= max(parts["name"]["bottom"], parts["freshness"]["bottom"])
+    # The strip scrolls sideways (#172), and what says so is a tab cut at its edge.
+    # The tighter margin moved that edge into the gap between two tabs, where nothing
+    # showed, so the tabs sit a little closer here: a label is cut, with enough of it
+    # on screen to read as one.
+    assert len(cut_label_showing) == 1 and cut_label_showing[0] >= 20
+    assert plot_area >= 260

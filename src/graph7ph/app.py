@@ -426,16 +426,16 @@ _CONTACT_DISCORD = "alejandrofp92"
 
 # The standing offer to be taken off the graph, written once and shown wherever a
 # person is named. Two tabs name people to their face: Pilots picks one out by name,
-# and the player leaderboard ranks them, so both carry the note in full above their
-# controls rather than a link to it. Hidden gems labels its decks by pilot too, and
-# the footer's one-line version covers that tab and every other.
+# and the player leaderboard ranks them, so both carry the offer above what they
+# draw, as one line that opens this note (`_PRIVACY_LINE`). The note in full is the
+# FAQ's answer. Hidden gems labels its decks by pilot too, and the footer's one-line
+# version covers that tab and every other.
 #
 # The tone is the point, not the legal position: nobody registered a deck expecting a
 # graph, so the note refuses to ask for a reason and refuses to treat wanting off as
 # odd. It promises what a rebuild can actually deliver, which is that identifiable
 # records go, and never that a decklist is unpublished: the source is public and not
 # this project's to take down.
-_PRIVACY_HEADING = "About the names on this graph"
 _PRIVACY_NOTE = (
     "Every name here comes from a public decklist. Still, seeing your own results "
     "plotted on someone else's graph is a different thing from posting a list. Some "
@@ -446,22 +446,99 @@ _PRIVACY_NOTE = (
     "records in the next update, no reason needed."
 )
 
+# The offer in one line, for the two tabs that carried the note in full until #327:
+# there it stood 384px tall on a phone and pushed the pilot picker to the foot of
+# the screen. Shorter, and the same promise: what goes (identifiable records), when
+# (the next update), and that nobody is asked why. How to ask is the one thing left
+# to the note, which the link opens.
+_PRIVACY_LINE = (
+    "Every name here comes from a public decklist. Want yours off? Ask and I'll pull "
+    "your identifiable records in the next update, no reason needed. "
+    "<a href='#faq-privacy'>How to ask</a>"
+)
 
-def _last_updated(built_iso: str | None) -> str:
-    """The artifact's build date as a last-updated line, or that it is unknown.
+# What that link does. The note is a box on another tab, which an address cannot
+# open, so the click opens the FAQ tab itself and brings the box into view. The
+# address is left alone: nothing in this app is reached by one. The frame lets the
+# tab be shown before the box is scrolled to, or there is nothing to scroll to.
+_OPEN_PRIVACY_NOTE_JS = """
+element.addEventListener('click', (event) => {
+  if (!event.target.closest('a')) return;
+  event.preventDefault();
+  [...document.querySelectorAll('[role=tablist] [role=tab]')]
+    .find((tab) => tab.textContent.trim() === 'FAQ').click();
+  requestAnimationFrame(() => document.getElementById('faq-privacy').scrollIntoView());
+});
+"""
+
+
+def _privacy_line() -> gr.HTML:
+    """The one-line offer, as a block of the tab being built."""
+    return gr.HTML(
+        f"<div class='t-body'>{_PRIVACY_LINE}</div>",
+        elem_classes="privacy-line", padding=False, js_on_load=_OPEN_PRIVACY_NOTE_JS,
+    )
+
+
+def _built_day(built_iso: str | None) -> str | None:
+    """The day an artifact was built, as a person would say it (``6 Nov 2026``), or
+    ``None`` where its stamp is absent or unreadable.
 
     Day granularity: the stamp records a UTC instant, but the finest thing it
     honestly identifies is which day's data the artifact was built from, so a
-    reader gets the date and not a spurious wall-clock second. An unreadable or
-    absent stamp (``None``) reads as unknown rather than as ``None``.
+    reader gets the date and not a spurious wall-clock second.
+    """
+    try:
+        day = datetime.fromisoformat(built_iso).date()
+    except (TypeError, ValueError):
+        return None
+    return f"{day.day} {day:%b %Y}"
+
+
+def _last_updated(built_iso: str | None) -> str:
+    """The artifact's build date as the footer's last-updated line, or that it is
+    unknown. An absent stamp (``None``) reads as unknown rather than as ``None``,
+    and one that is no date is shown as it stands.
     """
     if not built_iso:
         return "Last updated unknown"
-    try:
-        day = datetime.fromisoformat(built_iso).date().isoformat()
-    except ValueError:
-        day = built_iso
-    return f"Last updated {day}"
+    return f"Last updated {_built_day(built_iso) or built_iso}"
+
+
+def _freshness(cov: Coverage, built_iso: str | None) -> str:
+    """How much the graph holds and when it was last built, in a few words, for the
+    header: ``162 events, updated 6 Nov 2026``. A bundle with no readable stamp gives
+    the count alone.
+    """
+    events = f"{cov.events:,} events"
+    day = _built_day(built_iso)
+    return f"{events}, updated {day}" if day else events
+
+
+def _masthead_html(cov: Coverage, built_iso: str | None) -> str:
+    """The page's header (issue #327): the graph mark and the short name at one end,
+    how fresh the data is at the other.
+
+    The tab strip sits between them, on the same row. It is Gradio's own element, so
+    it is not in this markup: the stylesheet lays the two halves out either side of
+    it (``theme.build_css``). The name is the tab's (``theme.TAB_TITLE``) rather than
+    the full one, which would not leave the strip its room, and it is the page's one
+    top-level heading. The mark is decoration beside a name that says the same.
+    """
+    return (
+        "<div class='brand'>"
+        f"<span class='brand-mark' aria-hidden='true'>{theme.mark_svg()}</span>"
+        f"<h1 class='brand-name'>{theme.TAB_TITLE}</h1>"
+        "</div>"
+        f"<div class='freshness tabular'>{_freshness(cov, built_iso)}</div>"
+    )
+
+
+def _masthead(cov: Coverage, built_iso: str | None) -> gr.HTML:
+    """The header, as the first block of the page being built. The class is what
+    the stylesheet finds the page's column by, and is not ``header`` because
+    Gradio's own components use that one."""
+    return gr.HTML(_masthead_html(cov, built_iso), elem_classes="masthead", padding=False)
 
 
 def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
@@ -476,8 +553,8 @@ def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
     to escape.
 
     The opt-out line rides here because this surface is under every tab: Pilots and the
-    player leaderboard state the offer in full (``_PRIVACY_NOTE``), and this is what
-    carries it on the tabs that name people in passing, Hidden gems above all. It sits
+    player leaderboard state the offer above what they draw (``_PRIVACY_LINE``), and this
+    is what carries it on the tabs that name people in passing, Hidden gems above all. It sits
     directly under the contact it depends on, since "just ask" is only an offer beside
     the address to ask at.
     """
@@ -921,10 +998,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "email and Discord at the foot of the page are the way to say so.",
     ),
     (
-        # The same note the two people-naming tabs carry, reachable from the one tab a
-        # reader goes to with a question rather than a subject. Phrased as a question
-        # here because every other box is, and the answer is `_PRIVACY_NOTE` itself: a
-        # second wording of the offer would be a second promise to keep in step.
+        # The note in full, which the one line on the two people-naming tabs opens,
+        # and reachable from the one tab a reader goes to with a question rather than a
+        # subject. Phrased as a question here because every other box is.
         "faq-privacy",
         "Pilots",
         "Can I have my name taken off this graph?",
@@ -3626,12 +3702,17 @@ def build_app(artifact: Path) -> gr.Blocks:
 
     with gr.Blocks(
         # The tab is the one place the name is read at a glance and truncated hard, so
-        # it takes the short form while the page heading and the share card keep the
-        # full one. A tab strip shows a few characters: "7PH Graph" survives that,
-        # "7 Point Highlander Graph" arrives as "7 Point High...".
+        # it takes the short form while the share card keeps the full one. A tab strip
+        # shows a few characters: "7PH Graph" survives that, "7 Point Highlander Graph"
+        # arrives as "7 Point High...". The page's header takes the short form too
+        # (#327), for the room it leaves the tabs beside it.
         title=theme.TAB_TITLE,
     ) as demo:
-        gr.Markdown("# 7 Point Highlander Graph")
+        # One slim row over every tab (issue #327): the mark and the short name, the
+        # tab strip, and how fresh the data is. It replaces a full-width title, the
+        # strip under it and a heading under that repeating the open tab's label.
+        cov, built = coverage(catalogue), built_at(artifact)
+        _masthead(cov, built)
 
         # The app is organised by subject (issue #119), and since #126 each subject
         # tab collapses to two views, one Draw per view rendering all of that view's
@@ -3645,7 +3726,6 @@ def build_app(artifact: Path) -> gr.Blocks:
         # §11): it holds meta share over time alone, so there is no subject entity
         # and no view picker, just the chart and its controls.
         with gr.Tab("Meta"):
-            gr.Markdown("## Meta")
             # Meta and Archetypes are both about archetypes, so each lede states the
             # reader question that is its own (#145): who is played, against who wins.
             gr.Markdown(
@@ -3684,7 +3764,6 @@ def build_app(artifact: Path) -> gr.Blocks:
         # button either: the scatter is drawn at build time on the latest year and
         # re-draws on the year selector, the same way the Meta cut chart does.
         with gr.Tab("Archetypes") as archetypes_tab:
-            gr.Markdown("## Archetypes")
             gr.Markdown(
                 "Which archetypes actually win, and how many decks are on them.",
                 elem_classes="t-lede",
@@ -3759,7 +3838,6 @@ def build_app(artifact: Path) -> gr.Blocks:
             archetypes_tab.select(fn=None, js=theme.RESIZE_PLOTS_JS)
 
         with gr.Tab("Cards"):
-            gr.Markdown("## Cards")
             gr.Markdown(
                 "How much a card is played, what it plays with, and how that changed.",
                 elem_classes="t-lede",
@@ -3907,7 +3985,6 @@ def build_app(artifact: Path) -> gr.Blocks:
         # like Meta's opening chart rather than behind a Draw with no choices in front
         # of it, and there is no subject line, because the subject is the format.
         with gr.Tab("Hidden gems"):
-            gr.Markdown("## Hidden gems")
             gr.Markdown(
                 # What the rule actually asks, in the reader's words: rare in one
                 # archetype, and crowding that archetype's best decks. Not "cards that
@@ -3923,7 +4000,6 @@ def build_app(artifact: Path) -> gr.Blocks:
                 gr.HTML(run_graph("meta_gems", {}), padding=True)
 
         with gr.Tab("Pilots"):
-            gr.Markdown("## Pilots")
             gr.Markdown(
                 "Explore any pilot's decks, rivalries, and placements over time.",
                 elem_classes="t-lede",
@@ -3931,8 +4007,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # Above the picker, not below the plots: this is the tab where a reader
             # types a name in, and the person whose name it is should meet the offer
             # before the graph rather than after it.
-            with gr.Group(elem_classes="insight-card privacy-note"):
-                gr.Markdown(f"### {_PRIVACY_HEADING}\n\n{_PRIVACY_NOTE}")
+            _privacy_line()
             pilots_default = next(iter(_PILOTS_TAB))
             po_default = pilots_default == "pilot_overview"
             h2h_default = pilots_default == "pilot_head_to_head"
@@ -4073,7 +4148,6 @@ def build_app(artifact: Path) -> gr.Blocks:
         # picker, no Draw, and nothing to click on the chart. Everything on it is fixed
         # at build time, so unlike the landscape it needs no callbacks at all.
         with gr.Tab("Player leaderboard") as race_tab:
-            gr.Markdown("## Player leaderboard")
             # Held inside the 62ch reading measure (`theme.MEASURE_CH`) so it sits on
             # one row: the longer first draft wrapped, and the measure is repo-wide.
             # It used to promise "how they rose and fell", which the chart could not
@@ -4085,8 +4159,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             # Above the chart and the standings both, since this is the one surface that
             # ranks named people against each other, and the reader it is written for is
             # whoever finds themselves on it.
-            with gr.Group(elem_classes="insight-card privacy-note"):
-                gr.Markdown(f"### {_PRIVACY_HEADING}\n\n{_PRIVACY_NOTE}")
+            _privacy_line()
             with gr.Group(elem_classes="insight-card"):
                 gr.HTML(value=race_heading, visible=race_heading is not None,
                         padding=False)
@@ -4118,7 +4191,6 @@ def build_app(artifact: Path) -> gr.Blocks:
         # figures file sealed beside this graph (issue #265), so what they quote is
         # what the bundle holds.
         with gr.Tab("FAQ"):
-            gr.Markdown("## FAQ")
             gr.Markdown(
                 "How the numbers here are worked out.",
                 elem_classes="t-lede",
@@ -4136,7 +4208,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # under every one as a page footer: coverage read from this graph's own
         # counts, the last-updated date from the artifact's stamp, and who to reach.
         # It replaces the retired Gradio footer (theme.py) with the app's own line.
-        gr.HTML(_provenance_html(coverage(catalogue), built_at(artifact)), padding=False)
+        gr.HTML(_provenance_html(cov, built), padding=False)
 
     # The page is not told it runs on a Space. Gradio reads the Space's name from the
     # environment, and a page handed one asks huggingface.co about it so it can draw
@@ -4163,7 +4235,6 @@ def launch_kwargs() -> dict:
     return {
         "theme": theme.dark_theme(),
         "css": theme.build_css(),
-        "js": theme.FORCE_DARK_JS,
         "head": theme.build_head(),  # the favicon (#115)
         "favicon_path": theme.favicon_file(),
         "app_kwargs": APP_KWARGS,

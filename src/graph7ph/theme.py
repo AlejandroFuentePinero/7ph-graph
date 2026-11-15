@@ -6,8 +6,8 @@ type system, §12 insight cards, §13 control panel, §15 signature). This modul
 document as data: the tokens defined once, the two self-hosted faces, the eight type
 roles, the card / panel surfaces, and a ``build_css`` that serialises them into the
 ``:root`` custom properties and role styles the app injects at the ``gr.Blocks`` level.
-``dark_theme`` binds Gradio's own chrome to the same tokens and ``FORCE_DARK_JS``
-retires the browser light/dark inheritance, so the app reads as one coherent dark
+``dark_theme`` binds Gradio's own chrome to the same tokens and ``serve`` tells the
+page to draw dark whatever the browser prefers, so the app reads as one coherent dark
 build. ``contrast_ratio`` lets the tests hold every text role to WCAG AA on the ground,
 so a token edited to an illegible value fails a test rather than a reader.
 """
@@ -56,6 +56,23 @@ FONT_STACK = (
 
 # §3. Reading measure: no paragraph runs the full width of a wide monitor.
 MEASURE_CH = 62
+
+# A tab button's height, and so the header row's (#327). Gradio's is 31px; 44px is
+# the least a finger can be asked to hit, and a desktop row of the same height is
+# still one slim row, so one size serves every width.
+TAB_PX = 44
+
+# The narrowest window whose header is one row (#327). Measured on the real record:
+# the mark and name (139px), seven tabs (626px), the freshness line (195px) and the
+# two gaps between them need 1,008px of column, which is a 1,072px window once the
+# page's padding is added. Rounded up, so a longer tab label has a little room
+# before the strip starts to scroll.
+HEADER_ONE_ROW_PX = 1100
+
+# The page's column, padding included (#327). Gradio caps the page by the window it
+# is in, in steps, and from 1536px up the step is the window itself. This is the
+# step a 1440 window gets, held at every width above it.
+COLUMN_PX = 1280
 
 
 @lru_cache(maxsize=1)
@@ -137,8 +154,8 @@ def build_css() -> str:
 
     Prepends the two ``@font-face`` faces (§3), defines the tokens once in ``:root``,
     and reads them by role for the eight-role type system (§3), the insight-card and
-    control-panel surfaces (§12/§13), and the graph mark (§15). The heading roles
-    land on the page's own markdown; the control label lands on Gradio's field title
+    control-panel surfaces (§12/§13), and the graph mark (§15). The insight title
+    lands on the page's own markdown; the control label lands on Gradio's field title
     (its ``block-info`` span); the rest are utility classes. The reading measure bounds
     prose to ``MEASURE_CH``. A quiet quality floor (reduced motion, visible focus) rides
     at the end, and the default-Gradio footer is retired (#115).
@@ -163,18 +180,64 @@ def build_css() -> str:
 
 .gradio-container {{ font-family: {FONT_STACK}; }}
 
+/* One column, centred (#327). On a 1920 window the page was 1,856px of content,
+   and an FAQ answer ran the width of it. `.app` is the element Gradio caps. */
+.gradio-container .app {{ max-width: {COLUMN_PX}px; margin-left: auto; margin-right: auto; }}
+
+/* The header (#327): the mark and the short name, the tab strip, and how fresh the
+   data is, on one row. It replaced a full-width title, the strip on a row of its own
+   and a heading under that repeating the open tab, three rows that put the first
+   result on Meta 454px down a 900px window.
+
+   The strip is Gradio's, nested inside its tabs element, and the name and the
+   freshness are the app's, nested inside an HTML block, so no one element holds all
+   three. The wrappers between are taken out of the layout (`display: contents`) and
+   the page's column becomes a grid, which makes the three its own items: name, strip
+   and freshness in the first row, sized by what they hold, and everything else (the
+   open tab, the footer) across the full width below. The column is found by what it
+   holds, since Gradio gives it no name of the app's.
+
+   The hairline under the row is the column's own, drawn across all three. It was the
+   strip's border, which now stops where the strip does. */
+.column:has(> .masthead) {{
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 1.5rem; align-items: center;
+}}
+.column:has(> .masthead) > *, .column:has(> .masthead) > .tabs > .tabitem {{ grid-column: 1 / -1; }}
+.masthead, .masthead > .html-container, .column:has(> .masthead) > .tabs {{ display: contents; }}
+.column:has(> .masthead)::before {{
+  content: ""; grid-area: 1 / 1 / 2 / -1; align-self: end;
+  border-bottom: 1px solid var(--border);
+}}
+.brand {{ grid-area: 1 / 1; display: flex; align-items: center; gap: 0.55rem; }}
+.brand-mark svg {{ display: block; width: 24px; height: 24px; }}
+/* The page's one top-level heading, set at the row's scale. Every property Gradio
+   gives a heading in an HTML block is stated, margin and padding included. */
+.brand .brand-name {{
+  font-family: {DISPLAY_STACK}; font-size: 20px; font-weight: 600; letter-spacing: -0.005em;
+  line-height: 1; color: var(--text); margin: 0; padding: 0; white-space: nowrap;
+}}
+.column:has(> .masthead) > .tabs > .tab-wrapper {{
+  grid-area: 1 / 2; min-width: 0; height: auto; margin: 0; padding: 0;
+}}
+.freshness {{
+  grid-area: 1 / 3; font-size: 13px; line-height: 1.5; color: var(--text-mute);
+  white-space: nowrap;
+}}
+/* Below the width where seven tabs fit beside the rest, the strip takes a row of its
+   own under the name and the freshness, and scrolls sideways there (#172, below). */
+@media (max-width: {HEADER_ONE_ROW_PX - 1}px) {{
+  .column:has(> .masthead) {{ grid-template-columns: auto minmax(0, 1fr); }}
+  .column:has(> .masthead)::before {{ grid-row: 2; }}
+  .column:has(> .masthead) > .tabs > .tab-wrapper {{ grid-area: 2 / 1 / 3 / -1; }}
+  .freshness {{ grid-area: 1 / 2; justify-self: end; }}
+}}
+
 /* §3 type system. Titles take the display serif; body, ledes, captions, labels and
-   numerics take the grotesque sans. Heading roles apply to the page's own markdown;
-   the utility classes carry the rest for deliberate use where results are framed. */
-.prose h1, .t-page-title {{
-  font-family: {DISPLAY_STACK}; font-size: 34px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; color: var(--text);
-  /* Fraunces' caps and ascenders overshoot a tight line box; the extra leading plus a
-     little top padding keeps the tallest glyphs off the clipped top edge. */
-  padding-top: 0.08em;
-}}
-.prose h2, .t-section-heading {{
-  font-family: {DISPLAY_STACK}; font-size: 22px; font-weight: 600; letter-spacing: -0.005em; line-height: 1.2; color: var(--text);
-}}
+   numerics take the grotesque sans. The insight title applies to the page's own
+   markdown; the utility classes carry the rest for deliberate use where results are
+   framed. The page title and the section heading had rules here until #327, which
+   left the page with neither: the header's name is set above. */
 /* Insight title (§3, renamed from result title): a plot's title inside its card,
    no longer echoing the subject (§14). Kept as `.t-result-title` so the framing
    helpers and their tests keep one class name. */
@@ -242,10 +305,9 @@ def build_css() -> str:
    columns as fit broke the one-question-per-row reading order. The layout is the
    decision; #85's criterion 4 is answered against it, not the other way round.
 
-   The privacy note on Pilots and the player leaderboard joins the rule at the
-   maintainer's call: it is the same shape, a handful of sentences in a full-width card,
-   and measure-bound it read as the same narrow column against the same empty right. */
-.faq-card p, .faq-card li, .privacy-note p {{ max-width: none; }}
+   The privacy line on Pilots and the player leaderboard is outside the measure too,
+   for its own reason: it is one line (#327), and the measure would break it in three. */
+.faq-card p, .faq-card li, .privacy-line .t-body {{ max-width: none; }}
 /* The question is the box's own heading and the reader's entry point into it, so it
    takes the accent: eight boxes at a glance are scanned by their questions. */
 .faq h3 {{ color: var(--accent-bright); }}
@@ -275,7 +337,7 @@ def build_css() -> str:
 }}
 /* Gradio 6 draws a `gr.Group` as two nested elements and puts `elem_classes` on both,
    where Gradio 5 put them on one. Left alone, every surface the app gives a group (a
-   card, a control panel, the privacy note) is drawn twice, one inside the other, with
+   card, a control panel) is drawn twice, one inside the other, with
    its padding and edge doubled. The inner copy is flattened, for any group and any
    class, so the outer element is the one surface, as it was. */
 .gr-group > .gr-group {{
@@ -462,6 +524,24 @@ def build_css() -> str:
 }}
 .subject-line .subject-name {{ color: var(--text); }}
 
+/* The phone floor (#327). Of a 390px screen a chart's plot area had 217px: the page
+   kept 32px a side, a card 21px more, and the axis labels the rest. The page's margin
+   is halved and a card's inset cut to 12px, which is 48px back to the chart. The
+   control panel is inset as the cards are, so their contents stay on one edge. After
+   the card and panel rules above, which these outrank by order alone. */
+@media (max-width: 640px) {{
+  .gradio-container .app {{ padding-left: 16px; padding-right: 16px; }}
+  .insight-card {{ padding: 0.75rem 0.75rem 1rem; }}
+  .control-panel {{ padding: 0.75rem; }}
+  /* The strip scrolls sideways here, and a tab cut at its edge is what says so
+     (#172). At 390px the wider strip ended in the gap after the fourth tab, with
+     nothing of the fifth on screen. Four pixels off each side of a tab puts the
+     edge through the fifth's label instead. */
+  .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] > button {{
+    padding-left: 12px; padding-right: 12px;
+  }}
+}}
+
 /* Quiet quality floor (§ quality): a visible keyboard focus ring on the accent, and
    motion stilled for readers who ask for it. */
 :focus-visible {{ outline: 2px solid var(--accent-bright); outline-offset: 2px; }}
@@ -517,9 +597,9 @@ footer {{ display: none !important; }}
    block of chrome, and needs a media query to keep it off desktop. Scrolling costs
    nothing at any width (the first `.t-lede` stays at 210.1 on phone and 167.6 on desktop,
    and at 1440 scrollWidth equals clientWidth at 1216, so no scroll region exists there at
-   all). The hairline moves off Gradio's absolutely-positioned `::after` and onto the
-   strip's own border box, or it would scroll out from under the buttons with them;
-   `--border-color-primary` is bound to `--border` in `dark_theme`, so it is the same pixel.
+   all). The hairline is taken off Gradio's absolutely-positioned `::after`, which would
+   scroll out from under the buttons with them. It sat on the strip's own border box
+   until #327, and is now the header row's, drawn by the page's column (above).
 
    Every selector here is (0,4,1) or higher out of necessity, the trap the clearable row
    documents above: this stylesheet is emitted BEFORE Gradio's bundle and its own tab
@@ -530,12 +610,13 @@ footer {{ display: none !important; }}
   width: 0; min-width: 0; padding: 0; border: 0; overflow: hidden;
 }}
 .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] {{
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-  border-bottom: 1px solid var(--border);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; height: auto;
 }}
 .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"]::after {{ content: none; }}
 .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"]::-webkit-scrollbar {{ display: none; }}
-.gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] > button {{ flex: 0 0 auto; }}
+.gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] > button {{
+  flex: 0 0 auto; height: {TAB_PX}px;
+}}
 
 /* The app's own credit surface in place of that footer (#115): coverage, the build
    snapshot, and who to reach, set apart from the tabs by a hairline and centred as a
@@ -563,8 +644,8 @@ def dark_theme():
     mode, so the app renders the dark palette regardless of the browser preference.
 
     Every colour var points at a ``--token`` (defined by :func:`build_css`), so the
-    tokens stay the single source; setting the light variants to the same dark tokens
-    means the pre-redirect paint is already dark, and :data:`FORCE_DARK_JS` commits
+    tokens stay the single source; the light variants are set to the same dark tokens
+    so no rule of either mode can paint a light surface, and ``serve`` asks the page for
     Gradio's own dark component rules on top.
     """
     import gradio as gr
@@ -676,9 +757,10 @@ _APP_DESCRIPTION = (
 )
 _APP_URL = "https://www.7phgraph.com"
 
-# The name in the browser tab, shorter than the share card's because a tab strip
-# truncates hard (the reasoning is at ``gr.Blocks`` in ``app``). Held here so the
-# title the page is served with and the one its script sets are the same words.
+# The name in the browser tab and the page's header, shorter than the share card's
+# because a tab strip truncates hard (the reasoning is at ``gr.Blocks`` in ``app``).
+# Held here so the title the page is served with, the one its script sets and the
+# one in the header are the same words.
 TAB_TITLE = "7PH Graph"
 
 # The graph mark: three nodes joined in a triad, which is the least a node-link diagram
@@ -690,8 +772,8 @@ TAB_TITLE = "7PH Graph"
 _NODES = [(16, 7.5), (23.5, 21), (8.5, 21)]
 
 
-def _favicon_svg() -> str:
-    """The graph mark as SVG source."""
+def mark_svg() -> str:
+    """The graph mark as SVG source: the favicon, and the mark in the page's header."""
     accent = TOKENS["accent-bright"]
     # Edges first, so the nodes cap their ends rather than the strokes crossing them.
     edges = "".join(
@@ -715,7 +797,7 @@ def _favicon_data_uri() -> str:
     Self-hosted like the fonts: the whole icon travels in the head, so the Space
     serves no external favicon request and needs no static-file route.
     """
-    b64 = base64.b64encode(_favicon_svg().encode("utf-8")).decode("ascii")
+    b64 = base64.b64encode(mark_svg().encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{b64}"
 
 
@@ -732,7 +814,7 @@ def favicon_file() -> Path:
     as a checked-in file, so the mark stays derived from the tokens.
     """
     path = Path(tempfile.gettempdir()) / "graph7ph-icon.svg"
-    path.write_text(_favicon_svg(), encoding="utf-8")
+    path.write_text(mark_svg(), encoding="utf-8")
     return path
 
 
@@ -757,6 +839,23 @@ def title_tag() -> str:
     return f"<title>{html.escape(TAB_TITLE)}</title>"
 
 
+def ground_style() -> str:
+    """The ground and the ink as the page is served, ahead of the stylesheet (#327).
+
+    The stylesheet reaches the page through its script. Until that runs, the page is
+    painted by a rule in Gradio's own template, which reads the theme's body fill and
+    text colour. This theme points both at tokens (``var(--bg)``, ``var(--text)``),
+    and the template stores them in variables of its own, one of them also named
+    ``--bg``: so it wrote ``--bg: var(--bg)``, a variable defined as itself, and the
+    page was painted with nothing. The two tokens are defined here as well, on a
+    selector that outranks the template's, so its rule paints the ground it was
+    asked for.
+    """
+    return (
+        f"<style>:root:root {{ --bg: {TOKENS['bg']}; --text: {TOKENS['text']}; }}</style>"
+    )
+
+
 def preview_tags() -> str:
     """The Open Graph / Twitter card a shared link unfurls from (issues #115, #320).
 
@@ -776,31 +875,6 @@ def preview_tags() -> str:
         f'<meta name="twitter:description" content="{desc}">',
     ])
 
-
-# Retires the browser light/dark inheritance: force the ``__theme=dark`` query param
-# once on load, so Gradio applies its dark component rules and never the light ones.
-#
-# The param is how Gradio is told, but it is not something a visitor should have to
-# read or copy: a shared link carrying ``?__theme=dark`` advertises the workaround
-# instead of the app. So once the reload has landed and Gradio has taken the theme from
-# the URL, the param is dropped from the address bar with ``replaceState``, which
-# rewrites history without navigating. The drop is deferred a frame so it cannot race
-# Gradio's own read of the query string. A later reload starts clean, re-adds the param,
-# and strips it again, which is the same single redirect this already cost.
-FORCE_DARK_JS = """
-() => {
-  const url = new URL(window.location);
-  if (url.searchParams.get('__theme') !== 'dark') {
-    url.searchParams.set('__theme', 'dark');
-    window.location.replace(url.href);
-  } else {
-    requestAnimationFrame(() => {
-      url.searchParams.delete('__theme');
-      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
-    });
-  }
-}
-"""
 
 # A plot drawn at build time inside a tab that is not the one the app opens on is laid
 # out while its container is display:none, so Plotly measures nothing and falls back to

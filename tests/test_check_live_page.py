@@ -36,9 +36,9 @@ LOGIN_FORM = (
     "<p>Failed to fetch</p>"
 )
 
-# The live page does this once on every load, to commit the dark theme: it sends
-# itself to its own address with a query, which abandons whatever it was still
-# fetching. `/slow.js` is slow enough to be caught mid-flight.
+# The live page did this once on every load until #327, to commit the dark theme:
+# it sent itself to its own address with a query, which abandons whatever it was
+# still fetching. `/slow.js` is slow enough to be caught mid-flight.
 REDIRECTS_ITSELF_ONCE = (
     "<script src='/slow.js' async></script><script>"
     "if (!location.search) location.replace('?__theme=dark');</script>" + TABS

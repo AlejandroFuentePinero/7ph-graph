@@ -8,7 +8,7 @@ each plot gained a frame. None of it is visible to a test that reads the stylesh
 as text, or to one that asks the server for the page: which rule wins is decided in
 the browser. These tests ask the running page instead.
 
-A stand-in page with the same parts (a title, the seven tabs, a card holding HTML
+A stand-in page with the same parts (the app's own header, the seven tabs, a card holding HTML
 blocks and a control, the app's table in a card) rather than the real explorer: what is under test is that the stylesheet
 lands on Gradio's markup, not the data. It is launched with ``launch_kwargs``, the
 settings every real launch passes, so the stylesheet and theme are the shipped ones.
@@ -20,7 +20,8 @@ Skipped rather than failed where playwright or its browser is missing, the same 
 import gradio as gr
 import pytest
 
-from graph7ph.app import launch_kwargs
+from graph7ph.app import _masthead, launch_kwargs
+from graph7ph.query import Coverage
 from graph7ph.theme import TOKENS
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
@@ -53,7 +54,11 @@ def page():
     Rendered in the browser, as ``launch_kwargs`` has every launch render it (ADR 0029).
     """
     with gr.Blocks() as demo:
-        gr.Markdown("# The page title")
+        _masthead(
+            Coverage(events=162, pilots=1083, decks=4591, cards=4995,
+                     first_year=2023, last_year=2026),
+            "2026-11-06T23:05:46+00:00",
+        )
         with gr.Tab(TABS[0]):
             with gr.Group(elem_classes="insight-card"):
                 gr.HTML("<div class='flush'>set flush</div>", padding=False)
@@ -97,12 +102,13 @@ def _style(page, selector: str, *properties: str) -> list[str]:
     )
 
 
-def test_the_title_is_set_in_the_display_role(page):
-    # The first thing the reader sees, and the first thing lost: without the
-    # stylesheet's lift Gradio's own heading rule wins and the title falls to 26px.
-    family, size = _style(page, "h1", "font-family", "font-size")
+def test_the_header_name_is_set_in_the_display_face_at_the_rows_scale(page):
+    # The first thing the reader sees, and the first thing lost: it is the page's
+    # top-level heading, so without the stylesheet's lift Gradio's own heading rule
+    # wins and it is drawn at 26px in the body face, margins and all.
+    family, size, margin = _style(page, ".brand-name", "font-family", "font-size", "margin")
 
-    assert size == "34px"
+    assert (size, margin) == ("20px", "0px")
     assert family.startswith("Fraunces")
 
 

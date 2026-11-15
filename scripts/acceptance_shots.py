@@ -577,7 +577,7 @@ def main() -> None:
     # stylesheet at launch, so a page launched without them is not the shipped one.
     demo.launch(server_port=port, quiet=True, prevent_thread_lock=True, share=False,
                 inbrowser=False, **app_module.launch_kwargs())
-    url = f"http://127.0.0.1:{port}/?__theme=dark"
+    url = f"http://127.0.0.1:{port}/"
 
     measurements: list[dict] = []
     with sync_playwright() as pw:

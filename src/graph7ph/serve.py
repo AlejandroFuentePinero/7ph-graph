@@ -23,7 +23,7 @@ The page shell is in the rule too. Every launch renders in the browser
 The page shell is also where a shared link's preview card is read from, by a
 fetcher that runs no script. Gradio's template writes its own card there and
 delivers the app's ``head`` through the script, so the card is swapped in the
-page as it goes out (``_WriteOwnHead``, issue #320). The page's title is written
+page as it goes out (``_WriteOwnShell``, issue #320). The page's title is written
 in the same pass, because the template has none (issue #341).
 
 The event stream deliberately stays out. It is a chunked ``text/event-stream``,
@@ -46,7 +46,7 @@ from starlette.middleware import Middleware
 from starlette.responses import FileResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from graph7ph.theme import preview_tags, title_tag
+from graph7ph.theme import ground_style, preview_tags, title_tag
 
 # The page shell and the config. Every other endpoint is either small or already
 # covered by Gradio's own middleware.
@@ -124,8 +124,8 @@ _GRADIO_PREVIEW_TAG = re.compile(
 
 
 def _with_own_head(page: bytes) -> bytes:
-    """The page with Gradio's preview tags gone, and the app's title and card where
-    the first one stood.
+    """The page with Gradio's preview tags gone, and the app's title, ground and
+    card where the first one stood.
 
     There rather than at the end of the head, because the head also carries the
     whole config: a megabyte a fetcher would have to read through to reach them.
@@ -136,12 +136,30 @@ def _with_own_head(page: bytes) -> bytes:
         # the page goes out as Gradio made it, and the suite says so (test_serve).
         return page
     kept, rest = page[: first.start()], page[first.start() :]
-    own = f"{title_tag()}\n{preview_tags()}\n".encode()
+    own = f"{title_tag()}\n{ground_style()}\n{preview_tags()}\n".encode()
     return kept + own + _GRADIO_PREVIEW_TAG.sub(b"", rest)
 
 
-class _WriteOwnHead:
-    """Write the app's title and preview card into the page shell, and pass
+# Gradio's page element, which takes the theme to draw in as an attribute. The
+# first one in the page is the element itself: the config ahead of it is written
+# with every ``<`` escaped, and the template's own script names the tag bare.
+_PAGE_ELEMENT = b"<gradio-app"
+
+
+def _asking_for_dark(page: bytes) -> bytes:
+    """The page with its element told to draw dark, whatever the browser prefers.
+
+    Gradio settles its theme from this attribute first and from a ``__theme`` marker
+    in the address second. The marker was how the app used to ask: the page arrived
+    without one, sent itself to its own address with one, and was downloaded a second
+    time, with a blank flash between (issue #327). The attribute is read on the first
+    download, and the address stays the one the visitor came in on.
+    """
+    return page.replace(_PAGE_ELEMENT, _PAGE_ELEMENT + b' theme_mode="dark"', 1)
+
+
+class _WriteOwnShell:
+    """Write the app's title, preview card and theme into the page shell, and pass
     everything else through.
 
     A link pasted into a chat unfurls from the page as served, by a fetcher that
@@ -153,6 +171,10 @@ class _WriteOwnHead:
 
     The template has no ``<title>`` either: the tab is named by the script. The
     title goes in with the card, so the page has its name as served (issue #341).
+
+    And the page is told to draw dark here, so that it need not reload itself to
+    say so (``_asking_for_dark``), and is given its ground, so that it is dark
+    before its script has run (``theme.ground_style``, both issue #327).
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -176,7 +198,7 @@ class _WriteOwnHead:
                 page = b"".join(held)
                 headers = MutableHeaders(raw=start["headers"])
                 if headers.get("content-type", "").startswith("text/html"):
-                    page = _with_own_head(page)
+                    page = _asking_for_dark(_with_own_head(page))
                     headers["content-length"] = str(len(page))
                 await send(start)
                 await send({"type": "http.response.body", "body": page})
@@ -199,7 +221,7 @@ APP_KWARGS = {
     "middleware": [
         Middleware(_CompressPageAndConfig, quality=4),
         Middleware(_ServeAssets),
-        Middleware(_WriteOwnHead),
+        Middleware(_WriteOwnShell),
     ]
 }
 """Passed to ``Blocks.launch(app_kwargs=...)``, which forwards them to FastAPI."""

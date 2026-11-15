@@ -48,11 +48,11 @@ from graph7ph.app import (
     _observation_marker,
     _own_name_first,
     _PILOTS_TAB,
-    _PRIVACY_HEADING,
     _PRIVACY_NOTE,
     _between_line_polys,
     _performance_caption,
     _performance_figure,
+    _masthead_html,
     _provenance_html,
     _result_header,
     _leaderboard_html,
@@ -219,17 +219,22 @@ def _markdown_values(demo):
             if isinstance(b, gr.Markdown) and b.value]
 
 
-def test_each_subject_tab_opens_with_a_section_heading(tmp_path, snapshot_dir):
-    # AC (#113, user story 4): no tab opens as a bare dropdown over blank space; each
-    # of the five subject tabs (Meta, Archetypes, Cards, Hidden gems, Pilots) leads with a section
-    # heading. A section heading is an h2 (`## `) in the page's own type (§3), distinct
-    # from the h1 page title and the bold-led plot intros, so counting them is robust
-    # to copy edits while a dropped tab heading trips here rather than only in the browser.
-    headings = [m for m in _markdown_values(_built_demo(tmp_path, snapshot_dir))
-                if m.lstrip().startswith("## ")]
-    # Six subject tabs (the player leaderboard joins them, #135) plus the FAQ tab (#133),
-    # each led by its own h2 section heading.
-    assert len(headings) == 7
+def test_no_tab_opens_with_a_heading_that_repeats_its_label(tmp_path, snapshot_dir):
+    # AC (#327): the tab strip already says which tab is open, so a heading under it
+    # saying so again ("Meta" under the Meta tab) was a row of the page spent on
+    # nothing. This reverses #113, which gave every tab a section heading so that none
+    # opened as a bare dropdown: a tab still opens on its one-sentence intro (below).
+    # Read off every heading the built app sets, at any level.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    labels = {block.label for block in demo.blocks.values() if isinstance(block, gr.Tab)}
+    headings = {value.splitlines()[0].lstrip("# ").strip()
+                for value in _markdown_values(demo) if value.lstrip().startswith("#")}
+
+    assert labels == {"Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+                      "Player leaderboard", "FAQ"}
+    assert headings.isdisjoint(labels)
 
 
 def _all_surface_text(demo):
@@ -1558,6 +1563,44 @@ def test_every_graph_plot_shares_one_responsive_frame():
     assert f"height:{GRAPH_HEIGHT}px" not in frame
 
 
+def test_the_header_names_the_app_and_says_how_fresh_the_data_is():
+    # AC (#327): one header row carries the short name and the data freshness, which
+    # sat only in the footer, a page-length away from a reader deciding whether the
+    # numbers on screen are current. The count is thousands-comma'd (§4) and the date
+    # is written as a person would say it, to the day (the stamp is a UTC instant).
+    html = _masthead_html(
+        Coverage(events=1162, pilots=1083, decks=4591, cards=4995,
+                 first_year=2023, last_year=2026),
+        "2026-11-06T23:05:46.403758+00:00",
+    )
+
+    assert ">7PH Graph</h1>" in html  # the page's one heading, in the tab's own words
+    assert "1,162 events, updated 6 Nov 2026" in html
+    assert "<svg" in html  # the graph mark
+
+
+def test_the_header_survives_an_unknown_build():
+    # A bundle with no readable stamp says what it can, as the footer does.
+    html = _masthead_html(
+        Coverage(events=2, pilots=2, decks=3, cards=121, first_year=2025, last_year=2025),
+        None,
+    )
+
+    assert "2 events" in html
+    assert "updated" not in html and "None" not in html
+
+
+def test_built_app_opens_under_the_header_fed_real_coverage(tmp_path, snapshot_dir):
+    # Wiring: the header is on the built app, fed this graph's own count (2 events
+    # for the fixture), and it is the page's only top-level heading.
+    demo = _built_demo(tmp_path, snapshot_dir)
+    surface = " ".join(_all_surface_text(demo))
+
+    assert "2 events" in surface
+    assert surface.count("<h1") == 1
+    assert not [value for value in _markdown_values(demo) if value.startswith("# ")]
+
+
 def test_provenance_surface_states_coverage_the_update_date_and_the_contact():
     # AC (#115): a coverage row names events/pilots/decks/distinct-cards and the year
     # range, thousands-comma'd (§4); below it, when the graph was last updated and who
@@ -1571,7 +1614,9 @@ def test_provenance_surface_states_coverage_the_update_date_and_the_contact():
     for figure in ("108", "1,083", "4,591", "4,995"):
         assert figure in html
     assert "2023" in html and "2026" in html  # the year span, both ends
-    assert "2026-07-23" in html  # the last update, to the day
+    # The last update, to the day, in the words the header says it in (#327): one
+    # date on the page, written one way.
+    assert "Last updated 23 Jul 2026" in html
     assert "Alejandro de la Fuente" in html
     assert "mailto:alejandrofuentepinero@gmail.com" in html  # reachable, not just named
     assert "alejandrofp92" in html  # the Discord handle
@@ -1601,24 +1646,51 @@ def test_built_app_shows_the_provenance_surface_fed_real_coverage(tmp_path, snap
 
 
 def test_anyone_named_on_the_graph_is_offered_a_way_off_it(tmp_path, snapshot_dir):
-    # The two tabs that name people to their face state the offer in full: Pilots picks
-    # one person out by name, and the player leaderboard ranks them against each other.
-    # Counted, so a note dropped from one of them or pasted onto all seven trips here.
-    surface = _all_surface_text(_built_demo(tmp_path, snapshot_dir))
-    notes = [text for text in surface if _PRIVACY_HEADING in text]
-    assert len(notes) == 2
-    for note in notes:
-        assert _PRIVACY_NOTE in note
+    # The two tabs that name people to their face carry the offer above what they
+    # draw: Pilots picks one person out by name, and the player leaderboard ranks them
+    # against each other. One line each since #327, where the note in full stood
+    # 384px tall on a phone and pushed the pilot picker to the foot of the screen.
+    # Counted, so a line dropped from one of them or pasted onto all seven trips here.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+
+    def lines(blocks):
+        return [b for b in blocks
+                if isinstance(b, gr.HTML) and "privacy-line" in (b.elem_classes or [])]
+
+    for tab, drawn_below in (("Pilots", gr.Dropdown), ("Player leaderboard", gr.Plot)):
+        inside = _tab_blocks(demo, tab)
+        (line,) = lines(inside)
+        # One link out of it, to the note in full. That it is drawn as one line, and
+        # where the link lands, is the running page's to say (test_explorer_page).
+        assert line.value.count("<a ") == 1
+        # Shorter, and the same promise: what goes, when, and that nobody is asked why.
+        assert "identifiable records in the next update, no reason needed" in line.value
+        # Above the picker on Pilots, and above the chart on the leaderboard.
+        first_drawn = next(i for i, b in enumerate(inside) if isinstance(b, drawn_below))
+        assert inside.index(line) < first_drawn
+    assert len(lines(demo.blocks.values())) == 2
 
     # Every other tab is covered by the footer, which sits under all of them: Hidden
     # gems labels its decks by pilot, so the offer must reach a reader who never opens
     # the two tabs above.
-    assert any("Just ask, no reason needed" in text for text in surface)
+    assert any("Just ask, no reason needed" in text for text in _all_surface_text(demo))
 
-    # And the FAQ answers it with that same text rather than a second wording, so there
-    # is one promise on the page and not three that can drift apart.
+    # The note in full is the FAQ's answer, word for word as the two tabs used to
+    # state it, and it is on the built FAQ tab whole.
     (answer,) = [a for eid, _, _, a in _FAQ_ENTRIES if eid == "faq-privacy"]
-    assert answer == _PRIVACY_NOTE
+    assert answer == _PRIVACY_NOTE == (
+        "Every name here comes from a public decklist. Still, seeing your own results "
+        "plotted on someone else's graph is a different thing from posting a list. Some "
+        "people like it, some don't, and I don't think either reaction needs "
+        "justifying.\n\n"
+        "Want off? Message me on Discord (alejandrofp92) or email "
+        "[alejandrofuentepinero@gmail.com](mailto:alejandrofuentepinero@gmail.com). "
+        "I'll pull your identifiable records in the next update, no reason needed."
+    )
+    assert any(_PRIVACY_NOTE in block.value for block in _tab_blocks(demo, "FAQ")
+               if isinstance(block, gr.Markdown) and block.value)
 
 
 def _landscape_cells(*rows, year=2026, total=100, year_events=10, half=0.1):
