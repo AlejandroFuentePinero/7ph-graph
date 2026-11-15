@@ -16,20 +16,9 @@ spanned the distance to spot them as repeats (3x against 17x). Shipping it once
 (#220) took that redundancy away and most of the ratio with it, but Brotli still
 wins by enough to keep.
 
-The page shell is in the rule too. Rendered in the browser, as every launch has
-been since issue #307 (``app.launch_kwargs``), the root embeds that same widget tree
-and is 1,072 KB, or 223 KB compressed.
-
-Until #307 the Space rendered on the server instead (SSR), which served a 292 KB
-root through a routing layer outside this middleware, uncompressed, and that was
-kept on purpose: the document is a minority of the load either way (~1.6 MB, mostly
-Gradio's own JavaScript, already compressed), and giving up the ready-made HTML
-pushed first content from 0.34 s to 0.70 s on a 5 Mbps link, measured on Gradio 5.
-Gradio 6 made that the price to pay. Its server-side renderer writes the page's own
-address with the scheme the proxy in front reports, the custom domain's proxy
-reports none, and the public address stopped loading (see ``launch_kwargs``). Should
-a later Gradio take the scheme correctly, SSR can come back, and
-``tests/test_behind_https.py`` is what to run it against first.
+The page shell is in the rule too. Every launch renders in the browser
+(``app.launch_kwargs``, ADR 0029), so the root embeds that same widget tree and is
+1,072 KB, or 223 KB compressed.
 
 The event stream deliberately stays out. It is a chunked ``text/event-stream``,
 and compressing it risks buffering the incremental updates it exists to deliver,
@@ -49,8 +38,8 @@ from starlette.middleware import Middleware
 from starlette.responses import FileResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-# The config on any deployment, the page shell only where SSR is off. Every other
-# endpoint is either small or already covered by Gradio's own middleware.
+# The page shell and the config. Every other endpoint is either small or already
+# covered by Gradio's own middleware.
 _COMPRESSIBLE_PATHS = frozenset({"/", "/config"})
 
 
@@ -75,13 +64,11 @@ _VIS = Path(pyvis.__file__).parent / "lib" / "vis-9.1.2"
 # is no stale copy to invalidate.
 _CACHE_FOREVER = {"Cache-Control": "public, max-age=31536000, immutable"}
 
-# Under ``/static`` because of Gradio's SSR mode (the Space's until #307, and
-# possibly again), where a routing layer sits outside this one and proxies every
-# request to a Node server unless its path opens with one of Gradio's own
-# internal routes (``static`` is one of them). A URL outside that set never reaches this middleware there: it
-# would 404 from Node and the graph would draw with no library, while every local
-# run stayed green. The path below it is ours alone, so nothing of Gradio's own
-# ``/static`` tree is shadowed.
+# Under ``/static`` since #97, when the Space rendered on the server and the routing
+# layer in front of the app passed on only the paths opening with one of Gradio's
+# own routes. Nothing renders on the server now (ADR 0029), so the prefix is no
+# longer needed. It stays because moving it would buy nothing: the path below it is
+# ours alone, so nothing of Gradio's own ``/static`` tree is shadowed.
 _ASSET_ROOT = "/static/graph7ph"
 
 _ASSETS: dict[str, Path] = {}

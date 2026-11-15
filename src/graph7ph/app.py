@@ -4098,16 +4098,13 @@ def launch_kwargs() -> dict:
         "head": theme.build_head(),  # real favicon + social preview (#115)
         "favicon_path": theme.favicon_file(),
         "app_kwargs": APP_KWARGS,
-        # Never rendered on the server, which the Space would otherwise ask for
-        # (it sets GRADIO_SSR_MODE). Gradio 6's server-side renderer writes the app's
-        # own address into the page and takes the scheme from the proxy in front,
-        # falling back to http. The custom domain's proxy does not report it, so the
-        # page at https://www.7phgraph.com asked for http://www.7phgraph.com/config,
-        # the browser refused that as mixed content, and the public address drew a
-        # login form over "Failed to fetch" while the Space's own address worked
-        # (issue #307). The renderer is a Node process in front of the app, so nothing
-        # here can correct what it writes. Rendered in the browser, the page asks for
-        # everything relative to where it was loaded from. Held by
-        # tests/test_behind_https.py; see serve.py for what this costs.
+        # Rendered in the browser, never on the server, which the Space would otherwise
+        # ask for (it sets GRADIO_SSR_MODE). ADR 0029 has the measurements. Gradio 6's
+        # server-side renderer writes the app's own address into the page with the
+        # scheme the proxy in front reports, the custom domain's proxy reports http,
+        # and the browser refuses what an https page then asks for: the public address
+        # drew a login form over "Failed to fetch" (issue #307). Nor does that
+        # renderer buy an earlier first paint, since the page it writes no longer
+        # carries the app's content. Held by tests/test_behind_https.py.
         "ssr_mode": False,
     }

@@ -10,7 +10,6 @@ import re
 
 import gradio as gr
 import pytest
-from gradio.routes import INTERNAL_ROUTES
 from starlette.testclient import TestClient
 
 from graph7ph.query import Node, Subgraph
@@ -100,16 +99,6 @@ def test_the_library_a_rendered_graph_asks_for_is_one_the_app_serves(client):
     assert len(asked_for) == 2  # the library and its stylesheet
     for url in asked_for:
         assert client.get(url).status_code == 200
-
-
-@pytest.mark.parametrize("url", [VIS_JS_URL, VIS_CSS_URL])
-def test_the_library_is_reachable_where_the_space_serves_it_from(url):
-    """In Gradio's SSR mode (the Space's until #307, and possibly again) a routing
-    layer sits outside this middleware: it proxies anything whose path does not open with one of Gradio's
-    internal routes to a Node server that knows nothing of these files. An asset
-    hosted outside that set 404s on the deployed Space and draws a graph with no
-    library, while every other test here, SSR off, stays green (issue #97)."""
-    assert any(url.startswith(f"/{route}") for route in INTERNAL_ROUTES)
 
 
 @pytest.mark.parametrize("url", [VIS_JS_URL, VIS_CSS_URL])

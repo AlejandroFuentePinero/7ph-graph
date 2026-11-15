@@ -37,15 +37,11 @@ def _rgb(hex_: str) -> str:
     return "rgb({}, {}, {})".format(*(int(value[i:i + 2], 16) for i in (0, 2, 4)))
 
 
-@pytest.fixture(scope="module", params=[False, True], ids=["client-rendered", "server-rendered"])
-def page(request):
+@pytest.fixture(scope="module")
+def page():
     """The stand-in page, loaded in Chromium, or a skip naming how to install one.
 
-    Both ways Gradio can render it, because they do not fail alike: rendered on the
-    server, the page's stylesheet meets Gradio's in a different order, and the title's
-    size is lost only there. Every launch renders in the browser since #307
-    (``launch_kwargs``), and the server-rendered run is kept so that turning it back
-    on is a one-line change with the stylesheet already held.
+    Rendered in the browser, as ``launch_kwargs`` has every launch render it (ADR 0029).
     """
     with gr.Blocks() as demo:
         gr.Markdown("# The page title")
@@ -61,14 +57,8 @@ def page(request):
         for name in TABS[1:]:
             with gr.Tab(name):
                 gr.Markdown(name)
-    settings = launch_kwargs() | {"ssr_mode": request.param}
-    _, url, _ = demo.launch(prevent_thread_lock=True, **settings)
+    _, url, _ = demo.launch(prevent_thread_lock=True, **launch_kwargs())
     try:
-        # Server rendering needs Node, and without it Gradio falls back to the browser
-        # with a warning: skipped by name rather than passed as a second
-        # client-rendered run.
-        if request.param and not demo.ssr_mode:
-            pytest.skip("no Node to render the page on the server, as the Space does")
         with sync_playwright() as play:
             try:
                 engine = play.chromium.launch()
