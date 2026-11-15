@@ -69,7 +69,7 @@ def assign(entities: Iterable[str]) -> dict[str, str | None]:
 
 # §5 extended (issue #117): twenty-four hues that carry the meta chart past the eighth
 # line. Chosen by farthest-point selection, each one the candidate furthest from every
-# hue already in the scale *as drawn* — that is, composited onto the surface at the
+# hue already in the scale *as drawn*: that is, composited onto the surface at the
 # emphasis opacity, not compared as hex. The distinction is the whole point. A faded
 # colour keeps only a fifth of its distance from its neighbours, so two hues that look
 # unrelated at full strength can be one colour on the canvas; an earlier cut of this
@@ -130,7 +130,7 @@ def disambiguate(hues: dict[str, str], drawn: Iterable[str]) -> dict[str, str]:
     given it first, and only then are the collided ones placed into what is left over.
     Resolving in one walk instead hands a collided line "the first free hue in scale
     order", which is free only because the line that owns it has not been reached yet,
-    so adding a chip repaints an archetype that was already on the chart — the §5
+    so adding a chip repaints an archetype that was already on the chart: the §5
     failure this function exists to close, reintroduced by the fix for it.
 
     Walked in the universe's own order, not the caller's, so which of a colliding pair

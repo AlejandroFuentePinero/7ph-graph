@@ -623,7 +623,7 @@ def dark_theme():
         # The one place the accent above must not reach. Gradio draws the picked radio
         # dot and the checkbox tick as a hardcoded `#fff` glyph on this fill, and white
         # on `--accent-bright` is 2.59, under the 3:1 WCAG 1.4.11 asks of a non-text
-        # control — worse than the Gradio blue being retired (3.68), which is the one
+        # control: worse than the Gradio blue being retired (3.68), which is the one
         # way this change could have gone backwards. `--accent` gives 3.32 and passes,
         # and it is the same split the comment above draws: this is a fill, not ink.
         # The #118 audit walks text nodes, so it cannot see a glyph like this one.
