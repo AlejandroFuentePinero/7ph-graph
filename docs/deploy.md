@@ -34,6 +34,13 @@ submitted, and an apex cannot carry one. Note that the Space's own
 protected visibility, with no setting to disable it, so the custom domain is the
 URL to hand out rather than the only one that answers.
 
+After a deploy, load [www.7phgraph.com](https://www.7phgraph.com) itself in a
+browser. The two addresses sit behind different proxies, and the page can draw at
+one and not the other: on 2026-11-15 the Space's own address worked while the
+custom domain showed a login form over "Failed to fetch" (#307). A `200` from
+`curl` does not show it either, because the page is served and only then fails
+to fetch its config.
+
 Create the Space once by hand at
 [huggingface.co/new-space](https://huggingface.co/new-space) (Gradio SDK, CPU
 Basic hardware). Then, to deploy:

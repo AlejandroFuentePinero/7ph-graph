@@ -16,22 +16,20 @@ spanned the distance to spot them as repeats (3x against 17x). Shipping it once
 (#220) took that redundancy away and most of the ratio with it, but Brotli still
 wins by enough to keep.
 
-The page shell is in the rule too, and only reaches it off the Space. The Space
-runs Gradio in SSR mode, which serves the root through a routing middleware that
-sits outside this one, so measure there and the entry looks dead. It is not dead
-locally: with SSR off, as ``graph7ph app`` runs, the root embeds that same widget
-tree and is 972 KB, or 202 KB compressed.
+The page shell is in the rule too. Rendered in the browser, as every launch has
+been since issue #307 (``app.launch_kwargs``), the root embeds that same widget tree
+and is 1,072 KB, or 223 KB compressed.
 
-That leaves the Space serving a 292 KB root uncompressed, and neither way of
-reaching it is worth taking. Mounting the app
-under an outer one to get this middleware outside Gradio's routing does compress
-it (292 KB to 106 KB) and breaks the page: the server-rendered HTML points at its
-bundles under ``/_app/immutable/``, a path the mount does not route to the Node
-server, so every one 404s and the browser is left with a shell it cannot boot.
-Turning SSR off on the Space is no better, because the document is a minority of
-the load either way (~1.6 MB, mostly Gradio's own JavaScript, already compressed)
-and giving up the ready-made HTML pushes first content from 0.34 s to 0.70 s on a
-5 Mbps link. Leaving the Space's root uncompressed is the best of the three.
+Until #307 the Space rendered on the server instead (SSR), which served a 292 KB
+root through a routing layer outside this middleware, uncompressed, and that was
+kept on purpose: the document is a minority of the load either way (~1.6 MB, mostly
+Gradio's own JavaScript, already compressed), and giving up the ready-made HTML
+pushed first content from 0.34 s to 0.70 s on a 5 Mbps link, measured on Gradio 5.
+Gradio 6 made that the price to pay. Its server-side renderer writes the page's own
+address with the scheme the proxy in front reports, the custom domain's proxy
+reports none, and the public address stopped loading (see ``launch_kwargs``). Should
+a later Gradio take the scheme correctly, SSR can come back, and
+``tests/test_behind_https.py`` is what to run it against first.
 
 The event stream deliberately stays out. It is a chunked ``text/event-stream``,
 and compressing it risks buffering the incremental updates it exists to deliver,
@@ -77,10 +75,10 @@ _VIS = Path(pyvis.__file__).parent / "lib" / "vis-9.1.2"
 # is no stale copy to invalidate.
 _CACHE_FOREVER = {"Cache-Control": "public, max-age=31536000, immutable"}
 
-# Under ``/static`` because the Space runs Gradio in SSR mode, where a routing
-# middleware sits outside this one and proxies every request to a Node server
-# unless its path opens with one of Gradio's own internal routes (``static`` is
-# one of them). A URL outside that set never reaches this middleware there: it
+# Under ``/static`` because of Gradio's SSR mode (the Space's until #307, and
+# possibly again), where a routing layer sits outside this one and proxies every
+# request to a Node server unless its path opens with one of Gradio's own
+# internal routes (``static`` is one of them). A URL outside that set never reaches this middleware there: it
 # would 404 from Node and the graph would draw with no library, while every local
 # run stayed green. The path below it is ours alone, so nothing of Gradio's own
 # ``/static`` tree is shadowed.

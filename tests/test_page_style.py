@@ -41,10 +41,11 @@ def _rgb(hex_: str) -> str:
 def page(request):
     """The stand-in page, loaded in Chromium, or a skip naming how to install one.
 
-    Both ways Gradio can render it, because they do not fail alike: the Space renders
-    on the server, where the page's stylesheet meets Gradio's in a different order,
-    and the title's size is lost only there. A local ``graph7ph app`` renders in the
-    browser.
+    Both ways Gradio can render it, because they do not fail alike: rendered on the
+    server, the page's stylesheet meets Gradio's in a different order, and the title's
+    size is lost only there. Every launch renders in the browser since #307
+    (``launch_kwargs``), and the server-rendered run is kept so that turning it back
+    on is a one-line change with the stylesheet already held.
     """
     with gr.Blocks() as demo:
         gr.Markdown("# The page title")
@@ -60,7 +61,8 @@ def page(request):
         for name in TABS[1:]:
             with gr.Tab(name):
                 gr.Markdown(name)
-    _, url, _ = demo.launch(prevent_thread_lock=True, ssr_mode=request.param, **launch_kwargs())
+    settings = launch_kwargs() | {"ssr_mode": request.param}
+    _, url, _ = demo.launch(prevent_thread_lock=True, **settings)
     try:
         # Server rendering needs Node, and without it Gradio falls back to the browser
         # with a warning: skipped by name rather than passed as a second
