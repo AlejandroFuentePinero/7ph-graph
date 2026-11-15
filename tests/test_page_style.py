@@ -21,6 +21,7 @@ import gradio as gr
 import pytest
 
 from graph7ph.app import _masthead, launch_kwargs
+from graph7ph.parts import Column, Group, table
 from graph7ph.query import Coverage
 from graph7ph.theme import TOKENS
 
@@ -31,13 +32,12 @@ sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 TABS = ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "Player leaderboard", "FAQ"]
 PHONE = {"width": 390, "height": 844}
 
-# The app's one table, in the markup both of its uses share: a header row, a plain
-# row and a banded one. The suite's small snapshot draws neither the standings nor
-# the gems, so the table is measured here.
-TABLE = (
-    "<table class='leaderboard'><thead><tr><th>Pilot</th><th class='score'>Score</th>"
-    "</tr></thead><tbody><tr><td>one</td><td class='score'>0.512</td></tr>"
-    "<tr class='band'><td>two</td><td class='score'>0.498</td></tr></tbody></table>"
+# The app's one table, as `parts.table` builds it: a header row, a line heading a
+# group, and two rows under it. The suite's small snapshot draws neither the standings
+# nor the gems, so the table is measured here.
+TABLE = table(
+    [Column("Pilot"), Column("Score", numeric=True)],
+    [Group("Majors"), ["one", "0.512"], ["two", "0.498"]],
 )
 
 
@@ -160,7 +160,7 @@ def test_a_table_draws_only_the_hairline_between_its_rows(page):
     # hairline between rows, so that frame showed as a light rule either side of
     # every cell and a box round the whole table (issue #324).
     tables = page.evaluate(
-        """() => [...document.querySelectorAll('table.leaderboard')].map(table => {
+        """() => [...document.querySelectorAll('table.data-table')].map(table => {
              const edge = (el, side) => { const s = getComputedStyle(el);
                return s['border' + side + 'Width'] + ' ' + s['border' + side + 'Color']; };
              const widths = (els, sides) => [...new Set(els.flatMap(el => sides.map(

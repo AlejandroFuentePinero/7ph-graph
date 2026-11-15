@@ -156,6 +156,14 @@ the header, set in Fraunces 600 at 20 so it sits on the tab strip's row. No tab 
 with a **section heading** either, which reverses #113 (see §14). Nothing on the
 page uses either role now, so the stylesheet no longer carries a rule for them._
 
+_Added 2026-11-16 (#329): three roles for the pilot and card pages, defined under
+"The pages (#329)". The **page name** is Fraunces 600 at 30 (24 at 640px and under),
+-0.01em, in text: the subject's name over its page. The **tile figure** is Fraunces
+600 at 26 (22), in text, proportional figures as a standalone number takes. The
+**caption** on those two tabs is Hanken Grotesk 400 at 14, line-height 1.5, in text,
+where the caption role above is 13 in text-mute and was drawn in the accent inside a
+card; the other tabs keep that role until their own tickets._
+
 The **subject line** (§14) is the one role added by #132: it states the subject once
 above the cards, in the display face at 18 (between the insight title and the lede),
 so it reads as the heading of the answer, not another control label.
@@ -191,8 +199,15 @@ axis, and readout.
 | Count + sample size | `count / total unit`, thousands-comma'd | `134 / 2,000 decks` |
 | Score (inverted finish) | two decimals, with the sense once | `0.62 (1 = 1st)` |
 | Imputed value | a trailing `*` on the decided number | `3 / 24*`, `0.62* (1 = 1st)` |
+| Change in a share | signed, in the share's own form | `+2.31%`, `−0.4%` |
 
 Retires the current split (`n=12` in one chart, `12/2000 decks` in another).
+
+_Added 2026-11-16 (#329): the **change in a share** is the difference of two shares
+as they are written, so the three numbers a reader sees add up (31.82% and +2.3% make
+34.12%). It is always shown beside the share it started from ("from 31.82%"), which
+is what makes it read as the gap between two shares and not as a rate of growth. Not
+"pts": in this format a point is what a card costs._
 
 **The imputed mark** (#166, added 2026-07-28). Every value the project decided
 rather than the source supplying it carries the rule that decided it in the graph
@@ -522,7 +537,9 @@ which set a plot off with a top rule alone.
 - **Card head.** Inside the card, top: the **insight title** (§3), then a
   **one-line caption** (§3 caption role) naming the filters and how much came back.
   The subject is not repeated here (§14): it is stated once for the whole result set,
-  above the cards.
+  above the cards. _Amended 2026-11-16 (#329): on Pilots and Cards the caption says
+  what the picture holds in a sentence and no longer counts nodes or strings the
+  filters on dots. See "The pages (#329)" for the caption rule._
 - **Plot region, sized to content.** Retire the fixed `min(78vh,860px)` slab. Size
   each plot to how much it has to show, within a bounded band:
   - graph (pyvis iframe): every graph plot shares **one frame**, so a single uniform
@@ -609,7 +626,10 @@ and its on-surface methodology blocks.
 - **Subject once.** The chosen subject is stated a single time for the whole
   result (a subject line above the cards), never echoed in each card title. An
   insight is titled by its **plot type only**: `Neighbourhood`, not
-  `Neighbourhood: Brennan C`.
+  `Neighbourhood: Brennan C`. _Amended 2026-11-16 (#329): a pilot's or a card's page
+  states its subject as the page head, the name in the display face over a descriptor
+  and four tiles, where it was the one-line subject line. The pilot head-to-head
+  keeps the subject line, since it names a pair. See "The pages (#329)"._
 - **Empty-state guidance lives in the control, not a card.** Before a Draw there
   are no prompt cards: the results stack is hidden until drawn (§12), and the
   panel's own label and Draw button are the invitation. This supersedes #113's
@@ -771,3 +791,78 @@ panel's padding (§13), and where the invitation and the year's scope are stated
   and leaves the page alone otherwise. The middle and not the top: at the top, a
   phone's stacked controls left the screen while the reader was still using them.
   The move is smooth unless the reader has asked for less motion.
+
+## The pages (#329)
+
+Decided 2026-11-16. What a pilot's or a card's page states in numbers, and the three
+parts every later page is built from, measured on the running app at 390, 1440 and
+1920px before and after. The parts are written once in `graph7ph.parts`, apart from
+the app's query glue. Two earlier sections carry dated notes pointing here: the card
+head's caption (§12) and "subject once" (§14).
+
+- **A page opens with its numbers.** A drawn pilot or card page starts with the
+  subject's name in the display face (30px, 24px at 640px and under), a one-line
+  descriptor, and four tiles. It was graphs first: a leading pilot's one headline
+  sentence sat 2,641px down, and nothing on the page was a table.
+- **Tile.** A small card: what the figure is in the control-label role, the figure in
+  the display face at 26px, a quiet note under it. Four across, two across at 640px
+  and under.
+- **Pilot tiles are neutral facts.** Events played, archetypes played, the
+  most-played archetype, the best finish. No tile averages a pilot's finishes; that
+  reading stays in the performance chart's caption, beside the sample it rests on.
+  The most-played tile says when others are level with it, and the best finish is the
+  lowest place, with how often.
+- **Card tiles.** Adoption in the record's latest year, the change from the year
+  before (§4), the decks running it, the archetypes running it.
+- **A tile is read off the picture under it.** A pilot's events, archetypes and
+  most-played archetype are counted off the neighbourhood and affinity graphs' own
+  nodes, from the one query result the page also draws. The best finish is read off
+  the record, which holds a place as a number where the graph holds it as a label. A
+  card's tiles are the usage graph's card and archetype nodes and the adoption
+  chart's last two points, and a board filter scopes them as it scopes both pictures.
+  Co-occurrence draws no usage graph, so there the two usage tiles come from the same
+  query run unfiltered: the figures Card overview shows on "Main or side".
+- **The record.** A pilot's page closes with every deck they entered as a table:
+  event, date, archetype, finish, decklist link. It is the one thing on these pages a new query
+  feeds (`query.pilot_record`), because no query on the page held a date or a
+  result's archetype. The finish is the place over the field (§4), each number
+  marked where the project decided it. The date is the event's first deck
+  registration, the proxy the head-to-head's axis already uses (ADR 0013), and the
+  column is headed "Registered" and the caption says so: 64 of 162 events share that
+  day with another event, because events are often written up together.
+- **A card's two lists.** Card overview lists the archetypes running the card under
+  their broad classes, with the share of each one's decks that do: the usage graph's
+  edges as rows. Co-occurrence lists the cards drawn beside the subject, ranked, with
+  the rates their edges carry, and its caption says what a rate is a share of. Each
+  list sits on the view whose graph it tabulates. A share in either list is written to
+  two decimals (§4) off the two counts its edge carries, where the edge's own label
+  rounds to a whole percent, and the archetypes are sorted by that share: the graph
+  orders on the rounded percent, which a column of exact shares would show as out of
+  order.
+- **One table.** Hairline rows and nothing else: no frame, no band, no fill. Numbers
+  right-aligned in tabular figures. A column that qualifies the one beside it is set
+  back. A group of rows is headed by a line of its own, with any figures of its own
+  under the columns they belong to. Text breaks wherever it must
+  and a number never does, so a table is never wider than its card: at 390px the
+  standings were 306px in a 284px card and the gems table ran 125 to 157px past its
+  own, and both now end at the card's inside edge. On a narrow screen a column can be
+  left out and its value folded in as a second line of the cell beside it, as the
+  record's date is under the event's name. The standings and the gems table are this
+  table too. The gems table names each archetype once, on a line over its gems, where
+  it was a column with every other archetype banded.
+- **Not built: a sticky header and sortable columns.** Neither came cheap. Measured
+  with the header set sticky, it scrolled away with its table (400px above the window
+  after a 400px scroll): ten of the wrappers Gradio puts round a card clip their
+  overflow. Sorting needs script, and Gradio does not run script set inside an HTML
+  block.
+- **One caption rule.** A caption is ordinary text in the text colour (`--text`). It
+  is never in the accent, which is kept for what can be clicked: a decklist link is
+  the one accent in a table. It sets apart at most one figure, in the
+  blue the charts draw with (§5). It is written as short sentences, not as fragments
+  joined with middle dots, and it does not count nodes ("106 nodes"). A filter is said
+  once: the board is in a card page's descriptor and the adoption chart's caption,
+  and no longer in the usage graph's too. The app's one imputed mark has one legend
+  wherever it is drawn ("* marks a number this project worked out, not one the source
+  recorded"). Applied on this ticket to every caption on Pilots and Cards. The other tabs keep the earlier caption
+  roles (`.t-caption`, `.t-fieldstat`, accent inside a card) until their own tickets
+  reach them.

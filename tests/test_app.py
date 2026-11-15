@@ -9,7 +9,7 @@ from typing import NamedTuple
 import plotly.colors as pc
 import pytest
 
-from graph7ph import numfmt, palette, theme
+from graph7ph import numfmt, palette, parts, theme
 from graph7ph.app import (
     CLEAR_LABEL,
     DRAWING_LABEL,
@@ -37,6 +37,7 @@ from graph7ph.app import (
     _chart_heading,
     _embed,
     _gem_caption,
+    _graph_captions,
     _gem_table,
     _head_to_head_caption,
     _head_to_head_figure,
@@ -54,7 +55,6 @@ from graph7ph.app import (
     _performance_figure,
     _masthead_html,
     _provenance_html,
-    _result_header,
     _leaderboard_html,
     _race_caption,
     _race_hues,
@@ -440,12 +440,14 @@ def test_card_overview_adoption_caption_carries_the_board_but_cooccurrence_carri
     # Co-occurrence is board-agnostic (no board control), so its caption is None: no
     # board qualifier reaches the plot, since there is no control to disambiguate it.
     # board=None is the board-agnostic sentinel.
-    assert _adoption_caption("") == "Main or side board"
-    assert _adoption_caption("Main") == "Main board"
+    # A sentence since #329 (the caption rule), where it was a fragment.
+    assert _adoption_caption("") == parts.caption("Counted on the main or side board.")
+    assert _adoption_caption("Main") == parts.caption("Counted on the main board.")
 
     assert _adoption_caption(None) is None
     # The plot title never carries the subject or the board; only the plot type.
-    assert "Adoption over time" in _chart_heading("Adoption over time", _adoption_caption("Main"))
+    assert "Adoption over time" in _chart_heading(
+        "Adoption over time", caption_html=_adoption_caption("Main"))
 
 
 def test_cooccurrence_adoption_plots_both_cards_or_the_subject_alone():
@@ -459,39 +461,40 @@ def test_cooccurrence_adoption_plots_both_cards_or_the_subject_alone():
     assert _adoption_cards("", "mana-crypt") == []
 
 
-def test_a_drawn_result_is_titled_by_its_plot_type_and_captioned():
-    # Issue #110/#132: a query result is never left as an unlabelled graph. It opens
-    # under a title (the plot type alone, §14, the subject stated once above the cards)
-    # and a caption (the filters, then how much came back), both in the page's own type
-    # roles (§3), so the answer reads as an answer. The class names are the page-type
-    # contract: a regression to plain <p> text would drop them and trip this.
-    header = _result_header("pilot_neighbourhood", ["vs Bob C"], node_count=42)
+def test_a_graph_caption_counts_what_the_picture_holds_and_reduces_to_the_singular():
+    # "How much came back" is said in the reader's terms since #329, the events or
+    # the archetypes or the cards drawn, not as a count of nodes. One of them is
+    # singular.
+    def said(view, values, *nodes):
+        (caption,) = _graph_captions(view, values, Subgraph(nodes=list(nodes), edges=[]))
+        return re.sub(r"<[^>]+>", "", caption)
 
-    assert "t-result-title" in header
-    assert "t-caption" in header
-    # The title is the plot type only; the subject (a pilot name) never appears in it.
-    assert "Neighbourhood" in header
-    assert "Ada L" not in header
-    # The caption carries the filters and the node count, joined as one line.
-    assert "vs Bob C · 42 nodes" in header
-
-
-def test_the_caption_reads_the_node_count_and_reduces_to_the_singular():
-    # "How much came back" is the count of nodes drawn. With no filters the caption
-    # is the count alone, and a lone node reads "1 node", not "1 nodes".
-    one = _result_header("pilot_affinity", [], node_count=1)
-    assert ">1 node</" in one
-
-    many = _result_header("pilot_affinity", [], node_count=250)
-    assert ">250 nodes</" in many
+    alone = {"pilot": "p", "pilot2": None}
+    assert said("pilot_neighbourhood", alone, Node("event:a", "A", "Event")).startswith(
+        "1 event, ")
+    assert said("pilot_neighbourhood", alone, Node("event:a", "A", "Event"),
+                Node("event:b", "B", "Event"), Node("deck:d", "D", "Deck")).startswith(
+        "2 events, ")
+    assert said("pilot_affinity", alone, Node("arch:a", "A", "Archetype")).startswith(
+        "1 archetype, ")
+    # A head-to-head draws only the events both played, and says so.
+    assert said("pilot_neighbourhood", {"pilot": "p", "pilot2": "q"},
+                Node("event:a", "A", "Event")) == (
+        "1 event both pilots played, with each pilot's deck and finish.")
 
 
-def test_the_filters_are_escaped_into_the_header():
-    # The filter strings come from display labels, which are free text, so a filter
-    # carrying an angle bracket is escaped rather than injected into the result markup.
-    header = _result_header("card_usage", ["with A<b>"], node_count=3)
-    assert "A<b>" not in header
-    assert "A&lt;b&gt;" in header
+def test_a_name_in_a_graph_caption_is_escaped():
+    # A second card's name is free text from the source, on a surface the app builds
+    # as markup.
+    values = {"card": "a", "cooccur_card2": "b", "cooccur_top_n": 5,
+              "cooccur_drop_lands": False}
+    (caption,) = _graph_captions("card_cooccurrence", values, Subgraph(nodes=[
+        Node("card:a", "A", "Card", group="seed:a"),
+        Node("card:b", "B<b>", "Card", group="seed:b"),
+    ], edges=[]))
+
+    assert "B<b>" not in caption
+    assert "No deck runs it with B&lt;b&gt;." in caption
 
 
 def test_the_neighbourhood_explains_a_decided_placement_only_where_one_is_drawn():
@@ -512,11 +515,14 @@ def test_the_neighbourhood_explains_a_decided_placement_only_where_one_is_drawn(
     assert _imputed_placement_note(sub("5th", "12th")) is None
     assert _imputed_placement_note(Subgraph(nodes=[], edges=[])) is None
 
-    # The line lands under the filters and the count as its own caption row, so the
-    # legend never reads as part of what was asked for.
-    header = _result_header("pilot_neighbourhood", ["vs Bob C"], 9, note)
-    assert header.count("t-caption") == 2
-    assert header.index("vs Bob C") < header.index("worked out")
+    # The line lands under the caption as a caption of its own, so the legend never
+    # reads as part of what the picture is said to hold.
+    marked = Subgraph(nodes=[Node("event:e", "E", "Event"),
+                             *sub("5th", f"12th{numfmt.IMPUTED_MARK}").nodes], edges=[])
+    held, legend = _graph_captions(
+        "pilot_neighbourhood", {"pilot": "p", "pilot2": None}, marked)
+    assert "1</span> event" in held and "worked out" not in held
+    assert note in legend
 
 
 def test_a_drawn_neighbourhood_carries_the_decided_mark_and_its_legend(
@@ -546,7 +552,7 @@ def test_a_drawn_neighbourhood_carries_the_decided_mark_and_its_legend(
     card = draw("pilot_overview", "Jordan C")[2]["value"]
 
     assert f"12th{numfmt.IMPUTED_MARK}" in card    # the rank reads as decided
-    assert "a placement this project worked out" in card  # and the card says what that means
+    assert "a number this project worked out" in card  # and the card says what that means
     # Jordan C's other deck is the source's own 5th, and it stays unmarked, so the mark
     # separates the two rather than labelling every rank on the card.
     assert f"5th{numfmt.IMPUTED_MARK}" not in card
@@ -643,9 +649,9 @@ def test_every_gem_states_the_whole_claim_beside_its_odds():
         ("bant", "leyline", 24, 18, 3, 0.00001),
     ))
 
-    assert table.count("<tr") == 3  # the header row and one per gem
-    # The archetype is named on every row: two gems from two archetypes are two
-    # claims, and the list spans the format now.
+    assert table.count("<tr") == 5  # the header row, and per archetype a line and a gem
+    # The archetype heads its gems: two gems from two archetypes are two claims, and
+    # the list spans the format now.
     assert ">Lands<" in table and ">Bant<" in table
     # The decks the graph draws are not rows in it.
     assert "Storm" not in table
@@ -666,11 +672,12 @@ def test_every_gem_states_the_whole_claim_beside_its_odds():
     assert rows.index("Leyline") < rows.index("Vault") < rows.index("Port")
 
 
-def test_alternate_archetypes_are_banded_so_each_block_reads_apart():
+def test_each_archetype_heads_its_own_gems_so_each_block_reads_apart():
     # The rows are grouped, and a group is only useful if a reader can see where one
-    # archetype's gems stop. Alternate archetypes are shaded whole, so the blocks read
-    # apart without a rule or a hue: every row of one block carries the band, no row of
-    # its neighbours does, and the archetype stays named on each row.
+    # archetype's gems stop. Each archetype is named once, on a line of its own over
+    # its gems (issue #329: the one table draws hairline rows only, so the band every
+    # other archetype used to take is gone, and so is the column that named the
+    # archetype on every row, which is most of what took the table past a phone's card).
     table = _gem_table(_gems(
         ("lands", "port", 21, 13, 10, 0.0039),
         ("lands", "vault", 10, 8, 6, 0.0002),
@@ -679,11 +686,15 @@ def test_alternate_archetypes_are_banded_so_each_block_reads_apart():
     ))
     rows = re.findall(r"<tr[^>]*>.*?</tr>", table)[1:]  # past the header
 
-    banded = ["band" in row for row in rows]
-    named = [re.findall(r"<td[^>]*>([^<]*)</td>", row)[1] for row in rows]
-    assert named == ["Bant", "Lands", "Lands", "Storm"]
-    assert banded == [False, True, True, False]  # one band per archetype, alternating
-    assert table.count(">Lands<") == 2  # named on each of its rows, not once a block
+    read = [("group" if "class='group'" in row else "gem",
+             re.findall(r"<t[dh](?: [^>]*)?>([^<]*)", row)[0]) for row in rows]
+    assert read == [
+        ("group", "Bant"), ("gem", "Leyline"),
+        ("group", "Lands"), ("gem", "Vault"), ("gem", "Port"),
+        ("group", "Storm"), ("gem", "Ritual"),
+    ]
+    assert "band" not in table
+    assert table.count(">Lands<") == 1  # named once a block, not on each of its rows
 
 
 def test_every_class_the_gem_table_emits_is_one_the_stylesheet_draws():
@@ -885,13 +896,14 @@ def test_performance_caption_states_the_field_share_and_the_sample():
     ]))
 
     # Weighted mean score = (0.6*2 + 0.8*8) / 10 = 0.76, rounded to a whole percent, and
-    # set in the accent span so the eye lands on it; the sample trails in its own span.
-    assert "<span class='pct'>76%</span>" in caption
-    assert "10 events over 2 scored years" in caption
+    # the caption's one highlighted figure, so the eye lands on it; the sample closes
+    # the sentence (the caption rule, #329, where a dot used to join it on).
+    assert "<span class='figure'>76%</span>" in caption
+    assert "over 10 events in 2 scored years." in caption
     # One claim and one qualifier, and nothing else (§14, #156): the two readings this
     # caption used to trail (that the movement between years is noise, and that this
     # population is not the leaderboard's) are the FAQ's now, so the tail holds one clause.
-    assert caption.count("·") == 1
+    assert "·" not in caption and caption.count("class='figure'") == 1
     assert "not a slump" not in caption
     assert "leaderboard" not in caption
 
@@ -1004,7 +1016,7 @@ def _caption_lines(caption: str | None) -> list[str]:
     Reads the divs rather than the joined string, because whether the legends land on
     separate lines is the thing under test: HTML collapses the whitespace between them.
     """
-    return re.findall(r"<div class='t-caption'>(.*?)</div>", caption or "")
+    return re.findall(r"<div class='caption'>(.*?)</div>", caption or "")
 
 
 def test_head_to_head_hover_marks_the_numbers_the_project_decided():
@@ -2503,7 +2515,7 @@ def test_a_pilot_with_no_finish_at_a_bounded_meeting_draws_at_the_bound():
     assert list(ada.customdata[1]) == [f"≤ {numfmt.score(2 / 11)}", "no finish published"]
     # And the caption owes the caret its line, beside nothing else here: no number on
     # this series is one the project decided.
-    assert _caption_lines(_head_to_head_caption(series)) == [_BOUND_LEGEND]
+    assert _caption_lines(_head_to_head_caption(series)) == [f"{_BOUND_LEGEND}."]
 
 
 def test_a_bound_off_a_decided_field_is_marked_like_every_other_decided_number():
@@ -2589,14 +2601,14 @@ def test_the_two_head_to_head_legends_stand_on_their_own_lines():
 
     assert len(lines) == 2
     assert lines[0].startswith(numfmt.IMPUTED_MARK)
-    assert lines[1] == _BOUND_LEGEND
+    assert lines[1] == f"{_BOUND_LEGEND}."
 
 
 def test_the_head_to_head_caption_reaches_the_page_as_markup_not_text(tmp_path, snapshot_dir):
     # The other half of the legends fix. `_head_to_head_caption` returns real divs, and
     # they render as lines only if the call site hands them to `_chart_heading` as
     # `caption_html`; passed positionally they are escaped, and the page shows literal
-    # "<div class='t-caption'>" text over the plot while every unit test above stays
+    # "<div class='caption'>" text over the plot while every unit test above stays
     # green. So this drives the built app's own handler, over a snapshot holding a
     # bounded meeting, and asserts on the value the page is handed.
     import shutil
@@ -2649,7 +2661,7 @@ def test_the_head_to_head_caption_reaches_the_page_as_markup_not_text(tmp_path, 
         "AnnQPilotX", "BobRPilotX")
 
     assert heading["visible"] and plot["visible"] and not note["visible"]
-    assert "<div class='t-caption'>" in heading["value"]
+    assert "<div class='caption'>" in heading["value"]
     assert _BOUND_LEGEND in heading["value"]
     assert "&lt;div" not in heading["value"]
 
@@ -3732,7 +3744,7 @@ def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
     assert "2&ndash;8" in table
     # One interval per standing row, never fewer: a row without one is a rank presented
     # as a fact.
-    assert table.count("class='score spread'") == 1 + 12
+    assert table.count("class='num quiet'") == 2 * (1 + 12)  # the rank, and its range
 
 
 def test_a_leaderboard_name_carrying_markup_is_escaped():
@@ -3807,7 +3819,7 @@ def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_pat
     # Found by the race's own column, not by the shared table class: the gem table
     # wears that class too and is drawn at build time since #184.
     (table,) = [b.value for b in demo.blocks.values()
-                if isinstance(b, gr.HTML) and "<th class='score spread'>Rank CI</th>"
+                if isinstance(b, gr.HTML) and "<th class='num quiet'>Rank CI</th>"
                 in (b.value or "")]
     # Capped at the display cut, and every drawn line is marked in the table.
     assert table.count("<tr") == _LEADERBOARD_ROWS + 1

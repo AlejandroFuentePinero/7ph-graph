@@ -28,6 +28,10 @@ A Pilot that may hold several people: a bare first name, or an id the event spli
 A 7PH tournament or teams competition at which pilots register decks. It happened at some point in time, but the source records no date for it, so the graph places it no more precisely than its Year.
 _Avoid_: Meet, comp
 
+**Record**:
+Every Deck on file for one Pilot, one per Event they entered, newest first: what a pilot's page lists as a table (issue #329). Each line is a Deck with its Event, its primary Archetype and its Placement over the Field Size. Ordered and dated by the event's first deck registration, the proxy ADR 0013 places an event by on a timeline, since the source records no date for an Event.
+_Avoid_: Results, history, career
+
 **Year**:
 The calendar year an Event took place, derived from the earliest deck creation among its decks. The graph's temporal dimension: the axis for slicing the metagame over time. A proxy, since the source carries no event date, and the finest granularity that proxy honestly supports (ADR 0006).
 _Avoid_: Era (a rules period, not a calendar one), season, date

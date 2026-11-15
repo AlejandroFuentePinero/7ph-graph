@@ -14,6 +14,7 @@ import html
 import json
 from collections import Counter
 from datetime import datetime
+from itertools import groupby
 from pathlib import Path
 
 import gradio as gr
@@ -33,7 +34,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
-from graph7ph import numfmt, palette, theme
+from graph7ph import numfmt, palette, parts, theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.figures import figures_path
@@ -49,18 +50,20 @@ from graph7ph.query import (
     HiddenGems,
     PilotAffinity,
     PilotNeighbourhood,
-    Node,
+    PilotDeck,
     QuerySpec,
     Subgraph,
+    _ordinal,
     card_catalogue,
     card_deck_counts,
     coverage,
     land_cards,
     pilot_catalogue,
+    pilot_record,
     run_query,
 )
 from graph7ph.provenance import built_at
-from graph7ph.render import render_subgraph
+from graph7ph.render import moxfield_url, render_subgraph
 from graph7ph.serve import APP_KWARGS
 from graph7ph.trends import (
     ArchetypeLandscape,
@@ -209,7 +212,7 @@ _EXAMPLE_CARDS = 3
 # holds several plots (#126), so a drawn subgraph is titled by the plot it draws
 # (neighbourhood, affinity, usage, co-occurrence, gems), not by the view it sits in.
 # The trend plots title themselves through `_chart_heading`. These ids double as the
-# query keys `_spec` and `_graph_filters` dispatch on, so every query the two-view shape
+# query keys `_spec` and `_graph_captions` dispatch on, so every query the two-view shape
 # reaches keeps a heading here.
 _PLOT_LABELS: dict[str, str] = {
     "pilot_neighbourhood": "Neighbourhood",
@@ -220,32 +223,14 @@ _PLOT_LABELS: dict[str, str] = {
 }
 
 
-def _result_header(
-    plot: str, filters: list[str], node_count: int, note: str | None = None
-) -> str:
-    """Frame a query result as an insight-card head (§12/§14): the plot type alone as
-    the title (the subject is stated once above the cards, §14, not echoed here), the
-    filters and how many nodes came back as the caption, so an answer is never left as
-    an unlabelled graph. Prepended to the drawn result, the empty state, and the refine
-    alert alike, so every post-query state speaks the same way. The filters are display
-    labels (free text), so they are escaped into the markup.
-
-    ``note`` is a second caption line for a legend the drawn picture needs, kept on its
-    own row rather than joined into the first: the filters and the node count describe
-    what was asked, and a legend describes how to read what came back. Only a drawn
-    picture ever carries one, since neither an empty result nor a refused one has a
-    mark to explain."""
-    # A drawn result is under the render threshold (250 nodes), so the count needs no
-    # thousands separator; the refine alert carries the large counts.
-    tail = f"{node_count} node" + ("" if node_count == 1 else "s")
-    caption = " · ".join([*filters, tail])
-    head = (
-        f"<div class='t-result-title'>{html.escape(_PLOT_LABELS[plot])}</div>"
-        f"<div class='t-caption'>{html.escape(caption)}</div>"
-    )
-    if note:
-        head += f"<div class='t-caption'>{html.escape(note)}</div>"
-    return head
+# What the app's one imputed mark means, wherever a surface draws one: the
+# neighbourhood's placements, the record's finishes and fields, the head-to-head's
+# hover. One wording for one mark (§14). It says the number is ours and not which
+# rule produced it, which only the record can hold (issue #166).
+_IMPUTED_LEGEND = (
+    f"{numfmt.IMPUTED_MARK} marks a number this project worked out, "
+    "not one the source recorded"
+)
 
 
 def _imputed_placement_note(subgraph: Subgraph) -> str | None:
@@ -269,10 +254,65 @@ def _imputed_placement_note(subgraph: Subgraph) -> str | None:
     )
     if not marked:
         return None
-    return (
-        f"{numfmt.IMPUTED_MARK} a placement this project worked out, "
-        "not one the source recorded"
-    )
+    return f"{_IMPUTED_LEGEND}."
+
+
+def _seeds(cooccurrence: Subgraph) -> list:
+    """The one or two cards a co-occurrence graph was asked about, the subject first."""
+    return [n for n in cooccurrence.nodes if (n.group or "").startswith("seed:")]
+
+
+def _graph_captions(view: str, values: dict, subgraph: Subgraph) -> list[str]:
+    """A drawn graph's captions: what the picture holds, in a sentence (issue #329).
+
+    Read off the subgraph being drawn, so the caption counts what is on screen: the
+    events of a neighbourhood, the archetypes of an affinity graph, the cards beside
+    a card. A filter is said in the sentence (a second card, lands left out) and
+    never as a fragment of its own. The gem view has no caption here; its
+    own line follows its title.
+    """
+    def count(kind: str) -> int:
+        return sum(node.kind == kind for node in subgraph.nodes)
+
+    match view:
+        case "pilot_neighbourhood":
+            events = count("Event")
+            said = "{} event" + ("" if events == 1 else "s") + (
+                " both pilots played, with each pilot's deck and finish."
+                if values["pilot2"] else
+                ", each with the deck played and where it finished."
+            )
+            captions = [parts.caption(said, f"{events:,}")]
+            note = _imputed_placement_note(subgraph)
+            return captions + ([parts.caption(note)] if note else [])
+        case "pilot_affinity":
+            archetypes = count("Archetype")
+            return [parts.caption(
+                "{} archetype" + ("" if archetypes == 1 else "s")
+                + ", grouped by broad class and sized by the events played.",
+                f"{archetypes:,}",
+            )]
+        case "card_usage":
+            # The board is said once, in the page's descriptor (§14).
+            return [parts.caption(
+                "How much of each broad class and archetype runs it.")]
+        case "card_cooccurrence":
+            beside = sum(node.group == "cooccur" for node in subgraph.nodes)
+            cards = "{} card" + ("" if beside == 1 else "s")
+            lands = ", lands left out" if values["cooccur_drop_lands"] else ""
+            seeds = _seeds(subgraph)
+            if len(seeds) == 2 and not beside:
+                return [parts.caption(f"No deck runs it with {seeds[1].label}.")]
+            if len(seeds) == 2:
+                return [parts.caption(
+                    f"The {cards} most often in the decks that run it with "
+                    f"{seeds[1].label}{lands}.", f"{beside:,}")]
+            if not beside:
+                return [parts.caption("No card shares a board with it.")]
+            return [parts.caption(
+                f"The {cards} most often beside it on the same board{lands}.",
+                f"{beside:,}")]
+    return []
 
 
 # The smallest share the app's numeric convention writes: `numfmt.share` carries two
@@ -284,7 +324,8 @@ _SMALLEST_CHANCE = 0.0001
 
 
 def _gem_luck_label(luck: float) -> str:
-    """A gem's odds as the table prints them: a share, or an "under".
+    """A gem's odds as the table prints them: a share, or an "under". Plain text,
+    which the table escapes.
 
     The "under" case is decided by asking the convention rather than by comparing
     against a threshold of its own: the two would have to agree about where `share`
@@ -293,7 +334,7 @@ def _gem_luck_label(luck: float) -> str:
     """
     written = numfmt.share(luck)
     if written == numfmt.share(0):
-        return f"&lt;{numfmt.share(_SMALLEST_CHANCE)}"
+        return f"<{numfmt.share(_SMALLEST_CHANCE)}"
     return written
 
 
@@ -302,9 +343,9 @@ def _gem_table(subgraph: Subgraph) -> str:
 
     The graph beside it draws which of an archetype's best decks run which card and
     carries no number at all, so the table is where the claim is actually stated. Five
-    numbers per gem, in the order the claim is built (#184). **Archetype** is where
-    every other number was measured, and it leads because nothing here is a
-    format-wide statement: a card is rare, and lands well, *inside one archetype*.
+    numbers per gem, in the order the claim is built (#184). The **archetype** is
+    where every other number was measured, and it heads its gems because nothing here
+    is a format-wide statement: a card is rare, and lands well, *inside one archetype*.
     **Decks running it** is how rare, against that archetype's own ranked decks, and it
     is named for what it counts because "Decks" beside "In top N%" reads as two
     unrelated totals rather than a count and its subset. **In top N%** is
@@ -322,12 +363,13 @@ def _gem_table(subgraph: Subgraph) -> str:
     the comparison the rule refuses to make; within an archetype the ranking is real.
     Ties fall back to the card name, so one artifact always draws one table.
 
-    Every other archetype is banded, so where one block stops and the next starts is
-    visible without reading the names down the column. Banded whole rather than ruled
-    between, because a block is often a single row and a rule around one row reads as
-    an emphasis on that row rather than as a boundary.
+    Each archetype is named once, on a line of its own heading its gems, so where one
+    block stops and the next starts is visible at a glance. It used to be a column,
+    with every other archetype banded: the one table draws hairline rows only (issue
+    #329), and the column was a sixth of a table that ran 125px past its card on a
+    phone.
 
-    Card and archetype names are free text from the source, so they are escaped.
+    Card and archetype names are free text from the source, which the table escapes.
     """
     archetypes = {node.id: node.label for node in subgraph.nodes
                   if node.kind == "Archetype"}
@@ -340,27 +382,22 @@ def _gem_table(subgraph: Subgraph) -> str:
         key=lambda n: (named[n.id], n.gem_luck, n.label),
     )
 
-    def row(node: Node, band: bool) -> str:
-        return (
-            ("<tr class='band'>" if band else "<tr>")
-            + f"<td>{html.escape(node.label)}</td>"
-            + f"<td>{html.escape(named[node.id])}</td>"
-            + f"<td class='score'>{node.decks}</td>"
-            + f"<td class='score'>{node.top_decks}</td>"
-            + f"<td class='score'>{node.pilots}</td>"
-            + f"<td class='score spread'>{_gem_luck_label(node.gem_luck)}</td>"
-            + "</tr>"
-        )
-
-    blocks = {arch: i for i, arch in enumerate(dict.fromkeys(named[n.id] for n in gems))}
-    body = "".join(row(node, blocks[named[node.id]] % 2 == 1) for node in gems)
-    return (
-        "<table class='leaderboard'><thead><tr>"
-        "<th>Card</th><th>Archetype</th><th class='score'>Decks running it</th>"
-        f"<th class='score'>In top {GEM_TOP_CUT:.0%}</th>"
-        "<th class='score'>Pilots</th><th class='score spread' title='How often plain "
-        "luck would put this much of the card in the best decks'>By chance</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+    rows: list = []
+    for archetype, block in groupby(gems, key=lambda node: named[node.id]):
+        rows.append(parts.Group(archetype))
+        rows += [[node.label, str(node.decks), str(node.top_decks), str(node.pilots),
+                  _gem_luck_label(node.gem_luck)] for node in block]
+    return parts.table(
+        [
+            parts.Column("Card"),
+            parts.Column("Decks running it", numeric=True),
+            parts.Column(f"In top {GEM_TOP_CUT:.0%}", numeric=True),
+            parts.Column("Pilots", numeric=True),
+            parts.Column("By chance", numeric=True, quiet=True,
+                         title="How often plain luck would put this much of the card "
+                               "in the best decks"),
+        ],
+        rows,
     )
 
 
@@ -404,12 +441,12 @@ def _chart_heading(title: str, caption: str | None = None, caption_html: str | N
     The trend charts' titles leave the Plotly figure (where they were font baked into
     an image) and become a heading the app draws above the plot, so a chart reads as a
     titled answer on the page. The title names the plot type only (§14) and takes an
-    optional caption for a filter qualifier (a board, a cut). Title and ``caption`` are
-    free-text display labels, so they are escaped into the markup, exactly as
-    :func:`_result_header` frames a graph result. ``caption_html`` is the escape hatch for
-    a caption the app builds itself (the performance chart's field-standing line, with the
-    share emphasised): app-generated numerics, no user free-text, so it is inserted as
-    trusted markup and takes precedence over the plain ``caption``."""
+    optional caption for a filter qualifier (a cut). Title and ``caption`` are
+    free-text display labels, so they are escaped into the markup. ``caption_html`` is
+    for a caption the app has already built as markup: one under the caption rule
+    (:func:`graph7ph.parts.caption`, the Pilots and Cards charts since #329), or a
+    field-standing line with its figure emphasised. It is inserted as it stands and
+    takes precedence over the plain ``caption``."""
     head = f"<div class='t-result-title'>{html.escape(title)}</div>"
     if caption_html:
         head += caption_html
@@ -429,6 +466,262 @@ def _subject_line(prefix: str, *names: str) -> str:
         f"<span class='subject-name'>{html.escape(n)}</span>" for n in names
     )
     return f"<div class='subject-line'>{html.escape(prefix)} {inner}</div>"
+
+
+def _counted(n: int, one: str, many: str | None = None) -> str:
+    """A count with its noun: ``1 event``, ``2 events``, ``2 broad classes``."""
+    return f"{n:,} {one if n == 1 else many or one + 's'}"
+
+
+# What a tile says where the record holds nothing to state.
+_NOTHING = "None"
+
+
+def _pilot_tiles(
+    neighbourhood: Subgraph, affinity: Subgraph, record: list[PilotDeck],
+) -> list[parts.Tile]:
+    """A pilot's four tiles (issue #329).
+
+    Neutral facts only: how many events, how many archetypes, the archetype played
+    most, and the best finish. No tile averages a pilot's finishes; that reading
+    stays in the performance chart's caption, beside the sample it rests on.
+
+    The first three are counted off the nodes the neighbourhood and the affinity
+    graph draw, so a tile cannot disagree with the picture under it. The affinity
+    graph lists its archetypes most events first, so the first is the most played,
+    and the tile says so when others are level with it rather than naming one of
+    several as the most. The best finish is the lowest place in the record, which
+    holds a place as a number where the neighbourhood holds it as a label. Its
+    imputed mark is kept only where every finish at that place is one the project
+    decided.
+    """
+    events = sum(node.kind == "Event" for node in neighbourhood.nodes)
+    archetypes = [node for node in affinity.nodes if node.kind == "Archetype"]
+    classes = sum(node.kind == "Macro" for node in affinity.nodes)
+
+    if archetypes:
+        top = archetypes[0]
+        level = sum(node.weight == top.weight for node in archetypes) - 1
+        most = parts.Tile(
+            "Most-played archetype", top.label,
+            f"at {_counted(top.weight, 'event')}"
+            + (f", level with {_counted(level, 'other')}" if level else ""),
+        )
+    else:
+        most = parts.Tile("Most-played archetype", _NOTHING, "No archetype on record")
+
+    placed = [deck for deck in record if deck.placement is not None]
+    if placed:
+        lowest = min(deck.placement for deck in placed)
+        at_best = [deck for deck in placed if deck.placement == lowest]
+        ours = all(deck.placement_imputed is not None for deck in at_best)
+        best = parts.Tile(
+            "Best finish", _ordinal(lowest) + (numfmt.IMPUTED_MARK if ours else ""),
+            "once" if len(at_best) == 1 else f"{len(at_best)} times",
+        )
+    else:
+        best = parts.Tile("Best finish", _NOTHING, "No finish on record")
+
+    return [
+        parts.Tile("Events played", f"{events:,}"),
+        parts.Tile("Archetypes played", f"{len(archetypes):,}",
+                   f"in {_counted(classes, 'broad class', 'broad classes')}"
+                   if archetypes else None),
+        most,
+        best,
+    ]
+
+
+def _pilot_descriptor(record: list[PilotDeck]) -> str:
+    """The line under a pilot's name: what they are, and the years they are on record."""
+    years = sorted({deck.date.year for deck in record})
+    if not years:
+        return "Pilot."
+    span = (f"in {years[0]}" if len(years) == 1
+            else f"from {years[0]} to {years[-1]}")
+    return f"Pilot, on record {span}."
+
+
+def _day(when: datetime) -> str:
+    """A date as a person would say it: ``6 Dec 2025``."""
+    return f"{when.day} {when:%b %Y}"
+
+
+def _record_table(record: list[PilotDeck]) -> str:
+    """A pilot's record as a table: every deck, with its list one click away.
+
+    One row per deck, in the order the record is handed over (newest first). The
+    finish is the place over the field it was ranked in, in the app's one form for a
+    count against its sample (§4), each number marked on its own rule where the
+    project decided it rather than the source recording it (issue #166). A deck
+    with no finish on record, or one the source gave no archetype, has an empty
+    cell. On a narrow screen the date rides under the event's name and its own
+    column is left out. The date's column is headed for what it holds, the
+    registration the event is dated by, as the head-to-head's axis is.
+    """
+    def row(deck: PilotDeck) -> list[str]:
+        day = _day(deck.date)
+        finish = "" if deck.placement is None else numfmt.count_of(
+            deck.placement, deck.field_size,
+            count_imputed=deck.placement_imputed is not None,
+            total_imputed=deck.field_imputed is not None,
+        )
+        return [
+            parts.folded(deck.event, day), day, deck.archetype or "", finish,
+            parts.link("Open", moxfield_url(deck.deck_id)),
+        ]
+
+    return parts.table(
+        [
+            parts.Column("Event"), parts.Column("Registered", wide_only=True),
+            parts.Column("Archetype"),
+            parts.Column("Finish", numeric=True, title="Place / size of the field"),
+            parts.Column("Decklist"),
+        ],
+        [row(deck) for deck in record],
+    )
+
+
+def _record_card(record: list[PilotDeck]) -> str:
+    """The record card: its title, how many decks it holds, and the table.
+
+    The legend for the imputed mark shows only when the table draws one, as the
+    neighbourhood's does (:func:`_imputed_placement_note`).
+    """
+    if not record:
+        return parts.card_head("Record") + _state_message("No decks on record.")
+    # The date is said for what it is. The source records no date for an event, so a
+    # deck is placed by when its event's first deck was registered (ADR 0013), and
+    # events written up together share a day.
+    captions = [parts.caption(
+        "{} deck" + ("" if len(record) == 1 else "s") + ", newest first by when "
+        "each event's first deck was registered.",
+        f"{len(record):,}",
+    )]
+    if any(deck.placement is not None and (deck.placement_imputed or deck.field_imputed)
+           for deck in record):
+        captions.append(parts.caption(f"{_IMPUTED_LEGEND}."))
+    return parts.card_head("Record", *captions) + _record_table(record)
+
+
+def _card_tiles(usage: Subgraph, adoption: Series) -> list[parts.Tile]:
+    """A card's four tiles, read off its usage graph and its adoption chart (#329).
+
+    The adoption in the record's latest year and its change from the year before
+    are the chart's last two points. The decks running it and the archetypes that
+    do are the usage graph's card node and its archetype nodes. So a tile cannot
+    disagree with the picture, and a board filter scopes all four as it scopes both.
+
+    """
+    card = usage.nodes[0]
+    archetypes = sum(node.kind == "Archetype" for node in usage.nodes)
+    classes = sum(node.kind == "Macro" for node in usage.nodes)
+    latest = adoption.cells[-1]
+    if len(adoption.cells) > 1:
+        before = adoption.cells[-2]
+        change = parts.Tile(
+            f"Change from {before.year}",
+            numfmt.share_change(latest.share, before.share),
+            f"from {numfmt.share(before.share)}",
+        )
+    else:
+        change = parts.Tile("Change from last year", "n/a", "No earlier year on record")
+    return [
+        parts.Tile(f"Adoption in {latest.year}", numfmt.share(latest.share),
+                   numfmt.count_of(latest.count, latest.year_total, "decks")),
+        change,
+        parts.Tile("Decks", f"{card.decks:,}", f"of {card.total_decks:,} on record"),
+        parts.Tile("Archetypes running it", f"{archetypes:,}",
+                   f"in {_counted(classes, 'broad class', 'broad classes')}"
+                   if archetypes else None),
+    ]
+
+
+def _edge_share(edge) -> str:
+    """The share an edge states, in the app's one form for a share (§4), off the two
+    numbers the edge carries rather than off its whole-percent label."""
+    return numfmt.share(edge.decks / edge.total_decks)
+
+
+def _archetype_card(usage: Subgraph) -> str:
+    """The archetypes running a card, as a table under the usage graph (issue #329).
+
+    The graph's two tiers as rows: each broad class heads the archetypes drawn under
+    it with its own share under the same columns, and each archetype states the
+    share of its decks that run the card. Every number is an edge's own pair of
+    counts, so the table and the picture cannot disagree; the share is written to
+    the app's two decimals (§4) where the edge's label rounds it to a whole percent.
+
+    Listed by that share, largest first, then the larger slice, then by name. Sorted
+    here and not taken in the graph's order, which ranks on the rounded percent and
+    so can put 16.9% ahead of 17.2%: nothing in the picture shows that, and a column
+    of two-decimal shares would.
+    """
+    card = usage.nodes[0]
+    names = {node.id: node.label for node in usage.nodes}
+
+    def by_share(edges) -> list:
+        return sorted(edges, key=lambda e: (-e.decks / e.total_decks, -e.total_decks,
+                                            names[e.target], e.target))
+
+    rows: list = []
+    archetypes = 0
+    for tier in by_share(edge for edge in usage.edges if edge.source == card.id):
+        rows.append(parts.Group(
+            names[tier.target].capitalize(),
+            [numfmt.count_of(tier.decks, tier.total_decks), _edge_share(tier)],
+        ))
+        for edge in by_share(e for e in usage.edges if e.source == tier.target):
+            archetypes += 1
+            rows.append([names[edge.target],
+                         numfmt.count_of(edge.decks, edge.total_decks), _edge_share(edge)])
+    if not archetypes:
+        return parts.card_head("Archetypes") + _state_message(
+            "No archetype runs it under these filters.")
+    said = ("{} archetype runs it, with the share of its decks that do."
+            if archetypes == 1 else
+            "{} archetypes run it, listed by the share of their decks that do.")
+    return parts.card_head("Archetypes", parts.caption(said, f"{archetypes:,}")) + parts.table(
+        [parts.Column("Archetype"),
+         parts.Column("Decks running it", numeric=True, quiet=True),
+         parts.Column("Share", numeric=True)],
+        rows,
+    )
+
+
+def _played_with_card(cooccurrence: Subgraph) -> str:
+    """The cards a card is played with, ranked, under the co-occurrence graph (#329).
+
+    A row per card the graph draws beside the subject, in the graph's own order
+    (most decks together first), carrying the rate its edge carries: the edge's two
+    counts, and their share to the app's two decimals (§4). With one card a rate is a
+    share of that card's decks; with two it is a share of the decks running both, the
+    hub every shared card hangs off. The caption says which, since the number means
+    nothing without what it is a share of.
+    """
+    hub = next((n for n in cooccurrence.nodes if n.kind == "Intersection"), None)
+    seeds = _seeds(cooccurrence)
+    source = hub or seeds[0]
+    partners = [edge for edge in cooccurrence.edges if edge.source == source.id]
+    if not partners:
+        return parts.card_head("Played with") + _state_message("No card to list beside it.")
+    names = {node.id: node.label for node in cooccurrence.nodes}
+    if hub:
+        said = parts.caption(
+            "Each rate is a share of the {} decks running both "
+            f"{seeds[0].label} and {seeds[1].label}.", f"{hub.decks:,}")
+    else:
+        said = parts.caption(
+            f"Each rate is a share of {source.label}'s {{}} decks, counting a card "
+            "on the same board.", f"{partners[0].total_decks:,}")
+    return parts.card_head("Played with", said) + parts.table(
+        [parts.Column("#", numeric=True, quiet=True), parts.Column("Card"),
+         parts.Column("Decks together", numeric=True, quiet=True),
+         parts.Column("Rate", numeric=True)],
+        [[str(rank), names[edge.target],
+          numfmt.count_of(edge.decks, edge.total_decks), _edge_share(edge)]
+         for rank, edge in enumerate(partners, start=1)],
+    )
 
 
 # Who to reach about the graph, under the coverage line: the data behind it is
@@ -597,15 +890,6 @@ def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
         "Just ask, no reason needed.</div>"
         "</div>"
     )
-
-
-def _subject_update(prefix: str, name: str | None):
-    """A ``gr.update`` that shows the subject line for a single-subject view, or hides
-    it when no subject is chosen (§14). The pilot, card, and gems views share this;
-    head-to-head builds its own two-name line inline, since it names a pair."""
-    if not name:
-        return gr.update(visible=False)
-    return gr.update(value=_subject_line(prefix, name), visible=True)
 
 
 # Every graph plot shares one frame (§12), so a dense graph and a sparse one land in
@@ -1395,6 +1679,11 @@ _BOARD_CHOICES = [("Main or side", ""), ("Main", "Main"), ("Side", "Side")]
 _BOARD_LABELS = {value: label.lower() for label, value in _BOARD_CHOICES}
 
 
+def _board_phrase(board: str) -> str:
+    """A board filter in a sentence: ``on the main or side board``."""
+    return f"on the {_BOARD_LABELS[board]} board"
+
+
 def _adoption_caption(board: str | None) -> str | None:
     """The adoption card's caption: the board the share is scoped to (§12/§14), or
     ``None`` when board-agnostic (#126).
@@ -1405,11 +1694,12 @@ def _adoption_caption(board: str | None) -> str | None:
     ``board is None`` drops the qualifier entirely. The string "main or side" must
     never reach the co-occurrence plot, since there is no control to disambiguate it.
     The plot title itself is always "Adoption over time" (the plot type, §14); the
-    board is a filter and rides the caption, never the title.
+    board is a filter and rides the caption, never the title. A sentence, under the
+    caption rule (issue #329).
     """
     if board is None:
         return None
-    return f"{_BOARD_LABELS[board].capitalize()} board"
+    return parts.caption(f"Counted {_board_phrase(board)}.")
 
 
 def _adoption_cards(subject: str, second: str | None) -> list[str]:
@@ -2122,11 +2412,12 @@ def _performance_caption(series: Series) -> str:
     every scored year, weighted by that year's events (a twenty-event season counts ten
     times a two-event one), phrased as the share of the field it beat, since the flipped
     score is exactly that (a 0.74 mean beat ~74% of the field). The share is rounded to a
-    whole percent (a mean over a handful of events does not carry two decimals) and set in
-    the accent so the eye lands on it first; the event total and scored-year count trail
-    quiet as the sample it rests on. Returned as trusted markup (all app-built numerics,
-    no user text) for :func:`_chart_heading`'s ``caption_html``; empty when no year
-    cleared the floor, which the caller's refusal note has already covered.
+    whole percent (a mean over a handful of events does not carry two decimals) and is
+    the caption's one highlighted figure, so the eye lands on it first; the event total
+    and scored-year count close the sentence as the sample it rests on (the caption
+    rule, issue #329). Returned as markup for :func:`_chart_heading`'s
+    ``caption_html``; empty when no year cleared the floor, which the caller's refusal
+    note has already covered.
 
     Two clauses used to follow the sample, and both have moved to ``faq-performance``
     (§14, issue #156): that the **movement** between the years is not real (permuted
@@ -2153,11 +2444,10 @@ def _performance_caption(series: Series) -> str:
     total = sum(c.events for c in scored)
     mean_score = sum((1 - c.mean_norm) * c.events for c in scored) / total
     years = "year" if len(scored) == 1 else "years"
-    return (
-        "<div class='t-fieldstat'>Finishes ahead of "
-        f"<span class='pct'>{round(mean_score * 100)}%</span> of the field on average"
-        f"<span class='sample'> · {total} events over {len(scored)} scored "
-        f"{years}</span></div>"
+    return parts.caption(
+        "Finishes ahead of {} of the field on average, "
+        f"over {total} events in {len(scored)} scored {years}.",
+        f"{round(mean_score * 100)}%",
     )
 
 
@@ -2316,28 +2606,27 @@ def _leaderboard_html(
 
     Display names are free text from the source, so they are escaped.
     """
-    def row(cell: RaceCell) -> str:
+    def row(cell: RaceCell) -> list[str]:
         hue = hues.get(cell.pilot)
         swatch = (f"<span class='swatch swatch-hue' style='background:{hue}'></span>"
                   if hue else "<span class='swatch'></span>")
-        return (
-            "<tr>"
-            f"<td class='rank'>{cell.rank}</td>"
-            f"<td>{swatch}{html.escape(names[cell.pilot])}</td>"
-            f"<td class='score'>{cell.score:.{LEADERBOARD_SCORE_PLACES}f}</td>"
-            f"<td class='score'>{cell.majors}</td>"
-            f"<td class='score spread'>{cell.rank_low}&ndash;{cell.rank_high}</td>"
-            "</tr>"
-        )
+        return [
+            str(cell.rank),
+            parts.Markup(swatch + html.escape(names[cell.pilot])),
+            f"{cell.score:.{LEADERBOARD_SCORE_PLACES}f}",
+            str(cell.majors),
+            parts.Markup(f"{cell.rank_low}&ndash;{cell.rank_high}"),
+        ]
 
     standings = list({cell.pilot: cell for cell in series.cells}.values())[:rows]
-    body = "".join(row(cell) for cell in standings)
-    return (
-        "<table class='leaderboard'><thead><tr>"
-        "<th class='rank'>#</th><th>Pilot</th><th class='score'>Score</th>"
-        "<th class='score'>Major events</th>"
-        "<th class='score spread'>Rank CI</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+    return parts.table(
+        [
+            parts.Column("#", numeric=True, quiet=True), parts.Column("Pilot"),
+            parts.Column("Score", numeric=True),
+            parts.Column("Major events", numeric=True),
+            parts.Column("Rank CI", numeric=True, quiet=True),
+        ],
+        [row(cell) for cell in standings],
     )
 
 
@@ -2963,11 +3252,11 @@ def _head_to_head_caption(series: Series) -> str | None:
     a question only the record can hold.
 
     Returned as trusted markup for :func:`_chart_heading`'s ``caption_html``, one
-    ``t-caption`` div per legend, because the two are separate claims and have to read
-    as separate lines. Joined into one escaped string they collapsed to a single
-    run-on line in HTML, where the asterisk's sentence ran straight into the caret's
-    and read as though it explained both. The legends are app constants with no
-    free text in them, and each is escaped anyway.
+    caption per legend (the caption rule, issue #329), because the two are separate
+    claims and have to read as separate lines. Joined into one escaped string they
+    collapsed to a single run-on line in HTML, where the asterisk's sentence ran
+    straight into the caret's and read as though it explained both. The legends are
+    app constants with no free text in them, and each is escaped anyway.
     """
     marked = any(
         norm is not None
@@ -2981,19 +3270,15 @@ def _head_to_head_caption(series: Series) -> str | None:
     )
     lines = []
     if marked:
-        lines.append(
-            f"{numfmt.IMPUTED_MARK} a number this project worked out, "
-            "not one the source recorded"
-        )
+        lines.append(_IMPUTED_LEGEND)
     # The bound's own line, on the same terms: drawn only where a caret is on screen,
     # and separate from the asterisk's because the two mark different claims (ADR 0024).
     if _has_bounded_point(series.cells):
         lines.append(_BOUND_LEGEND)
-    # One div per legend, which is the shape the archetype timeline already gives the
-    # bound, so the two rivalry charts present the same mark the same way (issue #151).
-    return "".join(
-        f"<div class='t-caption'>{html.escape(line)}</div>" for line in lines
-    ) or None
+    # One caption per legend, as the archetype timeline gives the bound one line of
+    # its own, so the two rivalry charts say the same of the same mark (issue #151).
+    # That chart's line is still in the earlier caption role, until its own ticket.
+    return "".join(parts.caption(f"{line}.") for line in lines) or None
 
 
 def _has_bounded_point(cells) -> bool:
@@ -3540,25 +3825,28 @@ def build_app(artifact: Path) -> gr.Blocks:
     # trend in both card views (#126): Card overview draws the subject alone scoped to
     # a board, Co-occurrence draws the subject plus the co-occurrence pair's second
     # card, board-agnostic (board is None, no board qualifier reaches the plot).
-    def draw_adoption(subject: str, second: str | None, board: str | None):
+    def adoption_series(subject: str, second: str | None, board: str | None):
+        # Each card's adoption, by display name, the subject first. Read once per
+        # draw and handed to the chart and to the tiles (#329), so the two are one
+        # reading. `board or None` collapses the either-board reading ("") and the
+        # board-agnostic sentinel (None) to the same unfiltered count over both boards.
+        conn = ladybug.Connection(db)
+        return [
+            (card_names[canon], run_series(conn, CardAdoptionOverTime(canon, board or None)))
+            for canon in _adoption_cards(subject, second)
+        ]
+
+    def draw_adoption(series: list[tuple[str, Series]], board: str | None):
         # Returns the heading, the plot, and a refusal note. With no card picked the
-        # whole results stack is hidden by the view callback (the guidance lives in the
-        # panel is the guidance now), so this simply hides its three parts; a drawn result
-        # fills the heading and plot, a refusal fills the note.
-        canons = _adoption_cards(subject, second)
-        if not canons:
+        # whole results stack is hidden by the view callback, so this simply hides its
+        # three parts; a drawn result fills the heading and plot.
+        if not series:
             hide = gr.update(visible=False)
             return hide, hide, hide
-        conn = ladybug.Connection(db)
-        # `board or None` collapses the either-board reading ("") and the board-
-        # agnostic sentinel (None) to the same unfiltered count over both boards.
-        series = [
-            (card_names[canon], run_series(conn, CardAdoptionOverTime(canon, board or None)))
-            for canon in canons
-        ]
         return (
             gr.update(
-                value=_chart_heading("Adoption over time", _adoption_caption(board)),
+                value=_chart_heading(
+                    "Adoption over time", caption_html=_adoption_caption(board)),
                 visible=True,
             ),
             gr.update(value=_adoption_figure(series), visible=True),
@@ -3674,61 +3962,25 @@ def build_app(artifact: Path) -> gr.Blocks:
         race_standings = _standings_caption(race, _LEADERBOARD_ROWS)
         race_note = None
 
-    def _graph_filters(view: str, values: dict) -> list[str]:
-        # The reader-language filters a graph result ran under, for the insight-card
-        # caption (#110/#132). Written from the display labels the dropdowns carry,
-        # never the raw keys, so the caption reads like the controls above it. The
-        # subject is stated once above the cards (§14), sourced from the view callback,
-        # not here. Reached only after `_spec` confirmed the subject is set.
-        match view:
-            case "pilot_neighbourhood":
-                return [f"vs {pilot_labels[values['pilot2']]}"] if values["pilot2"] else []
-            case "pilot_affinity":
-                return []
-            case "card_usage":
-                # Named through _BOARD_LABELS ("main" / "side"), the same casing the
-                # adoption chart renders the board in, and no `_Avoid_` word.
-                return [_BOARD_LABELS[values["card_board"]]] if values["card_board"] else []
-            case "card_cooccurrence":
-                filters = []
-                if values["cooccur_card2"]:
-                    filters.append(f"with {card_names[values['cooccur_card2']]}")
-                filters.append(f"top {int(_num(values['cooccur_top_n'], 15))}")
-                if values["cooccur_drop_lands"]:
-                    filters.append("lands filtered out")
-                return filters
-            case "meta_gems":
-                return []
-        return []
-
-    def run_graph(view: str, values: dict) -> str:
-        # A graph view's button hands its view id and the values it surfaces; _spec
-        # turns them into a query, or None (returns the prompt) until the subject is
-        # picked. The graph and chart pipelines stay separate: this renders a
-        # subgraph, never a Series (ADR 0013).
-        spec = _spec(view, values)
-        if spec is None:
-            return _PROMPT
-        subgraph = run_query(ladybug.Connection(db), spec)
+    def graph_card(view: str, values: dict, subgraph: Subgraph) -> str:
+        # A query's result as its insight card. Apart from `run_graph` so a view that
+        # also states the result in tiles or a table (#329) runs the query once and
+        # hands the one subgraph to both. The graph and chart pipelines stay separate:
+        # this renders a subgraph, never a Series (ADR 0013).
+        #
         # A result too big to draw refuses with its own node count and narrowing
-        # hints, so it carries no page-type header: a second "N nodes" caption above
-        # it would read as if N had been drawn (#110).
+        # hints, so it carries no page-type header (#110).
         plan = assess(subgraph)
         if not plan.render:
             return _refine_alert(plan)
         # A drawn or empty result is framed as an insight-card head before it is shown
-        # (#110/#132): the plot type as the title and the filters plus how much came
-        # back as the caption, so no result is left as an unlabelled graph. The subject
-        # is stated once above the cards (§14), sourced from the view callback. Empty
-        # reads 0 nodes.
-        filters = _graph_filters(view, values)
-        header = _result_header(
-            view, filters, plan.node_count, _imputed_placement_note(subgraph)
-        )
+        # (#110/#132): the plot type as the title and what the picture holds as the
+        # caption, so no result is left as an unlabelled graph. The subject is stated
+        # once above the cards (§14), sourced from the view callback.
         if not subgraph.nodes:
             # The gem view has no filters to blame an empty result on: it is the whole
             # format, and empty means no card in it cleared the bar.
-            return header + _state_message(
+            return parts.card_head(_PLOT_LABELS[view]) + _state_message(
                 "No card in the format clears the bar yet."
                 if view == "meta_gems" else "No matches for these filters."
             )
@@ -3739,7 +3991,17 @@ def build_app(artifact: Path) -> gr.Blocks:
         evidence = (
             _gem_caption(subgraph) + _gem_table(subgraph) if view == "meta_gems" else ""
         )
+        header = parts.card_head(
+            _PLOT_LABELS[view], *_graph_captions(view, values, subgraph))
         return header + evidence + _embed(render_subgraph(subgraph))
+
+    def run_graph(view: str, values: dict) -> str:
+        # A graph view hands its view id and the values it surfaces; _spec turns them
+        # into a query, or None (returns the prompt) until the subject is picked.
+        spec = _spec(view, values)
+        if spec is None:
+            return _PROMPT
+        return graph_card(view, values, run_query(ladybug.Connection(db), spec))
 
     with gr.Blocks(
         # The tab is the one place the name is read at a glance and truncated hard, so
@@ -3958,7 +4220,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             with gr.Group(
                 visible=cov_default, elem_classes="view-body", elem_id="card-overview",
             ) as g_card_overview:
-                cov_subject = gr.HTML(visible=False, padding=True)
+                cov_head = gr.HTML(visible=False, padding=False)
                 with gr.Group(visible=False, elem_classes="results-stack") as cov_results:
                     with gr.Group(elem_classes="insight-card"):
                         cov_usage_out = gr.HTML(padding=True)
@@ -3966,6 +4228,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                         cov_adopt_heading = gr.HTML(visible=False, padding=False)
                         cov_adopt_note = gr.Markdown(visible=False)
                         cov_adopt_plot = gr.Plot(visible=False)
+                    # The usage graph as a table (#329): the archetypes running the
+                    # card, under their broad classes.
+                    with gr.Group(elem_classes="insight-card"):
+                        cov_archetypes_out = gr.HTML(padding=False)
 
             # Co-occurrence: card + second card (optional) + top-N + drop-lands, two
             # plots. Board-agnostic: no board control, so the adoption trend counts
@@ -3973,7 +4239,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             with gr.Group(
                 visible=cooc_default, elem_classes="view-body", elem_id="card-cooccurrence",
             ) as g_card_cooccurrence:
-                cooc_subject = gr.HTML(visible=False, padding=True)
+                cooc_head = gr.HTML(visible=False, padding=False)
                 with gr.Group(visible=False, elem_classes="results-stack") as cooc_results:
                     with gr.Group(elem_classes="insight-card"):
                         cooc_graph_out = gr.HTML(padding=True)
@@ -3981,43 +4247,76 @@ def build_app(artifact: Path) -> gr.Blocks:
                         cooc_adopt_heading = gr.HTML(visible=False, padding=False)
                         cooc_adopt_note = gr.Markdown(visible=False)
                         cooc_adopt_plot = gr.Plot(visible=False)
+                    # The co-occurrence graph as a table (#329): the cards drawn
+                    # beside the subject, ranked, with the rates their edges carry.
+                    with gr.Group(elem_classes="insight-card"):
+                        cooc_with_out = gr.HTML(padding=False)
+
+            def card_head(c: str, descriptor: str, usage: Subgraph, adoption: Series):
+                # The top of a card's page (#329): its name, a descriptor, and the four
+                # tiles, read off the usage graph and the adoption chart of this draw.
+                return gr.update(
+                    value=parts.page_head(
+                        card_names[c], descriptor, _card_tiles(usage, adoption)),
+                    visible=True,
+                )
 
             def draw_card_overview(c: str, board: str):
                 # One draw: the usage subgraph and the adoption series, the trend scoped
-                # to the same board the graph is (#126). No compare card here, so the
-                # adoption plots the subject alone. The results stack shows only when a
-                # card is picked (§14). draw_adoption returns (heading, plot, note).
-                subject = _subject_update("Card", card_names[c] if c else None)
+                # to the same board the graph is (#126), and each stated twice, as a
+                # picture and as numbers (#329): the tiles over both, the archetype
+                # table under them. No compare card here, so the adoption plots the
+                # subject alone. The results stack shows only when a card is picked
+                # (§14). draw_adoption returns (heading, plot, note).
                 if not c:
-                    return (subject, gr.update(visible=False),
-                            gr.update(), *draw_adoption(None, None, board))
+                    hide = gr.update(visible=False)
+                    return (hide, hide, gr.update(), *draw_adoption([], board), gr.update())
+                values = {"card": c, "card_board": board}
+                usage = run_query(ladybug.Connection(db), _spec("card_usage", values))
+                series = adoption_series(c, None, board)
                 return (
-                    subject,
+                    card_head(c, f"Card, counted {_board_phrase(board)}.",
+                              usage, series[0][1]),
                     gr.update(visible=True),
-                    gr.update(value=run_graph("card_usage", {"card": c, "card_board": board})),
-                    *draw_adoption(c, None, board),
+                    gr.update(value=graph_card("card_usage", values, usage)),
+                    *draw_adoption(series, board),
+                    gr.update(value=_archetype_card(usage)),
                 )
 
             def draw_cooccurrence(c: str, c2: str, n: int, dl: bool):
                 # One draw: the co-occurrence subgraph and the adoption series. The trend
                 # is board-agnostic (board=None, no board qualifier reaches the plot) and
                 # plots the pair: the subject alone, or both cards when a second is
-                # chosen (#126). The subject line names the chosen card.
-                subject = _subject_update("Card", card_names[c] if c else None)
+                # chosen (#126). The head is the subject card's, over either board: the
+                # view has no board control, so it reads the usage query unfiltered for
+                # the two tiles the co-occurrence graph does not hold. The table under
+                # the plots lists the cards the graph draws (#329).
                 if not c:
-                    return (subject, gr.update(visible=False),
-                            gr.update(), *draw_adoption(None, c2, None))
-                graph = run_graph("card_cooccurrence", {
+                    hide = gr.update(visible=False)
+                    return (hide, hide, gr.update(), *draw_adoption([], None), gr.update())
+                values = {
                     "card": c, "cooccur_card2": c2,
                     "cooccur_top_n": n, "cooccur_drop_lands": dl,
-                })
-                return (subject, gr.update(visible=True),
-                        gr.update(value=graph), *draw_adoption(c, c2, None))
+                }
+                conn = ladybug.Connection(db)
+                cooccurrence = run_query(conn, _spec("card_cooccurrence", values))
+                usage = run_query(conn, CardUsage(c))
+                series = adoption_series(c, c2, None)
+                return (
+                    card_head(c, "Card, and the cards it is most often played with.",
+                              usage, series[0][1]),
+                    gr.update(visible=True),
+                    gr.update(value=graph_card("card_cooccurrence", values, cooccurrence)),
+                    *draw_adoption(series, None),
+                    gr.update(value=_played_with_card(cooccurrence)),
+                )
 
-            cov_outputs = [cov_subject, cov_results, cov_usage_out,
-                           cov_adopt_heading, cov_adopt_plot, cov_adopt_note]
-            cooc_outputs = [cooc_subject, cooc_results, cooc_graph_out,
-                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note]
+            cov_outputs = [cov_head, cov_results, cov_usage_out,
+                           cov_adopt_heading, cov_adopt_plot, cov_adopt_note,
+                           cov_archetypes_out]
+            cooc_outputs = [cooc_head, cooc_results, cooc_graph_out,
+                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note,
+                            cooc_with_out]
 
             def cards_drawing(c):
                 # The step ahead of every draw: the running line where the results
@@ -4059,8 +4358,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 (
                     listen(
                         cards_drawing, inputs=card,
-                        outputs=[cards_running, card_examples, cov_subject, cov_results,
-                                 cooc_subject, cooc_results],
+                        outputs=[cards_running, card_examples, cov_head, cov_results,
+                                 cooc_head, cooc_results],
                     )
                     .then(
                         draw_cards,
@@ -4144,14 +4443,14 @@ def build_app(artifact: Path) -> gr.Blocks:
                 _state_message(DRAWING_LABEL), visible=False, padding=False,
             )
 
-            # Pilot overview: one pilot, three plots, each in its own insight card. The
-            # results stack is hidden until a pilot is picked, so the view opens as
-            # controls over empty ground rather than a row of duplicated empty-prompt
-            # cards. The subject line sits above the stack.
+            # Pilot overview: one pilot, three plots and the record, each in its own
+            # insight card. The results stack is hidden until a pilot is picked, so
+            # the view opens as controls over empty ground rather than a row of
+            # duplicated empty-prompt cards. The page head (#329) sits above the stack.
             with gr.Group(
                 visible=po_default, elem_classes="view-body", elem_id="pilot-overview",
             ) as g_pilot_overview:
-                po_subject = gr.HTML(visible=False, padding=True)
+                po_head = gr.HTML(visible=False, padding=False)
                 with gr.Group(visible=False, elem_classes="results-stack") as po_results:
                     with gr.Group(elem_classes="insight-card"):
                         po_nb_out = gr.HTML(padding=True)
@@ -4161,6 +4460,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                         po_perf_heading = gr.HTML(visible=False, padding=False)
                         po_perf_note = gr.Markdown(visible=False)
                         po_perf_plot = gr.Plot(visible=False)
+                    # The pilot's whole record as a table (#329), after the graphs and
+                    # the chart: every result, with its list one click away.
+                    with gr.Group(elem_classes="insight-card"):
+                        po_record_out = gr.HTML(padding=False)
 
             # Head-to-head: two pilots, the second required, two plots (the pair's
             # neighbourhood and their shared-event timeline).
@@ -4177,21 +4480,34 @@ def build_app(artifact: Path) -> gr.Blocks:
                         h2h_plot = gr.Plot(visible=False)
 
             def draw_pilot_overview(p: str):
-                # One pick fans out to all three plots: two subgraph queries and a
-                # series, each independent so a graph that refines composes beside a
-                # trend that refuses (#126). The results stack shows only when a pilot is
-                # picked (§14); with none the stack stays hidden and the panel above is
-                # the whole surface. draw_performance returns (heading, plot, note).
-                subject = _subject_update("Pilot", pilot_labels[p] if p else None)
+                # One pick fans out to all the page's parts: two subgraph queries, a
+                # series and the record, each independent so a graph that refines
+                # composes beside a trend that refuses (#126). The two subgraphs are
+                # each stated twice, as a picture and in the head's tiles (#329). The
+                # results stack shows only when a pilot is picked (§14); with none the
+                # stack stays hidden and the panel above is the whole surface.
+                # draw_performance returns (heading, plot, note).
                 if not p:
-                    return (subject, gr.update(visible=False),
-                            gr.update(), gr.update(), *draw_performance(None))
+                    hide = gr.update(visible=False)
+                    return (hide, hide, gr.update(), gr.update(),
+                            *draw_performance(None), gr.update())
+                conn = ladybug.Connection(db)
+                values = {"pilot": p, "pilot2": None}
+                neighbourhood = run_query(conn, _spec("pilot_neighbourhood", values))
+                affinity = run_query(conn, _spec("pilot_affinity", values))
+                record = pilot_record(conn, p)
                 return (
-                    subject,
+                    gr.update(
+                        value=parts.page_head(
+                            pilot_labels[p], _pilot_descriptor(record),
+                            _pilot_tiles(neighbourhood, affinity, record)),
+                        visible=True,
+                    ),
                     gr.update(visible=True),
-                    gr.update(value=run_graph("pilot_neighbourhood", {"pilot": p, "pilot2": None})),
-                    gr.update(value=run_graph("pilot_affinity", {"pilot": p})),
+                    gr.update(value=graph_card("pilot_neighbourhood", values, neighbourhood)),
+                    gr.update(value=graph_card("pilot_affinity", values, affinity)),
                     *draw_performance(p),
+                    gr.update(value=_record_card(record)),
                 )
 
             def draw_head_to_head_view(a: str, b: str):
@@ -4219,8 +4535,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 return (subject, gr.update(visible=True), nb,
                         *draw_head_to_head(a, b), gr.update(visible=True))
 
-            po_outputs = [po_subject, po_results, po_nb_out, po_af_out,
-                          po_perf_heading, po_perf_plot, po_perf_note]
+            po_outputs = [po_head, po_results, po_nb_out, po_af_out,
+                          po_perf_heading, po_perf_plot, po_perf_note, po_record_out]
 
             def pilots_drawing(view, a, b):
                 # The step ahead of every draw, as on Cards: the running line (only
@@ -4256,7 +4572,7 @@ def build_app(artifact: Path) -> gr.Blocks:
             pilots_drawing_io = dict(
                 inputs=[pilots_view, pilot, h2h_pilot_b],
                 outputs=[pilots_running, h2h_go,
-                         po_subject, po_results, h2h_subject, h2h_results],
+                         po_head, po_results, h2h_subject, h2h_results],
             )
 
             def draw_pilots_after(listen):

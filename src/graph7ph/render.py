@@ -57,11 +57,16 @@ _GROUP_COLOURS = CATEGORICAL[:3]
 _MOXFIELD = "https://moxfield.com/decks/{}"
 
 
+def moxfield_url(deck_id: str) -> str:
+    """The Moxfield page for a deck, by its id."""
+    return _MOXFIELD.format(deck_id)
+
+
 def _moxfield_url(node: Node) -> str | None:
     """The Moxfield page for a deck node, or ``None`` for any other kind."""
     if node.kind != "Deck":
         return None
-    return _MOXFIELD.format(node.id.removeprefix("deck:"))
+    return moxfield_url(node.id.removeprefix("deck:"))
 
 
 def _hosted_library(doc: str) -> str:

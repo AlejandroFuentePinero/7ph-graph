@@ -16,6 +16,7 @@ a shared string.
 import math
 import statistics
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from typing import Literal
 
@@ -1265,6 +1266,59 @@ def pilot_affinity_subgraph(conn: ladybug.Connection, pilot: str) -> Subgraph:
         edges.append(_plays_edge(f"macro:{macro}", f"arch:{a_tag}", len(events)))
 
     return Subgraph(nodes=nodes, edges=edges)
+
+
+@dataclass(frozen=True)
+class PilotDeck:
+    """One deck of a pilot's record, with the event it was entered at.
+
+    ``date`` is the event's registration date, the earliest ``createdAt`` across its
+    whole field: the proxy the timelines place an event by (ADR 0013), so a deck
+    here and a point there are dated alike. ``archetype`` is the deck's primary
+    archetype by name, the tag every archetype figure counts (ADR 0023), and is
+    ``None`` for a deck the source gave none. ``placement`` is ``None`` where no
+    finish is on record. ``field_size`` is the field the placement was ranked
+    against, read off the Event. The two ``_imputed`` fields name the rule that
+    decided the number beside them, ``None`` where the source's own stands.
+    """
+
+    event: str
+    date: datetime
+    archetype: str | None
+    placement: int | None
+    placement_imputed: str | None
+    field_size: int
+    field_imputed: str | None
+    deck_id: str
+
+
+def pilot_record(conn: ladybug.Connection, pilot: str) -> list[PilotDeck]:
+    """Every deck on record for one pilot, newest first (issue #329).
+
+    The pilot's page as a table rather than a picture: what `pilot_subgraph` draws
+    as event, deck and placement nodes, one row each, with the two things the graph
+    does not hold, the date and the archetype. A table, so rows and not a
+    ``Subgraph``, and not a ``QuerySpec``. An unknown pilot has no rows.
+    """
+    decks = list(rows(conn.execute(
+        """MATCH (:Pilot {pilot: $pilot})<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+           OPTIONAL MATCH (d)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype)
+           RETURN e.event, a.name, d.placement, d.placementImputed,
+                  e.fieldSize, e.fieldImputed, d.deckId""",
+        {"pilot": pilot},
+    )))
+    dates = dict(rows(conn.execute(
+        """MATCH (f:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE e.event IN $events
+           RETURN e.event, min(f.createdAt)""",
+        {"events": sorted({event for event, *_ in decks})},
+    )))
+    return sorted(
+        (PilotDeck(event, dates[event], *rest) for event, *rest in decks),
+        # Newest first, and by event then deck where two share a date, so the order
+        # never rests on the row order of a query with no ORDER BY.
+        key=lambda r: (r.date, r.event, r.deck_id), reverse=True,
+    )
 
 
 def gem_archetypes(conn: ladybug.Connection) -> list[tuple[str, str]]:
