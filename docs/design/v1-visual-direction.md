@@ -718,7 +718,7 @@ panel's padding (§13), and where the invitation and the year's scope are stated
   1440 and 1920, where it was a stack of full-width rows 205px tall on Meta and
   334px on Cards. The subject's search is the first and the widest thing in the row.
   At 640px and under the row stacks, one control per line. The first
-  result card on Meta starts at 238px at 1440 (it was 363px) and at 373px at 390 (it
+  result card on Meta starts at 236px at 1440 (it was 363px) and at 372px at 390 (it
   was 477px). The ticket asked for 320px at 390 and the page does not get there: the
   intro breaks over two lines (51px), and the cut chips and the search cannot share a
   332px line, so they stack.

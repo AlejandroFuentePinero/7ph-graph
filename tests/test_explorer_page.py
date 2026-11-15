@@ -555,7 +555,7 @@ def test_the_first_result_on_meta_starts_high_on_a_desktop(page):
     # now one row of 89px.
     #
     # The same AC asks for 320px at 390, or the position it does reach and what
-    # holds it lower. It reaches 373px (from 477px), which the design doc records
+    # holds it lower. It reaches 372px (from 477px), which the design doc records
     # with the reason, and which is not pinned here: a bound read off the page is
     # the page grading itself.
     top = page.evaluate(
