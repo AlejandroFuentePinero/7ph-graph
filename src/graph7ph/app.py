@@ -4078,6 +4078,15 @@ def build_app(artifact: Path) -> gr.Blocks:
         # It replaces the retired Gradio footer (theme.py) with the app's own line.
         gr.HTML(_provenance_html(coverage(catalogue), built_at(artifact)), padding=False)
 
+    # The page is not told it runs on a Space. Gradio reads the Space's name from the
+    # environment, and a page handed one asks huggingface.co about it so it can draw
+    # the Hub's badge. This Space is protected, so the Hub refuses an anonymous
+    # visitor, and every load logged a failed request and an exception (issue #313).
+    # Gradio has no setting for the badge. The name's other readers are sign-in with
+    # Hugging Face, a guard on `share=True` and the API page's snippets, none of
+    # which this app uses.
+    demo.space_id = None
+
     return demo
 
 
