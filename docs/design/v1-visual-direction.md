@@ -25,6 +25,16 @@ that existed only because the background was unknown:
 A light theme is explicitly out of scope for v1 (a proper light+dark pair is a
 later issue, not a split-the-difference default).
 
+_Amended 2026-11-15 (#327): dark is asked for in the page as it is served, and the
+page is dark before its script runs. Until then the page committed to dark by
+reloading itself at an address carrying a `__theme=dark` marker, so every visit
+downloaded it twice (two downloads of 228KB, about 1.5s more from the live site) with
+a blank flash between, and a page with scripts off painted no ground at all. Now the
+page's own element carries the theme as an attribute and the served head carries the
+ground and ink tokens: one download, the address the visitor arrived at, and the same
+dark result under a light or a dark operating system setting. See "The shell" at the
+foot of this document._
+
 ## 2. Design tokens
 
 Defined once as CSS custom properties; every surface reads them by role.
@@ -140,6 +150,12 @@ Eight roles (sizes lift slightly for the display face's presence):
 | Numeric readout | Hanken Grotesk | 14 | 550 | tabular-nums | none | text |
 | Subject line | Fraunces | 18 | 600 | none | 1.3 | text-dim |
 
+_Amended 2026-11-15 (#327): the **page title** role is no longer on the page. The
+full-width title row is gone, and the page's top-level heading is the short name in
+the header, set in Fraunces 600 at 20 so it sits on the tab strip's row. No tab opens
+with a **section heading** either, which reverses #113 (see §14). Nothing on the
+page uses either role now, so the stylesheet no longer carries a rule for them._
+
 The **subject line** (§14) is the one role added by #132: it states the subject once
 above the cards, in the display face at 18 (between the insight title and the lede),
 so it reads as the heading of the answer, not another control label.
@@ -152,6 +168,11 @@ so it reads as the heading of the answer, not another control label.
   screen empty, and flowing the cards into as many measure-wide columns as fit broke the
   one-question-per-row reading order. The layout is the decision and #85's criterion 4 is
   answered against it, so treat the FAQ measure as settled rather than outstanding._
+  _Amended 2026-11-15 (#327): the page itself is now one column capped at 1,280px and
+  centred, so a box is never wider than a 1440 window made it. At 1920 the content was
+  1,856px wide and the longest FAQ paragraph averaged 273 characters a line; it is
+  1,216px and 176 at every width from 1440 up. The FAQ's own layout is unchanged: one
+  box per row, the answer filling its box._
 - **Figures**: `font-variant-numeric: tabular-nums` (Hanken Grotesk carries tabular
   figures) only where digits align in a column (axis ticks, table rows). Standalone
   large numbers (coverage stats, hero) use proportional figures, since tabular makes
@@ -354,7 +375,9 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   maintainer's request during the v1 walkthrough, in favour of a contact line (who to
   tell when a hand-curated archetype is wrong). That credit survives in `README.md`,
   which a Space visitor never sees; #85's criterion 13 is closed on this decision
-  rather than on the links being present._
+  rather than on the links being present._ _Amended 2026-11-15 (#327): how fresh the
+  data is no longer sits only in the footer. The header states it on every tab
+  ("162 events, updated 6 Nov 2026"), and the footer writes the date the same way._
 - **Value provenance** is disclosed where a reader sees the value itself, by §4's
   mark. Shipped on the **head-to-head hover**, which is where #166's two cases meet:
   Pats Birthday Brawl's `3 / 24*` against SSWam's counted `5 / 88`, and a minted
@@ -462,6 +485,17 @@ on the other axis: put the element where it costs no space at any size. The cost
 accepted: the tabs past the edge need a swipe, with 80% of the next tab cut at that
 edge as the affordance that they are there._
 
+_Amended 2026-11-15 (#327): the strip is part of the header. From 1100px up it sits
+on one row between the name and the freshness line, with all seven tabs on it and
+nothing to scroll. Below that it takes the row under them at the full width of the
+column, and scrolls sideways as decided above. Three numbers in that decision moved.
+A tab is 44px tall at every width (it was 31px), which is the least a finger can be
+asked to hit. The first lede is no longer at one pixel at every width, since the
+header is one row or two. And the phone's page margin went from 32px to 16px, which
+at 390px put the strip's edge in the gap after the fourth tab with nothing of the
+fifth showing, so a tab's side padding is 12px there (16px elsewhere) and the edge
+cuts the fifth tab's label again. The cut is still what says there is more._
+
 ---
 
 ## 12. Insight-card system (#132)
@@ -475,7 +509,9 @@ which set a plot off with a top rule alone.
   read as a raised object, not the rule), 1px `--border`, `border-radius: 12px`,
   padding ~`1rem 1.25rem`. Adjacent cards are held apart by a real gap (a
   `1.25rem` bottom margin), never by a shared rule, so the boundary between two
-  answers is space, not a line.
+  answers is space, not a line. _Amended 2026-11-15 (#327): at 640px and under the
+  padding is `0.75rem 0.75rem 1rem`, which with the page's narrower margin there
+  takes a chart's plot area from 217px to 265px of a 390px screen._
 - **Card head.** Inside the card, top: the **insight title** (§3), then a
   **one-line caption** (§3 caption role) naming the filters and how much came back.
   The subject is not repeated here (§14): it is stated once for the whole result set,
@@ -522,7 +558,9 @@ click is carried by the surface, not by a label.
   `.control-panel`: fill `--surface-2` (the raised well token, one step lighter
   than the cards it sits above so it reads as more prominent, not less), 1px
   `--border`, `border-radius: 12px`, padding. It is visually separate from the
-  result cards by fill and by space.
+  result cards by fill and by space. _Amended 2026-11-15 (#327): at 640px and under
+  the padding is `0.75rem`, the inset the cards take there, so the panel's contents
+  and the cards' stay on one edge._
 - **Subject stays primary.** The shared subject keeps its accent left-edge
   (`.primary-control`), now inside the panel, so the one control everything hangs
   off still reads first.
@@ -538,7 +576,9 @@ Copy is short, whole, and said once. This supersedes #113's multi-line tab ledes
 and its on-surface methodology blocks.
 
 - **Tab intro**: one short descriptive sentence, no more. (The current three-line
-  Pilots lede becomes one.)
+  Pilots lede becomes one.) _Amended 2026-11-15 (#327): the intro is the first thing
+  under the header. The section heading #113 put above it on every tab repeated the
+  label of the tab the strip already shows as open, so it is gone, on all seven._
 - **No per-plot description paragraph** and **no on-surface methodology.** The
   `<details> How this is measured` blocks leave the plots entirely; the methodology
   they hold moves to the FAQ / Methodology tab (#133). A plot carries only its
@@ -606,3 +646,30 @@ the component's type over a card the app has already titled in its own type, and
 is the one text the acceptance pass found below WCAG AA, since it sits on the well
 where `--text-mute` is 4.23:1 (§2). Retired rather than recoloured, because the card
 title already says what the chip says.
+
+## The shell (#327)
+
+Decided 2026-11-15. The frame every tab sits in, measured on the running app at 390,
+1440 and 1920px before and after. Where it reverses an earlier section, that section
+carries a dated note pointing here.
+
+- **One load, dark from the start.** One download of the page per visit (it was two),
+  dark under either operating system setting, dark with scripts off, and the address
+  left as the visitor typed it (§1).
+- **One capped, centred column.** 1,280px with its padding, 1,216px of content, at
+  every width from 1440 up (§3).
+- **One slim header.** The graph mark, the short name ("7PH Graph"), the tab strip and
+  the data freshness on one 44px row, where the title, the strip and a heading
+  repeating the open tab took three. The first result card on Meta starts at 363px at
+  1440 (it was 454px) and at 477px at 390 (it was 593px). Below 1100px the strip takes
+  its own row under the name and the freshness (§11).
+- **The privacy note is one line.** Pilots and the player leaderboard carried the note
+  in full above what they draw, 384px tall at 390px wide, which put the pilot picker
+  at 697px of an 844px screen. It is one line there now (three on a phone, 72px, the
+  picker at 271px): what goes, when, and that no reason is needed, word for word as
+  the note promises them, with a link that opens the FAQ tab at the note in full. The
+  link changes no address. The footer's line under every tab is unchanged.
+- **The phone floor.** Tabs 44px tall. A chart's plot area is 265px of a 390px screen
+  (it was 217px): the page's margin is 16px a side (32px) and a card's inset 12px
+  (20px). Reduced motion was checked and already held: with the setting on, no element
+  on the page keeps a transition or an animation, against 21 with it off.

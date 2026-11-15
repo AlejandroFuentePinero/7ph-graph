@@ -88,10 +88,12 @@ def test_every_prose_role_takes_the_reading_measure_and_the_faq_is_the_exception
     # question per row, and a measure-bound paragraph inside a wide box was rejected
     # twice (2026-07-26). Their prose therefore runs the width of its box, which on a
     # wide monitor is longer than the measure. Criterion 4 is answered against that
-    # layout, not the reverse. The FAQ answers were the first; the privacy note on
-    # Pilots and the player leaderboard is the same shape and took the same call.
+    # layout, not the reverse. The privacy line on Pilots and the player leaderboard
+    # is outside the measure as well: it is one line (#327), which the measure would
+    # break in three.
     assert re.search(
-        r"\.faq-card p, \.faq-card li, \.privacy-note p\s*\{[^}]*max-width: none", css
+        r"\.faq-card p, \.faq-card li, \.privacy-line \.t-body\s*\{[^}]*max-width: none",
+        css,
     )
     # And no bound has crept back onto the card or a grid onto its container, either of
     # which would quietly undo the layout that was asked for.

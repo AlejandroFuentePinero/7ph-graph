@@ -28,8 +28,9 @@ def problems_at(browser, address: str) -> list[str]:
     page = browser.new_page()
     page.on("response", lambda response: response.status >= 400
             and refused.append(f"{response.status} from {response.url}"))
-    # A request the page abandoned is not one that failed. The app reloads itself
-    # once on arrival to commit its dark theme, which drops whatever was in flight.
+    # A request the page abandoned is not one that failed. Until #327 the app
+    # reloaded itself once on arrival to commit its dark theme, which dropped
+    # whatever was in flight, and a page that leaves for any reason does the same.
     page.on("requestfailed", lambda request: request.failure != "net::ERR_ABORTED"
             and failed.append(f"{request.failure} for {request.url}"))
     page.on("pageerror", lambda error: thrown.append(str(error)))
@@ -48,7 +49,7 @@ def problems_at(browser, address: str) -> list[str]:
     found += [f"a request was refused: {line}" for line in refused]
     found += [f"a request failed: {line}" for line in failed]
     found += [f"the page threw: {line}" for line in thrown]
-    # Said once each: the reload means the page makes most of its mistakes twice.
+    # Said once each: a page that reloads itself makes most of its mistakes twice.
     return list(dict.fromkeys(found))
 
 
