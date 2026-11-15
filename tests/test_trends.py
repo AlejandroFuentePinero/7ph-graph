@@ -11,6 +11,8 @@ from graph7ph.build import MIN_CUT_FIELD
 from graph7ph.query import _ordinal
 from graph7ph.db import rows
 from graph7ph.trends import (
+    PairAdoptionOverTime,
+    pair_adoption_over_time,
     MIN_CAREER_MAJORS,
     MIN_RACE_CONTENDERS,
     MIN_SCORED_MAJORS,
@@ -2537,3 +2539,28 @@ def test_an_as_of_rank_carries_the_contenders_it_was_taken_over(tmp_path, built_
     assert {c.as_of_rank for c in early if c.as_of_rank} == {1, 2}
     # By the newest date the whole field of seven is in it.
     assert {c.as_of_contenders for c in newest} == {7}
+
+
+def test_two_cards_adoption_counts_the_decks_running_both_on_either_board(
+    tmp_path, snapshot_dir, built_graph
+):
+    # Issue #329: the co-occurrence page's head, when it is about two cards. Read off
+    # the fixture's cards_index.json: of the three decks of 2025, Brainstorm and Daze
+    # are both in the two Grixis decks; Brainstorm (main) and Abrupt Decay (side) are
+    # both in the Storm deck, on different boards, which still counts, as it does for
+    # the decks the two-card graph hangs its cards off; and no deck runs Dark Ritual
+    # with Daze, which is a real zero and not a missing year.
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    def read(a, b):
+        return [(c.year, c.count, c.year_total)
+                for c in pair_adoption_over_time(conn, a, b).cells]
+
+    assert read("brainstorm", "daze") == [(2025, 2, 3)]
+    assert read("brainstorm", "abrupt decay") == [(2025, 1, 3)]
+    assert read("dark ritual", "daze") == [(2025, 0, 3)]
+    assert pair_adoption_over_time(conn, "brainstorm", "daze").cells[0].share == pytest.approx(2 / 3)
+    # Which card is named first does not matter, and the spec reaches the same tool.
+    assert read("daze", "brainstorm") == read("brainstorm", "daze")
+    assert run_series(conn, PairAdoptionOverTime("brainstorm", "daze")) == (
+        pair_adoption_over_time(conn, "brainstorm", "daze"))

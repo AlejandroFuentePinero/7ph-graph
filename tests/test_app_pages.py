@@ -16,6 +16,7 @@ from graph7ph import numfmt
 from graph7ph.app import (
     _archetype_card,
     _card_tiles,
+    _pair_tiles,
     _pilot_descriptor,
     _pilot_tiles,
     _played_with_card,
@@ -38,7 +39,12 @@ from graph7ph.query import (
     pilot_record,
     pilot_subgraph,
 )
-from graph7ph.trends import AdoptionCell, Series, card_adoption_over_time
+from graph7ph.trends import (
+    AdoptionCell,
+    Series,
+    card_adoption_over_time,
+    pair_adoption_over_time,
+)
 
 
 def _facts(tiles) -> list[tuple]:
@@ -514,7 +520,8 @@ def _drawn(demo, name: str, *picked) -> list[str]:
 
 
 def _tile_labels(markup: str) -> list[str]:
-    return re.findall(r"<div class='tile-label'>(.*?)</div>", markup)
+    return [html.unescape(label)
+            for label in re.findall(r"<div class='tile-label'>(.*?)</div>", markup)]
 
 
 def test_a_drawn_pilot_page_opens_with_its_head_and_closes_with_its_record(demo):
@@ -567,6 +574,112 @@ def test_a_cards_played_with_list_is_on_the_view_that_draws_those_cards(demo):
     assert rows[0][2:] == ["2 / 2", "100%"]
     # A rate is a share of the decks the Decks tile counts.
     assert "Daze's <span class='figure'>2</span> decks" in played_with
+
+
+def _tile_values(markup: str) -> list[str]:
+    return re.findall(r"<div class='tile-value'>(.*?)</div>", markup)
+
+
+def _tile_notes(markup: str) -> list[str]:
+    return re.findall(r"<div class='tile-note'>(.*?)</div>", markup)
+
+
+def test_two_cards_get_a_head_about_the_pair_not_about_the_first_card(demo):
+    # After the maintainer's look (#329): with a second card the view is about the
+    # two together, and its head described the first card alone. It names both, says
+    # how much of the latest year's decks run both and how that moved, and then the
+    # co-occurrence itself, once from each side: how much of each card's decks also
+    # run the other. Off the fixture: Brainstorm is in all three decks of 2025 and
+    # Daze in the two Grixis ones, so both are in two.
+    outputs = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", "daze", 5, False)
+    head, graph, played_with = outputs[7], outputs[9], outputs[-1]
+
+    assert (head.index("page-name") < head.index("Brainstorm and Daze")
+            < head.index("Two cards, and what the decks running both also run.")
+            < head.index("tile-label"))
+    assert _tile_labels(head) == [
+        "Together in 2025", "Change from last year",
+        "Of Brainstorm's decks", "Of Daze's decks"]
+    assert _tile_values(head) == ["66.67%", "n/a", "66.67%", "100%"]
+    assert _tile_notes(head)[2:] == ["2 / 3 run both", "2 / 2 run both"]
+    # The decks running both are the hub the graph hangs its cards off, and the base
+    # the played-with list's rates are a share of.
+    assert "Both \\u00b7 2 decks" in html.unescape(graph)  # as the graph's own data writes it
+    assert "the <span class='figure'>2</span> decks running both" in played_with
+
+
+def _adoption_lines(demo, *picked) -> dict[str, list[float]]:
+    """The adoption chart the co-occurrence view draws: each line's shares, by name."""
+    draw = next(dep.fn for dep in demo.fns.values()
+                if getattr(dep.fn, "__name__", "") == "draw_cards")
+    figure = draw("card_cooccurrence", *picked)[11]["value"]
+    return {trace.name: list(trace.y) for trace in figure.data}
+
+
+def test_two_cards_adoption_chart_draws_them_together_as_a_third_line(demo):
+    # After the maintainer's look (#329): the head states how much of the latest
+    # year's decks run both, and the chart under it drew only each card's own line,
+    # so that figure had no picture and no trend. The decks running both are a line
+    # of their own, last, and its last point is the tile's figure.
+    lines = _adoption_lines(demo, "brainstorm", "", "daze", 5, False)
+    head = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", "daze", 5, False)[7]
+
+    assert list(lines) == ["Brainstorm", "Daze", "Together"]
+    assert lines["Together"] == [pytest.approx(2 / 3)]  # two of the three decks of 2025
+    assert numfmt.share(lines["Together"][-1]) == _tile_values(head)[0]
+    # One card has nothing to be together with.
+    assert list(_adoption_lines(demo, "brainstorm", "", None, 5, False)) == ["Brainstorm"]
+
+
+def test_one_card_or_the_same_card_twice_keeps_the_cards_own_head(demo):
+    alone = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", None, 5, False)[7]
+    twice = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", "brainstorm", 5, False)[7]
+
+    assert _tile_labels(alone)[0] == "Adoption in 2025" and "Brainstorm and" not in alone
+    assert twice == alone
+
+
+def test_two_cards_no_deck_runs_together_say_so_in_every_tile(demo):
+    head = _drawn(demo, "draw_cards", "card_cooccurrence", "dark ritual", "", "daze", 5, False)[7]
+
+    assert "Dark Ritual and Daze" in head
+    assert _tile_values(head) == ["0%", "n/a", "0%", "0%"]
+    assert _tile_notes(head)[2:] == ["0 / 1 run both", "0 / 2 run both"]
+
+
+def _real_pairs(conn) -> list[tuple[str, str]]:
+    """Pairs of the real record's cards: each of the twelve in the most decks with
+    the next, then a staple against a spread of the rest."""
+    run = _real_cards(conn)
+    return list(zip(run[:12], run[1:13])) + [(run[0], other) for other in run[30::10]]
+
+
+def test_a_pairs_tiles_agree_with_its_graph_on_the_real_record(live_graph):
+    # The two-card head against readings it is not built from. Each card's share of
+    # the pair is its tile's figure, the two cards' own deck sets counted off raw
+    # rows, and the two numbers on that card's line to the hub in the graph.
+    conn = live_graph
+
+    def decks_running(canon: str) -> set[str]:
+        return {deck for (deck,) in rows(conn.execute(
+            "MATCH (d:Deck)-[:CONTAINS]->(:Card {canon: $canon}) RETURN DISTINCT d.deckId",
+            {"canon": canon}))}
+
+    pairs = _real_pairs(conn)
+    assert len(pairs) > 20
+    for a, b in pairs:
+        cards = [(canon, card_adoption_over_time(conn, canon)) for canon in (a, b)]
+        tiles = _pair_tiles(pair_adoption_over_time(conn, a, b), cards)
+        both = decks_running(a) & decks_running(b)
+        lines = {edge.source: edge for edge in card_cooccurrence_subgraph(conn, a, b).edges
+                 if edge.target.startswith("both:")}
+        for canon, tile in zip((a, b), tiles[2:]):
+            own = len(decks_running(canon))
+            assert tile.value == numfmt.share(len(both) / own), (a, b)
+            assert tile.note == f"{numfmt.count_of(len(both), own)} run both", (a, b)
+            if both:  # no hub is drawn for two cards no deck runs together
+                line = lines[f"card:{canon}"]
+                assert (line.decks, line.total_decks) == (len(both), own), (a, b)
 
 
 def _captions(markup: str) -> list[str]:

@@ -73,6 +73,7 @@ from graph7ph.trends import (
     LandscapeCell,
     MetaShareOverTime,
     NotEnoughHistory,
+    PairAdoptionOverTime,
     MAJOR_FIELD_SIZE,
     PerformanceCell,
     PilotPerformanceOverTime,
@@ -604,18 +605,13 @@ def _record_card(record: list[PilotDeck]) -> str:
     return parts.card_head("Record", *captions) + _record_table(record)
 
 
-def _card_tiles(usage: Subgraph, adoption: Series) -> list[parts.Tile]:
-    """A card's four tiles, read off its usage graph and its adoption chart (#329).
+def _adoption_tiles(adoption: Series, this_year: str) -> list[parts.Tile]:
+    """The two tiles an adoption series states: the share in the record's latest
+    year, labelled ``this_year`` with that year, and its change from the year before.
 
-    The adoption in the record's latest year and its change from the year before
-    are the chart's last two points. The decks running it and the archetypes that
-    do are the usage graph's card node and its archetype nodes. So a tile cannot
-    disagree with the picture, and a board filter scopes all four as it scopes both.
-
+    The series' last two cells, so the tiles are the chart's last two points. The
+    change is the difference of the two shares as written (:func:`numfmt.share_change`).
     """
-    card = usage.nodes[0]
-    archetypes = sum(node.kind == "Archetype" for node in usage.nodes)
-    classes = sum(node.kind == "Macro" for node in usage.nodes)
     latest = adoption.cells[-1]
     if len(adoption.cells) > 1:
         before = adoption.cells[-2]
@@ -627,14 +623,64 @@ def _card_tiles(usage: Subgraph, adoption: Series) -> list[parts.Tile]:
     else:
         change = parts.Tile("Change from last year", "n/a", "No earlier year on record")
     return [
-        parts.Tile(f"Adoption in {latest.year}", numfmt.share(latest.share),
+        parts.Tile(f"{this_year} in {latest.year}", numfmt.share(latest.share),
                    numfmt.count_of(latest.count, latest.year_total, "decks")),
         change,
+    ]
+
+
+def _card_tiles(usage: Subgraph, adoption: Series) -> list[parts.Tile]:
+    """A card's four tiles, read off its usage graph and its adoption chart (#329).
+
+    The adoption in the record's latest year and its change from the year before
+    are the chart's last two points. The decks running it and the archetypes that
+    do are the usage graph's card node and its archetype nodes. So a tile cannot
+    disagree with the picture, and a board filter scopes all four as it scopes both.
+    """
+    card = usage.nodes[0]
+    archetypes = sum(node.kind == "Archetype" for node in usage.nodes)
+    classes = sum(node.kind == "Macro" for node in usage.nodes)
+    return [
+        *_adoption_tiles(adoption, "Adoption"),
         parts.Tile("Decks", f"{card.decks:,}", f"of {card.total_decks:,} on record"),
         parts.Tile("Archetypes running it", f"{archetypes:,}",
                    f"in {_counted(classes, 'broad class', 'broad classes')}"
                    if archetypes else None),
     ]
+
+
+# What the decks running two cards are called, on the tile and on the chart's line.
+_TOGETHER = "Together"
+
+
+def _pair_tiles(together: Series, cards: list[tuple[str, Series]]) -> list[parts.Tile]:
+    """Two cards' four tiles: how much they are played together, and how much of
+    each card that is (issue #329).
+
+    The first two are a card's own, for the decks running both: their share of the
+    latest year's decks, and how that moved. They move when either card is played
+    more or less, whatever the two have to do with each other. The last two are the
+    co-occurrence itself, once from each side: of the decks running one card, the
+    share that also run the other. The two sides differ, since a staple's decks are
+    mostly not running any one partner while that partner's decks mostly run the
+    staple, so each is stated under its own card's name.
+
+    ``together`` is the pair's adoption series and ``cards`` each card's own, by
+    display name: the three lines the chart under the head draws. A deck count is
+    a series' counts summed over the years, so every figure here is the chart's,
+    and each card's two numbers are the ones its line to the hub in the graph
+    carries. A card no deck runs has no share to state.
+    """
+    both = sum(cell.count for cell in together.cells)
+    tiles = _adoption_tiles(together, _TOGETHER)
+    for name, adoption in cards:
+        decks = sum(cell.count for cell in adoption.cells)
+        tiles.append(parts.Tile(
+            f"Of {name}'s decks",
+            numfmt.share(both / decks) if decks else "n/a",
+            f"{numfmt.count_of(both, decks)} run both",
+        ))
+    return tiles
 
 
 def _edge_share(edge) -> str:
@@ -2363,7 +2409,7 @@ def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
     """One or more cards' adoption (share of that year's decks) over the years.
 
     A trace per card, so the subject and its co-occurrence pair can be compared on one
-    axis. Each takes a direct hue from the shared eight-hue set by entity (§5), the
+    axis, and on the two-card view a last trace for the decks running both. Each takes a direct hue from the shared eight-hue set by entity (§5), the
     subject first, so a card keeps its colour as the compare set changes rather than
     repainting on its position. Adoption carries no floor: every year
     is plotted, including the zeros of years a card sat out, so a line shows the
@@ -2379,8 +2425,9 @@ def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
     fig = pgo.Figure()
     # Each card takes a direct hue from the shared eight-hue set by entity (§5), the
     # subject first, so a card keeps its colour as the compare set changes. The list is
-    # the subject plus at most one co-occurrence card (#126), so the set never runs out
-    # and no card reaches `assign`'s past-eight None.
+    # the subject plus at most one co-occurrence card (#126), and with two the line of
+    # the decks running both (#329), so the set never runs out and no line reaches
+    # `assign`'s past-eight None.
     colours = palette.assign([name for name, _ in cards])
     for card_name, series in cards:
         colour = colours[card_name]
@@ -4287,10 +4334,11 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # One draw: the co-occurrence subgraph and the adoption series. The trend
                 # is board-agnostic (board=None, no board qualifier reaches the plot) and
                 # plots the pair: the subject alone, or both cards when a second is
-                # chosen (#126). The head is the subject card's, over either board: the
-                # view has no board control, so it reads the usage query unfiltered for
-                # the two tiles the co-occurrence graph does not hold. The table under
-                # the plots lists the cards the graph draws (#329).
+                # chosen (#126). With one card the head is that card's, over either
+                # board: the view has no board control, so it reads the usage query
+                # unfiltered for the two tiles the co-occurrence graph does not hold.
+                # With two it is the pair's. The table under the plots lists the cards
+                # the graph draws (#329).
                 if not c:
                     hide = gr.update(visible=False)
                     return (hide, hide, gr.update(), *draw_adoption([], None), gr.update())
@@ -4300,11 +4348,26 @@ def build_app(artifact: Path) -> gr.Blocks:
                 }
                 conn = ladybug.Connection(db)
                 cooccurrence = run_query(conn, _spec("card_cooccurrence", values))
-                usage = run_query(conn, CardUsage(c))
                 series = adoption_series(c, c2, None)
+                if len(series) == 2:
+                    # Two cards: the page is about the decks running both, so its
+                    # head is too, and the chart draws them as a third line, whose
+                    # last point is the head's first tile.
+                    together = run_series(conn, PairAdoptionOverTime(c, c2))
+                    head = gr.update(
+                        value=parts.page_head(
+                            f"{card_names[c]} and {card_names[c2]}",
+                            "Two cards, and what the decks running both also run.",
+                            _pair_tiles(together, series)),
+                        visible=True,
+                    )
+                    series = [*series, (_TOGETHER, together)]
+                else:
+                    head = card_head(
+                        c, "Card, and the cards it is most often played with.",
+                        run_query(conn, CardUsage(c)), series[0][1])
                 return (
-                    card_head(c, "Card, and the cards it is most often played with.",
-                              usage, series[0][1]),
+                    head,
                     gr.update(visible=True),
                     gr.update(value=graph_card("card_cooccurrence", values, cooccurrence)),
                     *draw_adoption(series, None),

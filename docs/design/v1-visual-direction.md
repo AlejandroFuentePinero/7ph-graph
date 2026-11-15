@@ -478,6 +478,8 @@ The **Adoption over time** trend is the same in both card views: Card overview s
 it to the chosen board, Co-occurrence draws it board-agnostic (across both boards),
 with no board qualifier text since there is no board control there. It plots both
 cards when a second is chosen in Co-occurrence, the subject alone otherwise.
+_Amended 2026-11-16 (#329): with a second card it also plots the decks running both,
+as a third line. See "The pages (#329)"._
 
 Placement note: *hidden gems* is entered by archetype and outputs cards. It once
 sat under **Meta** (beside meta share) only to keep Meta from being a single-view
@@ -806,7 +808,10 @@ head's caption (§12) and "subject once" (§14).
   sentence sat 2,641px down, and nothing on the page was a table.
 - **Tile.** A small card: what the figure is in the control-label role, the figure in
   the display face at 26px, a quiet note under it. Four across, two across at 640px
-  and under.
+  and under. _Added 2026-11-16, after the maintainer's look:_ the tiles stand 24px
+  clear of the first card, a step more than the 20px between two cards. They sat 1px
+  over it, because the space was a margin that fell outside the block Gradio sets the
+  head in.
 - **Pilot tiles are neutral facts.** Events played, archetypes played, the
   most-played archetype, the best finish. No tile averages a pilot's finishes; that
   reading stays in the performance chart's caption, beside the sample it rests on.
@@ -814,6 +819,22 @@ head's caption (§12) and "subject once" (§14).
   lowest place, with how often.
 - **Card tiles.** Adoption in the record's latest year, the change from the year
   before (§4), the decks running it, the archetypes running it.
+- **Two cards get a head about the pair.** _Added 2026-11-16, after the maintainer's
+  look at the running page._ With a second card chosen, Co-occurrence is about the
+  decks running both, and its head described the first card alone. It names both
+  ("Brainstorm and Emperor of Bones") over four tiles. Two say how much the pair is
+  played: the share of the latest year's decks running both, and its change. Two are
+  the co-occurrence itself, once from each side: of the decks running one card, the
+  share that also run the other (28.08% of Brainstorm's, 51.79% of Emperor of
+  Bones's, each over its count pair). The graph held those two only on a hover, on
+  each card's line to the hub. The first pair of tiles moves when either card is
+  played more or less; the second is what the two cards have to do with each other.
+  With one card the head stays that card's.
+- **And a line on the chart.** _Added the same day._ The adoption chart on that view
+  draws the decks running both as a third line, "Together", after the two cards'
+  own. Its last point is the head's first tile, so that figure has its picture and
+  its trend. A deck runs both on either board, as the two-card graph's hub counts
+  it. One query feeds the line and the tiles (`trends.pair_adoption_over_time`).
 - **A tile is read off the picture under it.** A pilot's events, archetypes and
   most-played archetype are counted off the neighbourhood and affinity graphs' own
   nodes, from the one query result the page also draws. The best finish is read off
@@ -823,13 +844,14 @@ head's caption (§12) and "subject once" (§14).
   Co-occurrence draws no usage graph, so there the two usage tiles come from the same
   query run unfiltered: the figures Card overview shows on "Main or side".
 - **The record.** A pilot's page closes with every deck they entered as a table:
-  event, date, archetype, finish, decklist link. It is the one thing on these pages a new query
-  feeds (`query.pilot_record`), because no query on the page held a date or a
-  result's archetype. The finish is the place over the field (§4), each number
+  event, date, archetype, finish, decklist link. A new query feeds it
+  (`query.pilot_record`), because no query on the page held a date or a deck's
+  archetype. The finish is the place over the field (§4), each number
   marked where the project decided it. The date is the event's first deck
   registration, the proxy the head-to-head's axis already uses (ADR 0013), and the
   column is headed "Registered" and the caption says so: 64 of 162 events share that
-  day with another event, because events are often written up together.
+  day with another event, because events are often written up together. Accepted by
+  the maintainer on those terms, and recorded in ADR 0013.
 - **A card's two lists.** Card overview lists the archetypes running the card under
   their broad classes, with the share of each one's decks that do: the usage graph's
   edges as rows. Co-occurrence lists the cards drawn beside the subject, ranked, with
@@ -842,7 +864,9 @@ head's caption (§12) and "subject once" (§14).
 - **One table.** Hairline rows and nothing else: no frame, no band, no fill. Numbers
   right-aligned in tabular figures. A column that qualifies the one beside it is set
   back. A group of rows is headed by a line of its own, with any figures of its own
-  under the columns they belong to. Text breaks wherever it must
+  under the columns they belong to. _Changed 2026-11-16, after the maintainer's
+  look:_ that line's name is in the display face at 16px, where it was the row's own
+  face in bold and read as one more row. Text breaks wherever it must
   and a number never does, so a table is never wider than its card: at 390px the
   standings were 306px in a 284px card and the gems table ran 125 to 157px past its
   own, and both now end at the card's inside edge. On a narrow screen a column can be

@@ -382,7 +382,11 @@ def build_css() -> str:
    and four tiles. A tile is a small card: what the figure is in the control-label
    role (`.tile-label`, set with `.t-control-label` above), the figure in the display
    face, and a quiet note under it. Four across, two across at 640px and under. */
-.page-head {{ margin: 0.25rem 0 1.25rem; }}
+/* The space under the tiles is padding and not a margin: the block Gradio sets the
+   head in is as tall as its content box, so a bottom margin fell outside it and the
+   tiles sat 1px over the first card. A step more than the gap between two cards, so
+   the head reads apart from the stack under it. */
+.page-head {{ margin-top: 0.25rem; padding-bottom: 1.5rem; }}
 .page-name {{
   font-family: {DISPLAY_STACK}; font-size: 30px; font-weight: 600; letter-spacing: -0.01em;
   line-height: 1.15; color: var(--text); margin: 0;
@@ -435,13 +439,16 @@ def build_css() -> str:
 /* A link is the one thing in a table in the accent. */
 .data-table a {{ color: var(--accent-bright); text-decoration: none; white-space: nowrap; }}
 .data-table a:hover {{ text-decoration: underline; }}
-/* A line that heads the rows under it: the group's name in the text colour, and any
-   figures of its own under the columns they belong to. Space over it is what parts
-   one group from the last. */
+/* A line that heads the rows under it: the group's name in the display face, a size
+   up from a row, so it reads as a heading over them and not as one more row (the
+   titles on the page are in that face, and nothing else in a table is). Any figures
+   of its own sit under the columns they belong to. Space over it is what parts one
+   group from the last. */
 .data-table .group th {{
-  font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--text);
+  font-family: {DISPLAY_STACK}; font-size: 16px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--text);
 }}
-.data-table .group th, .data-table .group td {{ padding-top: 0.9rem; }}
+.data-table .group th, .data-table .group td {{ padding-top: 1.1rem; vertical-align: bottom; }}
 /* The standings' tie back to their chart (#135): a drawn contender's row is dotted in
    the hue their line takes, and a row past the eighth keeps the same indent with no
    dot, so the names stay in one column rather than stepping in and out of it. */

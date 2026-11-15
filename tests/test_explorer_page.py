@@ -1366,3 +1366,55 @@ def test_a_caption_on_the_pilot_and_card_pages_is_text_with_at_most_one_figure(p
             assert caption["colour"] == _rgb(TOKENS["text"]), caption
             assert caption["figures"] <= 1, caption
             assert "·" not in caption["said"] and "node" not in caption["said"], caption
+
+
+# How far the first card of a drawn page starts below its tiles, and how a table's
+# group heading is set beside the rows under it.
+_HEAD_GAP = "() => { const open = " + _OPEN_TAB + """;
+    const shown = el => el.getBoundingClientRect().height > 0;
+    const tiles = [...open.querySelectorAll('.tiles')].find(shown);
+    const card = [...open.querySelectorAll('.results-stack .insight-card')].find(shown);
+    return card.getBoundingClientRect().top - tiles.getBoundingClientRect().bottom; }"""
+
+
+@pytest.mark.parametrize("width", ["phone", "desktop"])
+def test_the_tiles_stand_clear_of_the_first_card(chromium, explorer, width):
+    # After the maintainer's look (#329): the tiles sat 2px over the first graph's
+    # card, as one block. They stand apart from it by at least the space that parts
+    # one card from the next.
+    page = _loaded(chromium, explorer, width)
+    try:
+        gaps = {}
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", PILOT)
+        _card_titled(page, "Record").wait_for(timeout=20_000)
+        gaps["Pilots"] = page.evaluate(_HEAD_GAP)
+        shots.tab(page, "Cards")
+        shots.pick(page, "Card", CARD)
+        _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+        gaps["Cards"] = page.evaluate(_HEAD_GAP)
+    finally:
+        page.close()
+
+    assert all(gap >= 20 for gap in gaps.values()), gaps
+
+
+def test_a_tables_group_heading_reads_as_a_heading_not_as_a_row(page):
+    # After the maintainer's look (#329): a broad class over its archetypes, or an
+    # archetype over its gems, was set like the rows under it and read as one more
+    # row. It takes the display face the app's titles are in, a size up from a row.
+    shots.tab(page, "Cards")
+    shots.pick(page, "Card", CARD)
+    _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+
+    set_as = page.evaluate(
+        "() => { const open = " + _OPEN_TAB + """;
+             const of = sel => { const s = getComputedStyle(open.querySelector(sel));
+               return [s.fontFamily.split(',')[0].replace(/['"]/g, ''), parseFloat(s.fontSize)]; };
+             return { heading: of('table.data-table .group th'),
+                      row: of('table.data-table tr:not(.group) td') }; }"""
+    )
+
+    assert set_as["heading"][0] == FONTS["display"]["family"]
+    assert set_as["row"][0] == FONTS["body"]["family"]
+    assert set_as["heading"][1] > set_as["row"][1]
