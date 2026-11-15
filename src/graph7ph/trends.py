@@ -1983,9 +1983,8 @@ def archetypes_with_history(conn: ladybug.Connection) -> list[tuple[str, str, in
     so filtering it to the archetypes with a comfortable history would defeat its
     purpose and put ``golgari_cradle`` (12 decks over 9 events) out of reach anywhere on
     the tab. The event count rides along instead, for the label to carry, so a reader
-    sees how thin an archetype is before picking it. Ordered by display name, the
-    dropdown's order; the tag is what identifies it, since two archetypes can share a
-    name.
+    sees how thin an archetype is before picking it. Ordered by display name; the
+    tag is what identifies it, since two archetypes can share a name.
     """
     return [(name, tag, events) for name, tag, events in rows(conn.execute(
         """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),

@@ -1,8 +1,10 @@
 import json
 import math
 import re
+from collections import Counter
 from dataclasses import replace
 from datetime import datetime
+from typing import NamedTuple
 
 import plotly.colors as pc
 import pytest
@@ -44,6 +46,7 @@ from graph7ph.app import (
     _landscape_figure,
     _landscape_top,
     _observation_marker,
+    _own_name_first,
     _PILOTS_TAB,
     _PRIVACY_HEADING,
     _PRIVACY_NOTE,
@@ -2770,7 +2773,7 @@ def test_the_subject_controls_ship_their_choices_without_the_api_schema(tmp_path
         assert b._id in wired, b.label
 
 
-def _timeline_demo(tmp_path, snapshot_dir):
+def _timeline_demo(tmp_path, snapshot_dir, more=()):
     """A built app whose graph holds archetypes the timeline can and cannot compare.
 
     The shared fixture's two events (PogNov25 and CFWAT25) already give ``grixis`` two
@@ -2782,6 +2785,10 @@ def _timeline_demo(tmp_path, snapshot_dir):
 
     Every event is then given the field it declares (:func:`_cover_fields`), since the
     timeline draws no point at an event that published only its cut (ADR 0022).
+
+    ``more`` adds decks of further archetypes, as ``(deck id, archetype, event, field
+    size, placement, day)``; an underscore in an archetype's key reads as a space in
+    its name.
     """
     import json
     import shutil
@@ -2801,13 +2808,16 @@ def _timeline_demo(tmp_path, snapshot_dir):
         ("x-l1", "lands", by_event["PogNov25"], "LandsCupA", 10, 3, 2),
         ("x-l2", "lands", by_event["PogNov25"], "LandsCupB", 10, 4, 3),
     ]
+    for deck_id, archetype, event, size, placement, day in more:
+        extras.append((deck_id, archetype, by_event["PogNov25"], event, size, placement, day))
     for deck_id, archetype, template, event, size, placement, day in extras:
         tag = f"engine:{archetype}"
+        name = archetype.replace("_", " ").title()
         decks.append({
             **template,
             "deckId": deck_id,
-            "name": f"{placement}th {deck_id} - {archetype.title()} - {event}",
-            "deckName": archetype.title(),
+            "name": f"{placement}th {deck_id} - {name} - {event}",
+            "deckName": name,
             "pilot": f"Pilot{deck_id}",
             "event": event,
             "eventId": f"evt_{event}",
@@ -2816,7 +2826,7 @@ def _timeline_demo(tmp_path, snapshot_dir):
             "placementNorm": (placement - 1) / (size - 1),
             **({"createdAt": f"2025-12-0{day}T00:00:00+00:00"} if day else {}),
             "engineTags": [tag],
-            "engineTagLabels": {tag: archetype.title()},
+            "engineTagLabels": {tag: name},
             "primaryTag": tag,
             "primaryTagWeights": {tag: 100},
         })
@@ -3747,3 +3757,267 @@ def test_a_field_small_enough_to_draw_whole_advertises_no_context_layer():
     fig = _race_figure(_race_trajectories(series), [], _race_names("ace"))
 
     assert [t.name for t in fig.data] == ["Ace"]
+
+
+# --- Typing a full name and pressing Enter selects that name (issue #326) ---
+
+
+def _first_match(choices: list[tuple[str, str]], typed: str) -> str:
+    """The value Enter lands on once ``typed`` is in a picker.
+
+    Gradio 6.32's dropdown keeps every choice whose label holds the typed text
+    anywhere, case ignored, in list order, and Enter takes the first one kept (read in
+    its shipped bundle, and held on a real browser in ``tests/test_explorer_page.py``).
+    """
+    return next(value for label, value in choices if typed.lower() in label.lower())
+
+
+def _picker_choices(demo, tab: str, label: str) -> list[tuple[str, str]]:
+    import gradio as gr
+
+    (picker,) = [b for b in _tab_blocks(demo, tab)
+                 if isinstance(b, gr.Dropdown) and b.label == label]
+    return picker.choices
+
+
+def test_typing_a_cards_full_name_finds_that_card_first(tmp_path, snapshot_dir):
+    # The suite's snapshot holds the hazard itself: "Swamp" is part of "Snow-Covered
+    # Swamp", which sorts ahead of it by name and is in more decks, so "Swamp" then
+    # Enter picked the wrong card whichever of those two orders the list was in.
+    demo = _built_demo(tmp_path, snapshot_dir)
+
+    for label in ("Card", "Second card (optional)"):
+        cards = _picker_choices(demo, "Cards", label)
+        assert ("Swamp", "swamp") in cards and ("Snow-Covered Swamp", "snow-covered swamp") in cards
+        assert [_first_match(cards, name) for name, _ in cards] == [canon for _, canon in cards]
+
+
+def test_the_card_picker_lists_the_most_run_cards_first(tmp_path, snapshot_dir):
+    # Most run first, by name within a count, so the open list leads with the cards a
+    # reader is likeliest to want. Counted off the snapshot's own lists, not the graph.
+    index = json.loads((snapshot_dir / "cards_index.json").read_text())
+    names = [card["name"] for card in index["cards"]]
+    running = {name: sum(i in deck["m"] + deck["s"] for deck in index["decks"].values())
+               for i, name in enumerate(names)}
+    expected = sorted(names, key=lambda name: (-running[name], name))
+    # The one name the order alone leaves unreachable: "Swamp" is in one deck and
+    # "Snow-Covered Swamp" in two, so it is listed just ahead of the name that holds it.
+    assert expected.index("Snow-Covered Swamp") < expected.index("Swamp")
+    expected.remove("Swamp")
+    expected.insert(expected.index("Snow-Covered Swamp"), "Swamp")
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+
+    for label in ("Card", "Second card (optional)"):
+        assert [name for name, _ in _picker_choices(demo, "Cards", label)] == expected
+
+
+def _demo_with_pilots(tmp_path, snapshot_dir, *names):
+    """A built app over the suite's snapshot plus one deck for each pilot in ``names``.
+
+    All at the fixture's event of 31, at placements it leaves free, so each name
+    is a person of their own: two names registered at one event are never merged
+    (ADR 0028).
+    """
+    import shutil
+
+    from graph7ph.app import build_app
+    from graph7ph.build import build_graph
+    from graph7ph.models import load_snapshot
+
+    snap = tmp_path / "snap"
+    shutil.copytree(snapshot_dir, snap)
+    decks = json.loads((snap / "decks.json").read_text())
+    template = next(d for d in decks if d["event"] == "PogNov25")
+    index = json.loads((snap / "cards_index.json").read_text())
+    for placement, name in enumerate(names, start=22):
+        deck_id = f"x-{placement}"
+        decks.append({**template, "deckId": deck_id, "pilot": name,
+                      "name": f"{placement}th {name} - Storm - PogNov25",
+                      "placement": placement, "placementNorm": (placement - 1) / 30})
+        index["decks"][deck_id] = {"m": [], "s": []}
+    (snap / "decks.json").write_text(json.dumps(decks))
+    (snap / "cards_index.json").write_text(json.dumps(index))
+
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snap), artifact)
+    return build_app(artifact)
+
+
+def test_the_pilot_picker_stays_by_name_and_moves_only_a_name_held_in_a_longer_one(
+    tmp_path, snapshot_dir
+):
+    # By name, the list read Ashlee B, Ashlee P, Jordan C, Lee, Lee P, Tom S, and
+    # "Lee" then Enter picked Ashlee B. Lee and Lee P each move to just ahead of the
+    # first longer name that holds theirs, and nobody else moves.
+    demo = _demo_with_pilots(tmp_path, snapshot_dir, "Lee P", "Ashlee P", "Lee", "Ashlee B")
+
+    for label in ("Pilot", "Second pilot (required)"):
+        pilots = _picker_choices(demo, "Pilots", label)
+        assert [name for name, _ in pilots] == [
+            "Lee", "Ashlee B", "Lee P", "Ashlee P", "Jordan C", "Tom S",
+        ]
+        assert [_first_match(pilots, name) for name, _ in pilots] == [key for _, key in pilots]
+
+
+# Two archetypes for `_timeline_demo`, one's name part of the other's: Blue Tron at
+# three events and Tron at two, with a third event for Lands so the order by count
+# differs from the order by name somewhere other than at Tron.
+_TRON_AND_BLUE_TRON = (
+    # (deck id, archetype, event, field size, placement, day)
+    ("x-t1", "tron", "PogNov25", 31, 15, None),
+    ("x-t2", "tron", "CFWAT25", 19, 12, None),
+    ("x-b1", "blue_tron", "PogNov25", 31, 16, None),
+    ("x-b2", "blue_tron", "CFWAT25", 19, 13, None),
+    ("x-b3", "blue_tron", "LandsCupA", 10, 5, 2),
+    ("x-l3", "lands", "PogNov25", 31, 17, None),
+)
+
+
+def test_the_archetype_pickers_list_the_most_played_first_and_a_held_name_ahead(
+    tmp_path, snapshot_dir
+):
+    # By the count each label carries, most events first and by name within a count:
+    # Blue Tron and Lands (3), then Grixis, Jund and Tron (2). That alone leaves
+    # "Tron" then Enter picking Blue Tron, so Tron is listed just ahead of it.
+    demo = _timeline_demo(tmp_path, snapshot_dir, more=_TRON_AND_BLUE_TRON)
+
+    offered = [("Tron (2 events)", "tron"), ("Blue Tron (3 events)", "blue_tron"),
+               ("Lands (3 events)", "lands"), ("Grixis (2 events)", "grixis"),
+               ("Jund (2 events)", "jund")]
+    for label in ("Archetype", "Second archetype (optional)"):
+        assert _picker_choices(demo, "Archetypes", label) == offered
+
+
+def test_the_meta_focus_list_is_most_played_first_and_a_held_name_ahead(
+    tmp_path, snapshot_dir
+):
+    # The Meta chart is a share of decks, so its list is by decks over the whole
+    # record: Blue Tron and Lands (3), Grixis, Jund and Tron (2), Storm (1), by name
+    # within a count. Tron is then listed just ahead of Blue Tron, which holds its name.
+    demo = _timeline_demo(tmp_path, snapshot_dir, more=_TRON_AND_BLUE_TRON)
+
+    assert _picker_choices(demo, "Meta", "Or focus on specific archetypes") == [
+        ("Tron", "tron"), ("Blue Tron", "blue_tron"), ("Lands", "lands"),
+        ("Grixis", "grixis"), ("Jund", "jund"), ("Storm", "storm"),
+    ]
+
+
+def test_a_name_is_held_in_a_longer_one_whatever_its_case():
+    # The dropdown ignores case when it matches, so the order has to as well.
+    assert _own_name_first([("Snapper", "s"), ("NAP", "n")]) == [("NAP", "n"), ("Snapper", "s")]
+
+
+# --- The same, over the real record: every name in every picker (issue #326) ---
+
+
+class _Entry(NamedTuple):
+    """One entry of a real picker: its choice, what a reader types for it, and the
+    count the list is ruled to be in order of (``None`` for the pilots, by name)."""
+
+    label: str
+    value: str
+    name: str
+    count: int | None
+
+
+@pytest.fixture(scope="module")
+def real_pickers(live_graph):
+    """Each of the real record's four picker lists, as :class:`_Entry` rows.
+
+    Nothing here comes from the functions that order the lists. An archetype's name
+    and its decks, and a card's decks, are read off the graph's raw rows. A card's or
+    a pilot's name is its label, which is the whole of what a reader can type. The
+    Archetypes picker's count is the one its own label shows, since that is the count
+    a reader sees the list ordered by; whether the label's count is right is
+    ``test_trends``'s to hold, not this fixture's. Skipped where the record is absent
+    or built from other sources, as ``live_graph`` is.
+    """
+    from graph7ph.app import build_app
+    from graph7ph.db import artifact_path, rows
+
+    def read(cypher):
+        return list(rows(live_graph.execute(cypher)))
+
+    demo = build_app(artifact_path())
+    archetype_names = dict(read("MATCH (a:Archetype) RETURN a.tag, a.name"))
+    # A Counter, so an archetype that is no deck's primary one reads as zero decks:
+    # the Meta list offers a few of those, each only ever a deck's second archetype.
+    archetype_decks = Counter(dict(read(
+        "MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype) "
+        "RETURN a.tag, count(d)"
+    )))
+    card_decks = Counter(canon for canon, _ in set(map(tuple, read(
+        "MATCH (d:Deck)-[:CONTAINS]->(c:Card) RETURN c.canon, d.deckId"
+    ))))
+
+    pickers = {}
+    for tab, label, name_of, count_of in (
+        ("Meta", "Or focus on specific archetypes",
+         lambda label, tag: archetype_names[tag], lambda label, tag: archetype_decks[tag]),
+        # The count the label itself shows the reader is the one the list is read by.
+        ("Archetypes", "Archetype",
+         lambda label, tag: archetype_names[tag],
+         lambda label, tag: int(re.fullmatch(r".* \((\d+) events\)", label).group(1))),
+        ("Cards", "Card", lambda label, canon: label, lambda label, canon: card_decks[canon]),
+        ("Pilots", "Pilot", lambda label, key: label, lambda label, key: None),
+    ):
+        pickers[label] = [_Entry(choice, value, name_of(choice, value), count_of(choice, value))
+                          for choice, value in _picker_choices(demo, tab, label)]
+    # The second picker on a tab offers the list the first one does.
+    for tab, first, second in (
+        ("Archetypes", "Archetype", "Second archetype (optional)"),
+        ("Cards", "Card", "Second card (optional)"),
+        ("Pilots", "Pilot", "Second pilot (required)"),
+    ):
+        assert _picker_choices(demo, tab, second) == _picker_choices(demo, tab, first)
+    return pickers
+
+
+# The first picker of each list, by its label: the second on a tab offers the same list.
+_REAL_PICKERS = ["Or focus on specific archetypes", "Archetype", "Card", "Pilot"]
+
+
+def _listed_before_the_names_were_moved(entries):
+    """A real picker's entries in the order it is ruled to have before any name moves:
+    most played first and by name within a count, or by name alone for the pilots."""
+    return sorted(entries, key=lambda e: (-(e.count or 0), e.label, e.value))
+
+
+def _held_in_a_longer_name_listed_ahead(entries) -> set[str]:
+    """The values of the entries the ruled order leaves unreachable by typing."""
+    base = _listed_before_the_names_were_moved(entries)
+    return {e.value for i, e in enumerate(base)
+            if any(e.name.lower() in ahead.label.lower() for ahead in base[:i])}
+
+
+@pytest.mark.parametrize("picker", _REAL_PICKERS)
+def test_typing_any_full_name_on_the_real_record_finds_that_name_first(real_pickers, picker):
+    entries = real_pickers[picker]
+    choices = [(e.label, e.value) for e in entries]
+
+    # The record holds the hazard in every list, or this would grade nothing.
+    assert _held_in_a_longer_name_listed_ahead(entries)
+    assert [_first_match(choices, e.name) for e in entries] == [e.value for e in entries]
+
+
+@pytest.mark.parametrize("picker", _REAL_PICKERS)
+def test_a_real_picker_keeps_its_order_apart_from_the_names_that_had_to_move(
+    real_pickers, picker
+):
+    # Most played first for the archetypes and the cards, by name for the pilots, and
+    # the only entries out of that order are the ones it left unreachable. Each of
+    # those sits no further up than it has to: what follows it, past any other moved
+    # name, is a label that holds its name.
+    entries = real_pickers[picker]
+    moved = _held_in_a_longer_name_listed_ahead(entries)
+
+    # Some names moved, and most of the list did not, so the order below is graded
+    # over the bulk of it and not over a remnant.
+    assert 0 < len(moved) < len(entries) / 2
+    assert ([e for e in entries if e.value not in moved]
+            == [e for e in _listed_before_the_names_were_moved(entries) if e.value not in moved])
+    for i, entry in enumerate(entries):
+        if entry.value in moved:
+            holder = next(e.label for e in entries[i + 1:] if e.value not in moved)
+            assert entry.name.lower() in holder.lower()

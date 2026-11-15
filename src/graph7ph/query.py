@@ -1288,17 +1288,27 @@ def gem_archetypes(conn: ladybug.Connection) -> list[tuple[str, str]]:
 
 
 def pilot_catalogue(conn: ladybug.Connection) -> list[tuple[str, str]]:
-    """``(displayName, pilot)`` for every pilot, in label order for a dropdown."""
+    """``(displayName, pilot)`` for every pilot, in label order."""
     return [(name, key) for name, key in rows(conn.execute(
         "MATCH (p:Pilot) RETURN p.displayName, p.pilot ORDER BY p.displayName"
     ))]
 
 
 def card_catalogue(conn: ladybug.Connection) -> list[tuple[str, str]]:
-    """``(name, canon)`` for every card, in label order for a dropdown."""
+    """``(name, canon)`` for every card, in label order."""
     return [(name, canon) for name, canon in rows(conn.execute(
         "MATCH (c:Card) RETURN c.name, c.canon ORDER BY c.name"
     ))]
+
+
+def card_deck_counts(conn: ladybug.Connection) -> dict[str, int]:
+    """``canon -> decks`` for every card: the decks running it on either board, each
+    deck once, and zero for a card no deck runs. What the Card picker lists its cards
+    by, most run first (issue #326)."""
+    return dict(rows(conn.execute(
+        """MATCH (c:Card) OPTIONAL MATCH (d:Deck)-[:CONTAINS]->(c)
+           RETURN c.canon, count(DISTINCT d)"""
+    )))
 
 
 @dataclass(frozen=True)

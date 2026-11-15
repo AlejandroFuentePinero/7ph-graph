@@ -18,6 +18,7 @@ Skipped where playwright or its browser is missing, as ``tests/test_page_style.p
 """
 
 import importlib.util
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -384,3 +385,50 @@ def test_the_box_over_a_data_point_is_set_in_the_apps_face_and_tokens(page):
         "surface": _rgb(TOKENS["surface"]),
         "border": _rgb(TOKENS["border"]),
     }
+
+
+def _picked_by_typing(page, tab: str, label: str, text: str) -> list[str]:
+    """What a picker holds once ``text`` is typed into it and Enter is pressed.
+
+    Keystrokes, as ``shots.pick`` types them, and then Enter where the script clicks
+    an option. A single-select shows its pick as the field's text; a multiselect
+    empties the field and adds the pick as a token beside it.
+    """
+    shots.tab(page, tab)
+    box = shots.field(page, label)
+    box.click()
+    box.press("ControlOrMeta+a")
+    box.press_sequentially(text)
+    shots.wait(page, 500)
+    box.press("Enter")
+    shots.wait(page, 400)
+    tokens = box.evaluate(
+        "box => [...box.closest('.wrap').querySelectorAll('.token > span')]"
+        ".map(token => token.textContent)"
+    )
+    return tokens or [box.input_value()]
+
+
+def test_typing_a_full_name_and_pressing_enter_picks_that_name(page):
+    # Issue #326: a picker keeps every option that holds the typed text anywhere and
+    # Enter takes the first one kept, so "Swamp" then Enter picked "Snow-Covered
+    # Swamp", which the suite's snapshot lists ahead of it by name and by decks alike.
+    # Which option Enter lands on is Gradio's, so only a real page can say.
+    assert _picked_by_typing(page, "Cards", "Card", "Swamp") == ["Swamp"]
+
+
+@pytest.mark.parametrize("name", ["Grixis", "Oracle"])
+def test_typing_an_archetype_and_pressing_enter_picks_it_on_the_real_record(
+    chromium, record, name
+):
+    # The two the issue measured: "Grixis" picked "Bus Stop Grixis" and "Oracle"
+    # picked "Noracle", in the Meta focus list and in the Archetypes picker alike.
+    page = _loaded(chromium, record)
+    try:
+        focus = _picked_by_typing(page, "Meta", "Or focus on specific archetypes", name)
+        (timeline,) = _picked_by_typing(page, "Archetypes", "Archetype", name)
+    finally:
+        page.close()
+
+    assert focus == [name]
+    assert re.fullmatch(rf"{name} \(\d+ events\)", timeline)
