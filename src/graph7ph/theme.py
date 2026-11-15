@@ -688,8 +688,7 @@ def _favicon_data_uri() -> str:
     """The graph mark as a base64 ``image/svg+xml`` data URI.
 
     Self-hosted like the fonts: the whole icon travels in the head, so the Space
-    serves no external favicon request and needs no static-file route (which the
-    SSR proxy would complicate, see ``serve.py``).
+    serves no external favicon request and needs no static-file route.
     """
     b64 = base64.b64encode(_favicon_svg().encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{b64}"
@@ -698,11 +697,10 @@ def _favicon_data_uri() -> str:
 def favicon_file() -> Path:
     """The graph mark on disk, for ``Blocks.launch(favicon_path=...)``.
 
-    The ``<link rel="icon">`` in the head is not enough by itself, and on the Space it
-    does nothing at all. Gradio renders the page shell server-side there, with its own
-    ``<link rel="icon" href="/favicon.ico">`` already in it, while the head this app
-    injects arrives afterwards from the config, by which point the browser has taken
-    the first one and does not go back. So the icon has to be what ``/favicon.ico``
+    The ``<link rel="icon">`` in the head is not enough by itself. The head this app
+    passes is not in the page Gradio serves: it arrives afterwards from the config,
+    once the page's script runs, by which point the browser has asked for
+    ``/favicon.ico`` and taken the answer. So the icon has to be what ``/favicon.ico``
     itself answers with, and ``favicon_path`` is what sets that: ``gradio.routes``
     serves that route from this file, falling back to Gradio's own logo when it is
     unset, which is the logo the Space wore. Written out at launch rather than shipped
