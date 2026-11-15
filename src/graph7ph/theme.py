@@ -623,7 +623,7 @@ def dark_theme():
         # The one place the accent above must not reach. Gradio draws the picked radio
         # dot and the checkbox tick as a hardcoded `#fff` glyph on this fill, and white
         # on `--accent-bright` is 2.59, under the 3:1 WCAG 1.4.11 asks of a non-text
-        # control — worse than the Gradio blue being retired (3.68), which is the one
+        # control: worse than the Gradio blue being retired (3.68), which is the one
         # way this change could have gone backwards. `--accent` gives 3.32 and passes,
         # and it is the same split the comment above draws: this is a fill, not ink.
         # The #118 audit walks text nodes, so it cannot see a glyph like this one.
@@ -655,6 +655,11 @@ _APP_DESCRIPTION = (
     "events, pilots, decks, and cards, for exploration and analytics."
 )
 _APP_URL = "https://www.7phgraph.com"
+
+# The name in the browser tab, shorter than the share card's because a tab strip
+# truncates hard (the reasoning is at ``gr.Blocks`` in ``app``). Held here so the
+# title the page is served with and the one its script sets are the same words.
+TAB_TITLE = "7PH Graph"
 
 # The graph mark: three nodes joined in a triad, which is the least a node-link diagram
 # can be and still read as one, so the favicon says what the app is. It replaces the
@@ -720,6 +725,16 @@ def build_head() -> str:
     served instead (:func:`preview_tags`).
     """
     return f'<link rel="icon" href="{_favicon_data_uri()}">'
+
+
+def title_tag() -> str:
+    """The page's ``<title>`` (issue #341).
+
+    Gradio's page template has none: the tab is named by the page's script once it
+    runs. ``serve`` writes this into the page as served, so a reader that runs no
+    script finds the name, and a tab has it before the script arrives.
+    """
+    return f"<title>{html.escape(TAB_TITLE)}</title>"
 
 
 def preview_tags() -> str:

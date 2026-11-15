@@ -2331,7 +2331,7 @@ def test_a_pilot_with_no_finish_at_a_bounded_meeting_draws_at_the_bound():
 def test_a_bound_off_a_decided_field_is_marked_like_every_other_decided_number():
     # A bound is `last published slot / (fieldSize - 1)`, so where the field is the
     # project's the bound is too. GGWAD's 28 is Rule A's, which is why the scored side
-    # of that meeting hovers "9 / 28*" — and the bounded side hovered a bare "≤ 0.41"
+    # of that meeting hovers "9 / 28*", and the bounded side hovered a bare "≤ 0.41"
     # directly beneath a legend saying marked numbers are ours (ADR 0016, issue #166).
     #
     # Not the ADR 0024 distinction returning: ▽ and ≤ say "this is a bound", and * says
