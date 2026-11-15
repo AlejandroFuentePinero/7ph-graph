@@ -226,7 +226,7 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   a survivor from `#199e70` to `#d95926`, and re-adding the removed pick did not undo
   it, leaving the two archetypes permanently swapped._
 - **The universe each chart assigns over** is named at the caller. _Decided 2026-07-29:
-  the Meta trend's is every archetype in **latest-year rank order**, not the dropdown's
+  the Meta trend's is every archetype in **latest-year rank order**, not
   alphabetical order, because the tracing scale the #117 amendment above allows stays
   distinct only for its first **32** slots and the widest cut draws 31 lines: rank order
   is what keeps those 31 inside that prefix. The consequence, accepted: a hand-picked

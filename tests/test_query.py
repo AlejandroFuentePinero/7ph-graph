@@ -19,6 +19,7 @@ from graph7ph.query import (
     _gem_tails,
     _pilot_deflated,
     card_cooccurrence_subgraph,
+    card_deck_counts,
     card_usage_subgraph,
     coverage,
     deck_points,
@@ -1782,3 +1783,32 @@ def test_a_card_listed_on_both_boards_is_charged_once(tmp_path, built_graph):
     conn = built_graph(tmp_path, tmp_path)
 
     assert deck_points(conn) == {"listed twice": 3}
+
+
+def test_every_card_is_counted_by_the_decks_running_it(tmp_path, snapshot_dir, built_graph):
+    # What the Card picker is ordered by (#326): the decks running the card on either
+    # board, each deck once. Read against the snapshot's own lists, not the graph.
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    running = {canon: len(decks) for canon, decks in _decks_by_card(snapshot_dir).items()}
+    # The fixture's cards are in one, two or all three of its decks, so no single
+    # count answers for all of them.
+    assert set(running.values()) == {1, 2, 3}
+    assert card_deck_counts(conn) == running
+
+
+def test_a_card_on_both_boards_is_one_deck_and_a_card_nobody_runs_is_none(
+    tmp_path, built_graph
+):
+    # The source lists a singleton on both boards of a deck now and then (8 listings
+    # in the record, issue #143), and that is still one deck running the card. A card
+    # the catalogue holds and no deck runs is counted, at zero, rather than left out.
+    _write_snapshot(
+        tmp_path,
+        [{"id": "listed twice", "tag": "a", "norm": 0.1, "m": ["sol ring"], "s": ["sol ring"]},
+         {"id": "once", "tag": "a", "norm": 0.2, "m": ["sol ring"], "s": []}],
+        ["sol ring", "unplayed"],
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert card_deck_counts(conn) == {"sol ring": 2, "unplayed": 0}

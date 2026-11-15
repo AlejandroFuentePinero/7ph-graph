@@ -53,6 +53,7 @@ from graph7ph.query import (
     QuerySpec,
     Subgraph,
     card_catalogue,
+    card_deck_counts,
     coverage,
     pilot_catalogue,
     run_query,
@@ -662,6 +663,31 @@ def _distinguish(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
         (f"{label} ({value})" if seen[label] > 1 else label, value)
         for label, value in pairs
     ]
+
+
+def _own_name_first(
+    choices: list[tuple[str, str]], names: list[str] | None = None,
+) -> list[tuple[str, str]]:
+    """Order a picker so typing an entry's full name and pressing Enter picks it.
+
+    Gradio's dropdown keeps every choice whose label holds the typed text anywhere,
+    case ignored, in list order, and Enter takes the first one kept. So a name that
+    is part of a longer one listed above it could not be reached by typing it:
+    "Grixis" then Enter picked "Bus Stop Grixis" (#326). Each such entry is moved to
+    just ahead of the first label that holds its name, and nothing else moves, so the
+    list stays in the order it was handed apart from those entries.
+
+    ``names`` is what a reader types for each choice, where that is not the whole
+    label: the archetype timeline's labels carry an event count after the name.
+    """
+    ordered: list[tuple[str, str]] = []
+    lowered: list[str] = []
+    for (label, value), name in zip(choices, names or [label for label, _ in choices]):
+        typed = name.lower()
+        at = next((i for i, held in enumerate(lowered) if typed in held), len(ordered))
+        ordered.insert(at, (label, value))
+        lowered.insert(at, label.lower())
+    return ordered
 
 
 # What a chart opens raised when its caller has no reason to say: the narrowest cut's
@@ -3141,8 +3167,14 @@ def build_app(artifact: Path) -> gr.Blocks:
     # (issue #47).
     db = open_database(artifact, read_only=True)
     catalogue = ladybug.Connection(db)
-    pilots = _distinguish(pilot_catalogue(catalogue))
-    cards = _distinguish(card_catalogue(catalogue))
+    pilots = _own_name_first(_distinguish(pilot_catalogue(catalogue)))
+    # Most run first (#326), so the open list leads with the cards a reader is likeliest
+    # to want; the sort is stable, so cards in as many decks keep the catalogue's name
+    # order.
+    card_decks = card_deck_counts(catalogue)
+    cards = _own_name_first(_distinguish(sorted(
+        card_catalogue(catalogue), key=lambda card: -card_decks[card[1]]
+    )))
 
     # Key -> display label, for the callbacks that name an entity in a chart title
     # or a note. Both keyed off the full catalogue: since #119 one shared subject
@@ -3162,19 +3194,26 @@ def build_app(artifact: Path) -> gr.Blocks:
     # Sorted on the whole pair, not the name alone: two archetypes can share a
     # display name, and a name-only key would leave their order to the set's
     # iteration order, so the dropdown would list them differently per process.
-    trend_archetypes = _distinguish(sorted(
-        {(c.archetype, c.tag) for c in trend_series.cells}
-    ))
+    archetypes_by_name = sorted({(c.archetype, c.tag) for c in trend_series.cells})
+    # Listed most played first (#326): by decks over the whole record, since this
+    # chart is a share of decks. The sort is stable, so archetypes with as many decks
+    # stay in name order.
+    archetype_decks = Counter()
+    for c in trend_series.cells:
+        archetype_decks[c.tag] += c.n
+    trend_archetypes = _own_name_first(_distinguish(sorted(
+        archetypes_by_name, key=lambda archetype: -archetype_decks[archetype[1]]
+    )))
     # The one entity universe both meta charts assign their hues over, so an archetype
     # keeps its colour whatever else is drawn beside it (§5). In latest-year rank order,
-    # not the dropdown's alphabetical one: the extended scale stays distinct only for
+    # not name order: the extended scale stays distinct only for
     # its first 32 slots (§5's #117 amendment) and the widest cut draws 31 lines, so
     # rank order keeps exactly those 31 inside that prefix, where an alphabetical
     # universe would scatter them across the cycling 126-entry map and collide hues on
     # the chart that opens the tab. The 15 archetypes the full cut omits (cells in the
-    # matrix, but no deck in the latest year) follow in the dropdown's own sorted order.
+    # matrix, but no deck in the latest year) follow in name order.
     trend_universe = list(dict.fromkeys(
-        latest_year_share_cut(trend_series, 1.0) + [tag for _, tag in trend_archetypes]
+        latest_year_share_cut(trend_series, 1.0) + [tag for _, tag in archetypes_by_name]
     ))
 
     # The year the cut ranks on, read from the data so it follows the graph forward
@@ -3270,10 +3309,15 @@ def build_app(artifact: Path) -> gr.Blocks:
     # alone. `_distinguish` still runs over the finished labels, since two archetypes
     # can share a display name and would then share a label even with the count on it.
     drawable_archetypes = archetypes_with_history(catalogue)
-    timeline_archetypes = _distinguish([
-        (f"{name} ({events} events)", tag)
-        for name, tag, events in drawable_archetypes
-    ])
+    # Listed by the count each label carries, most events first (#326); the sort is
+    # stable, so archetypes with as many events keep the name order they came in.
+    by_events = sorted(drawable_archetypes, key=lambda row: -row[2])
+    timeline_archetypes = _own_name_first(
+        _distinguish([
+            (f"{name} ({events} events)", tag) for name, tag, events in by_events
+        ]),
+        names=[name for name, _, _ in by_events],
+    )
     # The names the headline and the legend use: the plain display name, suffixed
     # with the tag only where two archetypes share one, exactly as the pilot labels
     # are built. Not the dropdown label, which carries the event count as well and

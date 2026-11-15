@@ -171,7 +171,7 @@ uv run playwright install chromium   # once, for the browser suite below
 ```
 
 Rebuild before running the suite after any ingest, build, schema, curation,
-repairs, query or trends edit. Fourteen tests grade the real bundle through the
+repairs, query or trends edit. Seventeen tests grade the real bundle through the
 `live_graph` fixture, and it
 *skips* rather than fails on a bundle that is missing or built from other sources
 (issue #55), so on a stale bundle they pass green having graded nothing. The
