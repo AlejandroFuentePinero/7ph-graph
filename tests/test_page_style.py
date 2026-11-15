@@ -9,7 +9,7 @@ as text, or to one that asks the server for the page: which rule wins is decided
 the browser. These tests ask the running page instead.
 
 A stand-in page with the same parts (a title, the seven tabs, a card holding HTML
-blocks and a control) rather than the real explorer: what is under test is that the stylesheet
+blocks and a control, the app's table in a card) rather than the real explorer: what is under test is that the stylesheet
 lands on Gradio's markup, not the data. It is launched with ``launch_kwargs``, the
 settings every real launch passes, so the stylesheet and theme are the shipped ones.
 
@@ -29,6 +29,15 @@ sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 # at the width they are actually set in, stay on the strip.
 TABS = ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "Player leaderboard", "FAQ"]
 PHONE = {"width": 390, "height": 844}
+
+# The app's one table, in the markup both of its uses share: a header row, a plain
+# row and a banded one. The suite's small snapshot draws neither the standings nor
+# the gems, so the table is measured here.
+TABLE = (
+    "<table class='leaderboard'><thead><tr><th>Pilot</th><th class='score'>Score</th>"
+    "</tr></thead><tbody><tr><td>one</td><td class='score'>0.512</td></tr>"
+    "<tr class='band'><td>two</td><td class='score'>0.498</td></tr></tbody></table>"
+)
 
 
 def _rgb(hex_: str) -> str:
@@ -54,6 +63,12 @@ def page():
                     padding=True,
                 )
                 gr.Radio(["one", "two"], value="one", label="Pick", info="A help line.")
+            # Set as the standings are (flush under a heading) and as the gems are
+            # (inset, the table being the whole of the result).
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML(TABLE, padding=False)
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML(TABLE, padding=True)
         for name in TABS[1:]:
             with gr.Tab(name):
                 gr.Markdown(name)
@@ -131,6 +146,39 @@ def test_an_html_block_is_inset_only_when_it_asks_to_be(page):
 
     assert flush == "0px"
     assert inset != "0px"
+
+
+def test_a_table_draws_only_the_hairline_between_its_rows(page):
+    # Gradio 6 frames every table, row and cell in an HTML block with a 1px line in
+    # the text colour. The table sits in a card and is ruled by the card's own
+    # hairline between rows, so that frame showed as a light rule either side of
+    # every cell and a box round the whole table (issue #324).
+    tables = page.evaluate(
+        """() => [...document.querySelectorAll('table.leaderboard')].map(table => {
+             const edge = (el, side) => { const s = getComputedStyle(el);
+               return s['border' + side + 'Width'] + ' ' + s['border' + side + 'Color']; };
+             const widths = (els, sides) => [...new Set(els.flatMap(el => sides.map(
+               side => getComputedStyle(el)['border' + side + 'Width'])))];
+             const cells = [...table.querySelectorAll('th, td')];
+             const rows = [...table.querySelectorAll('tr')];
+             return {
+               frame: widths([table, ...rows], ['Top', 'Right', 'Bottom', 'Left']),
+               sides: widths(cells, ['Top', 'Right', 'Left']),
+               under: [edge(table.querySelector('th'), 'Bottom'),
+                       edge(table.querySelector('tbody td'), 'Bottom'),
+                       getComputedStyle(table.querySelector('tbody tr:last-child td'))
+                         .borderBottomWidth],
+             }; })"""
+    )
+
+    hairline = f"1px {_rgb(TOKENS['border'])}"
+    as_designed = {
+        "frame": ["0px"],
+        "sides": ["0px"],
+        # Under the header and between rows, and not under the last row.
+        "under": [hairline, hairline, "0px"],
+    }
+    assert tables == [as_designed, as_designed]
 
 
 def test_a_link_in_an_html_block_is_text_in_its_line(page):

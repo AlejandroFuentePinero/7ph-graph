@@ -289,11 +289,6 @@ def build_css() -> str:
    put back on exactly those. */
 .html-container {{ padding: 0; }}
 .block.padded > .html-container {{ padding: var(--block-padding); }}
-/* The one `gr.HTML` that is itself a card (the gem view): Gradio gives `elem_classes`
-   to the block and to the content inside it, so it has always drawn as a bordered card
-   inset in a surface of the same colour. Kept as Gradio 5 drew it, where the outer
-   block took no edge of its own. */
-.block.insight-card {{ border: 0; }}
 /* A link in a `gr.HTML` is text in its line. Gradio 6 pads every one as if it were a
    button, which opens a gap either side of the address in the footer. */
 .gradio-style a {{ padding: 0; }}
@@ -327,8 +322,12 @@ def build_css() -> str:
    their line takes, and a row past the eighth keeps the same indent with no dot, so the
    names stay in one column rather than stepping in and out of it. */
 /* `margin-top` and `padding` are zeroed because Gradio 6 gives a table in an HTML block
-   both, which Gradio 5 did not. */
+   both, which Gradio 5 did not. It also frames the table, every row and every cell
+   with a 1px line in the text colour, which showed as a light rule either side of each
+   cell and a box round the table. All of it is cleared first, so the one line a cell
+   draws is the hairline under it that the rules below put back (issue #324). */
 .leaderboard {{ width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 0; padding: 0; }}
+.leaderboard, .leaderboard tr, .leaderboard th, .leaderboard td {{ border: 0; }}
 .leaderboard th {{
   padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border);
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
@@ -364,8 +363,18 @@ def build_css() -> str:
    before a Draw (so the view opens as controls over empty ground, the guidance living
    in the control's help text, not a row of duplicated "nothing yet" cards), shown once
    a Draw fills it. It is a bare container: no surface of its own, so only the cards
-   inside it read as objects. */
-.results-stack {{ background: transparent; border: 0; box-shadow: none; padding: 0; }}
+   inside it read as objects. So is the view body round it, the group that holds one
+   view's subject line and its results stack and is shown while that view is picked.
+
+   Gradio 6 fills a group twice with the border colour, so the 1px gaps between its
+   children read as dividers: on the group, and on an unclassed `.styler` inside it
+   that `elem_classes` never reaches. Cleared on the group alone, the fill showed
+   behind the subject line, between the cards and under the last one, and an empty
+   view body drew its own edge as a 2px strip (issue #324). Held on the running page
+   by `tests/test_explorer_page.py`. */
+.view-body, .results-stack, .view-body > .styler, .results-stack > .styler {{
+  background: transparent; border: 0; box-shadow: none; padding: 0;
+}}
 
 /* §13 control panel: the controls for a view read as one raised input surface, one
    step lighter than the cards below so it reads as more prominent, obviously the
