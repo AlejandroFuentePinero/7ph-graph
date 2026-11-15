@@ -485,6 +485,17 @@ footer {{ display: none !important; }}
    any future component outside one is untouched. */
 .insight-card label.float {{ display: none; }}
 
+/* And the chart library's own toolbar (#325): a 272 by 24px row of stock icons
+   (camera, zoom, pan, select, reset) over the top right of every chart. On a desktop
+   it fades in under the pointer; on a touch device it is always drawn, and at phone
+   width it covers the top axis label. Nothing on it is needed to read a chart: the
+   range controls and the legends are the chart's own. Retired here rather than
+   through the library's `displayModeBar` switch because `gr.Plot` sends a figure
+   without its config, so the switch would have to ride each of the nine plots by
+   hand; this covers every chart, the next one included. Not scoped to the cards,
+   since the class is the library's and names nothing else. */
+.gradio-container .modebar-container {{ display: none; }}
+
 /* Every tab reachable at phone width (#172), the same kind of override one more level
    down. Gradio renders the tab strip twice: a `visually-hidden` mirror it measures, and
    the real `role="tablist"` it paints. Its overflow pass walks the MIRROR's buttons and

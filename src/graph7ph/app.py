@@ -1769,9 +1769,21 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
     point of §1 is that every surface follows one direction. ``gr.Plot`` draws into
     the page's own DOM rather than an iframe, so the ``@font-face`` the theme injects
     already covers the SVG, and naming the stack here is all it takes.
+
+    The box over a hovered point is stated here too (issue #325), because it follows
+    none of the above: left alone Plotly sets it in Arial whatever the figure's font
+    is, fills it with the colour of the trace under it, and outlines and letters it
+    in whichever of dark grey and white contrasts with that fill. Measured on the
+    running page over the chart Meta opens on, that was a pale pink box with grey
+    text over one line and a dark one with white text over another. It is a small
+    card, so it takes the card's surface and hairline and the page's primary ink.
     """
     fig.update_layout(
         hovermode="closest",
+        hoverlabel=dict(
+            bgcolor=theme.TOKENS["surface"], bordercolor=theme.TOKENS["border"],
+            font=dict(family=theme.FONT_STACK, color=theme.TOKENS["text"]),
+        ),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=_AXIS, family=theme.FONT_STACK),
         margin=dict(t=8, r=8, b=8, l=8),
