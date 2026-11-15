@@ -911,8 +911,11 @@ def _assert_every_panel_is_one_row(page) -> None:
         # Side by side, none over another.
         for before, after in zip(controls, controls[1:]):
             assert before["right"] <= after["left"], state
+        # To within half a pixel: two searches on even shares come out a sixty-fourth
+        # of a pixel apart where the browser's layout rounds them so.
         subject = next(c for c in controls if c["search"])
-        assert subject["width"] == max(c["width"] for c in controls), state
+        assert subject["width"] == pytest.approx(
+            max(c["width"] for c in controls), abs=0.5), state
         # The labels on one line, and the row run out to the panel's far edge: a
         # search takes the room that is left, so no row stops short of it.
         assert len(_label_lines(controls)) == 1, state
@@ -968,7 +971,7 @@ def test_a_head_to_head_searches_its_two_pilots_in_fields_of_one_size(page):
     shots.chip(page, "View", "Head-to-head")
 
     first, second = (c["width"] for c in _controls(page) if c["search"])
-    assert first == second
+    assert first == pytest.approx(second, abs=0.5)
 
 
 def test_each_tabs_controls_stack_on_a_phone(chromium, explorer):
