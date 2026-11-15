@@ -6,6 +6,7 @@ These build a stand-in app with the same shape, big dropdowns and all, rather
 than the real graph: what is under test is the middleware wiring, not the data.
 """
 
+import html
 import re
 
 import gradio as gr
@@ -34,6 +35,61 @@ def client():
     demo.launch(prevent_thread_lock=True, app_kwargs=APP_KWARGS)
     yield TestClient(demo.app)
     demo.close()
+
+
+def _preview_tags(page: str) -> dict[str, list[str]]:
+    """Every preview tag in a served page: what each says, by name, in page order.
+
+    Read more loosely than the app writes them (either quote, either attribute, any
+    order), so a tag of Gradio's that the app failed to remove is still found here.
+    """
+    found: dict[str, list[str]] = {}
+    for tag in re.findall(r"<meta\b[^>]*>", page):
+        name = re.search(r"""(?:property|name)\s*=\s*["']((?:og|twitter):[^"']+)""", tag)
+        if name:
+            content = re.search(r"""content\s*=\s*["']([^"']*)""", tag)
+            found.setdefault(name.group(1), []).append(html.unescape(content.group(1)))
+    return found
+
+
+def test_the_page_as_served_carries_the_apps_own_preview_card_and_no_other(client):
+    """A link pasted into a chat unfurls from tags in the page as the server sends it:
+    a preview fetcher runs no script. Gradio's template writes two sets of its own
+    there ("Gradio", "Click to try out the app!", its image, its address), and hands
+    the app's ``head`` to the page's script, which a fetcher never runs. So the card
+    #115 designed reached nobody, on gradio 5 as on 6 (issue #320).
+
+    Read with a plain GET, which is all a fetcher does. Each tag once, so there is no
+    second title for a platform to prefer, and that also fails the day Gradio's
+    template writes a tag in a shape the app no longer removes.
+    """
+    page = client.get("/").text
+
+    card = _preview_tags(page)
+    description = card.pop("og:description")
+    assert card.pop("twitter:description") == description
+    assert len(description) == 1
+    assert "knowledge graph of the Australian 7 Point Highlander metagame" in description[0]
+    assert card == {
+        "og:type": ["website"],
+        "og:title": ["7 Point Highlander Graph"],
+        "og:url": ["https://www.7phgraph.com"],
+        "twitter:card": ["summary"],
+        "twitter:title": ["7 Point Highlander Graph"],
+    }
+    # Near the top, ahead of the megabyte of config the head also carries: a fetcher
+    # that reads only the start of a page still finds the card.
+    assert page.index("og:title") < page.index("window.gradio_config")
+
+
+def test_the_page_is_otherwise_what_gradio_wrote(client):
+    """The card is swapped in the page as it goes out, so the swap must cost the page
+    nothing else: the config the browser boots from arrives whole."""
+    page = client.get("/").text
+
+    assert page.rstrip().endswith("</html>")
+    config = client.get("/config").json()
+    assert f'"app_id":{config["app_id"]}' in page.replace(" ", "")
 
 
 @pytest.mark.parametrize("path", ["/", "/config"])

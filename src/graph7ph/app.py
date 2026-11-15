@@ -4104,7 +4104,7 @@ def launch_kwargs() -> dict:
         "theme": theme.dark_theme(),
         "css": theme.build_css(),
         "js": theme.FORCE_DARK_JS,
-        "head": theme.build_head(),  # real favicon + social preview (#115)
+        "head": theme.build_head(),  # the favicon (#115)
         "favicon_path": theme.favicon_file(),
         "app_kwargs": APP_KWARGS,
         # Rendered in the browser, never on the server, which the Space would otherwise
