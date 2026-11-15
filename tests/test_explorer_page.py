@@ -867,10 +867,16 @@ def _controls(page) -> list[dict]:
 
 
 def _panel(page) -> dict:
-    """The box of the open tab's control panel."""
+    """The open tab's control panel: its height, and how far short of the row's far
+    edge its last control stops."""
     return page.evaluate(
-        "() => { const box = " + _OPEN_TAB + ".querySelector('.control-panel')"
-        ".getBoundingClientRect(); return {width: box.width, height: box.height}; }"
+        "() => { const panel = " + _OPEN_TAB + """.querySelector('.control-panel');
+            const row = panel.querySelector('.styler').getBoundingClientRect();
+            const ends = [...panel.querySelectorAll('.block, button')]
+              .map(control => control.getBoundingClientRect())
+              .filter(box => box.height > 0).map(box => box.right);
+            return {height: panel.getBoundingClientRect().height,
+                    short: row.right - Math.max(...ends)}; }"""
     )
 
 
@@ -907,10 +913,10 @@ def _assert_every_panel_is_one_row(page) -> None:
             assert before["right"] <= after["left"], state
         subject = next(c for c in controls if c["search"])
         assert subject["width"] == max(c["width"] for c in controls), state
-        # The labels on one line, and no search run out to the panel's far edge
-        # for want of anything else to do with the room.
+        # The labels on one line, and the row run out to the panel's far edge: a
+        # search takes the room that is left, so no row stops short of it.
         assert len(_label_lines(controls)) == 1, state
-        assert subject["width"] <= _panel(page)["width"] / 2, state
+        assert _panel(page)["short"] <= 1, state
         for button in (c for c in controls if c["name"] == "Draw"):
             assert button["width"] <= 120, state
 
@@ -956,29 +962,13 @@ def test_focusing_an_archetype_leaves_the_meta_row_on_its_line(page):
 
 def test_a_head_to_head_searches_its_two_pilots_in_fields_of_one_size(page):
     # The maintainer's look at #328: the first pilot's search was 448px and the
-    # second's 266px. The two pilots of a rivalry are peers.
+    # second's 266px. The two pilots of a rivalry are peers, and between them they
+    # still take the room the row has left.
     shots.tab(page, "Pilots")
     shots.chip(page, "View", "Head-to-head")
 
     first, second = (c["width"] for c in _controls(page) if c["search"])
     assert first == second
-
-
-@pytest.mark.parametrize("tab, view", [
-    ("Cards", "Co-occurrence"), ("Pilots", "Head-to-head"),
-])
-def test_taking_a_view_leaves_the_view_chips_under_the_pointer(page, tab, view):
-    # The subject's search took whatever room the row had left, so taking a view
-    # that adds a control shrank it and slid the chips just clicked 440px to the
-    # left on Pilots. The search holds one width whatever else is in the row.
-    def view_chips():
-        return next(c["left"] for c in _controls(page) if c["name"] == "View")
-
-    shots.tab(page, tab)
-    before = view_chips()
-    shots.chip(page, "View", view)
-
-    assert view_chips() == before
 
 
 def test_each_tabs_controls_stack_on_a_phone(chromium, explorer):

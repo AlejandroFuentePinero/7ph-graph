@@ -716,8 +716,9 @@ panel's padding (§13), and where the invitation and the year's scope are stated
 
 - **One row.** A tab's controls sit side by side on one line: a panel 87px tall at
   1440 and 1920, where it was a stack of full-width rows 205px tall on Meta and
-  334px on Cards. The subject's search is the first and the widest thing in the row.
-  At 640px and under the row stacks, one control per line. The first
+  334px on Cards. The subject's search takes the room that is left and is the widest
+  thing in the row, so every row runs out to the panel's far edge. At 640px and
+  under the row stacks, one control per line. The first
   result card on Meta starts at 236px at 1440 (it was 363px) and at 372px at 390 (it
   was 477px). The ticket asked for 320px at 390 and the page does not get there: the
   intro breaks over two lines (51px), and the cut chips and the search cannot share a
@@ -726,27 +727,25 @@ panel's padding (§13), and where the invitation and the year's scope are stated
   selectors, as the Meta cut always was, where each was a dropdown on a line of its
   own. Only a search is a dropdown. A chip in the panel carries no radio mark, the
   Meta cut's chips included. Measured at 1440 on the Cards co-occurrence view, the
-  row with the most in it, while a search still took the room that was left: with
-  the marks the Card search was 222px beside View chips of 292px, so the subject's
-  search was not the widest thing in its row; without them it was 282px beside
-  244px. The picked chip is told apart by its fill, its edge and its ink.
-- **A search holds one width.** _Added 2026-11-15, after the maintainer's look at
-  the running page._ The subject's search is 320px, its clear button included,
-  whatever else is in its row, and any other search grows to that and no further.
-  It took the room that was left at first: 930px for a pilot's name, 492px once
-  Head-to-head was taken with 310px for the second pilot, and the View chips slid 440px out from under the pointer
-  that had just clicked one. Now the chips stay where they were, and the two pilots
-  of a head-to-head are searched in fields of one size at every width. The focus
-  search on Meta, the one search that takes several picks, is 576px (it was 846px):
-  three archetypes of ordinary length and the cursor on one line.
+  row with the most in it: with the marks the Card search is 222px beside View chips
+  of 292px, so the subject's search is not the widest thing in its row; without them
+  it is 282px beside 244px. The picked chip is told apart by its fill, its edge and
+  its ink.
+- **Two pilots, one size.** _Added 2026-11-15, after the maintainer's look at the
+  running page._ The two pilots of a head-to-head take even shares of the room,
+  357px each at 1440, where the first was 448px beside 266px for the second. The
+  view needs both, so neither is the lesser search. _Tried and withdrawn at the same
+  look: a set width for every search (320px, and 576px for the focus search on
+  Meta). It left every row stopping short of the panel's far edge, which read as
+  the row being cut off. A row fills its panel._
 - **Labels on one line.** _Added 2026-11-15, after the same look._ The row lines
   its controls up on their tops, and a search is the row's 38px whether it holds
   nothing, a name or a line of picks. Gradio builds the several-pick search 39.6px
   tall empty and 47px with a pick in it, and the row lined up on bottoms, so on
   Meta the search's label sat 1.6px above the chips' label, 9px once an archetype
   was focused, and the panel grew 7px on a first pick. A pick's token in the panel
-  is 31px, where Gradio's is 35px. Past one line of picks the search grows
-  downwards and the labels stay put.
+  is 31px, where Gradio's is 35px. Four archetypes sit on one line at 1440. Past
+  one line of picks the search grows downwards and the labels stay put.
 - **A pick draws.** Picking a card or a pilot draws its view, and so does changing
   any chip or filter of that view. On Meta and Archetypes a pick always drew; Cards
   and Pilots waited on a Draw 1,174px wide. While the query runs, a line where the
