@@ -34,6 +34,13 @@ SCRIPT = ROOT / "scripts" / "deploy_space.sh"
 # The commit every deploy here is made from, as the stand-in `git` names HEAD.
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
+# The commit the Space was running before, as the stand-in Hub names its last deploy.
+PREVIOUS = "fedcba9876543210fedcba9876543210fedcba98"
+
+# Where the stand-in Space answers: its own Hub address and a custom domain.
+HUB_ADDRESS = "someone-some-space.hf.space"
+PUBLISHED = "www.example.org"
+
 # The checkout is a boundary too: what git calls uncommitted is answered from
 # FAKE_CHANGES, filtered by the paths asked about as git filters them, so no test
 # depends on the state of the tree it happens to run in. That matters here more
@@ -69,12 +76,38 @@ def repo_exists(repo_id, repo_type=None):
     return True
 
 
+class _Commit:
+    title = "Deploy " + os.environ["FAKE_PREVIOUS"]
+
+
+class _Runtime:
+    # The Hub's own record of a Space, in the shape `space_info` hands it back:
+    # the stage it is at, the commit it runs, and the addresses it answers at.
+    raw = {
+        "stage": os.environ["FAKE_STAGE"],
+        "sha": "the-space-head",
+        "domains": [{"domain": name, "stage": "READY"}
+                    for name in os.environ["FAKE_DOMAINS"].split("|")],
+    }
+
+
+class _Space:
+    sha = "the-space-head"
+    runtime = _Runtime()
+
+
 class HfApi:
     def upload_folder(self, *, folder_path, repo_id, repo_type, delete_patterns,
                       commit_message):
         shutil.copytree(folder_path, os.environ["FAKE_UPLOADED"])
         print("UPLOADED", repo_id, commit_message)
         return "https://hub.invalid/" + repo_id
+
+    def list_repo_commits(self, repo_id, *, repo_type):
+        return [_Commit()]
+
+    def space_info(self, repo_id):
+        return _Space()
 '''
 
 
@@ -131,7 +164,14 @@ def passing_gate(tmp_path) -> Path:
     The stand-in records what the resolver was asked, each file as it stood, and
     refuses in the resolver's words when a test says the Space could not install it.
 
-    Only those two are answered. Every other ``uv`` the script runs is handed to
+    The browser is the third, and it sits past the upload: the deploy ends by loading
+    the published address (issue #315). The stand-in records the addresses it was
+    asked to load and reports the page as a test says it was. What the real check
+    makes of a page is graded in tests/test_check_live_page.py. The stand-in answers
+    only for a script that exists, so a deploy that named the wrong file would reach
+    the real ``uv`` and fail there.
+
+    Only those three are answered. Every other ``uv`` the script runs is handed to
     the real one, because the script asks the package for its database filename and
     its provenance judgement through ``uv run python``, and writes the Space's
     requirements with ``uv export``, and those must stay honest.
@@ -154,6 +194,12 @@ def passing_gate(tmp_path) -> Path:
         '    [ -z "$FAKE_UNINSTALLABLE" ] || { echo "$FAKE_UNINSTALLABLE" >&2; exit 1; }\n'
         '    exit 0\n'
         'fi\n'
+        'if [ "$1 $2" = "run python" ] && [ -f "$3" ] &&'
+        ' [ "$(basename "$3")" = "check_live_page.py" ]; then\n'
+        '    shift 3; printf "%s\\n" "$@" >> "$FAKE_CHECKED"\n'
+        '    [ -z "$FAKE_BROKEN" ] || { echo "$FAKE_BROKEN"; exit 1; }\n'
+        '    exit 0\n'
+        'fi\n'
         f'exec "{real_uv}" "$@"\n'
     )
     stub.chmod(0o755)
@@ -161,7 +207,9 @@ def passing_gate(tmp_path) -> Path:
 
 
 def _deploy(
-    artifact: Path, no_hub: Path, *also: Path, changes: str = "", uninstallable: str = ""
+    artifact: Path, no_hub: Path, *also: Path, changes: str = "", uninstallable: str = "",
+    stage: str = "RUNNING", domains: tuple[str, ...] = (HUB_ADDRESS, PUBLISHED),
+    broken: str = "",
 ) -> subprocess.CompletedProcess:
     """Run the script as a caller standing outside the repo with a relative bundle.
 
@@ -181,6 +229,9 @@ def _deploy(
     ``changes`` is what the stand-in ``git`` reports as uncommitted, paths joined
     by ``|``. Empty, the default, is a checkout with nothing outstanding.
     ``uninstallable`` is what the stand-in resolver refuses with; empty, it accepts.
+    ``stage`` and ``domains`` are what the stand-in Hub says of the Space once the
+    upload is in, and ``broken`` is what the stand-in browser says it saw at the
+    address; empty, the page is drawn.
     What the stand-ins record lands beside them: see ``_recorded``.
     """
     return subprocess.run(
@@ -196,6 +247,11 @@ def _deploy(
             "FAKE_UNINSTALLABLE": uninstallable,
             "FAKE_UPLOADED": str(_recorded(no_hub) / "uploaded"),
             "FAKE_RESOLVED": str(_recorded(no_hub) / "resolved.txt"),
+            "FAKE_PREVIOUS": PREVIOUS,
+            "FAKE_STAGE": stage,
+            "FAKE_DOMAINS": "|".join(domains),
+            "FAKE_BROKEN": broken,
+            "FAKE_CHECKED": str(_recorded(no_hub) / "checked.txt"),
         },
         capture_output=True,
         text=True,
@@ -204,7 +260,8 @@ def _deploy(
 
 def _recorded(hub: Path) -> Path:
     """Where a run's stand-ins leave what they were handed: ``uploaded/`` is the
-    folder the Hub was given, ``resolved.txt`` what the resolver was asked."""
+    folder the Hub was given, ``resolved.txt`` what the resolver was asked, and
+    ``checked.txt`` the addresses the browser was sent to."""
     return hub.parent
 
 
@@ -510,6 +567,62 @@ def test_the_lock_resolves_the_gradio_extras_the_space_installs_beside_it(
     gradio = next(d for d in project["dependencies"] if d["name"] == "gradio")
 
     assert set(space_extras) <= set(gradio.get("extra", []))
+
+
+def test_a_deploy_ends_by_loading_the_published_address_in_a_browser(
+    tmp_path, recording_hub, passing_gate
+):
+    # The Space answers at two addresses behind different proxies, and on
+    # 2026-11-15 the one visitors are given was down while the other worked (#307).
+    # So the custom domain is the one loaded, read off the Hub's own record of the
+    # Space rather than written into the script.
+    result = _deploy(_bundle(tmp_path), recording_hub, passing_gate)
+
+    assert result.returncode == 0, result.stderr
+    checked = (_recorded(recording_hub) / "checked.txt").read_text().splitlines()
+    assert checked == [f"https://{PUBLISHED}/"]
+
+
+def test_a_space_with_no_domain_of_its_own_is_loaded_at_its_hub_address(
+    tmp_path, recording_hub, passing_gate
+):
+    result = _deploy(
+        _bundle(tmp_path), recording_hub, passing_gate, domains=(HUB_ADDRESS,)
+    )
+
+    assert result.returncode == 0, result.stderr
+    checked = (_recorded(recording_hub) / "checked.txt").read_text().splitlines()
+    assert checked == [f"https://{HUB_ADDRESS}/"]
+
+
+def test_a_space_that_does_not_come_up_fails_the_deploy_and_says_how_to_go_back(
+    tmp_path, recording_hub, passing_gate
+):
+    result = _deploy(
+        _bundle(tmp_path), recording_hub, passing_gate, stage="BUILD_ERROR"
+    )
+
+    assert result.returncode != 0
+    assert "UPLOADED" in result.stdout  # it is the upload that cannot be undone
+    assert "BUILD_ERROR" in result.stderr
+    # The way back: the commit the Space ran before, and this script again.
+    assert PREVIOUS in result.stderr
+    assert "scripts/deploy_space.sh someone/some-space" in result.stderr
+    # Nothing was loaded: there is no page to look at until the Space runs.
+    assert not (_recorded(recording_hub) / "checked.txt").exists()
+
+
+def test_an_address_that_does_not_draw_fails_the_deploy_and_says_how_to_go_back(
+    tmp_path, recording_hub, passing_gate
+):
+    seen = f"BROKEN: https://{PUBLISHED}/\n  no tabs were drawn. The page shows: Login"
+    result = _deploy(_bundle(tmp_path), recording_hub, passing_gate, broken=seen)
+
+    assert result.returncode != 0
+    assert seen in result.stderr
+    assert PREVIOUS in result.stderr
+    assert "scripts/deploy_space.sh someone/some-space" in result.stderr
+    assert "Deployed" not in result.stdout
 
 
 def test_the_space_card_declares_the_gradio_this_tree_was_tested_against():

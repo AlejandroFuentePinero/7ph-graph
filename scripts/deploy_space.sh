@@ -15,6 +15,10 @@
 # sources and a build time, neither of which says anything about anyone.
 # The `delete_patterns="*"` argument on the upload clears anything the previous deploy
 # left behind, so a stale index file cannot mix with a freshly built graph.
+#
+# The upload is not the end. The script then waits for the Space to run what it
+# was sent and loads the published address in a headless browser, and a site that
+# is not drawn ends the run with a banner and a failing status (issue #315).
 set -eu
 
 SPACE="${1:?usage: scripts/deploy_space.sh <user>/<space>}"
@@ -212,6 +216,16 @@ sys.exit(0 if repo_exists(os.environ["SPACE"], repo_type="space") else 1)
     exit 1
 fi
 
+# What the Space runs now, read before the upload replaces it: every deploy is named
+# for its commit, so the last one's title is the release to go back to if this one
+# does not come up. Empty for a Space nothing has been deployed to.
+PREVIOUS=$(SPACE="$SPACE" hf_python '
+import os
+from huggingface_hub import HfApi
+title = HfApi().list_repo_commits(os.environ["SPACE"], repo_type="space")[0].title
+print(title.removeprefix("Deploy ") if title.startswith("Deploy ") else "")
+')
+
 # One commit: code and artifact land together, and large files go up as LFS.
 # `delete_patterns` clears what a previous deploy left behind (.gitattributes is
 # spared by the library, so LFS tracking survives).
@@ -227,5 +241,73 @@ url = HfApi().upload_folder(
 )
 print(url)
 '
+
+# From here the upload has happened and nothing below can take it back, so a
+# failure is said where it cannot be missed, with the way back beside it: the
+# commit the Space ran before, rebuilt in a checkout of its own (a bundle is only
+# deployable from the tree that built it) and sent up by this same script.
+not_live() {
+    {
+        echo
+        echo "################################################################"
+        echo "#  THE UPLOAD WENT UP AND THE SITE IS NOT RIGHT"
+        echo "################################################################"
+        echo "$1"
+        echo
+        if [ -n "$PREVIOUS" ]; then
+            echo "The Space ran $PREVIOUS before this. To put it back:"
+            echo
+            echo "  git -C $ROOT worktree add $ROOT-previous $PREVIOUS"
+            echo "  ln -s $ROOT/snapshots $ROOT-previous/snapshots"
+            echo "  cd $ROOT-previous && uv run graph7ph build && scripts/deploy_space.sh $SPACE"
+        else
+            echo "The Space had no earlier deploy to go back to."
+        fi
+        echo "################################################################"
+    } >&2
+    exit 1
+}
+
+# A Space takes the upload and then builds and starts it, and either can fail with
+# the upload long since acknowledged. Waited for here: until the Space is running
+# the commit at the head of its repository, which is the one just made. Then the
+# addresses it answers at are read off the same record. The published one is the
+# custom domain where there is one, and it is the one to load: the Space's own
+# address sits behind a different proxy, and on 2026-11-15 it drew the app while
+# the custom domain drew a login form (issue #307).
+echo "Uploaded. Waiting for the Space to run it." >&2
+if ! ADDRESSES=$(SPACE="$SPACE" hf_python '
+import os, sys, time
+from huggingface_hub import HfApi
+deadline = time.monotonic() + 15 * 60
+while True:
+    space = HfApi().space_info(os.environ["SPACE"])
+    runtime = space.runtime.raw
+    if runtime["stage"] == "RUNNING" and runtime.get("sha") == space.sha:
+        break
+    if runtime["stage"].endswith("ERROR"):
+        print("The Space stopped at " + runtime["stage"] + ".")
+        sys.exit(1)
+    if time.monotonic() > deadline:
+        print("The Space was still at " + runtime["stage"] + " after 15 minutes.")
+        sys.exit(1)
+    print("  " + runtime["stage"], file=sys.stderr)
+    time.sleep(15)
+names = [domain["domain"] for domain in runtime["domains"]]
+published = [name for name in names if not name.endswith(".hf.space")] or names
+print(*("https://" + name + "/" for name in published))
+'); then
+    not_live "$ADDRESSES Its logs: https://huggingface.co/spaces/$SPACE?logs=build"
+fi
+
+# A running Space is not a drawn page, and neither is a 200: the broken page of
+# #307 answered 200 too. So the address is loaded in a browser, which passes it
+# only with the app's tabs on screen, every request answered and nothing thrown
+# (scripts/check_live_page.py). Unquoted on purpose: one address per word.
+# shellcheck disable=SC2086
+if ! SEEN=$(cd "$ROOT" && uv run python scripts/check_live_page.py $ADDRESSES); then
+    not_live "${SEEN:-The page could not be loaded to check it, for the reason above.}"
+fi
+echo "$SEEN"
 
 echo "Deployed $COMMIT to https://huggingface.co/spaces/$SPACE"

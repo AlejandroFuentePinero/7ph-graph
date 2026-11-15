@@ -34,12 +34,12 @@ submitted, and an apex cannot carry one. Note that the Space's own
 protected visibility, with no setting to disable it, so the custom domain is the
 URL to hand out rather than the only one that answers.
 
-After a deploy, load [www.7phgraph.com](https://www.7phgraph.com) itself in a
-browser. The two addresses sit behind different proxies, and the page can draw at
-one and not the other: on 2026-11-15 the Space's own address worked while the
-custom domain showed a login form over "Failed to fetch" (#307). A `200` from
-`curl` does not show it either, because the page is served and only then fails
-to fetch its config.
+The two addresses sit behind different proxies, and the page can draw at one and
+not the other: on 2026-11-15 the Space's own address worked while the custom
+domain showed a login form over "Failed to fetch" (#307). A `200` from `curl`
+does not show it either, because the page is served and only then fails to fetch
+its config. So the deploy script loads the custom domain in a browser itself,
+as its last step: see [After the upload](#after-the-upload).
 
 Create the Space once by hand at
 [huggingface.co/new-space](https://huggingface.co/new-space) (Gradio SDK, CPU
@@ -101,6 +101,34 @@ before it uploads anything, so a refusal leaves the Space exactly as it was:
   `sdk_version`), for the card's Python on Linux, and a disagreement between the
   two stops the deploy. Left to the Space, the same disagreement fails its build
   after the upload and takes the site down.
+
+### After the upload
+
+A Space acknowledges an upload and only then builds and starts it, and a running
+Space is not yet a drawn page. So the script keeps going after the upload, and
+none of what follows can take the upload back:
+
+1. **It waits for the Space to run the new commit**, for up to 15 minutes, and
+   stops if the Hub reports the build or the start as failed.
+2. **It loads the published address in a headless browser.** That is the Space's
+   custom domain, read from the Hub's own record of the Space, or the Space's
+   `hf.space` address where it has none. The address passes only with the app's
+   tabs on screen, every request answered and no error thrown
+   ([scripts/check_live_page.py](../scripts/check_live_page.py), which can also
+   be run by hand against any address).
+
+A failure of either ends the run with a banner and a failing status. The banner
+says what was seen and how to go back: the commit the Space ran before, read from
+the name of its last deploy, and the three commands that check it out beside this
+tree, rebuild its graph and deploy it with this same script.
+
+The check needs Chromium, which the suite's browser tests need too:
+`uv run playwright install chromium`, once.
+
+The Space's own `hf.space` address is not loaded where there is a custom domain.
+Gradio's client asks the Hub about the Space from any `hf.space` address, a
+protected Space refuses an anonymous visitor, and that one refused request would
+fail the check at an address nobody is sent to.
 
 ### What the Space installs
 
