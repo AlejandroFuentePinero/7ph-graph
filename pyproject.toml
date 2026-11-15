@@ -68,7 +68,16 @@ dev = [
     # httpx response. huggingface-hub depends on it, but the test's import is this
     # project's to declare, by the same rule as pandas above.
     "httpx>=0.27,<1",
+    # The client starlette's test client asks for (tests/test_serve.py). It still
+    # falls back to httpx, with a deprecation warning that would now fail the suite.
+    "httpx2>=2,<3",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A warning fails the run. Left as warnings they pile up unread, and the one that
+# matters (a dependency announcing what it will remove) arrives among them.
+# `ResourceWarning` keeps the treatment Python gives it outside a test run, which is
+# to say nothing: `error` alone switches it on, and Gradio leaves a socket and an
+# event loop unclosed for every app a test builds.
+filterwarnings = ["error", "ignore::ResourceWarning"]
