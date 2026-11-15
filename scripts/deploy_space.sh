@@ -13,7 +13,7 @@
 # ship to the Space. They restate associations already public on Moxfield. The
 # build stamp added by #55 (provenance.json) ships too, carrying a digest of the
 # sources and a build time, neither of which says anything about anyone.
-# The `delete_patterns="*"` argument at `:157` clears anything the previous deploy
+# The `delete_patterns="*"` argument on the upload clears anything the previous deploy
 # left behind, so a stale index file cannot mix with a freshly built graph.
 set -eu
 
