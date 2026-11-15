@@ -23,7 +23,8 @@ The page shell is in the rule too. Every launch renders in the browser
 The page shell is also where a shared link's preview card is read from, by a
 fetcher that runs no script. Gradio's template writes its own card there and
 delivers the app's ``head`` through the script, so the card is swapped in the
-page as it goes out (``_WriteOwnPreview``, issue #320).
+page as it goes out (``_WriteOwnHead``, issue #320). The page's title is written
+in the same pass, because the template has none (issue #341).
 
 The event stream deliberately stays out. It is a chunked ``text/event-stream``,
 and compressing it risks buffering the incremental updates it exists to deliver,
@@ -45,7 +46,7 @@ from starlette.middleware import Middleware
 from starlette.responses import FileResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from graph7ph.theme import preview_tags
+from graph7ph.theme import preview_tags, title_tag
 
 # The page shell and the config. Every other endpoint is either small or already
 # covered by Gradio's own middleware.
@@ -122,12 +123,12 @@ _GRADIO_PREVIEW_TAG = re.compile(
 )
 
 
-def _with_own_preview(page: bytes) -> bytes:
-    """The page with Gradio's preview tags gone and the app's card where the first
-    one stood.
+def _with_own_head(page: bytes) -> bytes:
+    """The page with Gradio's preview tags gone, and the app's title and card where
+    the first one stood.
 
     There rather than at the end of the head, because the head also carries the
-    whole config: a megabyte a fetcher would have to read through to reach the card.
+    whole config: a megabyte a fetcher would have to read through to reach them.
     """
     first = _GRADIO_PREVIEW_TAG.search(page)
     if first is None:
@@ -135,11 +136,13 @@ def _with_own_preview(page: bytes) -> bytes:
         # the page goes out as Gradio made it, and the suite says so (test_serve).
         return page
     kept, rest = page[: first.start()], page[first.start() :]
-    return kept + preview_tags().encode() + b"\n" + _GRADIO_PREVIEW_TAG.sub(b"", rest)
+    own = f"{title_tag()}\n{preview_tags()}\n".encode()
+    return kept + own + _GRADIO_PREVIEW_TAG.sub(b"", rest)
 
 
-class _WriteOwnPreview:
-    """Swap the preview card in the page shell, and pass everything else through.
+class _WriteOwnHead:
+    """Write the app's title and preview card into the page shell, and pass
+    everything else through.
 
     A link pasted into a chat unfurls from the page as served, by a fetcher that
     runs no script. Gradio's template writes two sets of preview tags of its own
@@ -147,6 +150,9 @@ class _WriteOwnPreview:
     has no setting for them, while the ``head`` an app passes reaches the page only
     through its script. So the page is held back, corrected and sent on (issue #320).
     It is one response per visit, already built whole in memory by the template.
+
+    The template has no ``<title>`` either: the tab is named by the script. The
+    title goes in with the card, so the page has its name as served (issue #341).
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -170,7 +176,7 @@ class _WriteOwnPreview:
                 page = b"".join(held)
                 headers = MutableHeaders(raw=start["headers"])
                 if headers.get("content-type", "").startswith("text/html"):
-                    page = _with_own_preview(page)
+                    page = _with_own_head(page)
                     headers["content-length"] = str(len(page))
                 await send(start)
                 await send({"type": "http.response.body", "body": page})
@@ -187,13 +193,13 @@ class _WriteOwnPreview:
 # outside this one and its rule already covers a ``.js`` or ``.css`` path, so a
 # first download arrives compressed without a second pass over the same bytes.
 #
-# The preview card is swapped inside the compression, so what is compressed is the
-# page as corrected.
+# The title and preview card are written inside the compression, so what is
+# compressed is the page as corrected.
 APP_KWARGS = {
     "middleware": [
         Middleware(_CompressPageAndConfig, quality=4),
         Middleware(_ServeAssets),
-        Middleware(_WriteOwnPreview),
+        Middleware(_WriteOwnHead),
     ]
 }
 """Passed to ``Blocks.launch(app_kwargs=...)``, which forwards them to FastAPI."""

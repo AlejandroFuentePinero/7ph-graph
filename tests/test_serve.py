@@ -13,6 +13,9 @@ import gradio as gr
 import pytest
 from starlette.testclient import TestClient
 
+from graph7ph.app import build_app, launch_kwargs
+from graph7ph.build import build_graph
+from graph7ph.models import load_snapshot
 from graph7ph.query import Node, Subgraph
 from graph7ph.render import render_subgraph
 from graph7ph.serve import APP_KWARGS, VIS_CSS_URL, VIS_JS_URL, _CompressPageAndConfig
@@ -90,6 +93,34 @@ def test_the_page_is_otherwise_what_gradio_wrote(client):
     assert page.rstrip().endswith("</html>")
     config = client.get("/config").json()
     assert f'"app_id":{config["app_id"]}' in page.replace(" ", "")
+
+
+def test_the_page_as_served_carries_one_title_and_it_is_the_tabs(tmp_path, snapshot_dir):
+    """The tab's name is in the page as the server sends it, not only set by the
+    page's script a moment later. Gradio's template has no ``<title>``: the server
+    renderer used to write one, and it went when the page moved to rendering in the
+    browser (ADR 0029). Without it a reader that runs no script finds an untitled
+    page, and a tab shows the bare address until the script arrives (issue #341).
+
+    The real app, because the name under test is the one it gives ``gr.Blocks``:
+    the served title and the title the script sets are held to the same words. One
+    title only, which also fails the day Gradio's template writes its own.
+    """
+    artifact = tmp_path / "graph"
+    build_graph(load_snapshot(snapshot_dir), artifact)
+    demo = build_app(artifact)
+    demo.launch(prevent_thread_lock=True, **launch_kwargs())
+    try:
+        served = TestClient(demo.app)
+        page = served.get("/").text
+
+        assert re.findall(r"<title\b[^>]*>(.*?)</title>", page, re.S | re.I) == ["7PH Graph"]
+        # What the script puts in the tab once it runs.
+        assert served.get("/config").json()["title"] == "7PH Graph"
+        # Ahead of the megabyte of config, as the preview card is.
+        assert page.index("<title>") < page.index("window.gradio_config")
+    finally:
+        demo.close()
 
 
 @pytest.mark.parametrize("path", ["/", "/config"])

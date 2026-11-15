@@ -656,6 +656,11 @@ _APP_DESCRIPTION = (
 )
 _APP_URL = "https://www.7phgraph.com"
 
+# The name in the browser tab, shorter than the share card's because a tab strip
+# truncates hard (the reasoning is at ``gr.Blocks`` in ``app``). Held here so the
+# title the page is served with and the one its script sets are the same words.
+TAB_TITLE = "7PH Graph"
+
 # The graph mark: three nodes joined in a triad, which is the least a node-link diagram
 # can be and still read as one, so the favicon says what the app is. It replaces the
 # 7-pip mark, which §15 had already dropped from the page for reading as an ambiguous
@@ -720,6 +725,16 @@ def build_head() -> str:
     served instead (:func:`preview_tags`).
     """
     return f'<link rel="icon" href="{_favicon_data_uri()}">'
+
+
+def title_tag() -> str:
+    """The page's ``<title>`` (issue #341).
+
+    Gradio's page template has none: the tab is named by the page's script once it
+    runs. ``serve`` writes this into the page as served, so a reader that runs no
+    script finds the name, and a tab has it before the script arrives.
+    """
+    return f"<title>{html.escape(TAB_TITLE)}</title>"
 
 
 def preview_tags() -> str:

@@ -3573,7 +3573,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # it takes the short form while the page heading and the share card keep the
         # full one. A tab strip shows a few characters: "7PH Graph" survives that,
         # "7 Point Highlander Graph" arrives as "7 Point High...".
-        title="7PH Graph",
+        title=theme.TAB_TITLE,
     ) as demo:
         gr.Markdown("# 7 Point Highlander Graph")
 
