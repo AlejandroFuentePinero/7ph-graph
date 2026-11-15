@@ -315,6 +315,24 @@ def hidden_gems() -> Subgraph:
     return Subgraph(nodes=nodes, edges=edges)
 
 
+def test_drawing_a_graph_asks_no_other_host_for_anything(browser):
+    """Every request the drawn document makes goes to the app (issue #312). Asked of the
+    browser, not read off the markup: what a document fetches is decided when it runs."""
+    server, url = _serve(render_subgraph(head_to_head()))
+    page = browser.new_page(viewport=DESKTOP)
+    try:
+        asked = []
+        page.on("request", lambda request: asked.append(request.url))
+        page.goto(url)
+        page.wait_for_function("() => settledFrame !== null")
+        assert url in asked
+        assert [address for address in asked if not address.startswith(url)] == []
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+
+
 @pytest.mark.parametrize("view", [
     pytest.param(pilot_neighbourhood(), id="pilot-overview-67"),
     pytest.param(pilot_neighbourhood(83), id="densest-assess-250"),
