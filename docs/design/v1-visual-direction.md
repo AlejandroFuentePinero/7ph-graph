@@ -367,7 +367,9 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   a refused trend, too-large-to-draw (`_refine_alert`). Progress feedback on every
   query-running action. Add the missing Trends empty states.
 - **Cold start** lands on a drawn default or 2–3 one-click examples (which one is
-  a child-level decision), never an empty canvas.
+  a child-level decision), never an empty canvas. _Amended 2026-11-15 (#328): Cards
+  takes the examples, three chips under its controls. Pilots takes neither: see
+  "The controls (#328)"._
 - **Provenance / credit** on screen: a coverage row (108 events, 1,083 pilots,
   4,591 decks, 4,995 cards, 2023–2026) and which snapshot the artifact was built
   from; a real favicon and social preview. _Amended 2026-07-26: the links to the
@@ -417,6 +419,9 @@ step: where a subject's graph and its temporal trend share **exactly the same
 filters**, one Draw renders both, stacked, so the structural answer (graph) and the
 temporal answer (trend) sit together under one control set. Pilots and Cards each
 collapse to **two views**, one Draw per view rendering all of that view's plots.
+_Amended 2026-11-15 (#328): "one Draw" below now reads "one pick". Picking the
+subject draws the view, and the pilot head-to-head alone keeps a Draw. See "The
+controls (#328)"._
 
 | Tab | Views (one Draw per view; a view renders all its plots) |
 |---|---|
@@ -433,7 +438,9 @@ collapse to **two views**, one Draw per view rendering all of that view's plots.
   question, since the titles alone do not separate them. Archetypes is single-view and
   has no Draw button, following the Meta precedent: it draws Plotly aggregates, which
   are cheap enough to render on open and re-render on its year selector, where the
-  Pilots tab's Draw exists for the pyvis graphs.
+  Pilots tab's Draw exists for the pyvis graphs. _Amended 2026-11-15 (#328): the
+  pyvis graphs draw on a pick too. The one Draw left on Pilots is the head-to-head's,
+  and it is there for the second pilot, not for the graph._
 - **Subject selected once.** The subject (a pilot, a card) is chosen at the tab
   level and reused across that tab's views, so a visitor picks a pilot once and
   moves between its views without re-selecting. Head-to-head, which needs two
@@ -540,7 +547,12 @@ which set a plot off with a top rule alone.
 - **Empty until drawn.** A view's cards live in a results stack that is **hidden
   until a Draw fills it** (§14), so the view opens as its controls over empty ground,
   not a row of identical "nothing yet" prompt cards. The guidance lives in the
-  subject control's help text (§14).
+  subject control's help text (§14). _Reversed 2026-11-15 (#328): a view is no
+  longer empty until a Draw. The stack is still hidden until there is something to
+  put in it, and there are still no prompt cards, but what fills it is the pick
+  itself, and the ground under the Cards controls is not empty: it offers three
+  cards to try. The search field says what it holds ("Search 5,514 cards"), which
+  is the guidance. See "The controls (#328)"._
 - **A card Group carries its own `visible` toggle.** When a card wraps children that
   toggle independently (a heading + plot + refusal note), hiding all the children still
   leaves the bordered, padded card Group drawn as an empty box. So each card that can
@@ -560,12 +572,23 @@ click is carried by the surface, not by a label.
   `--border`, `border-radius: 12px`, padding. It is visually separate from the
   result cards by fill and by space. _Amended 2026-11-15 (#327): at 640px and under
   the padding is `0.75rem`, the inset the cards take there, so the panel's contents
-  and the cards' stay on one edge._
+  and the cards' stay on one edge._ _Amended 2026-11-15 (#328): the panel is one row
+  of controls, and tighter for it: padding `0.6rem 1rem 0.8rem`, and at 640px and
+  under `0.5rem 0.75rem 0.75rem`, the sides still the cards' inset. A control in it
+  has no surface of its own: its label sits on the panel, over a field, a row of
+  chips or a button 38px tall._
 - **Subject stays primary.** The shared subject keeps its accent left-edge
   (`.primary-control`), now inside the panel, so the one control everything hangs
-  off still reads first.
+  off still reads first. _Amended 2026-11-15 (#328): the subject reads first by
+  being first, and the widest thing in its row. The accent edge had not been drawn
+  since the move to Gradio 6 (the field kept the edge's inset and lost the edge), and
+  the row does not bring it back._
 - **Draw** is the one bold action (`button_primary`, the amber accent), the
-  brightest thing in the panel.
+  brightest thing in the panel. _Reversed 2026-11-15 (#328): Draw is no longer the
+  one bold action, because on four of the five views that had one there is no Draw.
+  A pick draws. The button is kept only on the pilot head-to-head, which needs two
+  pilots and so cannot draw on the first, and there it is the width of its label
+  and takes no press until both are chosen. See "The controls (#328)"._
 - **No control below its plot.** Every plot-affecting control lives in the panel,
   above the plots. Meta's "focus on specific archetypes" multiselect, today
   stranded *under* the cut chart, moves up into the panel with the cut control.
@@ -594,6 +617,10 @@ and its on-surface methodology blocks.
   still speak in their own card as a one-line note in the interface's voice
   (composes with #114). Earlier revisions of this section put a "pick and Draw"
   sentence in the subject dropdown's `info`; #156 removed it under the next rule.
+  _Amended 2026-11-15 (#328): with no Draw, the invitation is the search field's
+  own placeholder ("Search 1,365 pilots") and, on Cards, three cards to try. Still
+  no prompt cards, and the failure states are unchanged, after a pick where they
+  were after a Draw._
 - **Help text earns its place or is deleted** (#156). A control's `info` exists to
   change the reader's choice: what the control governs, when a pick is required.
   It never describes app behaviour ("it draws straight away", "then Draw to see
@@ -607,6 +634,9 @@ and its on-surface methodology blocks.
 - **A control's scope is stated once** (#156), on whichever side reads more
   naturally, never from both. The Archetypes year says "Landscape only"; the
   timeline's caption says "every year in the data". Neither repeats the other.
+  _Amended 2026-11-15 (#328): the year says it in its label, "Year (landscape
+  only)". As a help line under the chips it made the year the one control in the
+  row a line taller than the rest._
 - **Plain English, short and direct** (#156). Every string reads at a glance:
   ordinary words, one idea per sentence, no jargon the surface has not already
   earned. The detail lives in the FAQ, expanded just enough to answer the question
@@ -673,3 +703,55 @@ carries a dated note pointing here.
   (it was 217px): the page's margin is 16px a side (32px) and a card's inset 12px
   (20px). Reduced motion was checked and already held: with the setting on, no element
   on the page keeps a transition or an animation, against 21 with it off.
+
+## The controls (#328)
+
+Decided 2026-11-15. How a tab is driven, measured on the running app at 390, 1440 and
+1920px before and after. It reverses two earlier decisions, "Draw is the one bold
+action" (§13) and "empty until drawn" (§12), and each carries a dated note pointing
+here. Four smaller statements moved with them and carry dated notes of their own:
+the cold start (§8), the Pilots tab's Draw (§11), the subject's accent edge and the
+panel's padding (§13), and where the invitation and the year's scope are stated
+(§14).
+
+- **One row.** A tab's controls sit side by side on one line: a panel 87 to 89px
+  tall at 1440 and 1920, where it was a stack of full-width rows 205px tall on Meta
+  and 334px on Cards. The subject's search takes the room that is left and is the widest thing
+  in the row. At 640px and under the row stacks, one control per line. The first
+  result card on Meta starts at 238px at 1440 (it was 363px) and at 373px at 390 (it
+  was 477px). The ticket asked for 320px at 390 and the page does not get there: the
+  intro breaks over two lines (51px), and the cut chips and the search cannot share a
+  332px line, so they stack.
+- **Chips for the small options.** View, Board, Year and Cards to show are chip
+  selectors, as the Meta cut always was, where each was a dropdown on a line of its
+  own. Only a search is a dropdown. A chip in the panel carries no radio mark, the
+  Meta cut's chips included. Measured at 1440 on the Cards co-occurrence view, the
+  row with the most in it: with the marks the Card search is 222px beside View chips
+  of 292px, so the subject's search is not the widest thing in its row; without them
+  it is 282px beside 244px. The picked chip is told apart by its fill, its edge and
+  its ink.
+- **A pick draws.** Picking a card or a pilot draws its view, and so does changing
+  any chip or filter of that view. On Meta and Archetypes a pick always drew; Cards
+  and Pilots waited on a Draw 1,174px wide. While the query runs, a line where the
+  results will land says "Drawing…", the word the button used to say.
+- **One Draw left.** The pilot head-to-head needs two pilots, so picking the first
+  cannot draw it. It keeps a Draw, the width of its label, that takes no press until
+  both are chosen. Pressing Draw with nothing picked did nothing and said nothing;
+  that state cannot be reached now.
+- **A search says what it holds.** Every search field has a placeholder with what it
+  searches and how many: "Search 5,514 cards", "Search 1,365 pilots", "Search 143
+  archetypes". The count is the number of choices the field offers.
+- **Examples on Cards.** Cards opens on three chips under its controls, each a card
+  to try in one click: the three cards in the most decks, lands left out, since the
+  eight cards in the most decks of all are fetch lands and three of those would be
+  one example three times. They leave once a card is picked and return when it is
+  cleared.
+- **No person is named.** No placeholder and no example names a pilot. Pilots has the
+  count-only placeholder and no examples: an example there is a person put on show
+  without having asked to be.
+- **A result lands in view.** A focus archetype on Meta drew its chart 965px down a
+  900px window and an archetype's timeline 1,330px down. After a pick the page brings
+  the result's top up to the middle of the window, when it starts lower than that,
+  and leaves the page alone otherwise. The middle and not the top: at the top, a
+  phone's stacked controls left the screen while the reader was still using them.
+  The move is smooth unless the reader has asked for less motion.

@@ -55,6 +55,7 @@ from graph7ph.query import (
     card_catalogue,
     card_deck_counts,
     coverage,
+    land_cards,
     pilot_catalogue,
     run_query,
 )
@@ -97,19 +98,20 @@ def _state_message(text: str) -> str:
 
 
 # The run_graph fallback for a spec that cannot be built (a subject not yet chosen).
-# With the results stack hidden until a Draw with a subject, this is unreachable in
+# With the results stack hidden until a subject is picked, this is unreachable in
 # normal flow; kept as a defensive value so a stray call renders something, not None.
 _PROMPT = _state_message("Nothing picked yet.")
 
 # The subject dropdowns carry no help text at all (§14, issue #156). They used to hold
 # a "pick a pilot, then Draw" line each, which said what the label above and the Draw
 # button beside them already say; help text that does not change the reader's choice is
-# deleted rather than shortened. The one `info` left in the app is the Archetypes year's
-# scope, which is a fact about the panel the reader cannot get from the control.
-_YEAR_SCOPE = "Landscape only"
+# deleted rather than shortened. The one scope the app states on a control is the
+# Archetypes year's, which is a fact about the panel the reader cannot get from the
+# control.
+_YEAR_LABEL = "Year (landscape only)"
 
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
-# Since #126 each of Pilots and Cards collapses to two views, and one Draw per view
+# Since #126 each of Pilots and Cards collapses to two views, and one pick per view
 # fans out to all of that view's plots (a subgraph query and a series query stay two
 # seams under the hood, ADR 0013; only the presentation combines). Each multi-view
 # tab is an ordered map of view id to the label the picker shows, held as data so
@@ -189,6 +191,18 @@ def _clearable(*, visible: bool = True, **kwargs) -> tuple[gr.Dropdown, gr.Row]:
         clear = gr.Button(CLEAR_LABEL, elem_classes="clear-btn")
     clear.click(lambda: gr.update(value=empty), outputs=dropdown)
     return dropdown, row
+
+
+def _search_placeholder(count: int, noun: str) -> str:
+    """What an empty search field says: what it searches, and how many (#328).
+
+    A count and a noun and nothing else. It never offers a name to try, because on
+    the pilot searches that name would be a person's (§14)."""
+    return f"Search {count:,} {noun}"
+
+
+# How many cards the Cards tab offers as examples before a first pick (#328).
+_EXAMPLE_CARDS = 3
 
 
 # The reader-language name of each graph plot, keyed by its query id. A view now
@@ -633,11 +647,13 @@ def _embed(doc: str) -> str:
 # (:func:`_state_message`), and running says the same word wherever it appears, so the
 # app reads as saying one thing while it works rather than two:
 #
-# - A view driven by a Draw button carries it on the button, which is the component
-#   certain to be on screen at the moment of the click (:func:`_draw_with_progress`).
-# - A view driven by a dropdown has no button to carry it, so it speaks in the results
-#   region through the note line the other four states already use (the Archetypes tab's
-#   landscape and timeline, wired below).
+# - The one view driven by a Draw button (the pilot head-to-head, since #328) carries
+#   it on the button, which is the component certain to be on screen at the moment of
+#   the click (:func:`_draw_with_progress`).
+# - A view drawn by a pick has no button to carry it, so it speaks in the results
+#   region: through the note line the other four states already use on the Archetypes
+#   tab's landscape and timeline, and as a line of its own on Cards and Pilots, where
+#   the results are hidden while their query runs.
 DRAW_LABEL = "Draw"
 DRAWING_LABEL = "Drawing…"
 
@@ -647,13 +663,14 @@ def _draw_busy():
     return gr.update(value=DRAWING_LABEL, interactive=False)
 
 
-def _draw_idle():
-    """The Draw button at rest."""
-    return gr.update(value=DRAW_LABEL, interactive=True)
+def _draw_idle(*picked):
+    """The Draw button at rest: open only while everything it draws from is picked."""
+    return gr.update(value=DRAW_LABEL, interactive=all(picked))
 
 
-def _draw_with_progress(button, fn, *, inputs, outputs) -> None:
-    """Wire a Draw button to its query so that the click is visibly acknowledged.
+def _draw_with_progress(button, fn, *, inputs, outputs):
+    """Wire a Draw button to its query so that the click is visibly acknowledged,
+    and hand back the last step, for whatever is to follow the answer.
 
     Gradio does give every event a progress indicator, but it paints it *over the
     output components*, and since #132/#138 a view's results stack is hidden until its
@@ -671,11 +688,15 @@ def _draw_with_progress(button, fn, *, inputs, outputs) -> None:
     The return is chained with ``.then`` rather than ``.success`` deliberately:
     ``.then`` runs whether the query returned or raised, so a query that fails cannot
     strand the button disabled with no way back.
+
+    It returns open only if the query's inputs are all still picked (#328). The
+    button takes no press with a subject missing, and the inputs can change while
+    the query runs: a pilot cleared mid-draw would otherwise leave it open again.
     """
-    (
+    return (
         button.click(_draw_busy, outputs=button)
         .then(fn, inputs=inputs, outputs=outputs)
-        .then(_draw_idle, outputs=button)
+        .then(_draw_idle, inputs=inputs, outputs=button)
     )
 
 
@@ -687,11 +708,13 @@ def _refine_alert(plan: RenderPlan) -> str:
     line through the shared on-theme treatment (:func:`_state_message`): the count, the
     kind flooding the view (the most numerous, so the reader narrows the axis that is
     actually oversized), the draw limit, and what to do. The count carries a thousands
-    separator, since a refused result is well over the 250-node line."""
+    separator, since a refused result is well over the 250-node line. It sends the
+    reader to the filters and names no button: since #328 a changed filter redraws on
+    every view but the pilot head-to-head, which has a Draw and no filters."""
     dominant = dominant_kind(plan.by_kind)
     return _state_message(
         f"Too much to draw: {plan.node_count:,} nodes, mostly {dominant.lower()}s, "
-        f"against a limit of {plan.threshold}. Narrow the filters and Draw again."
+        f"against a limit of {plan.threshold}. Narrow the filters to draw it."
     )
 
 
@@ -3243,14 +3266,32 @@ def build_app(artifact: Path) -> gr.Blocks:
     # (issue #47).
     db = open_database(artifact, read_only=True)
     catalogue = ladybug.Connection(db)
+
+    # Every search field's placeholder, by the field's element id. Gradio's dropdown
+    # takes no placeholder, so the page's script writes them in once it has loaded
+    # (`theme.placeholders_js`, wired at the foot of the page).
+    placeholders: dict[str, str] = {}
+
+    def search(elem_id: str, noun: str, **kwargs) -> tuple[gr.Dropdown, gr.Row]:
+        """A clearable dropdown over a catalogue, which says so while it is empty."""
+        placeholders[elem_id] = _search_placeholder(len(kwargs["choices"]), noun)
+        return _clearable(elem_id=elem_id, **kwargs)
     pilots = _own_name_first(_distinguish(pilot_catalogue(catalogue)))
     # Most run first (#326), so the open list leads with the cards a reader is likeliest
     # to want; the sort is stable, so cards in as many decks keep the catalogue's name
     # order.
     card_decks = card_deck_counts(catalogue)
-    cards = _own_name_first(_distinguish(sorted(
+    by_decks = _distinguish(sorted(
         card_catalogue(catalogue), key=lambda card: -card_decks[card[1]]
-    )))
+    ))
+    cards = _own_name_first(by_decks)
+    # The cards the Cards tab offers as one-click examples (#328): the ones in the
+    # most decks, lands left out. The cards in the most decks of all are the fetch
+    # lands, and three of those would be one example three times. Read off the list
+    # before a name is moved ahead of the longer names that hold it, which is an
+    # order for typing and would offer "Scald" for standing ahead of "Scalding Tarn".
+    lands = land_cards(catalogue)
+    example_cards = [pair for pair in by_decks if pair[1] not in lands][:_EXAMPLE_CARDS]
 
     # Key -> display label, for the callbacks that name an entity in a chart title
     # or a note. Both keyed off the full catalogue: since #119 one shared subject
@@ -3715,12 +3756,13 @@ def build_app(artifact: Path) -> gr.Blocks:
         _masthead(cov, built)
 
         # The app is organised by subject (issue #119), and since #126 each subject
-        # tab collapses to two views, one Draw per view rendering all of that view's
+        # tab collapses to two views, one pick per view rendering all of that view's
         # plots stacked (graph(s) first, then trend). All controls sit in one raised
-        # panel above the results (§13); each view's own controls and Draw toggle with
-        # the picker, so none is ever stranded below a plot. Each plot renders in its
-        # own bounded insight card (§12). The graph and trend pipelines stay separate
-        # under the hood (ADR 0013); only the presentation is combined.
+        # panel above the results (§13), on one row since #328; each view's own
+        # controls toggle with the picker, so none is ever stranded below a plot.
+        # Each plot renders in its own bounded insight card (§12). The graph and trend
+        # pipelines stay separate under the hood (ADR 0013); only the presentation is
+        # combined.
 
         # Meta is single-view since #125 promoted hidden gems to its own tab (v1
         # §11): it holds meta share over time alone, so there is no subject entity
@@ -3740,23 +3782,34 @@ def build_app(artifact: Path) -> gr.Blocks:
                     list(_CUTS), value=_DEFAULT_CUT,
                     label=f"Archetypes to show (by share of {latest_year} decks)",
                 )
-                manual, _ = _clearable(
+                manual, _ = search(
+                    "meta-focus", "archetypes",
                     choices=trend_archetypes, value=[], multiselect=True,
                     label="Or focus on specific archetypes",
                 )
             # The cut chart in its own insight card, open on the default cut.
             _cut_heading, _cut_fig = draw_cut(_DEFAULT_CUT)
-            with gr.Group(elem_classes="insight-card"):
+            with gr.Group(elem_classes="insight-card", elem_id="meta-cut-result"):
                 cut_heading = gr.HTML(value=_cut_heading, padding=False)
                 cut_plot = gr.Plot(value=_cut_fig)
             # The focused-archetypes chart in its own card, the whole card hidden until
             # a pick is made so the view opens on the cut chart alone (no empty card).
-            with gr.Group(elem_classes="insight-card", visible=False) as manual_card:
+            with gr.Group(
+                elem_classes="insight-card", elem_id="meta-focus-result", visible=False,
+            ) as manual_card:
                 manual_heading = gr.HTML(visible=False, padding=False)
                 manual_plot = gr.Plot(visible=False)
 
-            cut.change(draw_cut, inputs=cut, outputs=[cut_heading, cut_plot])
-            manual.change(draw_manual, inputs=manual, outputs=[manual_card, manual_heading, manual_plot])
+            # Each pick ends by bringing what it drew into view (#328): the focus
+            # chart lands under the cut chart, most of a screen below the control
+            # that asked for it.
+            cut.change(
+                draw_cut, inputs=cut, outputs=[cut_heading, cut_plot],
+            ).then(fn=None, js=theme.into_view_js("meta-cut-result"))
+            manual.change(
+                draw_manual, inputs=manual,
+                outputs=[manual_card, manual_heading, manual_plot],
+            ).then(fn=None, js=theme.into_view_js("meta-focus-result"))
 
         # Archetypes sits directly after Meta and splits the two archetype questions
         # between them (#145): Meta keeps "who is played, over time", this owns "who
@@ -3769,20 +3822,24 @@ def build_app(artifact: Path) -> gr.Blocks:
                 elem_classes="t-lede",
             )
             with gr.Group(elem_classes="control-panel"):
-                landscape_year = gr.Dropdown(
+                landscape_year = gr.Radio(
                     choices=[(str(y), y) for y in corpus_years],
-                    value=latest_landscape_year, label="Year",
+                    value=latest_landscape_year,
                     # The two plots below read different spans and sit under one control
                     # panel (§13), so the year says which of them it governs. Two words,
                     # and only from this side: the timeline's caption says "every year in
-                    # the data" from the other, and §14 states a scope once (#156).
-                    info=_YEAR_SCOPE,
+                    # the data" from the other, and §14 states a scope once (#156). In
+                    # the label since #328: a help line under the chips made the year the
+                    # one control in the row a line taller than the rest.
+                    label=_YEAR_LABEL,
                 )
-                timeline_a, _ = _clearable(
+                timeline_a, _ = search(
+                    "timeline-archetype", "archetypes",
                     choices=timeline_archetypes, value=None, label="Archetype",
                     elem_classes="primary-control",
                 )
-                timeline_b, _ = _clearable(
+                timeline_b, _ = search(
+                    "timeline-second-archetype", "archetypes",
                     choices=timeline_archetypes, value=None,
                     label="Second archetype (optional)",
                 )
@@ -3792,7 +3849,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 _landscape_view(latest_landscape_year) if latest_landscape_year
                 else (None, None, "No archetypes to place on a landscape yet.")
             )
-            with gr.Group(elem_classes="insight-card"):
+            with gr.Group(elem_classes="insight-card", elem_id="landscape-result"):
                 landscape_heading = gr.HTML(
                     value=_ls_heading, visible=_ls_heading is not None, padding=False,
                 )
@@ -3804,7 +3861,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             # The timeline under the scatter, its whole card hidden until an archetype
             # is picked, so the tab opens on the landscape alone with no empty card
             # below it (§12, the Meta focus panel's precedent).
-            with gr.Group(elem_classes="insight-card", visible=False) as timeline_card:
+            with gr.Group(
+                elem_classes="insight-card", elem_id="timeline-result", visible=False,
+            ) as timeline_card:
                 timeline_heading = gr.HTML(visible=False, padding=False)
                 timeline_note = gr.Markdown(visible=False)
                 timeline_plot = gr.Plot(visible=False)
@@ -3818,7 +3877,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 landscape_drawing, outputs=landscape_outputs,
             ).then(
                 draw_landscape, inputs=landscape_year, outputs=landscape_outputs,
-            )
+            ).then(fn=None, js=theme.into_view_js("landscape-result"))
             # Either selector redraws, and the year is not among the inputs: the
             # timeline spans the whole corpus whatever the landscape is showing.
             timeline_outputs = [
@@ -3831,7 +3890,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 ).then(
                     draw_archetype_timeline, inputs=[timeline_a, timeline_b],
                     outputs=timeline_outputs,
-                )
+                ).then(fn=None, js=theme.into_view_js("timeline-result"))
             # The landscape is the one plot drawn before its tab is ever shown, so it is
             # the one that comes up at Plotly's fallback width; opening the tab measures
             # it against the card it actually sits in (theme.RESIZE_PLOTS_JS).
@@ -3848,36 +3907,57 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             # §13 control panel: subject, view, and every plot-affecting control in one
             # raised surface. Each view's own filters (the board; the co-occurrence
-            # second card, top-N, and land toggle) and its Draw toggle with the picker
+            # second card, top-N, and land toggle) toggle with the picker
             # (`toggle_cards_view`), so none is stranded below a plot.
             with gr.Group(elem_classes="control-panel"):
-                card, _ = _clearable(
+                card, _ = search(
+                    "card-search", "cards",
                     choices=cards, label="Card", value=None,
                     elem_classes="primary-control",
                 )
-                cards_view = gr.Dropdown(
+                cards_view = gr.Radio(
                     choices=_picker(_CARDS_TAB), value=cards_default, label="View",
                 )
-                cov_board = gr.Dropdown(
+                cov_board = gr.Radio(
                     choices=_BOARD_CHOICES, label="Board", value="", visible=cov_default,
                 )
-                cooc_card2, cooc_card2_row = _clearable(
+                cooc_card2, cooc_card2_row = search(
+                    "second-card-search", "cards",
                     choices=cards, value=None, label="Second card (optional)",
                     visible=cooc_default,
                 )
-                cooc_top_n = gr.Dropdown(
+                cooc_top_n = gr.Radio(
                     choices=[5, 15, 25], value=15,
                     label="Cards to show", visible=cooc_default,
                 )
                 cooc_drop_lands = gr.Checkbox(
                     value=False, label="Filter out lands", visible=cooc_default,
                 )
-                cov_go = gr.Button(DRAW_LABEL, variant="primary", visible=cov_default)
-                cooc_go = gr.Button(DRAW_LABEL, variant="primary", visible=cooc_default)
+
+            # Cards to try, while none is picked (#328): the tab used to open as an
+            # empty box over empty ground. A chip sets the card, which is a pick like
+            # any other and draws as one. Cards only: an example on Pilots would be a
+            # person put on show unasked (§14).
+            with gr.Row(elem_classes="examples") as card_examples:
+                gr.HTML("<span class='t-control-label'>Try</span>", padding=False)
+                for _label, _canon in example_cards:
+                    gr.Button(_label, size="sm", elem_classes="example-chip").click(
+                        lambda canon=_canon: canon, outputs=card,
+                    )
+
+            # The running state (§8). A pick has no button to carry it (#328), and the
+            # results are hidden while their query runs, so it is a line of its own
+            # where they are about to land.
+            cards_running = gr.HTML(
+                _state_message(DRAWING_LABEL), visible=False, padding=False,
+            )
 
             # Card overview: one card + board, two plots (usage graph and the adoption
-            # trend, both scoped to the board). Results stack hidden until a Draw (§14).
-            with gr.Group(visible=cov_default, elem_classes="view-body") as g_card_overview:
+            # trend, both scoped to the board). Results stack hidden until a card is
+            # picked.
+            with gr.Group(
+                visible=cov_default, elem_classes="view-body", elem_id="card-overview",
+            ) as g_card_overview:
                 cov_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as cov_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -3890,7 +3970,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             # Co-occurrence: card + second card (optional) + top-N + drop-lands, two
             # plots. Board-agnostic: no board control, so the adoption trend counts
             # across both boards and carries no board qualifier text.
-            with gr.Group(visible=cooc_default, elem_classes="view-body") as g_card_cooccurrence:
+            with gr.Group(
+                visible=cooc_default, elem_classes="view-body", elem_id="card-cooccurrence",
+            ) as g_card_cooccurrence:
                 cooc_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as cooc_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -3901,7 +3983,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                         cooc_adopt_plot = gr.Plot(visible=False)
 
             def draw_card_overview(c: str, board: str):
-                # One Draw: the usage subgraph and the adoption series, the trend scoped
+                # One draw: the usage subgraph and the adoption series, the trend scoped
                 # to the same board the graph is (#126). No compare card here, so the
                 # adoption plots the subject alone. The results stack shows only when a
                 # card is picked (§14). draw_adoption returns (heading, plot, note).
@@ -3917,7 +3999,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
 
             def draw_cooccurrence(c: str, c2: str, n: int, dl: bool):
-                # One Draw: the co-occurrence subgraph and the adoption series. The trend
+                # One draw: the co-occurrence subgraph and the adoption series. The trend
                 # is board-agnostic (board=None, no board qualifier reaches the plot) and
                 # plots the pair: the subject alone, or both cards when a second is
                 # chosen (#126). The subject line names the chosen card.
@@ -3932,15 +4014,32 @@ def build_app(artifact: Path) -> gr.Blocks:
                 return (subject, gr.update(visible=True),
                         gr.update(value=graph), *draw_adoption(c, c2, None))
 
-            def reset_card():
-                # A changed card or filter hides the drawn stacks so a stale board- or
-                # filter-scoped answer never sits under changed controls.
+            cov_outputs = [cov_subject, cov_results, cov_usage_out,
+                           cov_adopt_heading, cov_adopt_plot, cov_adopt_note]
+            cooc_outputs = [cooc_subject, cooc_results, cooc_graph_out,
+                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note]
+
+            def cards_drawing(c):
+                # The step ahead of every draw: the running line where the results
+                # will land, and the drawn stacks taken down, so a stale answer never
+                # sits under changed controls. With no card there is nothing to wait
+                # for: the line stays away and the examples come back.
                 hide = gr.update(visible=False)
-                return [hide, hide, hide, hide]
+                return [gr.update(visible=bool(c)), gr.update(visible=not c),
+                        hide, hide, hide, hide]
+
+            def draw_cards(view, c, board, c2, n, dl):
+                # The view on show is the one drawn. The other is left as it was,
+                # hidden, and is drawn when the picker turns to it.
+                if view == "card_overview":
+                    return [*draw_card_overview(c, board),
+                            *[gr.update()] * len(cooc_outputs)]
+                return [*[gr.update()] * len(cov_outputs),
+                        *draw_cooccurrence(c, c2, n, dl)]
 
             def toggle_cards_view(v):
-                # The picker swaps the view: its own filters, its Draw, and its cards
-                # show; the other view's hide.
+                # The picker swaps the view: its own filters and its cards show; the
+                # other view's hide.
                 is_ov = v == "card_overview"
                 is_co = v == "card_cooccurrence"
                 return [
@@ -3948,35 +4047,38 @@ def build_app(artifact: Path) -> gr.Blocks:
                     gr.update(visible=is_co),   # cooc_card2_row
                     gr.update(visible=is_co),   # cooc_top_n
                     gr.update(visible=is_co),   # cooc_drop_lands
-                    gr.update(visible=is_ov),   # cov_go
-                    gr.update(visible=is_co),   # cooc_go
                     gr.update(visible=is_ov),   # g_card_overview
                     gr.update(visible=is_co),   # g_card_cooccurrence
                 ]
 
-            reset_card_outs = [cov_subject, cov_results, cooc_subject, cooc_results]
-            cards_view.change(
+            def draw_cards_after(listen):
+                # A pick draws (#328): the card, the view, and each view's own filters
+                # all redraw the view on show, with no button between the pick and
+                # the answer. The line comes down through `.then`, which runs whether
+                # the query returned or raised, so a failure cannot leave it standing.
+                (
+                    listen(
+                        cards_drawing, inputs=card,
+                        outputs=[cards_running, card_examples, cov_subject, cov_results,
+                                 cooc_subject, cooc_results],
+                    )
+                    .then(
+                        draw_cards,
+                        inputs=[cards_view, card, cov_board,
+                                cooc_card2, cooc_top_n, cooc_drop_lands],
+                        outputs=[*cov_outputs, *cooc_outputs],
+                    )
+                    .then(lambda: gr.update(visible=False), outputs=cards_running)
+                    .then(fn=None, js=theme.into_view_js("card-overview", "card-cooccurrence"))
+                )
+
+            for _control in (card, cov_board, cooc_card2, cooc_top_n, cooc_drop_lands):
+                draw_cards_after(_control.change)
+            draw_cards_after(cards_view.change(
                 toggle_cards_view, inputs=cards_view,
                 outputs=[cov_board, cooc_card2_row, cooc_top_n, cooc_drop_lands,
-                         cov_go, cooc_go, g_card_overview, g_card_cooccurrence],
-            )
-            # As on the Pilots tab, every control that determines a result hides the drawn
-            # stacks: the shared card, and each view's own filters (the board, and the
-            # co-occurrence second card, top-N, and land toggle).
-            card.change(reset_card, outputs=reset_card_outs)
-            for _control in (cov_board, cooc_card2, cooc_top_n, cooc_drop_lands):
-                _control.change(reset_card, outputs=reset_card_outs)
-            _draw_with_progress(
-                cov_go, draw_card_overview, inputs=[card, cov_board],
-                outputs=[cov_subject, cov_results, cov_usage_out,
-                         cov_adopt_heading, cov_adopt_plot, cov_adopt_note],
-            )
-            _draw_with_progress(
-                cooc_go, draw_cooccurrence,
-                inputs=[card, cooc_card2, cooc_top_n, cooc_drop_lands],
-                outputs=[cooc_subject, cooc_results, cooc_graph_out,
-                         cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note],
-            )
+                         g_card_overview, g_card_cooccurrence],
+            ).then)
 
         # Hidden gems is its own top-level tab since #125, promoted out of Meta (v1
         # §11). Since #184 it is also the app's one control-free view: the rule finds
@@ -4014,29 +4116,41 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             # §13 control panel: subject, view, and every plot-affecting control in one
             # raised surface above the results. The results below open empty rather than
-            # as duplicated prompt cards (§14): the label and the Draw button are the
-            # invitation, and no control carries a "pick and Draw" sentence. The second
-            # pilot and each view's Draw toggle with the picker (`toggle_pilots_view`).
+            # as duplicated prompt cards (§14), and no control carries a "pick and Draw"
+            # sentence. The second pilot and the head-to-head's Draw toggle with the
+            # picker (`toggle_pilots_view`).
             with gr.Group(elem_classes="control-panel"):
-                pilot, _ = _clearable(
+                pilot, _ = search(
+                    "pilot-search", "pilots",
                     choices=pilots, label="Pilot", value=None,
                     elem_classes="primary-control",
                 )
-                pilots_view = gr.Dropdown(
+                pilots_view = gr.Radio(
                     choices=_picker(_PILOTS_TAB), value=pilots_default, label="View",
                 )
-                h2h_pilot_b, h2h_pilot_b_row = _clearable(
+                h2h_pilot_b, h2h_pilot_b_row = search(
+                    "second-pilot-search", "pilots",
                     choices=pilots, value=None, label="Second pilot (required)",
                     visible=h2h_default,
                 )
-                po_go = gr.Button(DRAW_LABEL, variant="primary", visible=po_default)
-                h2h_go = gr.Button(DRAW_LABEL, variant="primary", visible=h2h_default)
+                # The one Draw left (#328): a rivalry needs two pilots, so picking the
+                # first cannot draw it. It takes no press until both are chosen.
+                h2h_go = gr.Button(
+                    DRAW_LABEL, variant="primary", visible=h2h_default, interactive=False,
+                )
+
+            # The running state of a pick, as on Cards.
+            pilots_running = gr.HTML(
+                _state_message(DRAWING_LABEL), visible=False, padding=False,
+            )
 
             # Pilot overview: one pilot, three plots, each in its own insight card. The
-            # results stack is hidden until a Draw fills it (§14), so the view opens as
+            # results stack is hidden until a pilot is picked, so the view opens as
             # controls over empty ground rather than a row of duplicated empty-prompt
             # cards. The subject line sits above the stack.
-            with gr.Group(visible=po_default, elem_classes="view-body") as g_pilot_overview:
+            with gr.Group(
+                visible=po_default, elem_classes="view-body", elem_id="pilot-overview",
+            ) as g_pilot_overview:
                 po_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as po_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -4050,7 +4164,9 @@ def build_app(artifact: Path) -> gr.Blocks:
 
             # Head-to-head: two pilots, the second required, two plots (the pair's
             # neighbourhood and their shared-event timeline).
-            with gr.Group(visible=h2h_default, elem_classes="view-body") as g_pilot_head_to_head:
+            with gr.Group(
+                visible=h2h_default, elem_classes="view-body", elem_id="pilot-head-to-head",
+            ) as g_pilot_head_to_head:
                 h2h_subject = gr.HTML(visible=False, padding=True)
                 with gr.Group(visible=False, elem_classes="results-stack") as h2h_results:
                     with gr.Group(elem_classes="insight-card"):
@@ -4061,7 +4177,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                         h2h_plot = gr.Plot(visible=False)
 
             def draw_pilot_overview(p: str):
-                # One Draw fans out to all three plots: two subgraph queries and a
+                # One pick fans out to all three plots: two subgraph queries and a
                 # series, each independent so a graph that refines composes beside a
                 # trend that refuses (#126). The results stack shows only when a pilot is
                 # picked (§14); with none the stack stays hidden and the panel above is
@@ -4103,44 +4219,67 @@ def build_app(artifact: Path) -> gr.Blocks:
                 return (subject, gr.update(visible=True), nb,
                         *draw_head_to_head(a, b), gr.update(visible=True))
 
-            def reset_pilot():
-                # A changed subject drops the drawn results: hide the subject lines and
-                # both results stacks, so a stale answer never sits under changed controls.
+            po_outputs = [po_subject, po_results, po_nb_out, po_af_out,
+                          po_perf_heading, po_perf_plot, po_perf_note]
+
+            def pilots_drawing(view, a, b):
+                # The step ahead of every draw, as on Cards: the running line (only
+                # where the pick itself draws, which is the overview), the drawn stacks
+                # taken down so a stale answer never sits under changed controls, and
+                # the head-to-head's Draw open only once it has both its pilots.
                 hide = gr.update(visible=False)
-                return [hide, hide, hide, hide]
+                return [
+                    gr.update(visible=view == "pilot_overview" and bool(a)),
+                    gr.update(interactive=bool(a and b)),
+                    hide, hide, hide, hide,
+                ]
+
+            def draw_pilots(view, p):
+                # A pick draws the overview (#328). The head-to-head waits for its
+                # Draw, since one pilot is half of what it asks for.
+                if view != "pilot_overview":
+                    return [gr.update()] * len(po_outputs)
+                return draw_pilot_overview(p)
 
             def toggle_pilots_view(v):
                 # The picker swaps the view: its own controls (head-to-head's second
-                # pilot), its Draw, and its cards show; the other view's hide.
+                # pilot and its Draw) and its cards show; the other view's hide.
                 is_ov = v == "pilot_overview"
                 is_h2h = v == "pilot_head_to_head"
                 return [
                     gr.update(visible=is_h2h),  # h2h_pilot_b_row
-                    gr.update(visible=is_ov),   # po_go
                     gr.update(visible=is_h2h),  # h2h_go
                     gr.update(visible=is_ov),   # g_pilot_overview
                     gr.update(visible=is_h2h),  # g_pilot_head_to_head
                 ]
 
-            reset_pilot_outs = [po_subject, po_results, h2h_subject, h2h_results]
-            pilots_view.change(
+            pilots_drawing_io = dict(
+                inputs=[pilots_view, pilot, h2h_pilot_b],
+                outputs=[pilots_running, h2h_go,
+                         po_subject, po_results, h2h_subject, h2h_results],
+            )
+
+            def draw_pilots_after(listen):
+                (
+                    listen(pilots_drawing, **pilots_drawing_io)
+                    .then(draw_pilots, inputs=[pilots_view, pilot], outputs=po_outputs)
+                    .then(lambda: gr.update(visible=False), outputs=pilots_running)
+                    .then(fn=None, js=theme.into_view_js("pilot-overview"))
+                )
+
+            draw_pilots_after(pilot.change)
+            draw_pilots_after(pilots_view.change(
                 toggle_pilots_view, inputs=pilots_view,
-                outputs=[h2h_pilot_b_row, po_go, h2h_go, g_pilot_overview, g_pilot_head_to_head],
-            )
-            # Any control that determines a result hides the drawn stacks so a stale
-            # answer never sits under changed controls: the shared pilot, the second pilot.
-            pilot.change(reset_pilot, outputs=reset_pilot_outs)
-            h2h_pilot_b.change(reset_pilot, outputs=reset_pilot_outs)
-            _draw_with_progress(
-                po_go, draw_pilot_overview, inputs=pilot,
-                outputs=[po_subject, po_results, po_nb_out, po_af_out,
-                         po_perf_heading, po_perf_plot, po_perf_note],
-            )
+                outputs=[h2h_pilot_b_row, h2h_go, g_pilot_overview, g_pilot_head_to_head],
+            ).then)
+            # The second pilot draws nothing by being picked: it takes down a rivalry
+            # drawn for another pair, and opens or closes the Draw.
+            h2h_pilot_b.change(pilots_drawing, **pilots_drawing_io)
             _draw_with_progress(
                 h2h_go, draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
                 outputs=[h2h_subject, h2h_results, h2h_nb_out,
                          h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
-            )
+            ).then(fn=None, js=theme.into_view_js("pilot-head-to-head"))
 
         # The race sits after Pilots and asks the question that tab cannot: not how one
         # pilot did, but who the leading pilots were and when (#135). It is field-wide, so
@@ -4209,6 +4348,8 @@ def build_app(artifact: Path) -> gr.Blocks:
         # counts, the last-updated date from the artifact's stamp, and who to reach.
         # It replaces the retired Gradio footer (theme.py) with the app's own line.
         gr.HTML(_provenance_html(cov, built), padding=False)
+
+        demo.load(fn=None, js=theme.placeholders_js(placeholders))
 
     # The page is not told it runs on a Space. Gradio reads the Space's name from the
     # environment, and a page handed one asks huggingface.co about it so it can draw

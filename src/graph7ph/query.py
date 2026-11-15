@@ -1311,6 +1311,15 @@ def card_deck_counts(conn: ladybug.Connection) -> dict[str, int]:
     )))
 
 
+def land_cards(conn: ladybug.Connection) -> set[str]:
+    """The ``canon`` of every land in the catalogue. What the Cards tab's example
+    chips leave out (issue #328): lands are in nearly every deck, so the cards in the
+    most decks are lands, and one land's answer reads much like another's."""
+    return {canon for (canon,) in rows(conn.execute(
+        "MATCH (c:Card) WHERE c.type = $land RETURN c.canon", {"land": _LAND_TYPE}
+    ))}
+
+
 @dataclass(frozen=True)
 class Coverage:
     """The scope of the graph a visitor is looking at: how many of each entity it

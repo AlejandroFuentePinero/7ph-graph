@@ -311,21 +311,22 @@ def test_a_view_opens_with_no_prompt_cards_and_no_pick_and_draw_help_text(tmp_pa
     # on the subject dropdown either. Help text exists to change the reader's choice, and
     # "pick a pilot, then Draw" only restates the label and the Draw button beside it, so
     # it is deleted rather than shortened. The per-view results stack starts hidden, so
-    # nothing empty is drawn. The one `info` the app keeps is the Archetypes year's
-    # scope, which is a fact about the panel the control itself cannot give.
+    # nothing empty is drawn. The one scope the app states on a control is the
+    # Archetypes year's, a fact about the panel the control itself cannot give. It
+    # was the app's one help line until #328 put the controls on one row, where a
+    # line under the year's chips made that control taller than its neighbours: it
+    # is two words in the label now, and no control carries a help line at all.
     import gradio as gr
-    from graph7ph.app import _YEAR_SCOPE
+    from graph7ph.app import _YEAR_LABEL
 
     demo = _built_demo(tmp_path, snapshot_dir)
 
-    infos = {b.info for b in demo.blocks.values()
-             if isinstance(b, gr.Dropdown) and b.info}
-    assert infos == {_YEAR_SCOPE}
-    # No help text anywhere tells the reader to press the button next to it, or
-    # describes what the control does when changed (§14, #156).
-    for info in infos:
-        assert "Draw" not in info
-        assert "draws" not in info
+    controls = [b for b in demo.blocks.values()
+                if isinstance(b, (gr.Dropdown, gr.Radio, gr.Checkbox))]
+    assert controls and not [b.info for b in controls if b.info]
+    assert _YEAR_LABEL == "Year (landscape only)"
+    assert [b.label for b in _tab_blocks(demo, "Archetypes")
+            if isinstance(b, gr.Radio)] == [_YEAR_LABEL]
 
     # No result surface carries the old duplicated prompt text on open.
     surface = " ".join(
@@ -333,6 +334,65 @@ def test_a_view_opens_with_no_prompt_cards_and_no_pick_and_draw_help_text(tmp_pa
         if isinstance(b, (gr.Markdown, gr.HTML)) and b.value
     )
     assert "Pick an entity and filters, then Draw" not in surface
+
+
+def test_a_search_says_what_it_holds_and_how_many():
+    # Issue #328: an empty search field says what it searches and how many, with the
+    # count grouped as every other count on the page is.
+    from graph7ph.app import _search_placeholder
+
+    assert _search_placeholder(5514, "cards") == "Search 5,514 cards"
+    assert _search_placeholder(143, "archetypes") == "Search 143 archetypes"
+
+
+def test_cards_offers_its_most_run_spells_to_try_and_no_other_tab_offers_any(
+    tmp_path, snapshot_dir
+):
+    # AC (#328): Cards opens on two or three one-click examples, and Pilots on none,
+    # since an example there is a person put on show unasked. The examples are the
+    # cards in the most decks, lands left out, read here off the snapshot's own lists
+    # rather than the graph: every one of its three decks runs Badlands and
+    # Bloodstained Mire, which lead that list by name and are not offered.
+    import gradio as gr
+
+    index = json.loads((snapshot_dir / "cards_index.json").read_text())
+    running = Counter(i for lists in index["decks"].values()
+                      for i in {*lists["m"], *lists["s"]})
+    by_decks = sorted((-running[i], card["name"], card["type"])
+                      for i, card in enumerate(index["cards"]))
+    assert [(name, kind) for _, name, kind in by_decks[:3]] == [
+        ("Badlands", "Lands"), ("Baleful Strix", "Creatures"),
+        ("Bloodstained Mire", "Lands"),
+    ]
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+
+    def examples(tab):
+        return [b.value for b in _tab_blocks(demo, tab)
+                if isinstance(b, gr.Button) and "example-chip" in (b.elem_classes or [])]
+
+    assert examples("Cards") == ["Baleful Strix", "Brainstorm", "Cori-Steel Cutter"]
+    assert [examples(tab) for tab in ("Meta", "Archetypes", "Hidden gems", "Pilots",
+                                      "Player leaderboard", "FAQ")] == [[]] * 6
+
+
+def test_only_the_head_to_head_keeps_a_draw_and_it_opens_shut(tmp_path, snapshot_dir):
+    # AC (#328): a two-subject view keeps one action, disabled until both subjects
+    # are chosen, and nothing else in the app has a Draw to press. Read off the tree
+    # the app builds; what a pick then does to the button is the running page's to
+    # show (`tests/test_explorer_page.py`).
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    draws = {tab.label: [b for b in _tab_blocks(demo, tab.label)
+                         if isinstance(b, gr.Button) and b.value == DRAW_LABEL]
+             for tab in demo.blocks.values() if isinstance(tab, gr.Tab)}
+    assert {tab: len(buttons) for tab, buttons in draws.items()} == {
+        "Meta": 0, "Archetypes": 0, "Cards": 0, "Hidden gems": 0, "Pilots": 1,
+        "Player leaderboard": 0, "FAQ": 0,
+    }
+    (button,) = draws["Pilots"]
+    assert button.interactive is False
 
 
 def test_the_gem_view_takes_no_archetype(tmp_path, snapshot_dir):
@@ -462,7 +522,7 @@ def test_the_neighbourhood_explains_a_decided_placement_only_where_one_is_drawn(
 def test_a_drawn_neighbourhood_carries_the_decided_mark_and_its_legend(
     tmp_path, snapshot_dir
 ):
-    # AC (#199): the whole path, record to rendered card, through the app's own Draw
+    # AC (#199): the whole path, record to rendered card, through the app's own draw
     # rather than the two halves separately: a query that marks the rank and a header
     # that explains it still leave a reader with nothing if the two are never joined.
     # The fixture is copied with one deck's source placement removed, which is the real
@@ -480,10 +540,10 @@ def test_a_drawn_neighbourhood_carries_the_decided_mark_and_its_legend(
 
     demo = _built_demo(tmp_path / "app", tmp_path / "snapshot")
     draw = next(dep.fn for dep in demo.fns.values()
-                if getattr(dep.fn, "__name__", "") == "draw_pilot_overview")
-    # The Pilots Draw fans out to three plots; the neighbourhood graph is the third
+                if getattr(dep.fn, "__name__", "") == "draw_pilots")
+    # A pilot pick fans out to three plots; the neighbourhood graph is the third
     # value back (subject line, results stack, neighbourhood, ...).
-    card = draw("Jordan C")[2]["value"]
+    card = draw("pilot_overview", "Jordan C")[2]["value"]
 
     assert f"12th{numfmt.IMPUTED_MARK}" in card    # the rank reads as decided
     assert "a placement this project worked out" in card  # and the card says what that means
@@ -518,8 +578,10 @@ def test_the_too_large_state_refuses_in_one_line_through_the_shared_treatment():
     # AC (#114): the too-large-to-draw state (`_refine_alert`) speaks in one short line
     # in the app's voice through the shared on-theme treatment, not the old multi-
     # paragraph inline-styled div with a <ul> of suggestions. It states the count, the
-    # kind flooding the view, and what to do (narrow and Draw again), and shares the
-    # state class so it reads the same as every other state.
+    # kind flooding the view, and what to do (narrow the filters), and shares the
+    # state class so it reads the same as every other state. What to do is to narrow
+    # the filters and nothing more: since #328 a changed filter redraws by itself on
+    # every view that has one, so there is no Draw to send the reader back to.
     from graph7ph.explore import RenderPlan
     from graph7ph.app import _refine_alert
 
@@ -536,7 +598,8 @@ def test_the_too_large_state_refuses_in_one_line_through_the_shared_treatment():
     assert "1,234" in msg            # the count, with a thousands separator
     assert "cards" in msg            # names the kind flooding the view
     assert "250" in msg              # the draw limit
-    assert "Draw" in msg             # says what to do
+    assert "Narrow the filters" in msg  # says what to do
+    assert "Draw" not in msg         # and names no button: most views have none now
 
 
 def test_the_subject_is_stated_once_and_escaped():
@@ -1529,9 +1592,16 @@ def test_a_draw_says_it_is_running_and_comes_back_even_when_the_query_fails():
     assert button.chain.index(before) < button.chain.index(ran) < button.chain.index(after)
     assert before[2]["outputs"] is button and after[2]["outputs"] is button
 
-    busy, idle = before[1](), after[1]()
+    busy, idle = before[1](), after[1]("the subject")
     assert busy["value"] == DRAWING_LABEL and busy["interactive"] is False
     assert idle["value"] == DRAW_LABEL and idle["interactive"] is True
+    # It comes back open only if everything it draws from is still chosen (#328): it
+    # reads the query's own inputs as they stand once the answer is in, so a pilot
+    # cleared while a rivalry was drawing does not leave a Draw to press with one
+    # missing.
+    assert after[2]["inputs"] == ["the subject"]
+    still_shut = after[1]("one pilot", None)
+    assert still_shut["value"] == DRAW_LABEL and still_shut["interactive"] is False
     # The two labels have to differ, or the "progress" is invisible.
     assert DRAW_LABEL != DRAWING_LABEL
     # The button comes back through `then`, not `success`: a query that raises must not
@@ -2722,14 +2792,14 @@ def test_the_archetypes_tab_follows_meta_as_one_view_drawn_on_open(tmp_path, sna
 
 
 def test_the_year_selector_offers_every_year_and_opens_on_the_latest(tmp_path, snapshot_dir):
-    # AC (#145): the year is a dropdown over every year in the data, defaulting to the
+    # AC (#145): the year is a selector over every year in the data, defaulting to the
     # latest, read from the graph rather than pinned. The fixture holds 2025 alone, so
-    # the assertion is against the years the graph actually has.
+    # the assertion is against the years the graph actually has. A row of chips since
+    # #328, where it was a dropdown.
     import gradio as gr
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
-    (year,) = [b for b in _tab_blocks(demo, "Archetypes")
-               if isinstance(b, gr.Dropdown) and b.label == "Year"]
+    (year,) = [b for b in _tab_blocks(demo, "Archetypes") if isinstance(b, gr.Radio)]
 
     offered = [value for _, value in year.choices]
     assert offered == sorted(offered, reverse=True)  # newest first, the reader's default
@@ -2757,12 +2827,12 @@ def test_a_year_too_thin_for_a_landscape_refuses_on_the_surface(tmp_path, snapsh
 def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
     # AC (#145): with no Draw button, the year selector is what re-draws the chart, so
     # the wiring is the feature. Asserted on the built app's own event table: some
-    # event takes the year dropdown as its input and writes the landscape's plot.
+    # event takes the year selector as its input and writes the landscape's plot.
     import gradio as gr
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Archetypes")
-    (year,) = [b for b in inside if isinstance(b, gr.Dropdown) and b.label == "Year"]
+    (year,) = [b for b in inside if isinstance(b, gr.Radio)]
     # The scatter is the first of the tab's two plots; the timeline below it (#151)
     # has its own selectors and is deliberately not wired to the year.
     plot, _timeline = [b for b in inside if isinstance(b, gr.Plot)]
@@ -2821,13 +2891,16 @@ def test_the_subject_controls_ship_their_choices_without_the_api_schema(tmp_path
     demo = _built_demo(tmp_path, snapshot_dir)
     config = demo.get_config_file()
     by_id = {c["id"]: c for c in config["components"]}
-    drops = [b for b in demo.blocks.values() if isinstance(b, gr.Dropdown)]
+    quiet = [b for b in demo.blocks.values() if isinstance(b, gr.Dropdown)]
+    documented = [b for b in demo.blocks.values() if isinstance(b, gr.Radio)]
 
-    quiet = [b for b in drops if b.skip_api]
-    documented = [b for b in drops if not b.skip_api]
-    # The opt-out is the narrow one it claims to be: the data pickers, not every dropdown.
-    # Were it a blanket switch, or were it silently off, one of these would be empty.
-    assert quiet and documented
+    # The opt-out is the narrow one it claims to be: the data pickers, not every
+    # control with choices. Since #328 the data pickers are the only dropdowns left
+    # (the seven searches), and the small options are chip selectors, which keep
+    # their schema. Were the opt-out silently off, or a switch on more than the
+    # dropdowns, one of the two halves below would fail.
+    assert len(quiet) == 7 and all(b.skip_api for b in quiet)
+    assert documented and not any(b.skip_api for b in documented)
 
     for b in quiet:
         entry = by_id[b._id]
@@ -2919,9 +2992,8 @@ def test_the_timeline_sits_under_the_scatter_and_draws_off_its_own_two_selectors
 
     demo = _timeline_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Archetypes")
-    dropdowns = [b for b in inside if isinstance(b, gr.Dropdown)]
-    (year,) = [b for b in dropdowns if b.label == "Year"]
-    picks = [b for b in dropdowns if b.label != "Year"]
+    (year,) = [b for b in inside if isinstance(b, gr.Radio)]
+    picks = [b for b in inside if isinstance(b, gr.Dropdown)]
     _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
 
     # Only the clear buttons on the archetype pickers, never a Draw.

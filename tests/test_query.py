@@ -25,6 +25,7 @@ from graph7ph.query import (
     deck_points,
     gem_archetypes,
     hidden_gems_subgraph,
+    land_cards,
     pilot_affinity_subgraph,
     pilot_subgraph,
     run_query,
@@ -1812,3 +1813,18 @@ def test_a_card_on_both_boards_is_one_deck_and_a_card_nobody_runs_is_none(
     conn = built_graph(tmp_path, tmp_path)
 
     assert card_deck_counts(conn) == {"sol ring": 2, "unplayed": 0}
+
+
+def test_the_lands_are_named_whether_or_not_a_deck_runs_them(tmp_path, built_graph):
+    # What keeps the Cards tab's example chips off the lands (#328): the eight cards
+    # in the most decks of the record are all fetch lands, and three of those would
+    # be one example three times. Read off the catalogue's own typing.
+    _write_snapshot(
+        tmp_path,
+        [{"id": "one", "tag": "a", "norm": 0.1, "m": ["island", "ponder"], "s": []}],
+        ["island", "ponder", "unplayed land", "unplayed spell"],
+        lands={"island", "unplayed land"},
+    )
+    conn = built_graph(tmp_path, tmp_path)
+
+    assert land_cards(conn) == {"island", "unplayed land"}

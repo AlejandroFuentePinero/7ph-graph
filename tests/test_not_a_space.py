@@ -69,7 +69,8 @@ def test_a_page_served_from_a_space_asks_no_other_host_for_anything(
             assert elsewhere == []
             # Drawn is not enough: the page still gets an answer from the app.
             with page.expect_response(lambda response: "/queue/join" in response.url) as asked:
-                page.get_by_label("Top 75%").check()
+                # The chip, as a reader takes it: its radio mark is not drawn (#328).
+                page.get_by_text("Top 75%", exact=True).click()
             assert asked.value.ok
             assert thrown == []
             engine.close()
