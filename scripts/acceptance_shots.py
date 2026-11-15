@@ -151,19 +151,44 @@ def pick(page: Page, label: str, text: str) -> None:
     raise SystemExit(f"No option starting with {text!r} for {label!r}")
 
 
-def draw(page: Page, settle: int = 6000) -> None:
-    """Press the visible Draw, wait for the answer, and let it settle.
+def chip(page: Page, label: str, text: str) -> None:
+    """Take one chip of the visible chip selector carrying ``label``.
 
-    Waited for rather than slept through: a view's results are hidden until its
-    callback returns, so their appearing is the signal the query is done, and a fixed
-    sleep is a guess that comes up short exactly when the machine is busy. The settle
-    on top is for what happens after the DOM lands: a graph stabilising its physics
-    layout, and Plotly laying out on its own frame.
+    The small options (View, Board, Year, Cards to show) are chips since #328, as
+    the Meta cut always was: a group of radio marks, each inside the label a reader
+    clicks."""
+    group = page.locator("fieldset").filter(
+        has=page.locator(f'span[data-testid="block-info"]:text-is("{label}")')
+    ).locator("visible=true")
+    if not group.count():
+        raise SystemExit(f"No visible chips labelled {label!r}")
+    group.first.locator("label").filter(
+        has=page.get_by_text(text, exact=True)).click()
+    wait(page, 400)
+
+
+def drawn(page: Page, settle: int = 6000) -> None:
+    """Wait for the answer to the last pick, and let it settle.
+
+    A pick draws since #328, with no button between it and the answer. Waited for
+    rather than slept through: a view's results are hidden until its callback
+    returns, so their appearing is the signal the query is done, and a fixed sleep is
+    a guess that comes up short exactly when the machine is busy. The settle on top
+    is for what happens after the DOM lands: a graph stabilising its physics layout,
+    and Plotly laying out on its own frame.
     """
-    page.get_by_role("button", name="Draw", exact=True).locator("visible=true").first.click()
     page.locator(".results-stack, .insight-card").locator("visible=true").first.wait_for(
         timeout=60_000)
     wait(page, settle)
+
+
+def draw(page: Page, settle: int = 6000) -> None:
+    """Press the visible Draw, wait for the answer, and let it settle.
+
+    The head-to-head's, the one view that keeps a Draw: it needs two pilots, so
+    picking the first cannot draw it."""
+    page.get_by_role("button", name="Draw", exact=True).locator("visible=true").first.click()
+    drawn(page, settle)
 
 
 def click_a_node(page: Page) -> None:
@@ -249,14 +274,14 @@ def recipes() -> list[Shot]:
     def cards_overview(page):
         tab(page, "Cards")
         pick(page, "Card", CARD)
-        draw(page)
+        drawn(page)
 
     def cards_cooccurrence(page):
         tab(page, "Cards")
         pick(page, "Card", CARD)
-        pick(page, "View", "Co-occurrence")
+        chip(page, "View", "Co-occurrence")
         pick(page, "Second card (optional)", CARD_B)
-        draw(page)
+        drawn(page)
 
     def gems(page):
         # Nothing to pick and nothing to draw since #184: the tab renders the whole
@@ -269,20 +294,21 @@ def recipes() -> list[Shot]:
 
     def pilots_running(page):
         tab(page, "Pilots")
-        pick(page, "Pilot", PILOT)
         # Held open with a second of emulated latency, since the shot is of the app
         # mid-query and a local query answers faster than a screenshot can be taken.
         # The latency is the reader's connection, not the app: the state photographed
         # is the one a phone on a slow network actually sits in.
         throttle(page, 1000)
-        page.get_by_role("button", name="Draw", exact=True).locator(
-            "visible=true").first.click()
-        wait(page, 900)
+        pick(page, "Pilot", PILOT)
+        # Waited for, not slept through: the line is itself an answer from the app,
+        # so it is a round trip behind the pick.
+        page.locator(".t-state", has_text="Drawing…").locator("visible=true").wait_for(
+            timeout=15_000)
 
     def pilots_overview(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT)
-        draw(page, settle=8000)
+        drawn(page, settle=8000)
 
     def pilots_node_details(page):
         pilots_overview(page)
@@ -291,26 +317,26 @@ def recipes() -> list[Shot]:
     def pilots_thin_history(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT_THIN)
-        draw(page)
+        drawn(page)
 
     def pilots_head_to_head(page):
         tab(page, "Pilots")
+        chip(page, "View", "Head-to-head")
         pick(page, "Pilot", PILOT_RIVAL)
-        pick(page, "View", "Head-to-head")
         pick(page, "Second pilot (required)", PILOT_B)
         draw(page, settle=8000)
 
     def pilots_same_pilot(page):
         tab(page, "Pilots")
+        chip(page, "View", "Head-to-head")
         pick(page, "Pilot", PILOT_RIVAL)
-        pick(page, "View", "Head-to-head")
         pick(page, "Second pilot (required)", PILOT_RIVAL)
         draw(page, settle=3000)
 
     def pilots_never_met(page):
         tab(page, "Pilots")
+        chip(page, "View", "Head-to-head")
         pick(page, "Pilot", PILOT_RIVAL)
-        pick(page, "View", "Head-to-head")
         pick(page, "Second pilot (required)", PILOT_STRANGER)
         draw(page, settle=6000)
 
@@ -330,12 +356,12 @@ def recipes() -> list[Shot]:
         Shot("archetypes-timeline", "Archetypes, one archetype's finishes over time", archetypes_timeline),
         Shot("archetypes-head-to-head", "Archetypes, two archetypes compared", archetypes_head_to_head),
         Shot("archetypes-refused", "Archetypes, a pair with no shared ranked event (refusal)", archetypes_refused),
-        Shot("cards-nothing-picked", "Cards, nothing picked yet", cards_nothing_picked),
+        Shot("cards-nothing-picked", "Cards, nothing picked yet: the examples to try", cards_nothing_picked),
         Shot("cards-overview", "Cards, a card's usage graph and adoption trend", cards_overview),
         Shot("cards-cooccurrence", "Cards, co-occurrence of a pair", cards_cooccurrence),
         Shot("gems-drawn", "Hidden gems, the whole format's gems, drawn on open", gems),
         Shot("pilots-nothing-picked", "Pilots, nothing picked yet", pilots_nothing_picked),
-        Shot("pilots-running", "Pilots, mid-query: progress while a Draw runs", pilots_running),
+        Shot("pilots-running", "Pilots, mid-query: progress while a pick draws", pilots_running),
         Shot("pilots-overview", "Pilots, a pilot's neighbourhood, affinity and performance", pilots_overview),
         Shot("pilots-node-details", "Pilots, a deck node clicked: the details panel and its Moxfield link", pilots_node_details),
         Shot("pilots-thin-history", "Pilots, a pilot with too little history to average (refusal)", pilots_thin_history),
@@ -352,7 +378,7 @@ def forced_recipes() -> list[Shot]:
     def too_large(page):
         tab(page, "Pilots")
         pick(page, "Pilot", PILOT)
-        draw(page, settle=3000)
+        drawn(page, settle=3000)
 
     return [
         Shot("forced-too-large", "Too large to draw, with the draw limit lowered to 20 nodes", too_large),

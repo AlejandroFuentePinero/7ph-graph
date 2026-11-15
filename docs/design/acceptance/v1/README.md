@@ -42,12 +42,12 @@ contrast pass and the findings further down are from the two-width run of #118.
 | `archetypes-timeline` | One archetype's finishes over time |
 | `archetypes-head-to-head` | Two archetypes compared on their shared events |
 | `archetypes-refused` | A pair never both ranked at one event: the refusal |
-| `cards-nothing-picked` | Cards before a pick: controls over empty ground |
+| `cards-nothing-picked` | Cards before a pick: the controls over three cards to try (empty ground, until #328) |
 | `cards-overview` | A card's usage graph and its adoption trend |
 | `cards-cooccurrence` | A pair's co-occurrence graph and both adoption lines |
 | `gems-drawn` | The whole format's gems, drawn on open |
 | `pilots-nothing-picked` | Pilots before a pick |
-| `pilots-running` | Mid-query: the progress feedback while a Draw runs |
+| `pilots-running` | Mid-query: the progress feedback while a pick draws (a Draw, until #328) |
 | `pilots-overview` | A pilot's neighbourhood, archetype affinity and performance |
 | `pilots-node-details` | A deck node clicked: the details panel and its Moxfield link |
 | `pilots-thin-history` | A pilot with too little history to average: the refusal |

@@ -14,6 +14,7 @@ so a token edited to an illegible value fails a test rather than a reader.
 
 import base64
 import html
+import json
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -440,15 +441,150 @@ def build_css() -> str:
 
 /* §13 control panel: the controls for a view read as one raised input surface, one
    step lighter than the cards below so it reads as more prominent, obviously the
-   place to drive from. */
+   place to drive from.
+
+   One row (#328). The panel was a stack of full-width rows, each control on a line
+   of its own whatever its size: 334px tall on Cards, with a Draw 1,174px wide. Its
+   controls now sit side by side on one line and wrap only where there is no room,
+   which on a phone is one control per line (below).
+
+   Gradio draws a group as two nested elements and lays the controls out in a
+   `.styler` inside the second, wrapping each run of form controls in a `.form` of
+   its own. The styler is the row. The forms are taken out of the layout so that
+   every control is an item of that one row, whichever form Gradio put it in. */
 .control-panel {{
   background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+  border-radius: 12px; padding: 0.6rem 1rem 0.8rem; margin-bottom: 1rem;
+  /* Every field, chip and button in the row is this tall, so they share a top and a
+     bottom edge. It is the height Gradio builds a dropdown's input at. */
+  --control-size: 38px;
 }}
+/* Lined up on their tops, so every label is on one line whatever is under it: the
+   focus search grows a line of picks at a time, and a row lined up on its bottoms
+   lifted that search's label above the chips' beside it. */
+.control-panel .styler {{
+  display: flex; flex-flow: row wrap; align-items: flex-start; gap: 0.6rem 1.25rem;
+  background: transparent;
+}}
+/* Cleared as well as taken out of the layout: Gradio fills a form with the border
+   colour, and though one that lays nothing out paints nothing, the acceptance
+   pass reads a text's ground off its ancestors' fills and took that one for it. */
+.control-panel .form {{ display: contents; background: transparent; }}
+/* A control is its label over its field, with no surface, edge or inset of its own:
+   the panel is the surface. Chips and buttons take the width of their words. */
+.control-panel .block {{
+  flex: 0 0 auto; width: auto; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none; overflow: visible;
+}}
+/* A label sits on the panel now, where it sat on its control's own darker surface.
+   The muted ink every other label takes is 4.23 on the panel's well, under the 4.5
+   of WCAG AA, so a label here takes the dim ink one step up, which is 7.2. */
+.control-panel span[data-testid="block-info"] {{
+  margin-bottom: 0.3rem; color: var(--text-dim);
+}}
+/* A chip: an option of a chip selector, or the one checkbox. The picked chip's fill,
+   edge and ink are the theme's (`dark_theme`). */
+.control-panel .block .wrap {{ gap: 0.4rem; }}
+.control-panel fieldset.block label, .control-panel .checkbox-container {{
+  box-sizing: border-box; height: var(--control-size); padding: 0 0.75rem;
+  align-items: center;
+}}
+/* A chip selector's chips carry no radio mark. The mark costs 24px a chip. Measured
+   at 1440 on the Cards co-occurrence view, the row with the most in it: with the
+   marks the Card search is 222px beside View chips of 292px, so the subject's search
+   is not the widest thing in its row, and the second card's search is on its 160px
+   floor. Without them the two searches are 282px and 183px and the View chips 244px.
+   The picked chip is told apart by its fill, its edge and its ink. The mark stays in
+   the page for the keyboard and a screen reader, and the ring a focused mark would
+   wear is drawn on its chip instead. */
+.control-panel fieldset.block label input[type="radio"] {{
+  position: absolute; width: 0; height: 0; margin: 0; opacity: 0;
+}}
+.control-panel fieldset.block label input[type="radio"] + span {{ margin-left: 0; }}
+.control-panel fieldset.block label:has(input:focus-visible) {{
+  outline: 2px solid var(--accent-bright); outline-offset: 2px;
+}}
+/* The checkbox is a chip of the same kind, with its box kept: a lone chip has no
+   neighbours to be told apart from, so the box is what says it is on or off. */
+.control-panel .checkbox-container {{
+  display: flex; gap: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text-dim); font-size: 14px;
+}}
+.control-panel .checkbox-container:has(input:checked) {{
+  background: {_rgba(TOKENS["accent"], 0.14)}; border-color: {_rgba(TOKENS["accent"], 0.55)};
+  color: var(--accent-bright);
+}}
+.control-panel .checkbox-container .label-text {{ color: inherit; font-size: inherit; margin: 0; }}
+.control-panel button.primary {{
+  flex: 0 0 auto; width: auto; min-width: 5.5rem; height: var(--control-size);
+  padding: 0 1.1rem; font-size: 15px;
+}}
+/* The two controls with no label over them sit on the fields' line, not the labels'. */
+.control-panel button.primary, .control-panel .block:has(> .checkbox-container) {{
+  align-self: flex-end;
+}}
+/* A search takes the room that is left, and the subject's search (`.primary-control`,
+   the control everything else in a tab hangs off) twice the share of any other, so
+   it is the first and the widest thing in the row, and the row always runs out to
+   the panel's far edge. That is what marks it primary.
+   The class used to draw an accent edge down the field's left side and inset the
+   field from it; the edge had not been drawn since the move to Gradio 6, which left
+   the inset alone, and in a row the inset only put the first label off the panel's
+   edge. A search's input is a well in the panel, one hairline round it like a
+   chip's; the label sits on the panel. */
+.gradio-container .control-panel .row.clearable {{
+  flex: 1 1 12rem; width: auto; background: transparent; --clear-size: var(--control-size);
+}}
+.gradio-container .control-panel .row.clearable:has(.primary-control) {{ flex: 2 1 16rem; }}
+/* The second pilot of a head-to-head is a subject as much as the first: the view
+   needs both. While it is on show the two take even shares of the room, where the
+   first was 448px beside 266px for the second. */
+.gradio-container .control-panel:has(#second-pilot-search) .row.clearable {{
+  flex: 1 1 12rem;
+}}
+.control-panel .row.clearable .block {{ flex: 1 1 0; min-width: 0; }}
+.control-panel .row.clearable .container > .wrap {{
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--border);
+}}
+/* A search is the row's height whether it holds nothing, a name or a line of picks.
+   Gradio builds the several-pick field 39.6px tall empty and 47px with a pick in
+   it (a 35px token inside 6px of padding), against 38px for a single pick, so that
+   search stood 1.6px proud of the chips beside it and the panel grew 7px under the
+   reader on a first pick. A token here is 31px and the field's padding 3px, which
+   is 37px, and the field's floor is the row's height. The clear button beside it
+   stays the row's height with it, where it stepped up to the taller field. */
+.control-panel .row.clearable .wrap-inner {{
+  box-sizing: border-box; min-height: var(--control-size);
+  padding-top: 3px; padding-bottom: 3px;
+}}
+.control-panel .row.clearable .token {{ padding: 4px 10px; }}
+.gradio-container .control-panel .row.clearable:has(.token) {{
+  --clear-size: var(--control-size);
+}}
+/* The clear button's tint is over the panel's well too, where its resting ink is
+   4.29. It takes the bright accent, 5.5 there: the step up the picked chip already
+   takes for the same reason (`dark_theme`). */
+.gradio-container .control-panel .row.clearable .clear-btn {{
+  margin: 0; color: var(--accent-bright);
+}}
+.control-panel input::placeholder {{ color: var(--text-dim); opacity: 1; }}
 
-/* The subject is the control everything else in a tab hangs off, so it is marked
-   visually primary with an accent edge, distinct from the surrounding filters. */
-.primary-control {{ border-left: 3px solid var(--accent); padding-left: 0.75rem; }}
+/* The examples a tab offers before a first pick (#328): a quiet line under the
+   panel, each chip an unpicked chip of the panel's own, since taking one is a pick. */
+.gradio-container .row.examples {{
+  align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: -0.25rem 0 1rem;
+}}
+.gradio-container .row.examples > * {{ flex: 0 0 auto; width: auto; min-width: 0; }}
+.gradio-container .row.examples .example-chip {{
+  padding: 0.3rem 0.7rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text-dim); box-shadow: none;
+  font-size: 14px; font-weight: 400;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}}
+.gradio-container .row.examples .example-chip:hover {{
+  background: {_rgba(TOKENS["accent"], 0.08)}; border-color: {_rgba(TOKENS["accent"], 0.55)};
+  color: var(--accent-bright);
+}}
 
 /* A data control and its clear (×) button read as one field: the button on the input's
    own baseline (bottom-aligned, since the label and any help text push the input down),
@@ -532,7 +668,17 @@ def build_css() -> str:
 @media (max-width: 640px) {{
   .gradio-container .app {{ padding-left: 16px; padding-right: 16px; }}
   .insight-card {{ padding: 0.75rem 0.75rem 1rem; }}
-  .control-panel {{ padding: 0.75rem; }}
+  .control-panel {{ padding: 0.5rem 0.75rem 0.75rem; }}
+  /* The row stacks (#328): one control under another, each the width of the panel. */
+  .control-panel .styler {{ flex-flow: column nowrap; align-items: stretch; }}
+  .gradio-container .control-panel .row.clearable,
+  .gradio-container .control-panel .row.clearable:has(.primary-control),
+  .gradio-container .control-panel:has(#second-pilot-search) .row.clearable {{
+    flex: 0 0 auto;
+  }}
+  .control-panel button.primary, .control-panel .block:has(> .checkbox-container) {{
+    align-self: stretch;
+  }}
   /* The strip scrolls sideways here, and a tab cut at its edge is what says so
      (#172). At 390px the wider strip ended in the gap after the fourth tab, with
      nothing of the fifth on screen. Four pixels off each side of a tab puts the
@@ -884,4 +1030,67 @@ def preview_tags() -> str:
 # The frame lets the newly shown tab lay out first, or the measurement is still zero.
 RESIZE_PLOTS_JS = """
 () => { requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); }
+"""
+
+
+def placeholders_js(texts: dict[str, str]) -> str:
+    """The page script that gives each search field its placeholder (issue #328).
+
+    ``texts`` is the placeholder for each field, by the field's element id. Gradio's
+    dropdown has no placeholder of its own to set, so the text is written onto the
+    field's input once the page has loaded. A field that is hidden is not in the
+    page at all, and is built afresh each time its view is picked, so the page is
+    watched and a field is given its text whenever it arrives.
+    """
+    return f"""
+() => {{
+  const texts = {json.dumps(texts)};
+  const write = () => {{
+    for (const [id, text] of Object.entries(texts)) {{
+      const field = document.querySelector(`#${{id}} input`);
+      if (field && field.placeholder !== text) field.placeholder = text;
+    }}
+  }};
+  write();
+  new MutationObserver(write).observe(document.body, {{childList: true, subtree: true}});
+}}
+"""
+
+
+def into_view_js(*ids: str) -> str:
+    """The page script that brings a result into view once a pick has drawn it
+    (issue #328).
+
+    ``ids`` are the element ids a pick can draw into; the one on show is the result.
+    A focus archetype on Meta drew its chart 965px down a 900px window and an
+    archetype's timeline 1,330px down, so the pick looked like it had done nothing.
+
+    The page moves the least that shows the result: its top is brought up to the
+    middle of the window, and only when it starts below that or above the window. A
+    result that lands under its controls stays where it is. One that lands lower
+    comes up with whatever is above it, which on a phone is the stacked controls the
+    reader is still using: putting the result at the top of the window took them off
+    the screen, an open list of options with them.
+
+    The result is waited for, a frame at a time, because the step that runs this
+    follows the query and not the drawing of what it returned. A pick that draws
+    nothing (a cleared field) is given up on after two seconds. The move is smooth
+    unless the reader has asked for less motion.
+    """
+    return f"""
+() => {{
+  const ids = {json.dumps(ids)};
+  const until = performance.now() + 2000;
+  const look = () => {{
+    const result = ids.map(id => document.getElementById(id))
+      .find(el => el && el.getBoundingClientRect().height > 0);
+    if (!result) {{ if (performance.now() < until) requestAnimationFrame(look); return; }}
+    const top = result.getBoundingClientRect().top;
+    const middle = window.innerHeight / 2;
+    if (top >= 0 && top <= middle) return;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollBy({{top: top - middle, behavior: still ? 'auto' : 'smooth'}});
+  }};
+  requestAnimationFrame(look);
+}}
 """

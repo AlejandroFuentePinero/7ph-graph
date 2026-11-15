@@ -9,7 +9,7 @@ the fill is Gradio's markup and not the app's, so no test that reads the stylesh
 or the component tree can see it. These ask the running page.
 
 The explorer itself, over the suite's small snapshot, since the groups under test
-are the ones it nests and shows on a Draw. It is driven with the acceptance
+are the ones it nests and shows on a pick. It is driven with the acceptance
 screenshot script's own steps (``scripts/acceptance_shots.py``), so the script's
 reading of Gradio's controls is held here too: on the move to Gradio 6 it stopped at
 its first dropdown, and nothing said so until someone next ran it.
@@ -29,7 +29,7 @@ from graph7ph.build import build_graph
 from graph7ph.db import artifact_path, database_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
-from graph7ph.theme import FONTS, TOKENS
+from graph7ph.theme import FONTS, TOKENS, contrast_ratio
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -165,16 +165,19 @@ def test_only_a_card_or_the_control_panel_is_filled_with_the_border_colour(
 ):
     shots.tab(page, tab)
     if view:
-        shots.pick(page, "View", view)
-    for label, name in picks:
-        shots.pick(page, label, name)
+        shots.chip(page, "View", view)
 
-    # Before a Draw the view's group is empty, and should be no more than that.
+    # Before a pick the view's group is empty, and should be no more than that.
     assert _filled_with_the_border_colour(page) == []
 
-    shots.draw(page, settle=500)
+    for label, name in picks:
+        shots.pick(page, label, name)
+    # A pick draws; the head-to-head alone waits for its Draw.
+    if page.get_by_role("button", name="Draw", exact=True).locator("visible=true").count():
+        shots.draw(page, settle=500)
     # The results are on the page, so the second reading is of a drawn view.
     page.locator(".results-stack .insight-card").locator("visible=true").first.wait_for()
+    page.wait_for_timeout(500)
     assert _filled_with_the_border_colour(page) == []
 
 
@@ -293,7 +296,8 @@ def _walked(page, walk) -> list:
     for name, picks, charts in walk:
         shots.tab(page, name)
         for label, text in picks:
-            shots.pick(page, label, text)
+            # The view is a row of chips; everything else picked here is a search.
+            (shots.chip if label == "View" else shots.pick)(page, label, text)
         # A multiselect stays open after a pick, with its list over the chart below it.
         page.keyboard.press("Escape")
         if picks and page.get_by_role("button", name="Draw", exact=True).locator(
@@ -545,13 +549,20 @@ def test_one_slim_row_carries_the_mark_the_name_the_tabs_and_the_freshness(page)
 
 
 def test_the_first_result_on_meta_starts_high_on_a_desktop(page):
-    # AC (#327): at 1440 the first result card on Meta starts at or above 370px,
-    # from 454px under the three-row header.
+    # AC (#328): at 1440 the first result card on Meta starts at or above 240px.
+    # Under the three-row header it was 454px; the slim header (#327) brought it to
+    # 363px; the rest was the control panel, a stack of full-width rows 205px tall,
+    # now one row of 89px.
+    #
+    # The same AC asks for 320px at 390, or the position it does reach and what
+    # holds it lower. It reaches 372px (from 477px), which the design doc records
+    # with the reason, and which is not pinned here: a bound read off the page is
+    # the page grading itself.
     top = page.evaluate(
         "() => " + _OPEN_TAB + ".querySelector('.insight-card').getBoundingClientRect().top"
     )
 
-    assert top <= 370
+    assert top <= 240
 
 
 @pytest.mark.parametrize("tab", ["Pilots", "Player leaderboard"])
@@ -628,3 +639,512 @@ def test_a_phone_gets_tabs_a_finger_can_hit_and_a_chart_with_room(chromium, expl
     # on screen to read as one.
     assert len(cut_label_showing) == 1 and cut_label_showing[0] >= 20
     assert plot_area >= 260
+
+
+def _results_on_show(page):
+    """The cards of a drawn view on the open tab."""
+    return page.locator(".results-stack .insight-card").locator("visible=true")
+
+
+def _draw_buttons(page) -> int:
+    """How many Draw buttons the open tab shows."""
+    return page.get_by_role("button", name="Draw", exact=True).locator("visible=true").count()
+
+
+def test_picking_a_card_draws_it_with_no_button_press(page):
+    # Issue #328: on Meta and Archetypes a pick redrew at once, and on Cards nothing
+    # happened until a full-width Draw was pressed. The pick is the whole gesture
+    # now, so there is no button on the tab to press.
+    shots.tab(page, "Cards")
+    assert _draw_buttons(page) == 0
+
+    shots.pick(page, "Card", CARD)
+
+    _results_on_show(page).first.wait_for(timeout=20_000)
+    assert page.locator(".subject-line").locator("visible=true").inner_text() == f"Card {CARD}"
+
+
+def test_picking_a_pilot_draws_it_with_no_button_press(page):
+    # Issue #328, the other tab that waited on a Draw. One pilot is one subject, so
+    # the overview has no button either.
+    shots.tab(page, "Pilots")
+    assert _draw_buttons(page) == 0
+
+    shots.pick(page, "Pilot", PILOT)
+
+    _results_on_show(page).first.wait_for(timeout=20_000)
+    assert page.locator(".subject-line").locator("visible=true").inner_text() == f"Pilot {PILOT}"
+
+
+def _chips(page) -> dict[str, list[str]]:
+    """Each chip selector the open tab shows: its label, and the chips it offers."""
+    return page.evaluate(
+        "() => Object.fromEntries([..." + _OPEN_TAB + """.querySelectorAll('fieldset')]
+             .filter(group => group.getBoundingClientRect().height > 0
+                              && group.querySelector('input[type=radio]'))
+             .map(group => [
+               group.querySelector('[data-testid=block-info]').textContent.trim(),
+               [...group.querySelectorAll('label')].map(chip => chip.textContent.trim()),
+             ]))"""
+    )
+
+
+def _dropdown_labels(page) -> list[str]:
+    """The label of every dropdown the open tab shows."""
+    return page.evaluate(
+        "() => [..." + _OPEN_TAB + """.querySelectorAll('input[role=combobox]')]
+             .filter(box => box.getBoundingClientRect().height > 0)
+             .map(box => box.closest('.block').querySelector('[data-testid=block-info]')
+                            .textContent.trim())"""
+    )
+
+
+def test_the_small_options_are_chips_and_a_chip_redraws(page):
+    # Issue #328: View, Board, Year and Cards to show were each a dropdown on a row of
+    # its own, two clicks to change one of three values. Each is a row of chips, as
+    # the Meta cut always was, and only a search is left as a dropdown.
+    assert list(_chips(page).values()) == [["Top 25%", "Top 50%", "Top 75%"]]
+    assert _dropdown_labels(page) == ["Or focus on specific archetypes"]
+
+    shots.tab(page, "Archetypes")
+    (year, years), = _chips(page).items()
+    assert year.startswith("Year") and years and all(y.isdigit() for y in years)
+    assert _dropdown_labels(page) == ["Archetype", "Second archetype (optional)"]
+
+    shots.tab(page, "Pilots")
+    assert _chips(page) == {"View": ["Pilot overview", "Head-to-head"]}
+    assert _dropdown_labels(page) == ["Pilot"]
+
+    shots.tab(page, "Cards")
+    assert _chips(page) == {
+        "View": ["Card overview", "Co-occurrence"],
+        "Board": ["Main or side", "Main", "Side"],
+    }
+    assert _dropdown_labels(page) == ["Card"]
+
+    # With no button, a chip has to redraw what it changes: a filter, then the view.
+    captions = page.locator(".results-stack .t-caption").locator("visible=true")
+    shots.pick(page, "Card", CARD)
+    _results_on_show(page).first.wait_for(timeout=20_000)
+    shots.chip(page, "Board", "Side")
+    captions.filter(has_text="Side board").wait_for(timeout=20_000)
+    shots.chip(page, "View", "Co-occurrence")
+    page.locator(".results-stack .t-result-title", has_text="Co-occurrence").locator(
+        "visible=true").wait_for(timeout=20_000)
+    shots.chip(page, "Cards to show", "5")
+    captions.filter(has_text="top 5").wait_for(timeout=20_000)
+    assert _chips(page) == {
+        "View": ["Card overview", "Co-occurrence"],
+        "Cards to show": ["5", "15", "25"],
+    }
+    assert _dropdown_labels(page) == ["Card", "Second card (optional)"]
+
+
+def test_the_head_to_head_keeps_one_draw_that_waits_for_both_pilots(page):
+    # Issue #328: a rivalry needs two pilots, so the first pick cannot draw it and
+    # this is the one view that keeps a Draw. It used to take a press with a pilot
+    # missing, and answered with nothing; now it takes none until both are chosen.
+    shots.tab(page, "Pilots")
+    shots.chip(page, "View", "Head-to-head")
+    button = page.get_by_role("button", name="Draw", exact=True).locator("visible=true")
+    assert button.count() == 1 and button.is_disabled()
+
+    shots.pick(page, "Pilot", PILOT)
+    shots.wait(page, 1500)
+    assert button.is_disabled()
+    assert _results_on_show(page).count() == 0
+
+    shots.pick(page, "Second pilot (required)", PILOT_B)
+    shots.wait(page, 500)
+    assert button.is_enabled()
+    button.click()
+    _results_on_show(page).first.wait_for(timeout=20_000)
+    assert page.locator(".subject-line").locator("visible=true").inner_text() == (
+        f"Head-to-head {PILOT} vs {PILOT_B}"
+    )
+
+    # Taking a pilot away takes the rivalry down and closes the Draw again.
+    page.locator("button.clear-btn").locator("visible=true").last.click()
+    shots.wait(page, 1000)
+    assert button.is_disabled()
+    assert _results_on_show(page).count() == 0
+
+
+def _placeholders(page) -> dict[str, str]:
+    """The placeholder of every search the open tab shows, by the search's label."""
+    return page.evaluate(
+        "() => Object.fromEntries([..." + _OPEN_TAB + """.querySelectorAll('input[role=combobox]')]
+             .filter(box => box.getBoundingClientRect().height > 0)
+             .map(box => [box.closest('.block').querySelector('[data-testid=block-info]')
+                             .textContent.trim(), box.placeholder]))"""
+    )
+
+
+# Every search in the app: its tab, the chip that brings it on screen where it is
+# not there on open, its label, and what it searches.
+SEARCHES = [
+    ("Meta", None, "Or focus on specific archetypes", "archetypes"),
+    ("Archetypes", None, "Archetype", "archetypes"),
+    ("Archetypes", None, "Second archetype (optional)", "archetypes"),
+    ("Cards", None, "Card", "cards"),
+    ("Cards", "Co-occurrence", "Second card (optional)", "cards"),
+    ("Pilots", None, "Pilot", "pilots"),
+    ("Pilots", "Head-to-head", "Second pilot (required)", "pilots"),
+]
+
+
+def test_every_search_says_what_it_searches_and_how_many(page):
+    # Issue #328: no search field said anything, so an empty box was all that
+    # invited a first pick. Each says what it holds and how many. The count is
+    # graded against what the field itself offers, read off the page's own
+    # description of its controls. And the words are all there is: no placeholder
+    # names a pilot, since nobody should open the page to find themselves on it.
+    offered = page.evaluate(
+        "() => Object.fromEntries(window.gradio_config.components"
+        ".filter(control => control.type === 'dropdown')"
+        ".map(control => [control.props.label, control.props.choices.length]))"
+    )
+
+    found = {}
+    for tab, view, label, _ in SEARCHES:
+        shots.tab(page, tab)
+        if view:
+            shots.chip(page, "View", view)
+        found[label] = _placeholders(page)[label]
+
+    assert found == {
+        label: f"Search {offered[label]:,} {things}" for _, _, label, things in SEARCHES
+    }
+
+
+def _example_chips(page):
+    """The example chips the open tab offers."""
+    return page.locator(".examples button").locator("visible=true")
+
+
+def test_cards_opens_on_examples_that_draw_in_one_click_and_pilots_offers_none(page):
+    # Issue #328: Cards opened as an empty box over empty ground. It offers two or
+    # three cards to try, and one click on a chip is a pick like any other. Pilots
+    # offers none, because an example there is a person put on show unasked.
+    shots.tab(page, "Cards")
+    names = _example_chips(page).all_inner_texts()
+    assert 2 <= len(names) <= 3
+
+    _example_chips(page).first.click()
+    _results_on_show(page).first.wait_for(timeout=20_000)
+    assert page.locator(".subject-line").locator("visible=true").inner_text() == (
+        f"Card {names[0]}"
+    )
+    assert shots.field(page, "Card").input_value() == names[0]
+    # An invitation to a first pick, so it leaves once there is one, and is back
+    # when the card is cleared.
+    assert _example_chips(page).count() == 0
+    page.locator("button.clear-btn").locator("visible=true").first.click()
+    _example_chips(page).first.wait_for()
+    assert _example_chips(page).all_inner_texts() == names
+
+    shots.tab(page, "Pilots")
+    assert _example_chips(page).count() == 0
+    assert page.locator(".examples").locator("visible=true").count() == 0
+
+
+def _controls(page) -> list[dict]:
+    """The box of every control in the open tab's control panel, in page order: a
+    field with its label, or a button that acts. A field's clear button is part of
+    the field."""
+    return page.evaluate(
+        "() => [..." + _OPEN_TAB + """.querySelector('.control-panel')
+               .querySelectorAll('.block, button.primary')]
+             .filter(control => control.getBoundingClientRect().height > 0)
+             .map(control => { const box = control.getBoundingClientRect();
+               const label = control.querySelector('[data-testid=block-info]');
+               return {name: (label || control).textContent.trim(),
+                       search: !!control.querySelector('input[role=combobox]'),
+                       label: label ? label.getBoundingClientRect().top : null,
+                       top: box.top, bottom: box.bottom, left: box.left,
+                       right: box.right, width: box.width}; })"""
+    )
+
+
+def _panel(page) -> dict:
+    """The open tab's control panel: its height, and how far short of the row's far
+    edge its last control stops."""
+    return page.evaluate(
+        "() => { const panel = " + _OPEN_TAB + """.querySelector('.control-panel');
+            const row = panel.querySelector('.styler').getBoundingClientRect();
+            const ends = [...panel.querySelectorAll('.block, button')]
+              .map(control => control.getBoundingClientRect())
+              .filter(box => box.height > 0).map(box => box.right);
+            return {height: panel.getBoundingClientRect().height,
+                    short: row.right - Math.max(...ends)}; }"""
+    )
+
+
+def _label_lines(controls: list[dict]) -> set[float]:
+    """The lines the controls' labels are set on, as tops to a tenth of a pixel. A
+    button and the one checkbox carry no label."""
+    return {round(c["label"], 1) for c in controls if c["label"] is not None}
+
+
+# Every state of every control panel: the tab, and the chip that turns it to its
+# other view.
+PANELS = [
+    ("Meta", None), ("Archetypes", None),
+    ("Cards", None), ("Cards", "Co-occurrence"),
+    ("Pilots", None), ("Pilots", "Head-to-head"),
+]
+
+
+def _assert_every_panel_is_one_row(page) -> None:
+    """Every state of every control panel, as one row: side by side on one line,
+    the subject's search the widest thing in it, a button the width of its label."""
+    for tab, view in PANELS:
+        shots.tab(page, tab)
+        if view:
+            shots.chip(page, "View", view)
+        controls = _controls(page)
+        state = f"{tab} {view or ''}"
+
+        assert len(controls) >= 2, state
+        # One row: a line across the page passes through every control.
+        assert max(c["top"] for c in controls) < min(c["bottom"] for c in controls), state
+        # Side by side, none over another.
+        for before, after in zip(controls, controls[1:]):
+            assert before["right"] <= after["left"], state
+        # To within half a pixel: two searches on even shares come out a sixty-fourth
+        # of a pixel apart where the browser's layout rounds them so.
+        subject = next(c for c in controls if c["search"])
+        assert subject["width"] == pytest.approx(
+            max(c["width"] for c in controls), abs=0.5), state
+        # The labels on one line, and the row run out to the panel's far edge: a
+        # search takes the room that is left, so no row stops short of it.
+        assert len(_label_lines(controls)) == 1, state
+        assert _panel(page)["short"] <= 1, state
+        for button in (c for c in controls if c["name"] == "Draw"):
+            assert button["width"] <= 120, state
+
+
+@pytest.mark.parametrize("width", ["desktop", "wide"])
+def test_each_tabs_controls_are_one_row_on_a_desktop(chromium, explorer, width):
+    # Issue #328: the control panel was a stack of full-width rows, 334px tall on
+    # Cards, with a Draw 1,174px wide at 1440. Each tab's controls are one row: the
+    # subject's search the widest thing in it, chips at the width of their words,
+    # and a button the width of its label.
+    page = _loaded(chromium, explorer, width)
+    try:
+        _assert_every_panel_is_one_row(page)
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("width", ["desktop", "wide"])
+def test_each_tabs_controls_are_one_row_on_the_real_record(chromium, record, width):
+    # The same row with the record's own words in it: four years of chips, and a
+    # cut that names its year.
+    page = _loaded(chromium, record, width)
+    try:
+        _assert_every_panel_is_one_row(page)
+    finally:
+        page.close()
+
+
+def test_focusing_an_archetype_leaves_the_meta_row_on_its_line(page):
+    # The maintainer's look at #328: the focus search was 1.6px taller than the cut's
+    # chips and 9px taller once it held a pick, and the row lined its controls up on
+    # their bottoms, so the search's label sat above the chips' and the panel grew
+    # under the reader on a first pick.
+    empty = _panel(page)["height"]
+
+    shots.pick(page, "Or focus on specific archetypes", "Grixis")
+    page.keyboard.press("Escape")
+    _card_titled(page, "Selected archetypes").wait_for(timeout=30_000)
+
+    assert len(_label_lines(_controls(page))) == 1
+    assert _panel(page)["height"] == empty
+
+
+def test_a_head_to_head_searches_its_two_pilots_in_fields_of_one_size(page):
+    # The maintainer's look at #328: the first pilot's search was 448px and the
+    # second's 266px. The two pilots of a rivalry are peers, and between them they
+    # still take the room the row has left.
+    shots.tab(page, "Pilots")
+    shots.chip(page, "View", "Head-to-head")
+
+    first, second = (c["width"] for c in _controls(page) if c["search"])
+    assert first == pytest.approx(second, abs=0.5)
+
+
+def test_each_tabs_controls_stack_on_a_phone(chromium, explorer):
+    # The same row at 390px, where there is no room for it: one control under
+    # another, each the width of the panel.
+    page = _loaded(chromium, explorer, "phone")
+    try:
+        for tab, view in PANELS:
+            shots.tab(page, tab)
+            if view:
+                shots.chip(page, "View", view)
+            controls = _controls(page)
+            state = f"{tab} {view or ''}"
+
+            assert len(controls) >= 2, state
+            for before, after in zip(controls, controls[1:]):
+                assert before["bottom"] <= after["top"], state
+            assert max(c["right"] for c in controls) <= 390, state
+    finally:
+        page.close()
+
+
+def _settled_top(page, result) -> float:
+    """Where the top of ``result`` comes to rest in the window, once it is drawn
+    and the page has stopped moving."""
+    result.wait_for(timeout=30_000)
+    last = None
+    for _ in range(40):
+        page.wait_for_timeout(150)
+        top = result.bounding_box()["y"]
+        if top == last:
+            return top
+        last = top
+    raise AssertionError("the page never came to rest")
+
+
+def _card_titled(page, title: str):
+    """The card on show whose title is ``title``. Gradio draws a group as two nested
+    elements; the outer one is the card."""
+    return page.locator(".insight-card", has=page.locator(
+        ".t-result-title", has_text=title)).locator("visible=true").first
+
+
+def _in_view(page, top: float) -> bool:
+    """No lower than the middle of the window, give or take a pixel of rounding: a
+    result whose first pixel is at the window's foot is on screen and shows nothing."""
+    return 0 <= top <= page.viewport_size["height"] / 2 + 1
+
+
+def test_a_pick_brings_its_result_into_view(page):
+    # Issue #328, at 1440 by 900: a focus archetype on Meta drew its chart 965px
+    # down a 900px window, so the pick looked like it had done nothing. The page
+    # brings what a pick drew into view.
+    assert page.viewport_size == {"width": 1440, "height": 900}
+
+    shots.pick(page, "Or focus on specific archetypes", "Grixis")
+    page.keyboard.press("Escape")
+    focus = _card_titled(page, "Selected archetypes")
+    assert _in_view(page, _settled_top(page, focus))
+
+    subject = page.locator(".view-body", has=page.locator(".subject-line")).locator(
+        "visible=true").first
+    shots.tab(page, "Cards")
+    shots.pick(page, "Card", CARD)
+    assert _in_view(page, _settled_top(page, subject))
+
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    assert _in_view(page, _settled_top(page, subject))
+
+
+def test_a_pick_brings_its_result_into_view_on_the_real_record(chromium, record):
+    # The picks the suite's snapshot cannot draw: an archetype's timeline, which
+    # landed 1,330px down a 900px window, and a rivalry.
+    page = _loaded(chromium, record)
+    try:
+        shots.tab(page, "Archetypes")
+        shots.pick(page, "Archetype", shots.ARCHETYPE)
+        timeline = _settled_top(page, _card_titled(page, "Finishes over time"))
+
+        shots.tab(page, "Pilots")
+        shots.chip(page, "View", "Head-to-head")
+        shots.pick(page, "Pilot", shots.PILOT_RIVAL)
+        shots.pick(page, "Second pilot (required)", shots.PILOT_B)
+        page.get_by_role("button", name="Draw", exact=True).locator("visible=true").click()
+        rivalry = _settled_top(page, page.locator(
+            ".view-body", has=page.locator(".subject-line")).locator("visible=true").first)
+        in_view = [_in_view(page, timeline), _in_view(page, rivalry)]
+    finally:
+        page.close()
+
+    assert in_view == [True, True]
+
+
+def test_a_result_brought_into_view_on_a_phone_leaves_its_controls_on_screen(
+    chromium, explorer
+):
+    # Issue #328: at 390px the controls stack, so a card's result starts below the
+    # middle of the window and the page moves to show it. It moves the least that
+    # does: put at the top of the window, the result took the controls off the
+    # screen while the reader was still using them.
+    page = _loaded(chromium, explorer, "phone")
+    try:
+        shots.tab(page, "Cards")
+        shots.pick(page, "Card", CARD)
+        result = page.locator(".view-body", has=page.locator(".subject-line")).locator(
+            "visible=true").first
+        top = _settled_top(page, result)
+        in_view, moved = _in_view(page, top), page.evaluate("() => window.scrollY")
+        controls = _controls(page)
+    finally:
+        page.close()
+
+    # The page did move, and the result and every control are on the screen.
+    assert moved > 0
+    assert in_view
+    assert min(c["top"] for c in controls) >= 0
+
+
+def test_a_pick_says_it_is_drawing_while_its_query_runs(page):
+    # Issue #328: the Draw button used to say "Drawing…" while its query ran, and a
+    # pick has no button. The results are hidden until they are ready, so the word
+    # is a line of its own where they will land. Held open with a second of latency
+    # on the page's requests, as the acceptance script's mid-query shot is: a local
+    # query answers faster than the line can be seen.
+    shots.tab(page, "Pilots")
+    line = page.locator(".t-state", has_text="Drawing…").locator("visible=true")
+    assert line.count() == 0
+
+    shots.throttle(page, 1000)
+    try:
+        shots.pick(page, "Pilot", PILOT)
+        line.wait_for(timeout=10_000)
+        assert _results_on_show(page).count() == 0
+    finally:
+        shots.throttle(page, 0)
+
+    _results_on_show(page).first.wait_for(timeout=20_000)
+    line.wait_for(state="hidden", timeout=10_000)
+
+
+def _channels(colour: str) -> list[float]:
+    """A computed ``rgb()`` or ``rgba()`` colour as its numbers."""
+    return [float(n) for n in re.findall(r"[\d.]+", colour)]
+
+
+def _over(colour: str, ground: str) -> str:
+    """``colour`` as it is seen on an opaque ``ground``, as ``#rrggbb``."""
+    red, green, blue, *alpha = _channels(colour)
+    alpha = alpha[0] if alpha else 1.0
+    return "#" + "".join(
+        f"{round(top * alpha + under * (1 - alpha)):02x}"
+        for top, under in zip((red, green, blue), _channels(ground))
+    )
+
+
+@pytest.mark.parametrize("tab", ["Meta", "Archetypes", "Cards", "Pilots"])
+def test_what_sits_on_the_control_panel_is_legible_there(page, tab):
+    # Issue #328: a control used to carry a surface of its own, and its label and
+    # its clear button were read against that. In the row they sit on the panel,
+    # which is a step lighter: the label's muted ink measured 4.23 there and the
+    # clear button's 4.29, both under the 4.5 of WCAG AA. Read off the running page,
+    # since the ground a text ends up on is Gradio's markup as much as the app's.
+    shots.tab(page, tab)
+    panel, label, clear, clear_fill = page.evaluate(
+        "() => { const panel = " + _OPEN_TAB + """.querySelector('.control-panel');
+             const style = selector => getComputedStyle(panel.querySelector(selector));
+             return [getComputedStyle(panel).backgroundColor,
+                     style('[data-testid=block-info]').color,
+                     style('.clear-btn').color, style('.clear-btn').backgroundColor]; }"""
+    )
+
+    assert panel == _rgb(TOKENS["surface-2"])
+    assert contrast_ratio(_over(label, panel), _over(panel, panel)) >= 4.5
+    # The clear button's fill is a tint, so its ground is that tint over the panel.
+    assert contrast_ratio(_over(clear, panel), _over(clear_fill, panel)) >= 4.5
