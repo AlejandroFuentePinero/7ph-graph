@@ -714,14 +714,24 @@ def favicon_file() -> Path:
 def build_head() -> str:
     """The HTML injected into ``<head>`` at the ``gr.Blocks`` level (issue #115).
 
-    Replaces the default Gradio furniture on a shared link with the app's own: a real
-    favicon (the graph mark) and the Open Graph / Twitter card a preview unfurls from.
+    The favicon (the graph mark), in place of Gradio's. The preview card a shared link
+    unfurls from is not here: Gradio hands this head to the page's script, and a
+    preview fetcher runs no script, so the card is written into the page as it is
+    served instead (:func:`preview_tags`).
+    """
+    return f'<link rel="icon" href="{_favicon_data_uri()}">'
+
+
+def preview_tags() -> str:
+    """The Open Graph / Twitter card a shared link unfurls from (issues #115, #320).
+
+    The app's own, in place of Gradio's default furniture. ``serve`` writes it into
+    the page as served, which is the only copy a preview fetcher reads.
     No preview image yet (deferred): a ``summary`` card carries the title and
     description, which is the honest card to declare until a real image is authored.
     """
     title, desc = html.escape(_APP_TITLE), html.escape(_APP_DESCRIPTION)
     return "\n".join([
-        f'<link rel="icon" href="{_favicon_data_uri()}">',
         '<meta property="og:type" content="website">',
         f'<meta property="og:title" content="{title}">',
         f'<meta property="og:description" content="{desc}">',

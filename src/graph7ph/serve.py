@@ -20,6 +20,11 @@ The page shell is in the rule too. Every launch renders in the browser
 (``app.launch_kwargs``, ADR 0029), so the root embeds that same widget tree and is
 1,072 KB, or 223 KB compressed.
 
+The page shell is also where a shared link's preview card is read from, by a
+fetcher that runs no script. Gradio's template writes its own card there and
+delivers the app's ``head`` through the script, so the card is swapped in the
+page as it goes out (``_WriteOwnPreview``, issue #320).
+
 The event stream deliberately stays out. It is a chunked ``text/event-stream``,
 and compressing it risks buffering the incremental updates it exists to deliver,
 which is the very failure this was meant to make less likely.
@@ -30,13 +35,17 @@ it is served here as an ordinary asset instead, once, and cached (issue #97).
 """
 
 import hashlib
+import re
 from pathlib import Path
 
 import pyvis
 from gradio.brotli_middleware import BrotliMiddleware
+from starlette.datastructures import MutableHeaders
 from starlette.middleware import Middleware
 from starlette.responses import FileResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from graph7ph.theme import preview_tags
 
 # The page shell and the config. Every other endpoint is either small or already
 # covered by Gradio's own middleware.
@@ -104,16 +113,87 @@ class _ServeAssets:
         await FileResponse(path, headers=_CACHE_FOREVER)(scope, receive, send)
 
 
+# A preview tag as Gradio's page template writes them: a ``<meta>`` whose property
+# or name opens with ``og:`` or ``twitter:``. Nothing else in the page can match,
+# because the one part of it the app's data reaches is the config, and Gradio writes
+# that with every ``<`` escaped.
+_GRADIO_PREVIEW_TAG = re.compile(
+    rb"""<meta\b[^>]*\b(?:property|name)\s*=\s*["'](?:og|twitter):[^>]*>\s*"""
+)
+
+
+def _with_own_preview(page: bytes) -> bytes:
+    """The page with Gradio's preview tags gone and the app's card where the first
+    one stood.
+
+    There rather than at the end of the head, because the head also carries the
+    whole config: a megabyte a fetcher would have to read through to reach the card.
+    """
+    first = _GRADIO_PREVIEW_TAG.search(page)
+    if first is None:
+        # A template with no preview tags at all is one this was not written for:
+        # the page goes out as Gradio made it, and the suite says so (test_serve).
+        return page
+    kept, rest = page[: first.start()], page[first.start() :]
+    return kept + preview_tags().encode() + b"\n" + _GRADIO_PREVIEW_TAG.sub(b"", rest)
+
+
+class _WriteOwnPreview:
+    """Swap the preview card in the page shell, and pass everything else through.
+
+    A link pasted into a chat unfurls from the page as served, by a fetcher that
+    runs no script. Gradio's template writes two sets of preview tags of its own
+    there (title "Gradio", "Click to try out the app!", its image, its address) and
+    has no setting for them, while the ``head`` an app passes reaches the page only
+    through its script. So the page is held back, corrected and sent on (issue #320).
+    It is one response per visit, already built whole in memory by the template.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] != "/":
+            await self.app(scope, receive, send)
+            return
+        start: Message = {}
+        held: list[bytes] = []
+
+        async def hold(message: Message) -> None:
+            nonlocal start
+            if message["type"] == "http.response.start":
+                start = message
+            elif message["type"] == "http.response.body":
+                held.append(message.get("body", b""))
+                if message.get("more_body"):
+                    return
+                page = b"".join(held)
+                headers = MutableHeaders(raw=start["headers"])
+                if headers.get("content-type", "").startswith("text/html"):
+                    page = _with_own_preview(page)
+                    headers["content-length"] = str(len(page))
+                await send(start)
+                await send({"type": "http.response.body", "body": page})
+            else:
+                await send(message)
+
+        await self.app(scope, receive, hold)
+
+
 # Quality 4 is Gradio's own choice for the same middleware: most of the ratio for
 # a fraction of the CPU, which is what a free CPU-only Space has to spend.
 #
 # The assets are not compressed here: Gradio installs its own Brotli middleware
 # outside this one and its rule already covers a ``.js`` or ``.css`` path, so a
 # first download arrives compressed without a second pass over the same bytes.
+#
+# The preview card is swapped inside the compression, so what is compressed is the
+# page as corrected.
 APP_KWARGS = {
     "middleware": [
         Middleware(_CompressPageAndConfig, quality=4),
         Middleware(_ServeAssets),
+        Middleware(_WriteOwnPreview),
     ]
 }
 """Passed to ``Blocks.launch(app_kwargs=...)``, which forwards them to FastAPI."""

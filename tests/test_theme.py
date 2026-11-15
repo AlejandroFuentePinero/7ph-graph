@@ -119,31 +119,39 @@ def test_the_floating_component_label_over_a_plot_is_retired():
     assert rule and "display: none" in rule.group(1)
 
 
-def test_the_head_carries_a_real_favicon_and_social_preview():
-    # AC (#115): a real favicon and social preview replace the Gradio defaults. The
-    # head fragment carries our own icon as a self-hosted data URI (no external
-    # request, matching the embedded fonts), and the Open Graph / Twitter card meta a
-    # shared link unfurls from, so the link no longer wears Gradio's furniture.
+def test_the_head_carries_a_real_favicon():
+    # AC (#115): a real favicon replaces Gradio's. The head fragment carries our own
+    # icon as a self-hosted data URI (no external request, matching the embedded fonts).
     head = theme.build_head()
 
     icon = re.search(r"<link[^>]*rel=['\"]icon['\"][^>]*>", head)
     assert icon and "data:image/svg+xml" in icon.group(0)  # our own mark, self-hosted
 
-    assert re.search(r"property=['\"]og:title['\"]", head)
-
     # And the same mark exists as a file, because the head alone does not reach the
-    # browser in time on the Space: Gradio renders the shell there with its own
-    # /favicon.ico link already in it, and answers that route from favicon_path. A mark
-    # that lives only in the head is the one the Space wore Gradio's logo over.
+    # browser in time: Gradio hands it to the page's script, by which point the
+    # browser has asked for /favicon.ico, and that route is answered from
+    # favicon_path. A mark that lives only in the head is the one the Space wore
+    # Gradio's logo over.
     icon = theme.favicon_file()
     svg = icon.read_text()
     assert icon.suffix == ".svg"
     assert svg.count("<circle") == 3 and svg.count("<line") == 3  # the graph, not pips
     assert base64.b64encode(svg.encode()).decode() in head  # one mark, two carriers
-    assert re.search(r"property=['\"]og:description['\"]", head)
-    assert re.search(r"name=['\"]twitter:card['\"]", head)
-    # The preview names the tool, not "Gradio": the title carries the app's own name.
-    assert "7 Point Highlander" in head
+
+
+def test_the_preview_card_names_the_tool_and_not_gradio():
+    # AC (#115): the Open Graph / Twitter card a shared link unfurls from is the
+    # app's own. It is not part of the head (#320): a preview fetcher runs no script,
+    # and the head only reaches the page through one. `tests/test_serve.py` reads the
+    # card off the page as served, which is where it has to be.
+    card = theme.preview_tags()
+
+    assert "og:title" not in theme.build_head()
+    assert re.search(r"property=['\"]og:title['\"]", card)
+    assert re.search(r"property=['\"]og:description['\"]", card)
+    assert re.search(r"name=['\"]twitter:card['\"]", card)
+    assert "7 Point Highlander" in card
+    assert "gradio" not in card.lower()
 
 
 def test_every_token_is_declared_exactly_once_in_root():
