@@ -597,9 +597,9 @@ footer {{ display: none !important; }}
    block of chrome, and needs a media query to keep it off desktop. Scrolling costs
    nothing at any width (the first `.t-lede` stays at 210.1 on phone and 167.6 on desktop,
    and at 1440 scrollWidth equals clientWidth at 1216, so no scroll region exists there at
-   all). The hairline moves off Gradio's absolutely-positioned `::after` and onto the
-   strip's own border box, or it would scroll out from under the buttons with them;
-   `--border-color-primary` is bound to `--border` in `dark_theme`, so it is the same pixel.
+   all). The hairline is taken off Gradio's absolutely-positioned `::after`, which would
+   scroll out from under the buttons with them. It sat on the strip's own border box
+   until #327, and is now the header row's, drawn by the page's column (above).
 
    Every selector here is (0,4,1) or higher out of necessity, the trap the clearable row
    documents above: this stylesheet is emitted BEFORE Gradio's bundle and its own tab
