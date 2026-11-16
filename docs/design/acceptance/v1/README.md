@@ -36,12 +36,12 @@ contrast pass and the findings further down are from the two-width run of #118.
 
 | State | What it shows |
 |---|---|
-| `meta-default` | Meta, cold start: the app opens on a drawn chart, not an empty canvas |
-| `meta-focus` | Meta with two archetypes focused in the second card |
-| `archetypes-landscape` | The metagame landscape scatter for the latest year |
-| `archetypes-timeline` | One archetype's finishes over time |
-| `archetypes-head-to-head` | Two archetypes compared on their shared events |
-| `archetypes-refused` | A pair never both ranked at one event: the refusal |
+| `meta-default` | Metagame, cold start: the app opens on the share chart and, under it, the metagame landscape for the latest year (the landscape was `archetypes-landscape` until #332) |
+| `meta-focus` | Metagame with two archetypes focused in the second card |
+| `archetypes-nothing-picked` | Archetypes before a pick: the picker (added by #332) |
+| `archetypes-timeline` | One archetype's page: four tiles, its share over time and its finishes over time |
+| `archetypes-head-to-head` | Two archetypes compared on both charts |
+| `archetypes-refused` | A pair never both ranked at one event: the refusal, in the finishes card alone |
 | `cards-nothing-picked` | Cards before a pick: the controls over three cards to try (empty ground, until #328) |
 | `cards-overview` | A card's usage graph and its adoption trend |
 | `cards-cooccurrence` | A pair's co-occurrence graph and both adoption lines |

@@ -16,6 +16,9 @@ import pytest
 from graph7ph import numfmt
 from graph7ph.app import (
     _archetype_card,
+    _archetype_tiles,
+    _landscape_figure,
+    _landscape_top,
     _card_tiles,
     _drawn_card,
     _graph_list,
@@ -46,8 +49,15 @@ from graph7ph.query import (
 )
 from graph7ph.trends import (
     AdoptionCell,
+    LandscapeCell,
     Series,
+    SeriesCell,
+    archetype_landscape,
+    archetype_timeline,
+    archetypes_with_history,
     card_adoption_over_time,
+    latest_deck_year,
+    meta_share_over_time,
     pair_adoption_over_time,
 )
 
@@ -875,6 +885,140 @@ def test_the_gems_panel_is_the_gem_table_with_each_row_naming_its_gem():
     # The odds column says what it is the odds of, for a reader new to the page.
     assert header == ["Card", "Decks running it", "In top 20%", "Pilots", "Odds it is luck"]
     assert _named_rows(body) == ["card:lands:port"]
+
+
+# --- An archetype's page (issue #332) ---
+
+
+def _shares(*rows: tuple[str, int, int, int]) -> Series:
+    """A meta-share matrix from ``(tag, year, decks, decks that year)`` rows."""
+    return Series(cells=[
+        SeriesCell(tag=tag, archetype=tag.title(), year=year, n=n, share=n / total,
+                   year_total=total)
+        for tag, year, n, total in rows
+    ])
+
+
+def _landscape(year: int, total: int, *rows: tuple) -> Series:
+    """One year's landscape from ``(tag, decks, mean norm, scored decks, events,
+    better end, worse end)`` rows, the two ends being the mean's 90% interval."""
+    return Series(cells=[
+        LandscapeCell(tag=tag, archetype=tag.title(), year=year, n=n, share=n / total,
+                      year_total=total, year_events=9, mean_norm=mean, scored=scored,
+                      events=events, mean_low=low, mean_high=high)
+        for tag, n, mean, scored, events, low, high in rows
+    ])
+
+
+_SHARES = (
+    ("grixis", 2023, 5, 50), ("storm", 2023, 0, 50), ("lands", 2023, 0, 50),
+    ("zoo", 2023, 0, 50), ("jund", 2023, 9, 50),
+    ("grixis", 2024, 12, 200), ("storm", 2024, 30, 200), ("lands", 2024, 12, 200),
+    ("zoo", 2024, 3, 200), ("jund", 2024, 0, 200),
+)
+
+
+def test_an_archetypes_tiles_are_its_latest_years_share_rank_finish_and_events():
+    # Worked by hand. In 2024, the record's latest year, Grixis is 12 of 200 decks,
+    # which is 6%. Storm has more (30) and Lands as many (12), so Grixis is 2nd of the
+    # four archetypes played, level with one other. Its four scored decks, at two
+    # events, average 0.3 from the top: a finish of 0.70. The landscape puts that
+    # mean's 90% interval at 0.2 to 0.45, which flipped is 0.55 to 0.80, and no mean
+    # is stated without it (ADR 0013).
+    landscape = _landscape(
+        2024, 200,
+        ("grixis", 12, 0.3, 4, 2, 0.2, 0.45), ("storm", 30, 0.5, 20, 6, 0.4, 0.6),
+        ("lands", 12, 0.6, 9, 4, 0.5, 0.7), ("zoo", 3, None, 0, 0, None, None),
+    )
+
+    assert _facts(_archetype_tiles("grixis", _shares(*_SHARES), landscape)) == [
+        ("Share in 2024", "6%", "12 / 200 decks"),
+        ("Rank in 2024", "2nd", "of 4 archetypes by share, level with 1 other"),
+        ("Mean finish in 2024", "0.70", "90% range 0.55 to 0.80, 1 = first"),
+        ("Events in 2024", "2", "4 scored decks"),
+    ]
+    # Played that year and scored nowhere: a share and a rank, and no finish.
+    assert _facts(_archetype_tiles("zoo", _shares(*_SHARES), landscape))[1:] == [
+        ("Rank in 2024", "4th", "of 4 archetypes by share"),
+        ("Mean finish in 2024", "n/a", "No scored deck in 2024"),
+        ("Events in 2024", "0", "0 scored decks"),
+    ]
+
+
+def test_an_archetype_that_sat_the_latest_year_out_says_so_in_every_tile():
+    # 6 of the 137 archetypes the picker offers have no deck in the record's latest
+    # year, so the landscape holds no cell for them. The share is a real zero, and
+    # there is no rank or finish to state.
+    landscape = _landscape(2024, 200, ("grixis", 12, 0.3, 4, 2, 0.2, 0.45))
+    sat_out = [
+        ("Share in 2024", "0%", "0 / 200 decks"),
+        ("Rank in 2024", "n/a", "No deck in 2024"),
+        ("Mean finish in 2024", "n/a", "No scored deck in 2024"),
+        ("Events in 2024", "0", "0 scored decks"),
+    ]
+
+    assert _facts(_archetype_tiles("jund", _shares(*_SHARES), landscape)) == sat_out
+    # A year too thin to place on a landscape at all has no finish to state either.
+    assert _facts(_archetype_tiles("jund", _shares(*_SHARES), None)) == sat_out
+
+
+def test_every_archetypes_tiles_agree_with_the_landscape_and_its_timeline(live_graph):
+    # AC (#332): each tile agrees with the landscape and the timeline for the same
+    # archetype and year. Three readings of the record's latest year, each by a query
+    # of its own, for every archetype the picker offers. The tiles state the
+    # landscape's cell. The timeline is the second reading of the finish: that
+    # year's points, the events counted and the mean weighted by the decks each
+    # rests on. And where the landscape draws the archetype's dot, the tiles are the
+    # strings its hover prints and the ends of the bar it draws.
+    shares = meta_share_over_time(live_graph)
+    year = latest_deck_year(shares)
+    landscape = archetype_landscape(live_graph, year)
+    cells = {cell.tag: cell for cell in landscape.cells}
+    by_decks = sorted((cell.n for cell in cells.values()), reverse=True)
+    drawn = _landscape_top(landscape, 25)
+    dots = _landscape_figure(drawn).data[0]
+    printed = {cell.tag: (hover, score + up, score - down) for cell, hover, score, up, down
+               in zip(drawn, dots.customdata, dots.y, dots.error_y.array,
+                      dots.error_y.arrayminus)}
+    offered = archetypes_with_history(live_graph)
+
+    absent = 0
+    for _, tag, _ in offered:
+        share, rank, finish, events = _archetype_tiles(tag, shares, landscape)
+        points = [point for point in archetype_timeline(live_graph, tag).cells
+                  if point.date.year == year and point.mean_norm_a is not None]
+        scored = sum(point.decks_a for point in points)
+        assert events.value == str(len(points)), tag
+        assert events.note.split()[0] == str(scored), tag
+        if tag not in cells:
+            # No deck that year, so the landscape holds no cell and the timeline no
+            # point: there is nothing to agree with but the zero.
+            absent += 1
+            assert not points, tag
+            assert [share.value, rank.value, finish.value] == ["0%", "n/a", "n/a"], tag
+            continue
+        cell = cells[tag]
+        assert share.value == numfmt.share(cell.share), tag
+        assert share.note == f"{cell.n:,} / {cell.year_total:,} decks", tag
+        # Its place in the year's deck counts, most first: the first archetype on as
+        # many decks takes the rank for all of them.
+        assert rank.value.rstrip("stndrh") == str(by_decks.index(cell.n) + 1), tag
+        assert rank.note.startswith(f"of {len(cells)} archetypes by share"), tag
+        mean = sum(point.mean_norm_a * point.decks_a for point in points) / scored
+        assert finish.value == f"{1 - mean:.2f}", tag
+        if tag in printed:
+            (_, hover_share, hover_decks, hover_finish, hover_scored, hover_events), \
+                best, worst = printed[tag]
+            assert (share.value, share.note, finish.value, events.value) == (
+                hover_share, hover_decks, hover_finish, str(hover_events)), tag
+            assert events.note == f"{hover_scored} scored decks", tag
+            assert finish.note == f"90% range {worst:.2f} to {best:.2f}, 1 = first", tag
+
+    # Every branch graded: some archetypes sat the year out, every offered archetype
+    # with a deck that year was scored there, and every drawn dot of the landscape
+    # is an archetype the picker offers.
+    assert len(offered) > 100 and absent
+    assert set(printed) <= {tag for _, tag, _ in offered} and len(printed) == 25
 
 
 # --- The pages as the app draws them: each tab's own callback, over the fixture ---

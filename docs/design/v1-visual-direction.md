@@ -298,6 +298,9 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   collapse the two lines into one. The failure mode this section exists to prevent does
   not arise there either, since removing one of the two hides the chart rather than
   repainting a survivor. A later pass must not "fix" this into a bug._
+  _Amended 2026-11-16 (#332): the share chart on an archetype's page joins them. It
+  draws the page's one or two archetypes in slots 1 and 2, keyed by tag, so each is
+  the hue the finishes chart under it draws it in._
 - Two charts #172 checked and **closed with a reason rather than a change**: the card
   **adoption** chart's repaint is already dead (#126 capped it at the subject plus one
   card, so there is no non-tail pick to remove), and the **player leaderboard** chart has
@@ -455,6 +458,10 @@ controls (#328)"._
 | **Hidden gems** | rare cards crowding their own archetype's best decks (no controls) |
 | **Player leaderboard** | who the leading pilots are and how long the record took to say so (#135; no controls) |
 
+_Amended 2026-11-16 (#332): the Meta row is the **Metagame** tab and holds the
+landscape under the share chart, and Archetypes is one archetype's page. See "The
+field and the archetype (#332)"._
+
 - **Two archetype tabs, two reader questions.** Meta and Archetypes (#145) are both
   about archetypes, so each states the question that is its own: Meta answers "who is
   played, over time", Archetypes answers "who wins". Each tab's lede carries its
@@ -464,6 +471,10 @@ controls (#328)"._
   Pilots tab's Draw exists for the pyvis graphs. _Amended 2026-11-15 (#328): the
   pyvis graphs draw on a pick too. The one Draw left on Pilots is the head-to-head's,
   and it is there for the second pilot, not for the graph._
+  _Reversed 2026-11-16 (#332): the two tabs are no longer split by question ("who is
+  played" against "who wins"). They are cut by level: Metagame is the whole field,
+  share and finish both, and Archetypes is one archetype, share and finish both. See
+  "The field and the archetype (#332)"._
 - **Subject selected once.** The subject (a pilot, a card) is chosen at the tab
   level and reused across that tab's views, so a visitor picks a pilot once and
   moves between its views without re-selecting. Head-to-head, which needs two
@@ -497,7 +508,9 @@ holds meta share over time alone. The structure is seven tabs, **Pilots (2), Car
 Player leaderboard (1: the field-wide board, #135)**, plus the FAQ tab (#133), which
 carries no plot. The gems view itself is unchanged by the move (its query, archetype
 entry, and the `SliceTooSmall` refusal per ADR 0012 are intact); only its placement
-changed.
+changed. _Amended 2026-11-16 (#332): still seven tabs, now **Metagame (1: meta share
+and the landscape), Archetypes (1: one archetype's page)** in place of Meta and the
+landscape's Archetypes._
 
 _Decided 2026-07-29 (#172): the tab strip **scrolls sideways** on a narrow screen,
 and every one of the seven tabs renders on it. Measured at 390px the seven tabs need
@@ -527,6 +540,11 @@ header is one row or two. And the phone's page margin went from 32px to 16px, wh
 at 390px put the strip's edge in the gap after the fourth tab with nothing of the
 fifth showing, so a tab's side padding is 12px there (16px elsewhere) and the edge
 cuts the fifth tab's label again. The cut is still what says there is more._
+
+_Amended 2026-11-16 (#332): the first tab is "Metagame", 33px wider than "Meta". The
+header is one row from 1140px up, and a phone's tabs keep the 16px a side they have
+elsewhere, the edge at 390px cutting the fourth tab's label. See "The field and the
+archetype (#332)"._
 
 ---
 
@@ -599,7 +617,9 @@ click is carried by the surface, not by a label.
   `.control-panel`: fill `--surface-2` (the raised well token, one step lighter
   than the cards it sits above so it reads as more prominent, not less), 1px
   `--border`, `border-radius: 12px`, padding. It is visually separate from the
-  result cards by fill and by space. _Amended 2026-11-15 (#327): at 640px and under
+  result cards by fill and by space. _Amended 2026-11-16 (#332): Metagame has two.
+  The landscape's year is in a panel of its own directly over the landscape, since
+  it governs nothing above it. See "The field and the archetype (#332)"._ _Amended 2026-11-15 (#327): at 640px and under
   the padding is `0.75rem`, the inset the cards take there, so the panel's contents
   and the cards' stay on one edge._ _Amended 2026-11-15 (#328): the panel is one row
   of controls, and tighter for it: padding `0.6rem 1rem 0.8rem`, and at 640px and
@@ -669,6 +689,10 @@ and its on-surface methodology blocks.
   _Amended 2026-11-15 (#328): the year says it in its label, "Year (landscape
   only)". As a help line under the chips it made the year the one control in the
   row a line taller than the rest._
+  _Amended 2026-11-16 (#332): the year is labelled "Year" and states no scope. It
+  sits directly over the landscape, under the share charts, and its place says what
+  it governs. The timeline's caption still says "every year in the data", now
+  against the tiles over it, which are the latest year's._
 - **Plain English, short and direct** (#156). Every string reads at a glance:
   ordinary words, one idea per sentence, no jargon the surface has not already
   earned. The detail lives in the FAQ, expanded just enough to answer the question
@@ -724,7 +748,8 @@ carries a dated note pointing here.
   the data freshness on one 44px row, where the title, the strip and a heading
   repeating the open tab took three. The first result card on Meta starts at 363px at
   1440 (it was 454px) and at 477px at 390 (it was 593px). Below 1100px the strip takes
-  its own row under the name and the freshness (§11).
+  its own row under the name and the freshness (§11). _Amended 2026-11-16 (#332):
+  below 1140px, for a first tab 33px wider._
 - **The privacy note is one line.** Pilots and the player leaderboard carried the note
   in full above what they draw, 384px tall at 390px wide, which put the pilot picker
   at 697px of an 844px screen. It is one line there now (three on a phone, 72px, the
@@ -1056,3 +1081,93 @@ top-ranked pilots (47 nodes). The prototype is kept on the branch
   is unchanged at 1,245.5 KB. Each graph drawn is 5.8 KB heavier on the stream,
   which is not compressed: Brainstorm's usage graph is 56.9 KB of document, from
   51.1 KB.
+
+## The field and the archetype (#332)
+
+Decided 2026-11-16. Which tab answers what about archetypes, measured on the running
+app at 390, 1440 and 1920px before and after. It reverses the split #145 recorded
+(§11: Meta for "who is played", Archetypes for "who wins"), and four earlier
+statements carry dated notes pointing here: the tab table, the two-tabs bullet and
+the header's one-row width (§11), and the year's scope (§14).
+
+- **Why the split went.** To see how one archetype is doing took two tabs and two
+  picks: its share history on Meta under "focus on specific archetypes", and its
+  finishes on Archetypes, picked again. Both answers landed off screen (965px and
+  1,330px down a 900px window before #328 brought them into view), and no page
+  stated the archetype's headline numbers at all.
+- **Cut by level.** **Metagame** (the Meta tab, renamed) is the whole field: meta
+  share over time, then the metagame landscape. **Archetypes** is one archetype's
+  page, working like Cards and Pilots. Each tab now holds both questions, how much
+  and how well, at its own level.
+- **The year sits beside the landscape.** It governs the landscape alone, so it is
+  in a panel of its own directly over the landscape's card, under the share charts,
+  labelled "Year". In the tab's top panel it would have read as governing the share
+  chart too.
+- **An archetype's page.** Pick one and the page opens with its name, a descriptor
+  (the years it has a deck in) and four tiles, then a card each for its share over
+  time and its finishes over time. At 1440 the name is at 240px and the tiles at
+  315px, with no scroll; the finishes chart was the first thing a pick drew and
+  started 1,017px down.
+- **The tiles are the archetype's dot on the landscape, in numbers.** For the
+  record's latest year: its share of that year's decks (over the count pair), its
+  rank by share among the archetypes played, its mean finish, and the events that
+  finish rests on (with the scored decks). Archetypes on as many decks share a
+  rank, and the tile says how many are level: 23 deck counts are held by more than
+  one of 2026's 131 archetypes. An archetype with no deck in the latest year (6 of
+  the 137 offered) says so in every tile.
+- **The mean carries its interval.** The finish tile's note is the 90% range the
+  landscape draws as that dot's bar ("90% range 0.50 to 0.62, 1 = first"), since no
+  mean is stated without one (ADR 0013, amended for this tile). In 2026, 110 of the
+  131 means have a range that straddles the middle of the field, and a tile is the
+  one place a mean would otherwise stand alone at 26px.
+- **A tile is read off what the app already holds.** The share and the rank are read
+  off the meta-share matrix, so the share is its chart's last point. The finish, its
+  range and the events are the archetype's cell of the latest year's landscape, read
+  once when the app starts. No query was added. The archetype's own timeline is the
+  second reading: measured on the record, that year's points (the events counted,
+  the mean weighted by the decks each rests on) equal the landscape's cell for all
+  137 offered archetypes in all four years, and a test holds the tiles to the
+  timeline, to the landscape's hover strings and to the ends of its bars.
+- **A second archetype compares, and the page stays the first one's.** The
+  descriptor says who it is compared with, the share chart draws both lines, and
+  the finishes chart draws the events both attended with its tally and its coin
+  check, as before. The tiles stay the first archetype's. A pair that never met
+  refuses in the finishes card alone: the head and the share chart need no shared
+  event.
+- **One colour down the page.** The page's two charts draw an archetype in the same
+  hue, the palette's first for the subject and second for the one it is compared
+  with. So the hue is the page's, not the one the archetype carries on Metagame's
+  share chart (§5).
+- **The share chart is drawn plainly.** Each line once, at full strength, under a
+  legend titled "Archetype". The field chart draws every line twice, faded and
+  raised, with a legend that says to click: how a reader finds one line among
+  thirty, and nothing to do to the one or two they picked.
+- **The caption rule reaches the page.** Both captions are sentences in the text
+  colour with at most one figure set apart (§"The pages (#329)"). The finishes
+  caption keeps its tally and its coin check word for word; the span, which was a
+  clause behind a middle dot, is a sentence ("Counted over every year in the
+  data."), and the caret's legend is a caption of its own. Metagame's two cards
+  keep the earlier roles until their own tickets (#334, #337).
+- **The picker is unchanged.** It offers the archetypes that can draw a finishes
+  line, with the event count in the label, as the timeline's picker did. The six
+  archetypes scored at fewer than two events have no page; their share is on
+  Metagame's focus chart.
+- **Not taken: a tally on the pilot head-to-head.** ADR 0013 keeps that view as
+  individual events, because two pilots usually share one or two a year, and a
+  count there would be a scoreboard between two named people. A test now holds it.
+- **Not taken: top pilots or signature cards per archetype.** Each would need a new
+  query.
+- **The header makes room for the longer name.** "Metagame" is 33px wider than
+  "Meta", so seven tabs need 659px where they needed 626px. The header is one row
+  from 1140px up (it was 1100px, §11 and "The shell (#327)"): from 1100 to 1105px
+  the row clipped the last tab by up to 5px with nothing saying the strip scrolled.
+  On a phone the tabs take their own 16px a side again, where #327 took four pixels
+  off each: at 390px that override now put the strip's edge in the gap before
+  "Pilots", and without it the edge cuts "Hidden gems", which is what says the
+  strip scrolls (#172).
+- **What it costs.** The landscape opened its own tab at 253px and now starts
+  1,134px down Metagame at 1440 and 1920 (1,254px at 390), a screen below the share
+  chart. The page as transferred is 239.3 KB, from 239.4 KB (239,299 bytes, from
+  239,387), and the chart library 1,275.4 KB, unchanged. No text sits on a new ground:
+  the contrast audit fails the same one pair on main and on the branch (the dimmed
+  legend entries, 2.10).

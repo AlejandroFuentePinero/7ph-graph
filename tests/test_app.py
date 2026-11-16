@@ -1,3 +1,4 @@
+import html
 import json
 import math
 import re
@@ -116,13 +117,13 @@ def test_pilots_and_cards_collapse_to_two_views_each():
     assert set(_CARDS_TAB) == {"card_overview", "card_cooccurrence"}
 
 
-def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, snapshot_dir):
+def test_hidden_gems_is_its_own_tab(tmp_path, snapshot_dir):
     # Issue #125 promotes hidden gems out of Meta to its own top-level tab, so the
-    # bar reads Meta / Cards / Hidden gems / Pilots and Meta holds meta share alone
-    # (a single-view tab). The tab order is v1 §11's amended four-tab structure, an
-    # independent source; the built app is the seam so a group left under Meta trips
-    # here rather than only in the browser. Archetypes (#145) sits between Meta and
-    # Cards, splitting "who wins" off from Meta's "who is played".
+    # bar reads Metagame / Archetypes / Cards / Hidden gems / Pilots. The tab order is
+    # v1 §11's amended structure, an independent source; the built app is the seam so
+    # a group left under the first tab trips here rather than only in the browser.
+    # Archetypes (#145) sits between it and Cards. Since #332 the first tab is
+    # "Metagame", the whole field, where it was "Meta" and held meta share alone.
     import gradio as gr
     from graph7ph.app import build_app
     from graph7ph.build import build_graph
@@ -136,9 +137,9 @@ def test_hidden_gems_is_its_own_tab_and_meta_holds_meta_share_alone(tmp_path, sn
     # Cold start lands on the drawn Meta view (#114): Meta leads and Pilots trails, with
     # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
     # real result rather than an empty canvas, and no single pilot is anointed a default.
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
                     "Player leaderboard", "FAQ"]
-    # Gems still has its own tab; Meta holds meta share alone. The gems query keeps
+    # Gems still has its own tab. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
 
@@ -154,7 +155,7 @@ def test_cold_start_opens_on_the_drawn_meta_view(tmp_path, snapshot_dir):
 
     demo = _built_demo(tmp_path, snapshot_dir)
     first_tab = next(b for b in demo.blocks.values() if isinstance(b, gr.Tab))
-    assert first_tab.label == "Meta"
+    assert first_tab.label == "Metagame"
     # The Meta cut chart is drawn on open (not hidden behind a Draw), so it carries a
     # figure value at build time: cold start is a drawn result.
     cut_plots = [b for b in demo.blocks.values()
@@ -172,7 +173,7 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
                     "Player leaderboard", "FAQ"]
 
     box_ids = {b.elem_id for b in demo.blocks.values()
@@ -221,7 +222,7 @@ def _markdown_values(demo):
 
 def test_no_tab_opens_with_a_heading_that_repeats_its_label(tmp_path, snapshot_dir):
     # AC (#327): the tab strip already says which tab is open, so a heading under it
-    # saying so again ("Meta" under the Meta tab) was a row of the page spent on
+    # saying so again ("Meta" under the tab then called Meta) was a row of the page spent on
     # nothing. This reverses #113, which gave every tab a section heading so that none
     # opened as a bare dropdown: a tab still opens on its one-sentence intro (below).
     # Read off every heading the built app sets, at any level.
@@ -232,7 +233,7 @@ def test_no_tab_opens_with_a_heading_that_repeats_its_label(tmp_path, snapshot_d
     headings = {value.splitlines()[0].lstrip("# ").strip()
                 for value in _markdown_values(demo) if value.lstrip().startswith("#")}
 
-    assert labels == {"Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+    assert labels == {"Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
                       "Player leaderboard", "FAQ"}
     assert headings.isdisjoint(labels)
 
@@ -311,22 +312,18 @@ def test_a_view_opens_with_no_prompt_cards_and_no_pick_and_draw_help_text(tmp_pa
     # on the subject dropdown either. Help text exists to change the reader's choice, and
     # "pick a pilot, then Draw" only restates the label and the Draw button beside it, so
     # it is deleted rather than shortened. The per-view results stack starts hidden, so
-    # nothing empty is drawn. The one scope the app states on a control is the
-    # Archetypes year's, a fact about the panel the control itself cannot give. It
-    # was the app's one help line until #328 put the controls on one row, where a
-    # line under the year's chips made that control taller than its neighbours: it
-    # is two words in the label now, and no control carries a help line at all.
+    # nothing empty is drawn. No control carries a help line at all. The landscape's
+    # year was the app's one help line until #328, then two words in its label
+    # ("landscape only"), and since #332 it says neither: it sits directly over the
+    # landscape, which `test_metagame_shows_the_field_and_archetypes_opens_on_a_picker`
+    # holds.
     import gradio as gr
-    from graph7ph.app import _YEAR_LABEL
 
     demo = _built_demo(tmp_path, snapshot_dir)
 
     controls = [b for b in demo.blocks.values()
                 if isinstance(b, (gr.Dropdown, gr.Radio, gr.Checkbox))]
     assert controls and not [b.info for b in controls if b.info]
-    assert _YEAR_LABEL == "Year (landscape only)"
-    assert [b.label for b in _tab_blocks(demo, "Archetypes")
-            if isinstance(b, gr.Radio)] == [_YEAR_LABEL]
 
     # No result surface carries the old duplicated prompt text on open.
     surface = " ".join(
@@ -372,7 +369,7 @@ def test_cards_offers_its_most_run_spells_to_try_and_no_other_tab_offers_any(
                 if isinstance(b, gr.Button) and "example-chip" in (b.elem_classes or [])]
 
     assert examples("Cards") == ["Baleful Strix", "Brainstorm", "Cori-Steel Cutter"]
-    assert [examples(tab) for tab in ("Meta", "Archetypes", "Hidden gems", "Pilots",
+    assert [examples(tab) for tab in ("Metagame", "Archetypes", "Hidden gems", "Pilots",
                                       "Player leaderboard", "FAQ")] == [[]] * 6
 
 
@@ -388,7 +385,7 @@ def test_only_the_head_to_head_keeps_a_draw_and_it_opens_shut(tmp_path, snapshot
                          if isinstance(b, gr.Button) and b.value == DRAW_LABEL]
              for tab in demo.blocks.values() if isinstance(tab, gr.Tab)}
     assert {tab: len(buttons) for tab, buttons in draws.items()} == {
-        "Meta": 0, "Archetypes": 0, "Cards": 0, "Hidden gems": 0, "Pilots": 1,
+        "Metagame": 0, "Archetypes": 0, "Cards": 0, "Hidden gems": 0, "Pilots": 1,
         "Player leaderboard": 0, "FAQ": 0,
     }
     (button,) = draws["Pilots"]
@@ -2124,6 +2121,37 @@ def _timeline_points(*rows, bounds=None):
     ])
 
 
+def test_the_timeline_caption_is_a_sentence_under_the_caption_rule():
+    # Issue #332: the Archetypes page takes the caption rule the pilot and card pages
+    # follow (#329). The tally and its chance check read as they did; what changed is
+    # the role (ordinary text, one figure set apart) and the span, which was a clause
+    # behind a middle dot and is a sentence of its own.
+    pair = _archetype_timeline_caption("Storm", "Lands", _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4), (3, 0.1, 2, 0.5, 1),
+    ))
+    assert pair == (
+        "<div class='caption'>Storm finished better at <span class='figure'>2 of 3"
+        "</span> shared events, a split a coin could produce. Counted over every "
+        "year in the data.</div>"
+    )
+
+    solo = _archetype_timeline_caption("Storm", None, _timeline_points(
+        *[(day, 0.4 if day <= 13 else 0.6, 1) for day in range(1, 15)]
+    ))
+    assert solo == (
+        "<div class='caption'>Storm beat the middle of the field at "
+        "<span class='figure'>13 of 14</span> events. Counted over every year in "
+        "the data.</div>"
+    )
+
+    # The caret's legend is a caption of its own, as on the pilot head-to-head.
+    bounded = _archetype_timeline_caption("Storm", "Lands", _timeline_points(
+        (1, 0.2, 3, 0.4, 2), (2, None, 0, 0.3, 1), (3, 0.1, 2, 0.5, 1), bounds={2: 0.7},
+    ))
+    assert bounded.endswith(f"<div class='caption'>{_BOUND_LEGEND}.</div>")
+    assert bounded.count("<div class='caption'>") == 2
+
+
 def test_the_timeline_headline_counts_the_events_each_archetype_led():
     # AC (#151): the individual points are thin, so the countable claim across the
     # whole run is the headline. Storm's mean beats Lands's at two of the three
@@ -2137,10 +2165,11 @@ def test_the_timeline_headline_counts_the_events_each_archetype_led():
     # The headline names the shared-event denominator itself, so the restriction needs
     # no clause of its own behind it (§14, #156).
     assert "Storm" in caption and "2 of 3 shared events" in re.sub(r"<[^>]+>", "", caption)
-    # One qualifier, and it is the span: the year selector sits directly above this
-    # chart and governs the landscape alone, so a reader must be told this is not that
-    # year. How a point is averaged is `faq-archetype-timeline`'s job now.
-    assert caption.count("·") == 1
+    # One qualifier, and it is the span: the tiles over this chart are the latest
+    # year's alone (#332), so a reader must be told this count is not. A sentence of
+    # its own under the caption rule, where it was a clause behind a middle dot. How
+    # a point is averaged is `faq-archetype-timeline`'s job now.
+    assert "·" not in caption
     assert "every year in the data" in caption
     assert "1 to 3" not in caption
 
@@ -2183,15 +2212,14 @@ def test_a_pair_headline_is_gated_against_the_same_coin():
 
 
 def test_a_solo_timeline_states_its_span_and_nothing_else():
-    # The year selector sits directly above this chart and governs the landscape alone
-    # (§14, #156: a scope is stated once, and the control says "Landscape only" from the
-    # other side). So the one qualifier the caption keeps is the span. What picking a
-    # second archetype does, and what a point averages, are the FAQ's now.
+    # The tiles over this chart are the record's latest year alone (#332), so the one
+    # qualifier the caption keeps is the span (§14, #156: a scope is stated once).
+    # What picking a second archetype does, and what a point averages, are the FAQ's.
     series = _timeline_points((1, 0.2, 3), (2, 0.6, 1), (3, 0.4, 2))
     caption = _archetype_timeline_caption("Storm", None, series)
 
     assert "Storm beat the middle of the field" in re.sub(r"<[^>]+>", "", caption)
-    assert caption.count("·") == 1
+    assert "·" not in caption
     assert "every year in the data" in caption
     assert "second archetype" not in caption
     assert "1 to 3" not in caption
@@ -2599,13 +2627,9 @@ def test_the_two_head_to_head_legends_stand_on_their_own_lines():
     assert lines[1] == f"{_BOUND_LEGEND}."
 
 
-def test_the_head_to_head_caption_reaches_the_page_as_markup_not_text(tmp_path, snapshot_dir):
-    # The other half of the legends fix. `_head_to_head_caption` returns real divs, and
-    # they render as lines only if the call site hands them to `_chart_heading` as
-    # `caption_html`; passed positionally they are escaped, and the page shows literal
-    # "<div class='caption'>" text over the plot while every unit test above stays
-    # green. So this drives the built app's own handler, over a snapshot holding a
-    # bounded meeting, and asserts on the value the page is handed.
+def _drawn_head_to_head(tmp_path, snapshot_dir) -> tuple:
+    """What the built app's own head-to-head handler hands the page for two pilots who
+    met twice, one meeting of them bounded: Ann finished ahead of Bob at both."""
     import shutil
 
     from graph7ph.app import build_app
@@ -2652,13 +2676,44 @@ def test_the_head_to_head_caption_reaches_the_page_as_markup_not_text(tmp_path, 
 
     handler = next(f.fn for f in demo.fns.values()
                    if getattr(f.fn, "__name__", "") == "draw_head_to_head_view")
-    _subject, _stack, _nb, heading, plot, note, _card = handler(
-        "AnnQPilotX", "BobRPilotX")
+    return handler("AnnQPilotX", "BobRPilotX")
+
+
+def test_the_head_to_head_caption_reaches_the_page_as_markup_not_text(tmp_path, snapshot_dir):
+    # The other half of the legends fix. `_head_to_head_caption` returns real divs, and
+    # they render as lines only if the call site hands them to `_chart_heading` as
+    # `caption_html`; passed positionally they are escaped, and the page shows literal
+    # "<div class='caption'>" text over the plot while every unit test above stays
+    # green. So this drives the built app's own handler, over a snapshot holding a
+    # bounded meeting, and asserts on the value the page is handed.
+    _subject, _stack, _nb, heading, plot, note, _card = _drawn_head_to_head(
+        tmp_path, snapshot_dir)
 
     assert heading["visible"] and plot["visible"] and not note["visible"]
     assert "<div class='caption'>" in heading["value"]
     assert _BOUND_LEGEND in heading["value"]
     assert "&lt;div" not in heading["value"]
+
+
+def test_the_pilot_head_to_head_states_no_tally(tmp_path, snapshot_dir):
+    # AC (#332): the archetype comparison counts who finished better and the pilot
+    # one does not. ADR 0013 keeps this view as individual events, since two pilots
+    # usually share one or two a year, and a count would be a scoreboard between two
+    # named people. Ann finished ahead of Bob at both of their meetings, and nothing
+    # the view hands the page says "2 of 2" or who finished better.
+    subject, _stack, neighbourhood, heading, plot, _note, _card = _drawn_head_to_head(
+        tmp_path, snapshot_dir)
+
+    assert plot["visible"]
+    # All the view says in words: who the two are, and what the chart's one mark
+    # means. A sentence counting meetings would be a third thing.
+    assert re.sub(r"<[^>]+>", "", subject["value"]) == "Head-to-head Ann Q vs Bob R"
+    assert _caption_lines(heading["value"].split("</div>", 1)[1]) == [f"{_BOUND_LEGEND}."]
+    # And the panel beside the graph lists each meeting with each finish, no count.
+    said = re.sub(r"<[^>]+>", " ", html.unescape(neighbourhood["value"]))
+    assert "Ann Q" in said and "Bob R" in said
+    assert not re.search(r"\b\d+ of \d+\b", said)
+    assert not re.search(r"finished better|finished ahead|beat ", said)
 
 
 def _tab_blocks(demo, label):
@@ -2777,25 +2832,44 @@ def _landscape_demo(tmp_path, snapshot_dir):
     return build_app(artifact)
 
 
-def test_the_archetypes_tab_follows_meta_as_one_view_drawn_on_open(tmp_path, snapshot_dir):
-    # AC (#145): Archetypes sits directly after Meta and owns "who wins" while Meta
-    # keeps "who is played". It is a single view, so no view picker, and it draws
-    # Plotly aggregates rather than a pyvis graph, so it follows the Meta precedent of
-    # no Draw button: the scatter is already drawn when the tab is opened.
+def test_metagame_shows_the_field_and_archetypes_opens_on_a_picker(tmp_path, snapshot_dir):
+    # AC (#332): the two tabs are cut by level. Metagame (the Meta tab until now) is
+    # the whole field: the share chart, then the metagame landscape, each drawn on
+    # open. The year governs the landscape alone, so it sits beside it: after the
+    # share charts and directly over the landscape's card, not in the panel at the
+    # top of the tab. Archetypes is one archetype's page, and opens on its picker.
     import gradio as gr
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
                     "Player leaderboard", "FAQ"]
 
-    inside = _tab_blocks(demo, "Archetypes")
-    # Only the clear buttons on the archetype pickers, never a Draw.
-    assert not [b for b in inside if isinstance(b, gr.Button) and b.value != CLEAR_LABEL]
-    assert not [b for b in inside if isinstance(b, gr.Dropdown) and b.label == "View"]
-    # Drawn on open: the scatter carries a figure at build time, as the Meta cut does.
-    drawn = [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
-    assert len(drawn) == 1
+    field = _tab_blocks(demo, "Metagame")
+    titles = re.findall(r"<div class='t-result-title'>(.*?)</div>", "".join(
+        b.value for b in field if isinstance(b, gr.HTML) and b.value))
+    assert titles == ["Meta share over time", "Metagame landscape"]
+    share_plot, focus_plot, landscape_plot = [b for b in field if isinstance(b, gr.Plot)]
+    assert share_plot.value is not None and landscape_plot.value is not None
+    assert focus_plot.value is None
+
+    (cut, year) = [b for b in field if isinstance(b, gr.Radio)]
+    assert year.label == "Year"
+    assert field.index(focus_plot) < field.index(year) < field.index(landscape_plot)
+    # Nothing but the landscape's own card stands between the year and its plot.
+    between = field[field.index(year) + 1:field.index(landscape_plot)]
+    assert not [b for b in between if isinstance(b, (gr.Plot, gr.Radio, gr.Dropdown))]
+    assert [fn for fn in demo.fns.values()
+            if year in fn.inputs and landscape_plot in fn.outputs]
+
+    page = _tab_blocks(demo, "Archetypes")
+    assert [b.label for b in page if isinstance(b, gr.Dropdown)] == [
+        "Archetype", "Second archetype (optional)"]
+    assert not [b for b in page if isinstance(b, gr.Radio)]
+    assert not [b for b in page if isinstance(b, gr.Plot) and b.value is not None]
+    # Its page is there to be drawn into, and hidden until a pick.
+    assert not [b for b in page if isinstance(b, gr.HTML) and b.visible and b.value
+                and "page-head" in b.value]
 
 
 def test_the_year_selector_offers_every_year_and_opens_on_the_latest(tmp_path, snapshot_dir):
@@ -2806,7 +2880,8 @@ def test_the_year_selector_offers_every_year_and_opens_on_the_latest(tmp_path, s
     import gradio as gr
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
-    (year,) = [b for b in _tab_blocks(demo, "Archetypes") if isinstance(b, gr.Radio)]
+    (year,) = [b for b in _tab_blocks(demo, "Metagame")
+               if isinstance(b, gr.Radio) and b.label == "Year"]
 
     offered = [value for _, value in year.choices]
     assert offered == sorted(offered, reverse=True)  # newest first, the reader's default
@@ -2817,13 +2892,15 @@ def test_the_year_selector_offers_every_year_and_opens_on_the_latest(tmp_path, s
 def test_a_year_too_thin_for_a_landscape_refuses_on_the_surface(tmp_path, snapshot_dir):
     # AC (#145): a year too thin refuses with a readable state rather than a
     # misleading plot. The shared fixture holds two archetypes in its only year, one
-    # short of a field, so the tab opens on the refusal: a note, no figure.
+    # short of a field, so the landscape opens on the refusal: a note, no figure. The
+    # share chart over it on the same tab (#332) draws regardless.
     import gradio as gr
 
     demo = _built_demo(tmp_path, snapshot_dir)
-    inside = _tab_blocks(demo, "Archetypes")
+    inside = _tab_blocks(demo, "Metagame")
 
-    assert not [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
+    share, _focus, landscape = [b for b in inside if isinstance(b, gr.Plot)]
+    assert share.value is not None and landscape.value is None
     (note,) = [b for b in inside
                if isinstance(b, gr.Markdown) and b.visible and b.value
                and "t-lede" not in (b.elem_classes or [])
@@ -2838,15 +2915,17 @@ def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
     import gradio as gr
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
-    inside = _tab_blocks(demo, "Archetypes")
-    (year,) = [b for b in inside if isinstance(b, gr.Radio)]
-    # The scatter is the first of the tab's two plots; the timeline below it (#151)
-    # has its own selectors and is deliberately not wired to the year.
-    plot, _timeline = [b for b in inside if isinstance(b, gr.Plot)]
+    inside = _tab_blocks(demo, "Metagame")
+    (year,) = [b for b in inside if isinstance(b, gr.Radio) and b.label == "Year"]
+    # The scatter is the last of the tab's three plots (#332). The two share charts
+    # over it span every year and are deliberately not wired to the year.
+    share, focus, plot = [b for b in inside if isinstance(b, gr.Plot)]
 
     redraws = [fn for fn in demo.fns.values()
                if year in fn.inputs and plot in fn.outputs]
     assert len(redraws) == 1
+    assert not [fn for fn in demo.fns.values()
+                if year in fn.inputs and {share, focus} & set(fn.outputs)]
 
     # AC (#85, criterion 9): "every query-running action shows progress while it runs".
     # Changing the year runs a query and this view has no Draw button, so a step ahead
@@ -2989,31 +3068,186 @@ def _timeline_demo(tmp_path, snapshot_dir, more=()):
     return build_app(artifact)
 
 
-def test_the_timeline_sits_under_the_scatter_and_draws_off_its_own_two_selectors(
-    tmp_path, snapshot_dir
-):
-    # AC (#151): the timeline is the tab's second plot, it draws as soon as one
-    # archetype is picked (so no Draw button), and it spans the whole timeline: the
-    # year selector governs the scatter alone and is not an input to it.
+def _archetype_page(demo, a, b=None) -> list[dict]:
+    """What the Archetypes tab's own callback hands the page for a pick: the head,
+    the results stack, then the share card's heading and plot and the finishes
+    card's heading, plot and note."""
+    draw = next(fn.fn for fn in demo.fns.values()
+                if getattr(fn.fn, "__name__", "") == "draw_archetype_page")
+    return draw(a, b)
+
+
+def _tiles_of(markup: str) -> list[tuple[str, str]]:
+    return list(zip(re.findall(r"<div class='tile-label'>(.*?)</div>", markup),
+                    re.findall(r"<div class='tile-value'>(.*?)</div>", markup)))
+
+
+def _legend_names(figure) -> list[str]:
+    """The lines a chart names in its legend, in order."""
+    return [trace.name for trace in figure.data
+            if trace.showlegend is not False and trace.name]
+
+
+def test_picking_an_archetype_draws_its_page(tmp_path, snapshot_dir):
+    # AC (#332): Archetypes is a page for one archetype, working like Cards and
+    # Pilots. Picking one draws its name, a descriptor and four tiles, then its share
+    # over time and its finishes over time.
+    #
+    # Off the fixture, by hand: Grixis is 2 of 2025's 43 decks, 4.65%. Jund and Lands
+    # have two decks each as well and Storm one, so it is 1st of four, level with two.
+    # Its two finishes are 12th of 31 and 5th of 19, norms 11/30 and 4/18, mean
+    # 0.2944 from the top: a finish of 0.71, over two events.
+    #
+    # The mean's 90% interval is the landscape's (ADR 0013): 1.645 standard errors
+    # on the year's pooled within-archetype spread. Each of the three archetypes with
+    # two scored decks sits a half-gap either side of its own mean: Grixis 0.0722,
+    # Jund (7/30 and 8/18) 0.1056, Lands (2/9 and 3/9) 0.0556. Squared, doubled and
+    # summed that is 0.03889 over three degrees of freedom, a spread of 0.1139, so
+    # over two events the half-width is 1.645 * 0.1139 / sqrt(2) = 0.1324. The mean
+    # runs 0.1620 to 0.4269 from the top, which flipped is 0.57 to 0.84.
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    head, results, share_heading, share_plot, heading, plot, note = _archetype_page(
+        demo, "grixis")
+
+    assert head["visible"] and results["visible"]
+    markup = head["value"]
+    assert (markup.index("page-name") < markup.index("Grixis")
+            < markup.index("Archetype, on record in 2025.") < markup.index("tile-label"))
+    assert _tiles_of(markup) == [
+        ("Share in 2025", "4.65%"), ("Rank in 2025", "1st"),
+        ("Mean finish in 2025", "0.71"), ("Events in 2025", "2"),
+    ]
+    assert re.findall(r"<div class='tile-note'>(.*?)</div>", markup) == [
+        "2 / 43 decks", "of 4 archetypes by share, level with 2 others",
+        "90% range 0.57 to 0.84, 1 = first", "2 scored decks",
+    ]
+
+    # Its share over time: one line, whose last point is the share tile. Drawn once
+    # and plainly: the field chart on Metagame draws every line twice, faded and
+    # raised, with a legend that says to click, which is how a reader finds one line
+    # among thirty and is nothing to do to the one line they asked for.
+    assert "Share over time" in share_heading["value"]
+    (line,) = share_plot["value"].data
+    assert line.name == "Grixis" and line.visible is not False
+    assert list(line.y) == [pytest.approx(2 / 43)]
+    assert share_plot["value"].layout.legend.title.text == "Archetype"
+    # Its finishes over time: a point per event, flipped so higher is better.
+    assert "Finishes over time" in heading["value"]
+    assert plot["visible"] and not note["visible"]
+    (finishes,) = plot["value"].data
+    assert list(finishes.y) == [pytest.approx(1 - 11 / 30), pytest.approx(1 - 4 / 18)]
+
+
+def _line_colours(figure) -> dict[str, str]:
+    """Each named line's colour, by the name its legend carries."""
+    return {trace.name: trace.line.color for trace in figure.data
+            if trace.showlegend is not False and trace.name}
+
+
+def test_a_second_archetype_adds_the_comparison_to_both_charts(tmp_path, snapshot_dir):
+    # AC (#332): an optional second archetype compares. The page stays the first
+    # archetype's, tiles included, and says who it is compared with; both charts
+    # then draw both.
+    #
+    # Grixis and Jund met twice: at PogNov25 Jund's 8th of 31 beat Grixis's 12th,
+    # and at CFWAT25 Grixis's 5th of 19 beat Jund's 9th. One each. Grixis was at a
+    # third event without Jund, so its own tiles count three events where the
+    # comparison counts the two they shared.
+    demo = _timeline_demo(
+        tmp_path, snapshot_dir, more=[("x-g3", "grixis", "GrixisCup", 10, 2, 4)])
+    solo_head = _archetype_page(demo, "grixis")[0]["value"]
+    head, _, _, share_plot, heading, plot, note = _archetype_page(demo, "grixis", "jund")
+
+    assert "Archetype, on record in 2025, compared with Jund." in head["value"]
+    assert _tiles_of(head["value"]) == _tiles_of(solo_head)
+    assert ("Events in 2025", "3") in _tiles_of(head["value"])
+    assert _legend_names(share_plot["value"]) == ["Grixis", "Jund"]
+    assert plot["visible"] and not note["visible"]
+    assert re.sub(r"<[^>]+>", "", heading["value"]).startswith(
+        "Finishes over timeGrixis and Jund each finished better at 1 of 2 shared events.")
+    # An archetype is one colour down the page, and the two are told apart.
+    shares, finishes = _line_colours(share_plot["value"]), _line_colours(plot["value"])
+    assert shares == finishes and shares["Grixis"] != shares["Jund"]
+    # And the first keeps the colour it had alone.
+    alone = _archetype_page(demo, "grixis")
+    assert _line_colours(alone[3]["value"]) == {"Grixis": shares["Grixis"]}
+
+    # The same archetype twice is that archetype alone, not a line drawn twice.
+    twice = _archetype_page(demo, "grixis", "grixis")
+    assert twice[0]["value"] == solo_head
+    assert _legend_names(twice[3]["value"]) == ["Grixis"]
+
+
+def test_a_pair_that_never_met_refuses_in_the_finishes_card_alone(tmp_path, snapshot_dir):
+    # Refusal is a common answer for a pair (the median pair of the best-covered
+    # archetypes shares four events), so it reads as a line about the two archetypes
+    # where their finishes would be, and the rest of the page still draws: the
+    # head, and both lines of the share chart, which needs no shared event.
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    head, results, _, share_plot, heading, plot, note = _archetype_page(
+        demo, "grixis", "lands")
+
+    assert head["visible"] and results["visible"]
+    assert _legend_names(share_plot["value"]) == ["Grixis", "Lands"]
+    assert not heading["visible"] and not plot["visible"]
+    assert note["visible"] and note["value"] == (
+        "Grixis and Lands were never both placed at the same event, so there is no "
+        "run to compare.")
+
+    # Nothing picked draws nothing: the head and the stack stay away.
+    head, results, *_ = _archetype_page(demo, None, "lands")
+    assert not head["visible"] and not results["visible"]
+
+
+def test_every_caption_on_an_archetypes_page_follows_the_caption_rule(tmp_path, snapshot_dir):
+    # AC (#332): the page uses the caption rule the pilot and card pages follow
+    # (#329). A sentence in the text colour, at most one figure set apart, no
+    # fragments strung on middle dots, and neither of the earlier roles a card set in
+    # the accent. Over a page alone and a page compared.
+    demo = _timeline_demo(tmp_path, snapshot_dir)
+    pages = "".join(
+        out["value"]
+        for picked in (("grixis", None), ("grixis", "jund"))
+        for out in _archetype_page(demo, *picked)
+        if isinstance(out.get("value"), str)
+    )
+
+    captions = re.findall(r"<div class='caption'>(.*?)</div>", pages)
+    # Each page: one under the share chart, one under the finishes.
+    assert len(captions) == 4
+    for caption in captions:
+        said = re.sub(r"<[^>]+>", "", caption)
+        assert caption.count("class='figure'") <= 1, said
+        assert "·" not in said and said.endswith("."), said
+    assert "t-caption" not in pages and "t-fieldstat" not in pages
+
+
+def test_an_archetype_pick_says_drawing_where_its_page_will_land(tmp_path, snapshot_dir):
+    # AC (#85, criterion 9): every query-running action shows progress while it runs.
+    # A pick has no button to carry it, so as on Cards and Pilots a step ahead of the
+    # draw puts up the running line and takes the drawn page down, so a page drawn
+    # for another archetype never sits under the new pick. Both pickers go through it.
     import gradio as gr
 
     demo = _timeline_demo(tmp_path, snapshot_dir)
-    inside = _tab_blocks(demo, "Archetypes")
-    (year,) = [b for b in inside if isinstance(b, gr.Radio)]
-    picks = [b for b in inside if isinstance(b, gr.Dropdown)]
-    _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
+    picks = [b for b in _tab_blocks(demo, "Archetypes") if isinstance(b, gr.Dropdown)]
+    busy = [fn for fn in demo.fns.values()
+            if getattr(fn.fn, "__name__", "") == "archetypes_drawing"]
+    assert {target for fn in busy for target in fn.targets} == {
+        (pick._id, "change") for pick in picks}
 
-    # Only the clear buttons on the archetype pickers, never a Draw.
-    assert not [b for b in inside if isinstance(b, gr.Button) and b.value != CLEAR_LABEL]
-    assert len(picks) == 2
-    # AC: the second archetype is optional, so nothing is preselected in either slot
-    # and the plot waits, hidden, rather than opening on an arbitrary archetype.
-    assert [p.value for p in picks] == [None, None]
-    assert timeline_plot.value is None
-
-    draws = [fn for fn in demo.fns.values() if timeline_plot in fn.outputs]
+    # Nothing is preselected in either slot, so the page waits rather than opening
+    # on an arbitrary archetype, and the draw reads the two pickers and nothing else.
+    assert [pick.value for pick in picks] == [None, None]
+    draws = [fn for fn in demo.fns.values()
+             if getattr(fn.fn, "__name__", "") == "draw_archetype_page"]
     assert {tuple(fn.inputs) for fn in draws} == {tuple(picks)}
-    assert not any(year in fn.inputs for fn in draws)
+
+    running, head, results = busy[0].fn("grixis")
+    assert running["visible"] and not head["visible"] and not results["visible"]
+    assert DRAWING_LABEL in busy[0].outputs[0].value
+    # With nothing picked there is nothing to wait for.
+    assert not busy[0].fn(None)[0]["visible"]
 
 
 def test_both_selectors_offer_the_archetypes_that_draw_with_their_event_count(
@@ -3035,51 +3269,6 @@ def test_both_selectors_offer_the_archetypes_that_draw_with_their_event_count(
     assert [p.choices for p in picks] == [offered] * 2
 
 
-def test_picking_one_archetype_draws_the_timeline_and_a_thin_pair_refuses(
-    tmp_path, snapshot_dir
-):
-    # The callback itself, since with no Draw button it is the whole interaction: one
-    # archetype draws a figure inside a shown card, and a pair too thin to compare
-    # comes back as a readable note naming the count instead of a misleading line.
-    import gradio as gr
-
-    demo = _timeline_demo(tmp_path, snapshot_dir)
-    inside = _tab_blocks(demo, "Archetypes")
-    _, timeline_plot = [b for b in inside if isinstance(b, gr.Plot)]
-    # Each selector wires two steps onto the same outputs: the running state (AC 9),
-    # then the query. This test is about the query, so it is named rather than taken
-    # positionally out of the chain.
-    writers = [fn.fn for fn in demo.fns.values() if timeline_plot in fn.outputs]
-    draw = next(f for f in writers if f.__name__ == "draw_archetype_timeline")
-    busy = next(f for f in writers if f.__name__ == "timeline_drawing")
-
-    # AC (#85, criterion 9): "every query-running action shows progress while it runs".
-    # This view has no Draw button to carry it, so the running state speaks in the card
-    # itself: shown, with the plot down and the note reading the shared running word.
-    card, heading, plot, note = busy("grixis", None)
-    assert card["visible"] and not plot["visible"]
-    assert note["value"] == DRAWING_LABEL and note["visible"]
-    # Nothing picked stays down rather than flashing a card the query is about to hide.
-    assert not busy(None, None)[0]["visible"]
-
-    card, heading, plot, note = draw("grixis", None)
-    assert plot["visible"] and plot["value"] is not None
-    assert not note["visible"]
-    assert "Grixis" in heading["value"]
-
-    # Nothing picked draws nothing: the card stays away rather than sitting empty.
-    assert not draw(None, None)[0]["visible"]
-
-    # Lands drew its two events on its own, so the pair has nothing to compare:
-    # refused inside the card with a line naming that, not drawn as one point.
-    card, heading, plot, note = draw("grixis", "lands")
-    assert card["visible"] and not plot["visible"]
-    assert "Lands" in note["value"] and "never" in note["value"]
-
-    # A pair that did meet draws both lines rather than refusing.
-    assert draw("grixis", "jund")[2]["visible"]
-
-
 def test_the_landscape_never_ranges_past_the_ends_of_the_score():
     # The finish is bounded at 0 and 1, so headroom above a near-perfect year would be
     # axis that no dot could ever occupy. 2023's best archetype finishes at 0.93, and
@@ -3095,10 +3284,10 @@ def test_the_landscape_never_ranges_past_the_ends_of_the_score():
     assert 0.0 <= low <= 0.05
 
 
-def test_a_graph_with_no_archetype_still_builds_the_archetypes_tab(tmp_path, snapshot_dir):
-    # The Archetypes tab reads its year selector off the meta-share matrix, which is
+def test_a_graph_with_no_archetype_still_builds_the_landscape(tmp_path, snapshot_dir):
+    # The landscape reads its year selector off the meta-share matrix, which is
     # empty for a graph holding no Archetype node at all (a snapshot whose decks carry
-    # no engine tag builds into exactly that). The tab has no year to open on, so it
+    # no engine tag builds into exactly that). It has no year to open on, so it
     # opens on a refusal rather than taking the whole app down at construction, the way
     # `latest_deck_year` already returns None for the Meta cut on the same series.
     import gradio as gr
@@ -3118,8 +3307,9 @@ def test_a_graph_with_no_archetype_still_builds_the_archetypes_tab(tmp_path, sna
     artifact = tmp_path / "graph"
     build_graph(load_snapshot(snap), artifact)
 
-    inside = _tab_blocks(build_app(artifact), "Archetypes")
-    assert not [b for b in inside if isinstance(b, gr.Plot) and b.value is not None]
+    inside = _tab_blocks(build_app(artifact), "Metagame")
+    *_, landscape = [b for b in inside if isinstance(b, gr.Plot)]
+    assert landscape.value is None
     assert [b for b in inside if isinstance(b, gr.Markdown) and b.visible and b.value
             and "landscape" in b.value]
 
@@ -3774,7 +3964,7 @@ def test_the_race_is_its_own_tab_after_pilots_drawn_on_open(tmp_path, snapshot_d
 
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots",
+    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
                     "Player leaderboard", "FAQ"]
 
     # The fixture graph holds three decks at one small event, so nobody is a contender
@@ -4048,7 +4238,7 @@ def test_the_meta_focus_list_is_most_played_first_and_a_held_name_ahead(
     # within a count. Tron is then listed just ahead of Blue Tron, which holds its name.
     demo = _timeline_demo(tmp_path, snapshot_dir, more=_TRON_AND_BLUE_TRON)
 
-    assert _picker_choices(demo, "Meta", "Or focus on specific archetypes") == [
+    assert _picker_choices(demo, "Metagame", "Or focus on specific archetypes") == [
         ("Tron", "tron"), ("Blue Tron", "blue_tron"), ("Lands", "lands"),
         ("Grixis", "grixis"), ("Jund", "jund"), ("Storm", "storm"),
     ]
@@ -4104,7 +4294,7 @@ def real_pickers(live_graph):
 
     pickers = {}
     for tab, label, name_of, count_of in (
-        ("Meta", "Or focus on specific archetypes",
+        ("Metagame", "Or focus on specific archetypes",
          lambda label, tag: archetype_names[tag], lambda label, tag: archetype_decks[tag]),
         # The count the label itself shows the reader is the one the list is read by.
         ("Archetypes", "Archetype",

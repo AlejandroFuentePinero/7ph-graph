@@ -64,11 +64,13 @@ MEASURE_CH = 62
 TAB_PX = 44
 
 # The narrowest window whose header is one row (#327). Measured on the real record:
-# the mark and name (139px), seven tabs (626px), the freshness line (195px) and the
-# two gaps between them need 1,008px of column, which is a 1,072px window once the
+# the mark and name (139px), seven tabs (659px), the freshness line (195px) and the
+# two gaps between them need 1,041px of column, which is a 1,105px window once the
 # page's padding is added. Rounded up, so a longer tab label has a little room
-# before the strip starts to scroll.
-HEADER_ONE_ROW_PX = 1100
+# before the strip starts to scroll. It was 1100 while the first tab was "Meta" and
+# the seven needed 626px: "Metagame" (#332) is 33px wider, and from 1100 to 1105px
+# the row clipped the last tab by up to 5px.
+HEADER_ONE_ROW_PX = 1140
 
 # The page's column, padding included (#327). Gradio caps the page by the window it
 # is in, in steps, and from 1536px up the step is the window itself. This is the
@@ -876,12 +878,8 @@ def build_css() -> str:
     align-self: stretch;
   }}
   /* The strip scrolls sideways here, and a tab cut at its edge is what says so
-     (#172). At 390px the wider strip ended in the gap after the fourth tab, with
-     nothing of the fifth on screen. Four pixels off each side of a tab puts the
-     edge through the fifth's label instead. */
-  .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] > button {{
-    padding-left: 12px; padding-right: 12px;
-  }}
+     (#172): at 390px the edge falls through the fourth tab's label at a tab's own
+     padding, so a tab takes no padding of its own here. */
 }}
 
 /* Quiet quality floor (§ quality): a visible keyboard focus ring on the accent, and

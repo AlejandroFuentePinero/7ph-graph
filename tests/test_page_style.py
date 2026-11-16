@@ -29,7 +29,7 @@ sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
 # The explorer's own tab names: what is under test at phone width is that these seven,
 # at the width they are actually set in, stay on the strip.
-TABS = ["Meta", "Archetypes", "Cards", "Hidden gems", "Pilots", "Player leaderboard", "FAQ"]
+TABS = ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots", "Player leaderboard", "FAQ"]
 PHONE = {"width": 390, "height": 844}
 
 # The app's one table, as `parts.table` builds it: a header row, a line heading a
