@@ -163,6 +163,32 @@ these need belongs to this pipeline environment (the Hub login's own cache, a
 local `.env`, which is gitignored, or the CI secret store later): it is never
 read by the app and never deployed with it.
 
+### Reading the usage record
+
+The Space records its own visits into a private bucket
+([deploy.md](deploy.md#the-usage-record)). A round reads it, since nothing else
+does and nothing in the app shows it:
+
+```sh
+uvx --from huggingface_hub hf buckets sync hf://buckets/Alejandrofupi/7ph-graph-usage data/usage
+uv run graph7ph usage data/usage             # by week; --by day for the days around an event
+```
+
+The first line copies the bucket down and sends nothing up. `data/usage/` is
+gitignored: the record is for the maintainer, and this repository is public.
+
+Read the Space's Analytics panel on the Hub beside the report (all time, last
+month, last week). It is the only other count of the same visits and has no API,
+so it is read by eye. The two will not agree to the visit, because the Hub does
+not publish what it counts, but they should move together. A record that falls
+away while the panel does not is a recorder that has stopped: look for
+`USAGE RECORD` in the Space's run log.
+
+The report's own counts are deliberately plain. "Pages" is every time the page
+was served, scanners and link previews included. "Navigations" and "Stylesheets"
+are two readings of how many of those were a person's browser, kept side by side
+until real data says which to trust.
+
 ## Tests
 
 ```sh

@@ -18,6 +18,7 @@ data/*.json
 
 # The artifact bundle at its default path, plus the siblings promotion creates.
 data/graph/
+data/usage/
 data/graph.backup/
 data/graph.incoming/
 

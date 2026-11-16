@@ -348,6 +348,12 @@ def _capture(conn, args: argparse.Namespace) -> None:
     _write_baseline(conn, args)
 
 
+def _usage(args: argparse.Namespace) -> None:
+    from graph7ph.usage import report
+
+    print(report(args.folder, by=args.by), end="")
+
+
 def _app(args: argparse.Namespace) -> None:
     from graph7ph.app import build_app, launch_kwargs
 
@@ -401,6 +407,13 @@ def main() -> None:
     p_app = sub.add_parser("app", help="Launch the Gradio explorer")
     p_app.add_argument("--db", type=Path, default=DB_PATH)
     p_app.set_defaults(func=_app)
+
+    p_usage = sub.add_parser(
+        "usage", help="Report on a local copy of the folder the app records its visits in"
+    )
+    p_usage.add_argument("folder", type=Path)
+    p_usage.add_argument("--by", choices=("day", "week"), default="week")
+    p_usage.set_defaults(func=_usage)
 
     args = parser.parse_args()
     args.func(args)
