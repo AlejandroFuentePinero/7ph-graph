@@ -410,7 +410,7 @@ new series should be checked against.
 ## Follow-up
 
 - **Build the visit log**: the recommendation above, starting with the four measurements. Filed as
-  its own ticket.
+  #356.
 - **Pull the Cloudflare baseline once** when a token exists: the three queries under question 1.
   Worth doing early because the window is 31 days and moving. No ticket: it is one command against
   an account only the owner can open.
