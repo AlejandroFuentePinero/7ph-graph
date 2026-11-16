@@ -18,7 +18,13 @@ from graph7ph.build import build_graph
 from graph7ph.models import load_snapshot
 from graph7ph.query import Node, Subgraph
 from graph7ph.render import render_subgraph
-from graph7ph.serve import APP_KWARGS, VIS_CSS_URL, VIS_JS_URL, _CompressPageAndConfig
+from graph7ph.serve import (
+    APP_KWARGS,
+    LABEL_FACE_URL,
+    VIS_CSS_URL,
+    VIS_JS_URL,
+    _CompressPageAndConfig,
+)
 
 # Big enough that a failure to compress is unambiguous, and repetitive in the way
 # a card catalogue is: the same list twice, far enough apart that only Brotli's
@@ -186,6 +192,21 @@ def test_the_library_a_rendered_graph_asks_for_is_one_the_app_serves(client):
     assert len(asked_for) == 2  # the library and its stylesheet
     for url in asked_for:
         assert client.get(url).status_code == 200
+
+
+def test_the_face_a_graph_labels_in_is_served_by_the_app_and_cached(client):
+    """The graph is a document of its own, so the face the page carries in its
+    stylesheet does not reach it, and its labels were drawn in Arial (issue #330).
+    The document asks the app for the face instead: one download, kept for a year
+    under a digest of its bytes, as the library is. Read back out of a real widget,
+    so the address it names is one the app answers."""
+    doc = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
+
+    assert re.findall(r"url\((/[^)]+)\)", doc) == [LABEL_FACE_URL]
+    response = client.get(LABEL_FACE_URL)
+    assert response.status_code == 200
+    assert response.content[:4] == b"wOF2"
+    assert "immutable" in response.headers["cache-control"]
 
 
 @pytest.mark.parametrize("url", [VIS_JS_URL, VIS_CSS_URL])

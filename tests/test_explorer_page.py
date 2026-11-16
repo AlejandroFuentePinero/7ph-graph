@@ -1185,7 +1185,9 @@ def test_a_drawn_pilot_page_runs_head_then_graphs_then_record(page):
 
     assert read["order"] == [*_HEAD, "Neighbourhood", "Archetype affinity", "Record"]
     assert read["tiles"] == 4 and _display_face(read)
-    assert read["rows"] == [2]  # the pilot's two results
+    # The pilot's two results beside the neighbourhood, the one archetype they were
+    # played on beside the affinity graph (#330), and the two again as the record.
+    assert read["rows"] == [2, 1, 2]
 
 
 def test_a_drawn_pilot_page_puts_the_record_after_the_chart_on_the_real_record(
@@ -1207,22 +1209,24 @@ def test_a_drawn_pilot_page_puts_the_record_after_the_chart_on_the_real_record(
 
 def test_a_drawn_card_page_opens_with_its_head_and_carries_a_list_on_each_view(page):
     # Issue #329: the usage graph's archetypes as a table grouped by broad class, and
-    # on the co-occurrence view the cards drawn beside the subject, ranked.
+    # on the co-occurrence view the cards drawn beside the subject, ranked. Since
+    # #330 that ranking is the panel beside the co-occurrence graph, all of it, and
+    # the card that repeated it under the plots is gone.
     shots.tab(page, "Cards")
     shots.pick(page, "Card", CARD)
     _card_titled(page, "Archetypes").wait_for(timeout=20_000)
     overview = page.evaluate(_PAGE_FROM_THE_TOP)
 
     shots.chip(page, "View", "Co-occurrence")
-    _card_titled(page, "Played with").wait_for(timeout=20_000)
+    _card_titled(page, "Co-occurrence").wait_for(timeout=20_000)
     cooccurrence = page.evaluate(_PAGE_FROM_THE_TOP)
 
     assert overview["order"] == [*_HEAD, "Usage", "Adoption over time", "Archetypes"]
     assert overview["tiles"] == 4 and _display_face(overview)
-    # Brainstorm is in all three decks: two broad classes, each heading one archetype.
-    assert overview["rows"] == [4]
-    assert cooccurrence["order"] == [
-        *_HEAD, "Co-occurrence", "Adoption over time", "Played with"]
+    # Brainstorm is in all three decks: its two archetypes beside the usage graph,
+    # then two broad classes, each heading one archetype.
+    assert overview["rows"] == [2, 4]
+    assert cooccurrence["order"] == [*_HEAD, "Co-occurrence", "Adoption over time"]
     assert cooccurrence["tiles"] == 4 and cooccurrence["rows"] == [15]
 
 
@@ -1292,7 +1296,7 @@ def test_no_table_runs_past_its_card_and_each_is_hairline_rows_and_set_numbers(
         _card_titled(page, "Archetypes").wait_for(timeout=20_000)
         _assert_tables_fit_and_are_plain(page, "Cards, overview")
         shots.chip(page, "View", "Co-occurrence")
-        _card_titled(page, "Played with").wait_for(timeout=20_000)
+        _card_titled(page, "Co-occurrence").wait_for(timeout=20_000)
         _assert_tables_fit_and_are_plain(page, "Cards, co-occurrence")
     finally:
         page.close()
@@ -1322,7 +1326,7 @@ def test_no_table_runs_past_its_card_on_any_tab_of_the_real_record(chromium, rec
         _card_titled(page, "Archetypes").wait_for(timeout=30_000)
         _assert_tables_fit_and_are_plain(page, "Cards, overview")
         shots.chip(page, "View", "Co-occurrence")
-        _card_titled(page, "Played with").wait_for(timeout=30_000)
+        _card_titled(page, "Co-occurrence").wait_for(timeout=30_000)
         _assert_tables_fit_and_are_plain(page, "Cards, co-occurrence")
     finally:
         page.close()
@@ -1356,7 +1360,7 @@ def test_a_caption_on_the_pilot_and_card_pages_is_text_with_at_most_one_figure(p
     _card_titled(page, "Archetypes").wait_for(timeout=20_000)
     read.append(page.evaluate(_CAPTIONS))
     shots.chip(page, "View", "Co-occurrence")
-    _card_titled(page, "Played with").wait_for(timeout=20_000)
+    _card_titled(page, "Co-occurrence").wait_for(timeout=20_000)
     read.append(page.evaluate(_CAPTIONS))
 
     for view in read:
@@ -1418,3 +1422,287 @@ def test_a_tables_group_heading_reads_as_a_heading_not_as_a_row(page):
     assert set_as["heading"][0] == FONTS["display"]["family"]
     assert set_as["row"][0] == FONTS["body"]["family"]
     assert set_as["heading"][1] > set_as["row"][1]
+
+
+# --- A graph beside the panel that answers it (issue #330) ---
+
+
+# Every graph on show on the open tab: its card's title, and where its frame and the
+# three parts of its panel sit. The panel's own box is read too, which is empty on a
+# narrow screen, where the parts take their places round the graph.
+_GRAPHS = "() => { const open = " + _OPEN_TAB + """;
+    const box = el => { const r = el.getBoundingClientRect();
+      return {left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+              width: r.width, height: r.height}; };
+    return [...open.querySelectorAll('.graph-split')]
+      .filter(split => split.getBoundingClientRect().height > 0).map(split => ({
+        title: split.closest('.insight-card').querySelector('.t-result-title').innerText,
+        frame: box(split.querySelector('iframe')),
+        panel: box(split.querySelector('.graph-panel')),
+        key: box(split.querySelector('.panel-key')),
+        answer: box(split.querySelector('.panel-answer')),
+        list: box(split.querySelector('.panel-list')),
+        listed: split.querySelectorAll('.panel-list tr[data-node]').length,
+        window: [innerWidth, innerHeight],
+      })); }"""
+
+
+def _assert_each_graph_sits_beside_its_panel(page, titles: list[str]) -> None:
+    graphs = page.evaluate(_GRAPHS)
+    assert [graph["title"] for graph in graphs] == titles
+    for graph in graphs:
+        frame, panel = graph["frame"], graph["panel"]
+        # Side by side at one height: the graph on the left, about two thirds.
+        assert frame["right"] <= panel["left"] + 0.5, graph
+        assert frame["top"] == pytest.approx(panel["top"], abs=0.5), graph
+        assert frame["height"] == pytest.approx(panel["height"], abs=0.5), graph
+        assert 1.8 * panel["width"] <= frame["width"] <= 2.6 * panel["width"], graph
+        assert panel["width"] >= 300, graph
+        # A frame fitted to the window: all of it fits on screen under the header.
+        assert frame["height"] <= 0.8 * graph["window"][1] + 0.5, graph
+        # And no shorter than the canvas the graph had with the card to itself, which
+        # on a 1440 by 900 window was 697px under its key (measured on main at
+        # c25481e): a graph is fitted by its height, so the drawing is no smaller.
+        if graph["window"] == [1440, 900]:
+            assert frame["height"] >= 697, graph
+        assert graph["listed"] > 0, graph
+    assert _sideways_scroll(page) <= 0
+
+
+@pytest.mark.parametrize("width", ["desktop", "wide"])
+def test_every_graph_sits_beside_its_panel_on_a_desktop(chromium, explorer, width):
+    # The graph sat alone in a frame 90% of the window tall, with its key over it and
+    # the answer to a click at its far edge. Each graph now has a panel beside it at
+    # its own height, holding the key, the answer and the page's list.
+    page = _loaded(chromium, explorer, width)
+    try:
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", PILOT)
+        _card_titled(page, "Record").wait_for(timeout=20_000)
+        _assert_each_graph_sits_beside_its_panel(page, ["Neighbourhood", "Archetype affinity"])
+
+        shots.chip(page, "View", "Head-to-head")
+        shots.pick(page, "Second pilot (required)", PILOT_B)
+        shots.draw(page, settle=500)
+        _assert_each_graph_sits_beside_its_panel(page, ["Neighbourhood"])
+
+        shots.tab(page, "Cards")
+        shots.pick(page, "Card", CARD)
+        _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+        _assert_each_graph_sits_beside_its_panel(page, ["Usage"])
+        shots.chip(page, "View", "Co-occurrence")
+        _card_titled(page, "Co-occurrence").wait_for(timeout=20_000)
+        _assert_each_graph_sits_beside_its_panel(page, ["Co-occurrence"])
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("width", ["desktop", "wide"])
+def test_the_gems_table_is_the_panel_beside_the_gems_graph_on_the_real_record(
+    chromium, record, width
+):
+    # The suite's snapshot has no gem. On the real record the table sat over the
+    # graph, the full width of the card; it is the graph's panel now, every gem a row
+    # that names its node. A phone's table is held to its card with every other
+    # table's, in `test_no_table_runs_past_its_card_on_any_tab_of_the_real_record`.
+    page = _loaded(chromium, record, width)
+    try:
+        shots.tab(page, "Hidden gems")
+        shots.wait(page, 500)
+        _assert_each_graph_sits_beside_its_panel(page, ["Hidden gems"])
+        tables = page.evaluate(
+            "() => [...(" + _OPEN_TAB + ").querySelectorAll('table.data-table')]"
+            ".map(table => [!!table.closest('.panel-list'),"
+            " [...table.querySelectorAll('thead th')].map(th => th.innerText.toLowerCase())])")
+    finally:
+        page.close()
+
+    assert tables == [[True, [
+        "card", "decks running it", "in top 20%", "pilots", "odds it is luck"]]]
+
+
+# What the panel beside the first graph on show says, and where: the facts of the
+# node it is answering for, the row it marks, and what the graph itself has selected.
+_ANSWERED = "() => { const open = " + _OPEN_TAB + """;
+    const split = [...open.querySelectorAll('.graph-split')]
+      .find(el => el.getBoundingClientRect().height > 0);
+    const shown = [...split.querySelectorAll('.node-facts')].filter(el => !el.hidden);
+    const inside = split.querySelector('iframe').contentWindow;
+    const box = shown.length ? shown[0].getBoundingClientRect() : null;
+    return {
+      answering: shown.map(el => el.dataset.node),
+      said: shown.length ? shown[0].innerText : '',
+      top: box && box.top, bottom: box && box.bottom, window: innerHeight,
+      prompt: getComputedStyle(split.querySelector('.panel-prompt')).display !== 'none',
+      marked: [...split.querySelectorAll('tr.picked')].map(row => row.dataset.node),
+      selected: inside.network.getSelectedNodes(),
+      faces: [...inside.document.fonts].filter(face => face.status === 'loaded')
+        .map(face => face.family.replace(/['"]/g, '')),
+      labelled: inside.network.nodesHandler.options.font.face,
+    }; }"""
+
+
+def _assert_a_clicked_deck_is_answered_in_the_window(page) -> dict:
+    before = page.evaluate(_ANSWERED)
+    assert before["answering"] == [] and before["prompt"]
+
+    shots.click_a_node(page)
+
+    read = page.evaluate(_ANSWERED)
+    # One node answered for, the one the graph has selected, and the prompt gone.
+    assert read["answering"] == read["selected"] and len(read["selected"]) == 1
+    assert read["selected"][0].startswith("deck:") and not read["prompt"]
+    # What a reader asks of a deck next, with its list one click away.
+    for fact in ("EVENT", "FINISH", "REGISTERED", "Open the decklist on Moxfield"):
+        assert fact in read["said"], read["said"]
+    # All of it inside the window as the click left it, to within half a pixel (a
+    # page scrolls to a fraction of one): the reader has not scrolled.
+    assert -0.5 <= read["top"] and read["bottom"] <= read["window"] + 0.5, read
+    # And the graph's labels are in the app's face, which its own document loaded.
+    assert read["faces"] == [FONTS["body"]["family"]]
+    assert read["labelled"].strip("'\"").startswith(FONTS["body"]["family"])
+    return read
+
+
+def test_a_click_on_a_node_is_answered_in_the_panel_inside_the_window(page):
+    # The answer was a line at the foot of a frame taller than most windows, in view
+    # only with the page scrolled exactly into place, and it read "Kind: Deck, Name:
+    # Grixis". It is in the panel beside the graph, at the top, the moment of the click.
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    shots.drawn(page, settle=3000)
+
+    read = _assert_a_clicked_deck_is_answered_in_the_window(page)
+
+    # A click on a deck is a click on a result the list holds, so its row is marked.
+    assert read["marked"] == read["selected"]
+
+
+def test_a_click_on_a_node_is_answered_inside_the_window_on_the_real_record(
+    chromium, record
+):
+    # A hundred nodes, a record of dozens, and a panel that scrolls: the answer is
+    # still at the top of it.
+    page = _loaded(chromium, record)
+    try:
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", shots.PILOT)
+        shots.drawn(page, settle=6000)
+        _assert_a_clicked_deck_is_answered_in_the_window(page)
+    finally:
+        page.close()
+
+
+def test_an_answer_is_brought_into_the_window_when_the_panels_top_is_off_screen(page):
+    # The frame is most of a window tall, so a reader part way down the graph has
+    # the top of the panel, where the answer is, above the top of the window. A
+    # click on a node they can see brings the answer to them.
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    shots.drawn(page, settle=3000)
+    frame = page.locator("iframe").locator("visible=true").first.element_handle()
+    page.evaluate("frame => window.scrollBy(0, frame.getBoundingClientRect().top + 200)", frame)
+    # The lowest node drawn, well inside what is left of the frame on screen.
+    point = frame.content_frame().evaluate(
+        """() => { const at = network.getPositions();
+             const lowest = Object.keys(at).reduce((a, b) => (at[b].y > at[a].y ? b : a));
+             return network.canvasToDOM(at[lowest]); }""")
+    assert point["y"] > 260
+    assert page.evaluate(_GRAPHS)[0]["answer"]["top"] < 0  # the answer's place is off screen
+
+    page.frame_locator("iframe >> visible=true").first.locator(
+        "#mynetwork canvas").click(position=point)
+    shots.wait(page, 400)
+
+    read = page.evaluate(_ANSWERED)
+    assert len(read["answering"]) == 1
+    assert -0.5 <= read["top"] and read["bottom"] <= read["window"] + 0.5, read
+
+
+def test_a_row_of_the_list_and_a_named_neighbour_each_select_their_node(page):
+    # The panel works the other way too: a row of the list is the node it is about,
+    # and so is a neighbour named under a node's facts.
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    shots.drawn(page, settle=3000)
+    panel = page.locator(".graph-split").locator("visible=true").first
+
+    row = panel.locator(".panel-list tr[data-node]").first
+    named = row.get_attribute("data-node")
+    row.click()
+    shots.wait(page, 300)
+    by_row = page.evaluate(_ANSWERED)
+
+    assert by_row["selected"] == by_row["answering"] == by_row["marked"] == [named]
+
+    # From the pilot at the hub, whose facts name the events round them, to one of them.
+    hub = page.evaluate(
+        "() => { const split = [...(" + _OPEN_TAB + ").querySelectorAll('.graph-split')]"
+        ".find(el => el.getBoundingClientRect().height > 0);"
+        " const inside = split.querySelector('iframe').contentWindow;"
+        " const id = inside.network.body.data.nodes.getIds().find(id => id.startsWith('pilot:'));"
+        " inside.network.selectNodes([id]); inside.network.body.emitter.emit('selectNode',"
+        " {nodes: [id]}); return id; }")
+    neighbour = panel.locator(".node-facts:not([hidden]) li[data-node]").first
+    event = neighbour.get_attribute("data-node")
+    assert event.startswith("event:") and page.evaluate(_ANSWERED)["answering"] == [hub]
+    neighbour.click()
+    shots.wait(page, 300)
+    by_neighbour = page.evaluate(_ANSWERED)
+
+    assert by_neighbour["selected"] == by_neighbour["answering"] == [event]
+    assert by_neighbour["marked"] == []  # an event is no row of a pilot's results
+
+
+def test_a_selected_or_hovered_row_keeps_every_word_legible(page):
+    # A row answers the pointer and the selection with a tint, which lightens the
+    # ground under it. The quiet figure in a row is 4.57:1 on the card and would be
+    # 3.76:1 on the selected tint, so in a tinted row it steps up a tone.
+    shots.tab(page, "Cards")
+    shots.pick(page, "Card", CARD)
+    shots.drawn(page, settle=3000)
+    rows = page.locator(".graph-split").locator("visible=true").first.locator(
+        ".panel-list tr[data-node]")
+    read = ("row => [...row.querySelectorAll('td, td .sub')].map(el => ["
+            "getComputedStyle(el).color, getComputedStyle(el.closest('td')).backgroundColor])")
+
+    rows.nth(0).click()
+    shots.wait(page, 300)
+    selected = rows.nth(0).evaluate(read)
+    rows.nth(1).hover()
+    shots.wait(page, 300)
+    hovered = rows.nth(1).evaluate(read)
+
+    surface = _rgb(TOKENS["surface"])
+    for state, cells in (("selected", selected), ("hovered", hovered)):
+        assert len(cells) == 3, state
+        for ink, tint in cells:
+            assert _channels(tint)[3:] not in ([], [0.0]), (state, "the row is not tinted")
+            ground = _over(tint, surface)
+            assert contrast_ratio(_over(ink, _rgb(ground)), ground) >= 4.5, (
+                state, ink, ground)
+
+
+def test_on_a_phone_the_list_comes_before_the_graph(chromium, explorer):
+    # A graph is not the readable thing on a phone (ADR 0018), so the list leads.
+    # The key stays over the graph and a clicked node's facts under it, as near to
+    # the graph as they were when they lived inside its frame.
+    page = _loaded(chromium, explorer, "phone")
+    try:
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", PILOT)
+        _card_titled(page, "Record").wait_for(timeout=20_000)
+        graphs = page.evaluate(_GRAPHS)
+        sideways = _sideways_scroll(page)
+    finally:
+        page.close()
+
+    assert [graph["title"] for graph in graphs] == ["Neighbourhood", "Archetype affinity"]
+    for graph in graphs:
+        assert graph["listed"] > 0
+        assert (graph["list"]["bottom"] <= graph["key"]["top"] + 0.5
+                and graph["key"]["bottom"] <= graph["frame"]["top"] + 0.5
+                and graph["frame"]["bottom"] <= graph["answer"]["top"] + 0.5), graph
+        # Each part the width of the card, one under another.
+        assert graph["list"]["width"] == pytest.approx(graph["frame"]["width"], abs=0.5)
+    assert sideways <= 0

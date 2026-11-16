@@ -2,14 +2,16 @@
 
 The widget names the vis.js library the app serves itself rather than carrying a
 copy, so a result is a few KB and the library is downloaded once (issue #97).
-The document lays out as a colour key, the graph filling the middle, and a details
-panel below it; clicking a node fills that panel, and a deck's details link out to
-its Moxfield page.
+The document is the graph alone, filling its frame (issue #330). The colour key and
+the answer to a node click are the page's, in a panel beside the frame: this module
+hands the page the key (:func:`colour_key`) and each node's colour
+(:func:`node_colours`), and its document tells that panel which node was clicked
+(:data:`_ANSWER`).
 
 pyvis's own generated graph internals (its node/edge JS, its layout) are deliberately
 not asserted, per the PRD testing plan. What this module *injects onto* that document
-is: the tests hold the shared-palette node colours, the on-screen colour key, the dark
-ground, the structured details panel, the count hover on a visible rate edge (#211),
+is: the tests hold the shared-palette node colours, the colour key, the dark
+ground, the count hover on a visible rate edge (#211),
 and the fit-and-label settle (:data:`_SETTLE`),
 since those are this module's contribution and the visual-direction contract (§7) they
 answer to.
@@ -22,8 +24,6 @@ labels merely small at desktop width, one dense view from vis.js dropping them.
 width and measures them there.
 """
 
-import html
-import json
 import re
 
 from pyvis.network import Network
@@ -31,8 +31,8 @@ from pyvis.network import Network
 from graph7ph.numfmt import count_of
 from graph7ph.palette import CATEGORICAL, assign
 from graph7ph.query import Node, Subgraph
-from graph7ph.serve import VIS_CSS_URL, VIS_JS_URL
-from graph7ph.theme import FONT_STACK, TOKENS
+from graph7ph.serve import LABEL_FACE_URL, VIS_CSS_URL, VIS_JS_URL
+from graph7ph.theme import FONT_STACK, FONTS, TOKENS
 
 # §7: the eight node kinds take the eight palette slots in a fixed by-kind order,
 # so the graph draws its colour from the one shared vocabulary (`assign`) the
@@ -44,6 +44,16 @@ _KIND_ORDER = (
     "Deck", "Pilot", "Card", "Archetype", "Macro", "Event", "Placement", "Intersection",
 )
 _KIND_COLOURS = assign(_KIND_ORDER)
+
+# What a reader is told a kind is, where that is not the kind's own name. No surface
+# prints the word "Macro" (CONTEXT.md): it is a broad class to anyone reading.
+_KIND_NAMES = {"Macro": "Broad class"}
+
+
+def kind_name(kind: str) -> str:
+    """A node kind as a reader is told it: on the colour key, and on a hover."""
+    return _KIND_NAMES.get(kind, kind)
+
 
 # Grouped views colour by group instead of by kind, so the groups read apart at
 # a glance: a head-to-head tints each player's chain, and card co-occurrence
@@ -60,13 +70,6 @@ _MOXFIELD = "https://moxfield.com/decks/{}"
 def moxfield_url(deck_id: str) -> str:
     """The Moxfield page for a deck, by its id."""
     return _MOXFIELD.format(deck_id)
-
-
-def _moxfield_url(node: Node) -> str | None:
-    """The Moxfield page for a deck node, or ``None`` for any other kind."""
-    if node.kind != "Deck":
-        return None
-    return moxfield_url(node.id.removeprefix("deck:"))
 
 
 def _hosted_library(doc: str) -> str:
@@ -176,25 +179,57 @@ def _group_name(group: str, nodes: list[Node]) -> str | None:
     return _GROUP_NAMES.get(group)
 
 
+def _group_palette(nodes: list[Node]) -> dict[str, str]:
+    """A stable colour per group present, in group order, so two chains stay distinct."""
+    groups = sorted({n.group for n in nodes if n.group is not None})
+    return {g: _GROUP_COLOURS[i % len(_GROUP_COLOURS)] for i, g in enumerate(groups)}
+
+
+def node_colours(subgraph: Subgraph) -> dict[str, str]:
+    """The colour each node is drawn in, by node id: its group's in a grouped view,
+    otherwise its kind's. For whatever names a node beside the graph and wants the
+    dot it is drawn as."""
+    palette = _group_palette(subgraph.nodes)
+    return {
+        n.id: palette[n.group] if n.group is not None else _KIND_COLOURS.get(n.kind)
+        for n in subgraph.nodes
+    }
+
+
+def colour_key(subgraph: Subgraph) -> list[tuple[str, str]]:
+    """What colour encodes in this graph, as ``(name, colour)`` pairs: the groups in
+    a grouped view, otherwise the kinds present, in the fixed slot order.
+
+    Only what is actually drawn is keyed, so identity is carried by a name beside
+    its swatch and never by hue alone (§7). A name can be untrusted (a group is a
+    player or a card), so whoever draws the key escapes it.
+    """
+    palette = _group_palette(subgraph.nodes)
+    if palette:
+        return [
+            (name, colour) for group, colour in palette.items()
+            if (name := _group_name(group, subgraph.nodes))
+        ]
+    kinds_present = {n.kind for n in subgraph.nodes}
+    return [(kind_name(k), _KIND_COLOURS[k]) for k in _KIND_ORDER if k in kinds_present]
+
+
 def render_subgraph(subgraph: Subgraph) -> str:
     # Both dimensions are the frame's, not a number of our own: `_DOC_STYLE` lays the
-    # document out as a full-height flex column and the graph fills what is left, so
-    # the height the embedding iframe sets (`app._embed`, responsive) is the height.
+    # document out as a full-height flex column and the graph fills it, so the height
+    # the embedding iframe is given (`app._embed`) is the height.
     net = Network(
         height="100%", width="100%", directed=True, cdn_resources="remote",
         bgcolor=TOKENS["surface"], font_color=TOKENS["text"],
     )
-    # A stable colour per player group present, so the two chains stay distinct.
-    groups = sorted({n.group for n in subgraph.nodes if n.group is not None})
-    palette = {g: _GROUP_COLOURS[i % len(_GROUP_COLOURS)] for i, g in enumerate(groups)}
+    palette = _group_palette(subgraph.nodes)
+    colours = node_colours(subgraph)
     group_by_id = {n.id: n.group for n in subgraph.nodes}
     for node in subgraph.nodes:
         # A weighted node is sized by its value; vis.js scales the values in the
         # graph between a min and max radius, so bigger weight reads as a bigger
         # node. Unweighted nodes render at the default size.
         weighted = {"value": node.weight} if node.weight is not None else {}
-        # A grouped node takes its player colour; a plain node the kind colour.
-        colour = palette[node.group] if node.group is not None else _KIND_COLOURS.get(node.kind)
         # A shape override (e.g. "circle") draws the label inside the node; vis.js
         # then sizes it to the text, so a shaped node ignores any weight.
         shaped = {"shape": node.shape} if node.shape is not None else {}
@@ -208,8 +243,9 @@ def render_subgraph(subgraph: Subgraph) -> str:
         net.add_node(
             node.id,
             label=node.label,
-            title=f"{node.kind}: {node.label}",
-            color=colour,
+            title=f"{kind_name(node.kind)}: {node.label}",
+            # A grouped node takes its player colour; a plain node the kind colour.
+            color=colours[node.id],
             **weighted,
             **shaped,
             **pinned,
@@ -255,38 +291,20 @@ def render_subgraph(subgraph: Subgraph) -> str:
     if all_pinned:
         net.toggle_physics(False)
 
-    meta = {
-        node.id: {
-            "kind": node.kind,
-            "label": node.label,
-            "moxfield": _moxfield_url(node),
-            "event": node.event,
-        }
-        for node in subgraph.nodes
-    }
-    # The colour key names what colour actually encodes in this render: the groups
-    # in a grouped view, otherwise the kinds present, each beside its swatch. Only
-    # what is actually drawn is keyed, in the fixed slot order.
-    if groups:
-        legend = [
-            (name, palette[g])
-            for g in groups
-            if (name := _group_name(g, subgraph.nodes))
-        ]
-    else:
-        kinds_present = {n.kind for n in subgraph.nodes}
-        legend = [(k, _KIND_COLOURS[k]) for k in _KIND_ORDER if k in kinds_present]
     doc = _nothing_from_outside(_hosted_library(net.generate_html(notebook=False)))
-    return _compose(doc, meta, _legend(legend), all_pinned)
+    return _compose(doc, all_pinned)
 
-
-_PROMPT = "Click a node to see its details."
 
 # The on-screen size every node label settles to, in CSS pixels. It matches the colour
-# key's chips (`.legend-chip`, 12px) in the same document, so a node's name is never
-# smaller than the key it is read beside, and it clears the theme's smallest type role
-# (the 11px eyebrow). Nothing about it is a vis.js font size: see `_SETTLE`.
+# key's chips in the panel beside the graph (`.key-chip`, 12px), so a node's name is
+# never smaller than the key it is read beside, and it clears the theme's smallest type
+# role (the 11px eyebrow). Nothing about it is a vis.js font size: see `_SETTLE`.
 LABEL_PX = 12
+
+# The face every label is drawn in: the app's body face, served by the app
+# (`serve.LABEL_FACE_URL`), then a face every browser has. vis.js writes this into a
+# canvas font as it stands, where a list of families reads as it does in a stylesheet.
+LABEL_FACE = f"'{FONTS['body']['family']}', arial"
 
 # The halo drawn behind every label, in CSS pixels, in the ground's own colour.
 # A dense corner of a graph draws its labels across one another, and two names
@@ -295,6 +313,16 @@ LABEL_PX = 12
 # as a stack. Three is the width that closes the gaps between glyphs of adjacent labels
 # without eating into the letterforms it surrounds.
 HALO_PX = 3
+
+# What a selected node and the edges it reaches are drawn with, in CSS pixels: a ring
+# round the node, and that much added to each edge's width. vis.js rings a selected
+# node in a shade of its own fill and thickens its edges by one canvas unit, which at
+# the zoom a hundred nodes are fitted at is under half a pixel on screen: a reader who
+# clicked a node, or its row in the panel beside the graph, could not find it (#330).
+# Both are drawn in the text colour, the brightest ink the app has, and sized from the
+# zoom as the labels are (`_SETTLE`), so they hold on the densest graph drawn.
+RING_PX = 3
+PATH_PX = 2.5
 
 # vis.js draws a label in canvas units and multiplies by the zoom, then drops the label
 # entirely once that product falls under a floor of its own (`scaling.label.drawThreshold`
@@ -320,6 +348,9 @@ _SETTLE = """
 <script>
   const LABEL_PX = __LABEL_PX__;
   const HALO_PX = __HALO_PX__;
+  const LABEL_FACE = "__LABEL_FACE__";
+  const RING_PX = __RING_PX__;
+  const PATH_PX = __PATH_PX__;
   const PINNED = __PINNED__;
   let hasSettled = false;
   let settledFrame = null;  // the frame the last completed settle fitted, as "WxH"
@@ -376,18 +407,48 @@ _SETTLE = """
     // it is the one already done again, and on a graph that runs the passes out it is
     // the one the loop would otherwise have left undone.
     network.fit();
+    // The selection's ring and path are widths in canvas units too, so they take the
+    // same divisor. Drawn only on what is selected, so they move no box and no fit.
+    network.setOptions({
+      nodes: {borderWidthSelected: RING_PX / network.getScale()},
+      edges: {selectionWidth: PATH_PX / network.getScale()},
+    });
     settledFrame = frame;
   }
 
+  // What is selected is drawn in the text colour: the node's ring, and each edge it
+  // reaches. vis.js keeps a colour for the selected state on every node and edge,
+  // worked out from the one colour each was created with, so it is set on each here
+  // and not in the options, which a colour of a node's own outranks. Nothing is
+  // added to the data, so the layout is not asked to run again (ADR 0018).
+  for (const node of Object.values(network.body.nodes)) {
+    node.options.color.highlight.border = '__INK__';
+  }
+  for (const edge of Object.values(network.body.edges)) {
+    edge.options.color.highlight = '__INK__';
+  }
+
+  // The labels are drawn in the app's face, and a canvas does not wait for a face
+  // the way text in a page does: asked for one that is not in yet, it draws in
+  // another and never looks again. A label's box is measured at the settle and the
+  // fit is solved from those boxes, so the face is asked for by name and the settle
+  // waits for it. A face whose request fails settles the graph all the same, in the
+  // fallback the stack names.
+  const faceIn = document.fonts.load(LABEL_PX + "px " + LABEL_FACE).catch(() => {});
+  function settleInTheFace() {
+    faceIn.then(() => {
+      network.setOptions({nodes: {font: {face: LABEL_FACE}}, edges: {font: {face: LABEL_FACE}}});
+      settle();
+    });
+  }
   // A physics graph is only worth fitting once its layout has stopped moving; a graph
   // whose every node is pinned never stabilises, because there is nothing to solve.
-  if (PINNED) { settle(); } else { network.once("stabilizationIterationsDone", settle); }
+  if (PINNED) { settleInTheFace(); }
+  else { network.once("stabilizationIterationsDone", settleInTheFace); }
   // The settle owns the view only until the reader takes it: a wheel or button zoom
   // (vis emits "zoom" for those and never for our own fits) or a pan (a drag holding
   // no node) makes the view theirs, and no frame change refits it out from under them
-  // after that. Without this, merely clicking a node threw the reader's zoom away:
-  // the details panel filling shrinks the canvas above it, and vis announces that
-  // shrink as a resize like any other.
+  // after that: a window dragged narrower leaves them where they were reading.
   network.on("zoom", () => { readerHasView = true; });
   network.on("dragEnd", (drag) => { if (drag.nodes.length === 0) readerHasView = true; });
   // A frame that changes size is a different frame to fit, so a resized window or a
@@ -408,19 +469,26 @@ _SETTLE = """
 """
 
 # The iframe is an isolated document, so the parent's `:root` tokens do not reach
-# it: the theme is carried in as literal token values here. It lays the doc out as
-# a flex column (key on top, graph filling the middle, details at the bottom), so
-# the height is whatever the embedding iframe gives it and the details stay visible
-# without scrolling. It also retires pyvis/bootstrap's own light chrome: the white
-# `.card`, the `lightgray` graph border, and the empty centred heading.
+# it: the theme is carried in as literal token values here, and the face as a rule of
+# its own naming the copy the app serves. It lays the doc out as a full-height flex
+# column the graph fills, so the height is whatever the embedding iframe gives it. It
+# also retires pyvis/bootstrap's own light chrome: the white `.card`, the `lightgray`
+# graph border, and the empty centred heading.
 #
-# Bootstrap itself is not loaded (`_nothing_from_outside`). The layout rested on three
-# of its rules, stated here in its place: every box sized to its border, a line height
-# of 1.5, and the 16px `.card-body` put round the graph. Measured element by element
-# against the document that loaded Bootstrap, no box moves (issue #312). A fourth,
-# `text-size-adjust`, is carried unmeasured: it stops a phone's browser resizing the
+# Bootstrap itself is not loaded (`_nothing_from_outside`). The layout rested on its
+# rules, two of which are stated here in its place: every box sized to its border,
+# and a line height of 1.5 (issue #312). A third was the 16px `.card-body` put round
+# the graph, which is not carried since #330: a fit already leaves a margin of its
+# own round the drawing, and beside a panel the frame is a third narrower, so those
+# 32px each way are what keeps the drawing as large as it was at full width.
+# `text-size-adjust` is carried unmeasured: it stops a phone's browser resizing the
 # text when the phone is turned, which a desktop browser cannot show.
 _DOC_STYLE = f"""<style>
+  @font-face {{
+    font-family: '{FONTS["body"]["family"]}'; font-style: normal;
+    font-weight: {FONTS["body"]["weight"]}; font-display: swap;
+    src: url({LABEL_FACE_URL}) format('woff2');
+  }}
   *, ::before, ::after {{ box-sizing: border-box; }}
   html, body {{ height: 100%; margin: 0; }}
   body {{
@@ -434,129 +502,88 @@ _DOC_STYLE = f"""<style>
     margin: 0; border: none !important; background: transparent !important;
   }}
   #mynetwork {{
-    flex: 1 1 auto; height: auto !important; min-height: 0; padding: 16px;
+    flex: 1 1 auto; height: auto !important; min-height: 0; padding: 0;
     float: none !important; border: none !important; background: {TOKENS['surface']} !important;
   }}
-  /* A neutral hairline under the key, ruling it off from the canvas below. An accent
-     box round it was tried and dropped at the maintainer's call (2026-07-26), the same
-     call that took the box off the chart legends, so do not add one back. */
-  #graph-legend {{
-    flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0.85rem;
-    padding: 0.55rem 0.85rem; border-bottom: 1px solid {TOKENS['border']};
-  }}
-  .legend-chip {{
-    display: inline-flex; align-items: center; gap: 0.4rem;
-    font-size: {LABEL_PX}px; color: {TOKENS['text-dim']};
-  }}
-  .legend-dot {{ width: 10px; height: 10px; border-radius: 50%; display: inline-block; }}
   .vis-tooltip {{
     background: {TOKENS['surface-2']} !important; color: {TOKENS['text']} !important;
     border: 1px solid {TOKENS['border']} !important; border-radius: 4px !important;
     font-family: {FONT_STACK} !important; font-size: 12px !important; padding: 4px 8px !important;
   }}
-  #node-details {{
-    flex: 0 0 auto; padding: 0.7rem 0.85rem;
-    border-top: 1px solid {TOKENS['border']}; font-size: 14px;
-  }}
-  .nd-row {{ display: flex; gap: 0.85rem; padding: 0.12rem 0; }}
-  .nd-label {{
-    flex: 0 0 3.25rem; color: {TOKENS['text-mute']};
-    text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; line-height: 1.6;
-  }}
-  .nd-value {{ color: {TOKENS['text']}; }}
-  .nd-prompt {{ margin: 0; color: {TOKENS['text-mute']}; }}
-  .nd-link {{ color: {TOKENS['accent-bright']}; text-decoration: none; }}
-  .nd-link:hover {{ text-decoration: underline; }}
 </style>"""
 
-# A details panel keyed on the vis node id: on click it shows the selected node's
-# kind and name as labelled field rows, the event where the node carries one (a
-# gem view deck, whose label omits it), and for a deck its Moxfield page as a link
-# affordance. The script runs after pyvis's own ``drawGraph()`` has assigned the
-# global ``network``. The label is untrusted (a display name recovered from a
-# Moxfield deck title), so it is written through textContent and a built <a>
-# element, never innerHTML.
-_PANEL = """
-<div id="node-details"><p class="nd-prompt">__PROMPT__</p></div>
+# What a node click is answered with is the page's: a panel beside this frame
+# (`parts.beside_graph`), holding a block of facts for every node drawn and, under
+# them, the page's list. This script is the wire between the two. A click on a node
+# shows that node's block; a click on a row of the list, or on a neighbour named in a
+# block, selects that node in the graph and shows its block in turn.
+#
+# The frame is set from `srcdoc`, so it shares the page's origin and may reach the
+# panel through its own frame element. A document drawn alone, as the browser tests
+# draw it, has no frame and no panel, and the script then does nothing.
+#
+# The names are matched by comparing strings and never built into a selector, since a
+# node id is free text from the source (a card's or an event's name). It runs after
+# pyvis's own ``drawGraph()`` has assigned the global ``network``, inside a function
+# so that it adds no name to the ones the document's scripts already share.
+_ANSWER = """
 <script>
-  const NODE_META = __META__;
-  const panel = document.getElementById("node-details");
-  function row(labelText, value) {
-    const r = document.createElement("div"); r.className = "nd-row";
-    const k = document.createElement("span"); k.className = "nd-label"; k.textContent = labelText;
-    const v = document.createElement("span"); v.className = "nd-value";
-    if (typeof value === "string") { v.textContent = value; } else { v.appendChild(value); }
-    r.appendChild(k); r.appendChild(v); return r;
-  }
-  function showNode(id) {
-    const m = NODE_META[id];
-    if (!m) return;
-    panel.replaceChildren(row("Kind", m.kind), row("Name", m.label));
-    if (m.event) panel.appendChild(row("Event", m.event));
-    if (m.moxfield) {
-      const a = document.createElement("a");
-      a.href = m.moxfield;
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.className = "nd-link";
-      a.textContent = "Open on Moxfield \\u2197";
-      panel.appendChild(row("Deck", a));
+  (() => {
+    const frame = window.frameElement;
+    const side = frame && frame.closest(".graph-split")
+      && frame.closest(".graph-split").querySelector(".graph-panel");
+    if (!side) return;
+    function answer(id) {
+      let answered = null;
+      for (const facts of side.querySelectorAll(".node-facts")) {
+        facts.hidden = facts.dataset.node !== id;
+        if (!facts.hidden) answered = facts;
+      }
+      for (const prompt of side.querySelectorAll(".panel-prompt")) {
+        prompt.hidden = answered !== null;
+      }
+      for (const row of side.querySelectorAll("tr[data-node]")) {
+        row.classList.toggle("picked", row.dataset.node === id);
+      }
+      return answered;
     }
-  }
-  function reset() {
-    const p = document.createElement("p"); p.className = "nd-prompt"; p.textContent = "__PROMPT__";
-    panel.replaceChildren(p);
-  }
-  network.on("selectNode", (params) => showNode(params.nodes[0]));
-  network.on("deselectNode", reset);
+    network.on("selectNode", (params) => {
+      // The reader is looking at the graph, so the answer is brought to them: back
+      // up a panel they have scrolled down its list, and into the window where the
+      // page has the top of the panel off screen. By the least that shows it, which
+      // is nothing at all when it is already in view.
+      const answered = answer(params.nodes[0]);
+      if (answered) answered.scrollIntoView({block: "nearest"});
+    });
+    network.on("deselectNode", () => answer(null));
+    side.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return;
+      const named = event.target.closest("[data-node]:not(.node-facts)");
+      if (!named || !network.body.nodes[named.dataset.node]) return;
+      network.selectNodes([named.dataset.node]);
+      answer(named.dataset.node);
+    });
+  })();
 </script>
 """
 
 
-def _legend(pairs: list[tuple[str, str]]) -> str:
-    """The on-screen colour key: one chip per drawn kind or group, a swatch beside
-    its name, so identity is carried by the label and not by hue alone (§7).
-
-    Labels can be untrusted (a group is a player or card name), so each is escaped;
-    the swatch colour is one of our own palette hexes.
-    """
-    if not pairs:
-        return ""
-    chips = "".join(
-        f'<span class="legend-chip">'
-        f'<span class="legend-dot" style="background:{colour}"></span>'
-        f"{html.escape(label)}</span>"
-        for label, colour in pairs
-    )
-    return f'<div id="graph-legend">{chips}</div>'
-
-
-def _compose(doc: str, meta: dict, legend: str, all_pinned: bool) -> str:
+def _compose(doc: str, all_pinned: bool) -> str:
     """Bring the standalone pyvis document onto the theme: inject the dark doc-level
-    style, the colour key at the top of the body, and the details panel and the
-    fit-and-label settle at the end.
-
-    The node metadata is embedded in an inline ``<script>``, so ``<``/``>``/``&``
-    are unicode-escaped to stop a label ever closing the tag (``</script>``).
-    """
-    payload = (
-        json.dumps(meta)
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-    )
-    # The prompt goes in before the payload, so a node label that happens to contain
-    # the literal text ``__PROMPT__`` is never rewritten into the prompt sentence.
-    panel = _PANEL.replace("__PROMPT__", _PROMPT).replace("__META__", payload)
+    style, and at the end of the body the fit-and-label settle and the script that
+    answers a click in the panel beside the frame."""
     settle = (
         _SETTLE.replace("__LABEL_PX__", str(LABEL_PX))
         .replace("__HALO_PX__", str(HALO_PX))
+        .replace("__LABEL_FACE__", LABEL_FACE)
+        .replace("__RING_PX__", str(RING_PX))
+        .replace("__PATH_PX__", str(PATH_PX))
+        .replace("__INK__", TOKENS["text"])
         .replace("__GROUND__", TOKENS["surface"])
         .replace("__PINNED__", "true" if all_pinned else "false")
     )
     doc = _inject(doc, "</head>", _DOC_STYLE + "</head>")
-    doc = _inject(doc, "<body>", "<body>" + legend)
-    return _inject(doc, "</body>", panel + settle + "</body>")
+    return _inject(doc, "</body>", settle + _ANSWER + "</body>")
 
 
 def _inject(doc: str, anchor: str, replacement: str) -> str:

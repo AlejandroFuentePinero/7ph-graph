@@ -39,7 +39,7 @@ TOKENS: dict[str, str] = {
 # a display serif for titles, a grotesque sans for everything else. Named once (a face
 # swap is one edit here, not a sweep across the stylesheet), each mapped to its woff2
 # and the weights the type roles ask of it.
-_FONT_DIR = Path(__file__).parent / "assets" / "fonts"
+FONT_DIR = Path(__file__).parent / "assets" / "fonts"
 FONTS: dict[str, dict] = {
     # (family, file, css font-weight declaration). Hanken is a variable font: one woff2
     # covers the 400-700 range, so its face declares the range, not a single weight.
@@ -76,6 +76,33 @@ HEADER_ONE_ROW_PX = 1100
 COLUMN_PX = 1280
 
 
+# The frame every graph is drawn in, and the panel beside it (#330). The frame's
+# height is a share of the window between a floor and a ceiling, and the panel takes
+# the same height and scrolls inside it, so the graph and the answer to a click on
+# it are on screen together. It was 90vh up to 950px with the graph alone in it: on
+# a 900px window the frame was 810px tall and the answer sat at its far edge, in
+# view only with the page scrolled exactly into place.
+#
+# A graph is fitted by its height far more often than by its width, so on a 1440 by
+# 900 window a frame this tall and about two thirds as wide draws it no smaller
+# than the full-width one did (measured over every view, #330). The graph's share
+# of the width is `GRAPH_SHARE` to the panel's one: at two to one the widest
+# drawing, a card's usage, came out 13px narrower than it had been.
+#
+# Not so on a taller window. The page's column is capped (`COLUMN_PX`), so a 1920
+# by 1080 window gives the graph no more width than a 1440 one, where the old frame
+# grew with the window's height to 950px: a pilot's graph is drawn about 5% smaller
+# there than it was, and a wide one more. The ceiling is as high as leaves the
+# frame on screen under its card's title at that size.
+GRAPH_HEIGHT = 840
+GRAPH_MIN_HEIGHT = 525
+GRAPH_VIEWPORT_SHARE = "78vh"
+GRAPH_SHARE = 2.2
+# Under this width the two stack: the list first, then the graph (ADR 0018), at the
+# frame's floor.
+GRAPH_STACK_PX = 760
+
+
 @lru_cache(maxsize=1)
 def _font_faces() -> str:
     """The ``@font-face`` rules for the two faces, woff2 base64-embedded as data URIs.
@@ -86,7 +113,7 @@ def _font_faces() -> str:
     """
     rules = []
     for spec in FONTS.values():
-        b64 = base64.b64encode((_FONT_DIR / spec["file"]).read_bytes()).decode("ascii")
+        b64 = base64.b64encode((FONT_DIR / spec["file"]).read_bytes()).decode("ascii")
         rules.append(
             f"@font-face {{\n"
             f"  font-family: '{spec['family']}';\n"
@@ -470,6 +497,125 @@ def build_css() -> str:
   .data-table th:last-child, .data-table td:last-child {{ padding-right: 0; }}
   .data-table .wide-only {{ display: none; }}
   .data-table .sub {{ display: block; font-size: 12px; color: var(--text-mute); }}
+}}
+
+/* A graph beside the panel that answers it (#330, `parts.beside_graph`): the graph
+   about two thirds, the panel the rest, at one height. The panel holds the colour key,
+   the facts of the clicked node and the page's list, parted by hairlines, and scrolls
+   inside its own height so the graph never moves off screen under a long list. */
+.graph-split {{
+  display: grid; grid-template-columns: minmax(0, {GRAPH_SHARE}fr) minmax(300px, 1fr);
+  height: clamp({GRAPH_MIN_HEIGHT}px, {GRAPH_VIEWPORT_SHARE}, {GRAPH_HEIGHT}px);
+  margin-top: 0.6rem;
+}}
+.graph-split > iframe {{ display: block; width: 100%; height: 100%; border: 0; }}
+.graph-panel {{ min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); }}
+.graph-panel > section {{
+  padding: 0.85rem 0.6rem 0.85rem 1rem; border-bottom: 1px solid var(--border);
+}}
+.graph-panel > section:first-child {{ padding-top: 0.2rem; }}
+.graph-panel > section:last-child {{ border-bottom: 0; }}
+/* The graph's own document shows and hides the facts and the prompt by this
+   attribute, which a `display` of the app's own would otherwise outrank. */
+.graph-panel [hidden] {{ display: none; }}
+.panel-eyebrow {{
+  margin: 0 0 0.5rem; font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-mute);
+}}
+/* The colour key: a swatch beside each name, so colour is never the only thing
+   saying what a node is (§7). A chip is the size a node's label settles to. */
+.key-chips {{ display: flex; flex-wrap: wrap; gap: 0.35rem 0.85rem; }}
+.key-chip {{
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 12px; color: var(--text-dim);
+}}
+.key-dot {{
+  flex: 0 0 auto; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+}}
+/* A clicked node's facts: its kind beside its colour, its name in the display face,
+   then label and value rows, the labels set as a table's header is, a weight
+   lighter since they sit beside their values and not over a column of them. */
+.panel-prompt {{ margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-mute); }}
+.node-kind {{
+  display: flex; align-items: center; gap: 0.4rem; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim);
+}}
+.node-name {{
+  margin: 0.15rem 0 0.6rem; font-family: {DISPLAY_STACK}; font-size: 20px;
+  font-weight: 600; line-height: 1.2; color: var(--text); overflow-wrap: anywhere;
+}}
+.facts {{
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.3rem 0.9rem;
+  margin: 0; font-size: 14px;
+}}
+.facts dt {{
+  font-size: 11px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase;
+  line-height: 1.9; color: var(--text-mute);
+}}
+.facts dd {{
+  margin: 0; color: var(--text); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}}
+/* What a mark beside one of the facts means, under the facts that carry it. */
+.facts-note {{ margin-top: 0.6rem; font-size: 12px; line-height: 1.45; color: var(--text-mute); }}
+.node-link {{ margin-top: 0.7rem; font-size: 14px; }}
+.node-link a {{ color: var(--accent-bright); text-decoration: none; }}
+.node-link a:hover {{ text-decoration: underline; }}
+/* The neighbours named under a node's facts. Each is a way to that node, so the
+   row answers the pointer as a list row does. */
+.node-facts .panel-eyebrow {{ margin-top: 0.9rem; }}
+.linked {{ list-style: none; margin: 0; padding: 0; font-size: 13px; }}
+/* Named through the panel, so the size is the list's: Gradio sets an item of any
+   list in an HTML block at the body size. */
+.graph-panel .linked li {{
+  display: flex; align-items: baseline; gap: 0.45rem; margin: 0 -0.3rem;
+  padding: 0.22rem 0.3rem; border-radius: 4px; cursor: pointer; list-style: none;
+  font-size: 13px; line-height: 1.4;
+}}
+.graph-panel .linked li:hover {{ background: {_rgba(TOKENS["border"], 0.45)}; }}
+.linked-name {{ flex: 1 1 auto; min-width: 0; color: var(--text); overflow-wrap: anywhere; }}
+.linked-note {{
+  color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
+}}
+.linked-more {{ margin-top: 0.3rem; font-size: 12px; color: var(--text-mute); }}
+/* The list, in the one table, set a step tighter for a column a third as wide. A
+   row that names a node selects it on a click, and the selected node's row is
+   marked, in a tint and not in the accent itself, which stays the links'. */
+.graph-panel .caption {{ font-size: 13px; margin: -0.2rem 0 0.5rem; }}
+.graph-panel .data-table {{ font-size: 13px; }}
+.graph-panel .data-table th, .graph-panel .data-table td {{ padding: 0.35rem 0.35rem; }}
+.graph-panel .data-table th:first-child, .graph-panel .data-table td:first-child {{
+  padding-left: 0;
+}}
+/* The date under an event's name, at every width: the panel has no room for a
+   column of its own for it. */
+.graph-panel .data-table .sub {{ display: block; font-size: 11px; color: var(--text-mute); }}
+.graph-panel .data-table tr[data-node] {{ cursor: pointer; }}
+.graph-panel .data-table tr[data-node]:hover td {{ background: {_rgba(TOKENS["border"], 0.45)}; }}
+.graph-panel .data-table tr.picked td {{ background: {_rgba(TOKENS["accent"], 0.15)}; }}
+/* Either tint lightens the ground, and the mute a quiet figure and a date are set in
+   is 4.57:1 on the card, 4.03:1 on the hover and 3.76:1 on the selection. In a
+   tinted row they step up to the dim, which is 6.4:1 or better on both. */
+.graph-panel .data-table tr[data-node]:hover td.quiet,
+.graph-panel .data-table tr[data-node]:hover .sub,
+.graph-panel .data-table tr.picked td.quiet,
+.graph-panel .data-table tr.picked .sub {{ color: var(--text-dim); }}
+/* Stacked on a narrow screen, where the graph is not the readable thing (ADR 0018):
+   the list first, then the key over the graph and the clicked node's facts under
+   it, as close to the graph as they were when they lived inside its frame. The
+   panel's box is dropped so its three parts take their places round the graph. */
+@media (max-width: {GRAPH_STACK_PX}px) {{
+  .graph-split {{ display: flex; flex-direction: column; height: auto; }}
+  .graph-panel {{ display: contents; }}
+  .graph-panel > section {{ padding-left: 0; padding-right: 0; }}
+  .graph-panel > .panel-list {{
+    order: 1; padding-top: 0.2rem; border-bottom: 1px solid var(--border);
+  }}
+  .graph-panel > .panel-key {{ order: 2; padding-top: 0.85rem; }}
+  .graph-split > iframe {{ order: 3; height: {GRAPH_MIN_HEIGHT}px; flex: none; }}
+  .graph-panel > .panel-answer {{
+    order: 4; border-top: 1px solid var(--border); border-bottom: 0; padding-bottom: 0;
+  }}
 }}
 
 /* The results stack wraps a view's insight cards and is toggled as a whole: hidden

@@ -8,7 +8,8 @@ import re
 
 from graph7ph import theme
 from graph7ph.parts import (
-    Column, Group, Tile, caption, card_head, folded, link, page_head, table, tiles,
+    Column, Facts, Group, Linked, Row, Tile, beside_graph, caption, card_head, folded,
+    link, page_head, table, tiles,
 )
 
 
@@ -138,5 +139,80 @@ def test_every_class_the_parts_emit_is_one_the_stylesheet_draws():
     css = theme.build_css()
 
     classes = set(re.findall(r"class='([^']+)'", markup))
+    for name in {c for group in classes for c in group.split()}:
+        assert f".{name}" in css, name
+
+
+def test_a_row_can_name_the_graph_node_it_stands_for():
+    # Issue #330: a list beside a graph names, on each row, the node the row is
+    # about, so a click on the row can select it. The id is free text from the
+    # source (a card's or an event's name) and is escaped as an attribute.
+    out = table([Column("Card"), Column("Rate", numeric=True)],
+                [Row("card:fire & ice", ["Fire // Ice", "12%"]), ["Unlisted", "3%"]])
+
+    _, named, plain = _rows(out)
+    assert named.startswith("<tr data-node='card:fire &amp; ice'>")
+    assert "<td>Fire // Ice</td><td class='num'>12%</td>" in named
+    assert plain.startswith("<tr><td>Unlisted</td>")
+
+
+def _beside() -> str:
+    return beside_graph(
+        "<iframe></iframe>",
+        key=[("Deck", "#111111"), ("A <b> pilot", "#222222")],
+        facts=[
+            Facts("deck:d1", "Deck", "Grixis <Tempo>", "#111111",
+                  [("Event", "PogNov25"), ("Finish", "12* / 31")],
+                  note="* is a number we worked out.",
+                  link=link("Open the decklist", "https://moxfield.com/decks/d1")),
+            Facts("event:e'1", "Event", "PogNov25", "#333333", [("Field", "31 decks")],
+                  linked=[Linked("deck:d1", "Grixis <Tempo>", "#111111", "12 / 31")],
+                  more=3),
+        ],
+        list_title="Latest decks",
+        list_body="<table class='data-table'></table>",
+    )
+
+
+def test_a_graph_sits_beside_a_panel_of_its_key_its_nodes_facts_and_a_list():
+    out = _beside()
+
+    # The frame, then the panel: the key, the answer to a click, the list.
+    order = [out.index(mark) for mark in (
+        "<iframe>", "class='graph-panel'", "class='panel-key'", "class='panel-answer'",
+        "class='panel-list'", "Latest decks", "<table class='data-table'>")]
+    assert order == sorted(order)
+    # The key names each colour beside its swatch, the name escaped.
+    assert "style='background:#222222'></span>A &lt;b&gt; pilot</span>" in out
+    # Every node has its block of facts, hidden until it is clicked, and until then
+    # the panel says what a click does.
+    blocks = re.findall(r"<div class='node-facts' data-node='([^']*)' hidden>", out)
+    assert blocks == ["deck:d1", "event:e&#x27;1"]
+    assert "<div class='panel-prompt'>" in out
+    # A block is the node's kind beside its colour, its name, then label and value
+    # rows, every word of them escaped.
+    assert "style='background:#111111'></span>Deck</div>" in out
+    assert "<div class='node-name'>Grixis &lt;Tempo&gt;</div>" in out
+    assert "<dt>Event</dt><dd>PogNov25</dd><dt>Finish</dt><dd>12* / 31</dd>" in out
+    # A fact that needs a word said about it has that word under the facts, and a
+    # node with nothing to add has no empty line for one.
+    assert out.count("class='facts-note'") == 1
+    assert "</dl><div class='facts-note'>* is a number we worked out.</div>" in out
+    # A deck's list is one click away, in a new tab.
+    assert "<a href='https://moxfield.com/decks/d1' target='_blank'" in out
+    # A node's neighbours are named under it, each one a way to that node, and the
+    # ones left out are counted.
+    assert "<li data-node='deck:d1'>" in out
+    assert "<span class='linked-note'>12 / 31</span>" in out
+    assert "and 3 more" in out
+    # A node with no neighbours listed has no such list at all.
+    deck = out.split("data-node='deck:d1' hidden>")[1].split("class='node-facts'")[0]
+    assert "Linked to" not in deck
+
+
+def test_every_class_the_panel_emits_is_one_the_stylesheet_draws():
+    css = theme.build_css()
+
+    classes = set(re.findall(r"class='([^']+)'", _beside()))
     for name in {c for group in classes for c in group.split()}:
         assert f".{name}" in css, name

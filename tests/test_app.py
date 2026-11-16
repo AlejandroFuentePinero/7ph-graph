@@ -1626,23 +1626,18 @@ def test_every_graph_plot_shares_one_responsive_frame():
     # to a wide monitor, with no fixed 700/760px letterbox". Every graph plot shares one
     # frame, so a dense graph and a sparse one read as one canvas across the tabs rather
     # than each scaling to its own node count -- and that frame is a share of the
-    # viewport between a floor and a ceiling, not the flat 760px that was most of a
-    # phone's screen.
-    from graph7ph.app import GRAPH_HEIGHT, GRAPH_MIN_HEIGHT, GRAPH_VIEWPORT_SHARE
-
+    # viewport between a floor and a ceiling. Since #330 the frame is the stylesheet's:
+    # the graph sits beside a panel of the same height, so the size is set once on the
+    # two together and the embedded document carries none of its own.
     frame = _embed("<html></html>")
-    assert (
-        f"height:clamp({GRAPH_MIN_HEIGHT}px, {GRAPH_VIEWPORT_SHARE}, {GRAPH_HEIGHT}px)"
-        in frame
-    )
-    # The ceiling is the tuned size the pilot neighbourhood renders well at, which a
-    # desktop still gets; the floor sits under it so a dense graph stays legible where
-    # the proportion alone would squeeze it.
-    assert GRAPH_MIN_HEIGHT < GRAPH_HEIGHT
-    assert GRAPH_HEIGHT >= 700
-    # And no fixed height survives beside it: the letterbox the criterion names is a
-    # `height:760px`, which a clamp carrying the same ceiling must not reintroduce.
-    assert f"height:{GRAPH_HEIGHT}px" not in frame
+    assert "height" not in frame and "style=" not in frame
+
+    # The frame the design settled on (#330), written out and not rebuilt from the
+    # stylesheet's own constants: 78% of the window, so the panel that answers a
+    # click is on screen with the graph, which a frame 90% of the window tall under
+    # its own title was not. Never under 525px, where a dense graph would be
+    # squeezed, nor over 840px.
+    assert "height: clamp(525px, 78vh, 840px)" in theme.build_css()
 
 
 def test_the_header_names_the_app_and_says_how_fresh_the_data_is():

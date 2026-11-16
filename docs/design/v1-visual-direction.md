@@ -376,6 +376,10 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
 - **Details panel**: field labels and hierarchy, the Moxfield link as an
   affordance, on the dark palette.
 
+_Amended 2026-11-16 (#330): the colour key and the details are no longer inside the
+graph's frame. They are a panel beside it, with the page's list. See "The graph
+beside its panel (#330)"._
+
 ## 8. States, first contact, provenance
 
 - **One treatment for all five states**: nothing picked, running, empty result,
@@ -563,6 +567,8 @@ which set a plot off with a top rule alone.
     archetype the reader cannot raise. The height is reserved only when a legend will
     actually be drawn, so a single-series chart keeps its natural height as before._
   The details panel stays visible inside the graph card without scrolling (§7).
+  _Amended 2026-11-16 (#330): the frame is `clamp(525px, 78vh, 840px)` and the graph
+  shares it with a panel. See "The graph beside its panel (#330)"._
 - **Empty until drawn.** A view's cards live in a results stack that is **hidden
   until a Draw fills it** (§14), so the view opens as its controls over empty ground,
   not a row of identical "nothing yet" prompt cards. The guidance lives in the
@@ -860,7 +866,8 @@ head's caption (§12) and "subject once" (§14).
   two decimals (§4) off the two counts its edge carries, where the edge's own label
   rounds to a whole percent, and the archetypes are sorted by that share: the graph
   orders on the rounded percent, which a column of exact shares would show as out of
-  order.
+  order. _Changed 2026-11-16 (#330): Co-occurrence's list is the panel beside its
+  graph and no longer a card under the plots._
 - **One table.** Hairline rows and nothing else: no frame, no band, no fill. Numbers
   right-aligned in tabular figures. A column that qualifies the one beside it is set
   back. A group of rows is headed by a line of its own, with any figures of its own
@@ -890,3 +897,81 @@ head's caption (§12) and "subject once" (§14).
   recorded"). Applied on this ticket to every caption on Pilots and Cards. The other tabs keep the earlier caption
   roles (`.t-caption`, `.t-fieldstat`, accent inside a card) until their own tickets
   reach them.
+
+## The graph beside its panel (#330)
+
+Decided 2026-11-16, after the maintainer looked at three layouts on the running app
+(today's page, a side panel, a card floating over a full-width graph) and chose the
+side panel. Measured on the running app at 390, 1440 and 1920px before and after.
+The prototype is kept on the branch `prototype/330-graph-side-panel`.
+
+- **Two columns.** A graph sits beside a panel at one height: the graph about two
+  thirds of the card (2.2 to 1), the panel the rest, never under 300px. It was alone
+  in a frame 90% of the window tall, with its key over it and the answer to a click
+  at its far edge: on a 900px window the frame was 810px and the answer sat at
+  766px of it, in view only with the page scrolled exactly into place.
+- **The panel holds three things**, parted by hairlines: the colour key, the facts
+  of whichever node is clicked, and the page's list. It scrolls inside its own
+  height, so a long list never moves the graph.
+- **A frame fitted to the window.** `clamp(525px, 78vh, 840px)`, so the whole frame
+  is on screen under the card's title. At 1440 by 900 that is 702px, down from 810,
+  and the drawing is no smaller: 638px tall on every view, against 634. A graph is
+  fitted by its height far more often than by its width, and the frame's own 16px
+  padding is gone, which a fit's own margin made redundant. At 1920 by 1080 the
+  drawing is smaller than it was, by about 5% for a pilot's graph (719 by 722 against
+  756 by 761) and 11% for two cards' (719 by 671 against 805 by 761). The page's
+  column is capped at 1280px at every width (#327), so a wider window gives the graph
+  no more width, where the old frame grew with the window's height to 950px.
+- **A click is answered where the reader is looking.** The clicked node's facts show
+  at the top of the panel. If the page has the top of the panel off screen, or the
+  reader has scrolled the panel down its list, the answer is brought into view by the
+  least scroll that shows it, and by none when it already is.
+- **Each kind says what a reader asks next.** The answer was "Kind: Deck, Name:
+  Grixis", which the label had already said. A deck now states its pilot, event,
+  finish, date and archetype, with its list one click away. A placement states its
+  deck's. An event states its date and field. A pilot counts the events or the
+  broad classes round them. A broad class or an archetype states the events played
+  on it, or the decks running the card and their share. A card states its decks and
+  share, or the rate its edge carries. A gem states the whole of its claim. No kind
+  states only its kind and name. A node with more than one neighbour also names up
+  to eight of them, each a way to that node. A deck and a placement name none, nor
+  does any node of a co-occurrence graph, where the list under the facts is those
+  same neighbours in full.
+- **"Macro" is not printed.** The key and a node's hover said "Macro", which
+  CONTEXT.md rules out of every surface. Both say "Broad class".
+- **The list, and what it is on each view.** A pilot's neighbourhood: their latest
+  ten decks, with the whole record still the last table on the page. A
+  head-to-head: the events both played, with each pilot's finish. An affinity
+  graph: every archetype played, by events. A card's usage: the ten archetypes
+  running it most, with the full table still under the plots. Co-occurrence: every
+  card the graph draws, with its rate, which was a card of its own under the plots
+  and is no longer drawn there. The gem view: the gem table.
+- **A row is its node.** A click on a row of the list, or on a neighbour named under
+  a node's facts, selects that node in the graph and shows its facts. The selected
+  node's row is marked in a tint of the accent.
+- **A selection cannot be missed.** _Added 2026-11-16, after the maintainer's look._
+  The selected node takes a 3px ring in the text colour and every edge it reaches is
+  drawn in that colour, 2.5px thicker. The widget's own highlight was a ring in a
+  shade of the node's fill and one canvas unit on each edge, under half a pixel at
+  the zoom a hundred nodes are fitted at. Both are sized on screen, from the zoom,
+  as the labels are.
+- **The gem table's last column is "Odds it is luck".** It was "By chance", which a
+  newcomer could read as how the card got into the deck.
+- **The imputed mark's legend rides the facts that carry a mark.** The panel prints
+  a finish or a field for every deck drawn, most of them the source's own. The
+  legend is said once on a card, as near the mark as it can be: in the card's head
+  where the graph's own labels carry a mark, otherwise over the list if the list
+  prints one, and under a node's facts only when nothing above them has. A caption
+  in the panel is the caption role a size down, 13px.
+- **Phone.** Under 760px the two stack: the list first, then the key, the graph at
+  525px, and the clicked node's facts under it (ADR 0018 stands: the graph is not
+  the readable thing there, so the list leads).
+- **Labels in the app's face.** The graph is a document of its own and loaded no
+  face, so its labels were drawn in Arial. It now asks the app for Hanken Grotesk,
+  one 35 KB download cached for a year, and does not fit the graph until the face is
+  in: a label's box is measured at the fit, and a face arriving later leaves the
+  graph fitted to another face's letters.
+- **What it costs.** The page as transferred is 236.4 KB, from 233.6 KB. The chart
+  library is unchanged. Every node's facts ride with its graph, so a draw is heavier
+  on the stream, which is not compressed: a 100-node pilot neighbourhood is 133 KB
+  of markup, from 90 KB, and a card's usage graph 75 KB, from 58 KB.
