@@ -27,16 +27,18 @@ skip here means this checkout is missing the download, not that the gate is opti
 (issue #197).
 """
 
+import contextlib
 import http.server
 import re
 import threading
+import time
 
 import pytest
 
 from graph7ph import serve
 from graph7ph.query import Edge, Node, Subgraph
 from graph7ph.render import render_subgraph
-from graph7ph.theme import FONTS, TOKENS, build_css
+from graph7ph.theme import FONTS, TOKENS, build_css, contrast_ratio
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -612,8 +614,9 @@ def test_a_selected_node_and_the_edges_it_reaches_cannot_be_missed(browser, even
     one canvas unit, which at the zoom a hundred nodes are fitted at is under half a
     pixel. The selected node takes a ring in the text colour, and every edge it
     reaches is drawn in that colour, both sized on screen and not in canvas units,
-    so they hold on the densest graph the app draws. Nothing else changes: a node
-    that is not selected is drawn as it was.
+    so they hold on the densest graph the app draws. What it does not reach steps
+    back (#331), where it was once drawn as it had been: a dot dimmed toward the
+    ground, and an edge dimmed and no thicker.
     """
     ids = {"hub": "pilot:ariel", "reached": "event:e3", "other": "deck:d3"}
     server, url = _serve(render_subgraph(pilot_neighbourhood(events)))
@@ -638,9 +641,11 @@ def test_a_selected_node_and_the_edges_it_reaches_cannot_be_missed(browser, even
     # The edges it reaches: the same ink, as thick as a label's stroke.
     assert after["reached"]["colour"] == bright
     assert after["reached"]["width"] >= 2.5
-    # And nothing it does not reach is touched.
-    assert after["other"] == before["other"]
-    assert after["apart"] == before["apart"]
+    # And what it does not reach steps back, with no ring and no added width.
+    assert _contrast(after["other"]["fill"]) < RECEDED < _contrast(before["other"]["fill"])
+    assert after["other"]["ring"] == before["other"]["ring"]
+    assert _contrast(after["apart"]["colour"]) < RECEDED < _contrast(before["apart"]["colour"])
+    assert after["apart"]["width"] == before["apart"]["width"]
 
 
 @pytest.mark.parametrize("view", [
@@ -685,3 +690,424 @@ def test_a_resized_window_refits_and_keeps_its_labels_legible(drawn):
         assert label["px"] == pytest.approx(LEGIBLE_PX, rel=0.05), (
             f"{label['id']}'s label renders at {label['px']:.2f}px after the resize"
         )
+
+
+# --- The subject stands out, and a node brings its neighbourhood forward (issue #331) ---
+
+
+@contextlib.contextmanager
+def _settled(browser, doc: str, frame: dict = BESIDE_PANEL):
+    """A graph document drawn in the frame it has beside its panel, settled and at rest."""
+    server, url = _serve(doc)
+    page = browser.new_page(viewport=frame)
+    try:
+        page.goto(url)
+        page.wait_for_function("() => settledFrame !== null")
+        page.wait_for_timeout(1000)
+        yield page
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+
+
+# Each node as a reader sees it: its dot's radius and its name's size, on screen.
+_DRAWN_AS = """
+() => {
+  const scale = network.getScale(), seen = {};
+  for (const id of network.body.nodeIndices) {
+    const node = network.body.nodes[id];
+    seen[id] = {dot: node.shape.radius * scale,
+                name: node.labelModule.fontOptions.size * scale};
+  }
+  return seen;
+}
+"""
+
+
+def test_the_node_a_graph_was_asked_about_has_the_largest_dot_and_the_largest_name(browser):
+    """Issue #331: a card's usage graph drew all 106 of its nodes one size, and the
+    card the reader asked about was a small dot in the middle of them.
+
+    The subject of a graph is drawn as a larger dot with a larger name: 15px, a step
+    up from the 12px every other name keeps. Every other node is drawn as it was.
+    """
+    doc = render_subgraph(pilot_neighbourhood(), subjects=["pilot:ariel"])
+    with _settled(browser, doc) as page:
+        seen = page.evaluate(_DRAWN_AS)
+
+    subject = seen.pop("pilot:ariel")
+    assert subject["name"] == pytest.approx(15, rel=0.05)
+    for node, other in seen.items():
+        assert subject["dot"] >= 1.5 * other["dot"], node
+        assert other["name"] == pytest.approx(LEGIBLE_PX, rel=0.05), node
+
+
+# How far apart two nodes' dots are on screen, edge to edge, beside the wider dot's
+# diameter: under zero the two overlap.
+_GAP = """
+([a, b]) => {
+  const scale = network.getScale(), at = network.getPositions([a, b]);
+  const [one, other] = [network.body.nodes[a], network.body.nodes[b]];
+  const centres = Math.hypot(at[a].x - at[b].x, at[a].y - at[b].y);
+  return {gap: (centres - one.shape.radius - other.shape.radius) * scale,
+          dot: 2 * Math.max(one.shape.radius, other.shape.radius) * scale,
+          physics: network.physics.options.enabled,
+          pinned: [one, other].some((n) => n.options.fixed.x || n.options.fixed.y)};
+}
+"""
+
+
+def test_the_two_pilots_of_a_head_to_head_rest_clear_of_one_another(browser):
+    """Issue #331: the two pilots of a head-to-head came to rest 27px apart at the
+    centre, one dot lying over the other, because every event they share pulls both
+    to the same point.
+
+    They rest with clear ground between them, at least a dot's width of it. Neither
+    is pinned and physics is live (ADR 0018), so each still answers a drag.
+    """
+    pilots = ["pilot:a", "pilot:b"]
+    with _settled(browser, render_subgraph(head_to_head(), subjects=pilots)) as page:
+        seen = page.evaluate(_GAP, pilots)
+
+    assert seen["gap"] >= seen["dot"], (
+        f"the two pilots rest {seen['gap']:.0f}px apart, edge to edge, and a dot is "
+        f"{seen['dot']:.0f}px wide"
+    )
+    assert seen["physics"], "physics was turned off to hold them apart (ADR 0018)"
+    assert not seen["pinned"], "a pilot was pinned to hold the two apart"
+
+
+# Everything the widget would paint right now: each node's fill and the ink of its
+# name, each edge's colour and its width on screen. vis.js works these out as it
+# draws, from what is selected and hovered at that moment.
+_PAINTED_ALL = """
+() => {
+  const scale = network.getScale(), nodes = {}, edges = {};
+  for (const id of network.body.nodeIndices) {
+    const node = network.body.nodes[id];
+    nodes[id] = {fill: node.getFormattingValues().color,
+                 name: node.labelModule.fontOptions.color};
+  }
+  for (const edge of Object.values(network.body.edges)) {
+    const drawn = edge.getFormattingValues();
+    edges[edge.fromId + " > " + edge.toId] = {colour: drawn.color, width: drawn.width * scale};
+  }
+  return {nodes, edges};
+}
+"""
+
+
+def _contrast(colour: str) -> float:
+    """The contrast of a drawn colour against the ground the graph is drawn on."""
+    return contrast_ratio(colour, TOKENS["surface"])
+
+
+# What a drawn thing has to stay under, against the ground, to have stepped back: half
+# of the 3:1 a graphical object that carries meaning is asked to reach.
+RECEDED = 1.5
+
+
+def _assert_only_the_neighbourhood_is_lit(
+    painted: dict, rest: dict, focus: str, near: set, reached: set, selected: str | None = None
+):
+    """``focus`` is the node in focus, ``near`` the nodes it reaches and ``reached``
+    the edges that touch it. The node in focus is held only to its name: its dot is
+    vis.js's to draw, in the shade it gives a selected node. ``selected`` is a
+    selected node the focus has moved away from, whose dot is vis.js's too."""
+    assert painted["nodes"][focus]["name"] == rest["nodes"][focus]["name"]
+    for node, drawn in painted["nodes"].items():
+        if node == focus:
+            continue
+        if node in near:
+            assert drawn == rest["nodes"][node], f"{node} is in the neighbourhood and changed"
+        else:
+            if node != selected:
+                assert _contrast(drawn["fill"]) < RECEDED, f"{node}'s dot has not stepped back"
+            assert _contrast(drawn["name"]) < _contrast(rest["nodes"][node]["name"]) / 2, (
+                f"{node}'s name has not stepped back")
+    for edge, drawn in painted["edges"].items():
+        if edge in reached:
+            assert drawn["colour"] == TOKENS["text"], f"{edge} is reached and not in the ink"
+            assert drawn["width"] >= 2.5, f"{edge} is reached and {drawn['width']:.1f}px wide"
+        else:
+            assert _contrast(drawn["colour"]) < RECEDED, f"{edge} has not stepped back"
+            assert drawn["width"] == rest["edges"][edge]["width"], edge
+
+
+def test_a_selected_node_brings_its_neighbourhood_forward_and_letting_go_puts_it_back(browser):
+    """Issue #331: on a dense graph a selected node's ring and bright edges were lit
+    among a hundred nodes as bright as they were.
+
+    Selecting a node dims everything outside its neighbourhood, dots, names and
+    edges alike, and leaves the node, the nodes it reaches and the edges between
+    them as they were or brighter. Nothing changes at rest, and letting the
+    selection go puts every node and edge back exactly as it was drawn.
+    """
+    near = {"pilot:ariel", "deck:d3"}
+    reached = {"pilot:ariel > event:e3", "event:e3 > deck:d3"}
+    with _settled(browser, render_subgraph(pilot_neighbourhood())) as page:
+        rest = page.evaluate(_PAINTED_ALL)
+        page.evaluate("() => network.selectNodes(['event:e3'])")
+        selected = page.evaluate(_PAINTED_ALL)
+        page.evaluate("() => network.unselectAll()")
+        let_go = page.evaluate(_PAINTED_ALL)
+
+    assert len(rest["nodes"]) == 67 and len(rest["edges"]) == 66
+    _assert_only_the_neighbourhood_is_lit(selected, rest, "event:e3", near, reached)
+    assert let_go == rest
+
+
+_WHERE = """(id) => { const at = network.canvasToDOM(network.getPositions([id])[id]);
+                      return [at.x, at.y]; }"""
+
+
+def test_the_node_under_the_pointer_is_the_focus_and_the_selection_takes_it_back(browser):
+    """Issue #331: a reader finding their way round a dense graph asks "what does
+    this one touch" of node after node, and should not have to click each to see.
+
+    The node under the pointer brings its neighbourhood forward as a selected one
+    does, and comes first while it is there: with one node selected, the pointer over
+    another lights that other's neighbourhood. When the pointer leaves, the focus goes
+    back to the selected node.
+    """
+    with _settled(browser, render_subgraph(pilot_neighbourhood())) as page:
+        rest = page.evaluate(_PAINTED_ALL)
+        page.evaluate("() => network.selectNodes(['event:e7'])")
+        page.mouse.move(*page.evaluate(_WHERE, "event:e3"))
+        page.wait_for_timeout(300)
+        under_the_pointer = page.evaluate(_PAINTED_ALL)
+        page.mouse.move(3, 3)
+        page.wait_for_timeout(300)
+        pointer_gone = page.evaluate(_PAINTED_ALL)
+
+    # The selected node is outside this neighbourhood, and its name steps back with
+    # the rest. Its dot does not: it keeps the ring and shade of a selected node,
+    # since the panel beside the graph is still showing its facts.
+    _assert_only_the_neighbourhood_is_lit(
+        under_the_pointer, rest, "event:e3", {"pilot:ariel", "deck:d3"},
+        {"pilot:ariel > event:e3", "event:e3 > deck:d3"}, selected="event:e7")
+    assert _contrast(under_the_pointer["nodes"]["event:e7"]["fill"]) > 3
+    # Under the pointer and not selected, the node keeps the dot it has at rest.
+    assert under_the_pointer["nodes"]["event:e3"] == rest["nodes"]["event:e3"]
+    _assert_only_the_neighbourhood_is_lit(
+        pointer_gone, rest, "event:e7", {"pilot:ariel", "deck:d7"},
+        {"pilot:ariel > event:e7", "event:e7 > deck:d7"})
+
+
+# Each drawn edge quantity: the ink it is in and its size on screen.
+_QUANTITIES = """
+() => {
+  const scale = network.getScale(), seen = {};
+  for (const edge of Object.values(network.body.edges)) {
+    if (!edge.options.label) continue;
+    const font = edge.labelModule.fontOptions;
+    seen[edge.fromId + " > " + edge.toId] = {ink: font.color, px: font.size * scale};
+  }
+  return seen;
+}
+"""
+
+
+def test_a_node_in_focus_states_its_own_quantities_at_the_size_of_a_name(browser):
+    """Issue #331: an edge's quantity is drawn at vis.js's own size scaled by the
+    zoom (ADR 0018), which on a fitted graph is too small to read, and a hub's
+    quantities sit among those of every other hub.
+
+    The edges a node in focus reaches state their quantities in the text colour at
+    the size of a name. The other quantities are not drawn while there is a focus.
+    At rest, and once the focus is gone, every quantity is as vis.js draws it.
+    """
+    reached = "both:a|b > card:s3"
+    with _settled(browser, render_subgraph(card_cooccurrence())) as page:
+        zoom = page.evaluate("() => network.getScale()")
+        rest = page.evaluate(_QUANTITIES)
+        page.evaluate("() => network.selectNodes(['card:s3'])")
+        focused = page.evaluate(_QUANTITIES)
+        page.evaluate("() => network.unselectAll()")
+        let_go = page.evaluate(_QUANTITIES)
+
+    assert len(rest) == 17
+    for quantity in rest.values():
+        assert quantity["px"] == pytest.approx(VIS_DEFAULT_PX * zoom, rel=0.01)
+    assert focused[reached]["ink"] == TOKENS["text"]
+    assert focused[reached]["px"] == pytest.approx(LEGIBLE_PX, rel=0.05)
+    for edge, quantity in focused.items():
+        if edge != reached:
+            assert quantity["ink"] == "rgba(0,0,0,0)", f"{edge}'s quantity is still drawn"
+    assert let_go == rest
+
+
+# What is on the canvas, read off its pixels after a draw: the colour at a point, and
+# the brightest pixel in the box a label is drawn in. Points and boxes are in the
+# graph's own coordinates. The ground is the page's, behind a clear canvas, so a
+# pixel nothing was drawn on reads as black.
+_ON_THE_CANVAS = """
+({points, names, quantities}) => {
+  network.redraw();
+  const canvas = network.canvas.frame.canvas, ctx = canvas.getContext('2d');
+  const ratio = canvas.width / canvas.clientWidth;
+  const px = (at) => { const p = network.canvasToDOM(at);
+                       return [Math.round(p.x * ratio), Math.round(p.y * ratio)]; };
+  const colour = (at) => '#' + [...ctx.getImageData(...px(at), 1, 1).data.slice(0, 3)]
+    .map((v) => v.toString(16).padStart(2, '0')).join('');
+  const brightest = (box) => {
+    const [left, top] = px({x: box.left, y: box.top});
+    const [right, bottom] = px({x: box.left + box.width, y: box.top + box.height});
+    const data = ctx.getImageData(left, top, right - left, bottom - top).data;
+    let most = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      most = Math.max(most, (data[i] + data[i + 1] + data[i + 2]) / 3);
+    }
+    return most;
+  };
+  const edge = (ends) => Object.values(network.body.edges)
+    .find((e) => e.fromId + ' > ' + e.toId === ends);
+  return {
+    points: Object.fromEntries(Object.entries(points).map(([k, at]) => [k, colour(at)])),
+    names: Object.fromEntries(names.map(
+      (id) => [id, brightest(network.body.nodes[id].labelModule.size)])),
+    quantities: Object.fromEntries(quantities.map(
+      (ends) => [ends, brightest(edge(ends).labelModule.size)])),
+  };
+}
+"""
+
+
+def _brightness(colour: str) -> float:
+    return sum(int(colour[i:i + 2], 16) for i in (1, 3, 5)) / 3
+
+
+def test_what_the_focus_changes_is_what_reaches_the_canvas(browser):
+    """The focus is held above by what vis.js says it would paint. This reads the
+    canvas itself, on a graph composed so that every claim has a pixel to stand on:
+    a node lying across the subject, a node lying across one in the neighbourhood,
+    and a quantity inside the focus and one outside it.
+
+    A subject is painted over a node the layout has left lying across it. With a
+    node in focus, a node it reaches is painted over one it does not, in its own
+    colour, and the one it does not is dimmed. A name outside the neighbourhood is
+    painted dimmer than it was. A reached edge's quantity is painted in the text
+    colour, and another edge's is not painted at all.
+    """
+    card, archetype = "#199e70", "#c98500"  # the palette's slots for the two kinds
+    composed = Subgraph(
+        nodes=[
+            Node("card:s", "Brainstorm", "Card", pin=(0.0, 0.0)),
+            Node("arch:over-s", "Oracle", "Archetype", pin=(15.0, 0.0)),
+            Node("macro:a", "tempo", "Macro", pin=(300.0, 0.0)),
+            Node("arch:n", "Grixis", "Archetype", pin=(300.0, 200.0)),
+            Node("arch:over-n", "Dimir", "Archetype", pin=(315.0, 200.0)),
+            Node("arch:far", "Breach", "Archetype", pin=(600.0, -200.0)),
+        ],
+        edges=[Edge("macro:a", "arch:n", "62%", visible=True),
+               Edge("card:s", "arch:far", "31%", visible=True)],
+    )
+    asked = {
+        "points": {"subject": {"x": 0, "y": 0}, "reached": {"x": 300, "y": 200},
+                   "lying across it": {"x": 337, "y": 200}},
+        "names": ["arch:n", "arch:far"],
+        "quantities": ["macro:a > arch:n", "card:s > arch:far"],
+    }
+    with _settled(browser, render_subgraph(composed, subjects=["card:s"])) as page:
+        rest = page.evaluate(_ON_THE_CANVAS, asked)
+        page.evaluate("() => network.selectNodes(['macro:a'])")
+        focused = page.evaluate(_ON_THE_CANVAS, asked)
+
+    ink = _brightness(TOKENS["text"])
+    # At rest: the subject over the node across it, every name in the ink, and each
+    # quantity painted, in vis.js's own white-edged grey.
+    assert rest["points"]["subject"] == card
+    assert rest["points"]["lying across it"] == archetype
+    assert rest["names"] == {"arch:n": pytest.approx(ink, abs=2),
+                             "arch:far": pytest.approx(ink, abs=2)}
+    assert min(rest["quantities"].values()) > 200
+    # In focus: the reached node over the one across it, which is dimmed.
+    assert focused["points"]["subject"] == card
+    assert focused["points"]["reached"] == archetype
+    assert _contrast(focused["points"]["lying across it"]) < RECEDED
+    assert focused["names"]["arch:n"] == pytest.approx(ink, abs=2)
+    assert focused["names"]["arch:far"] < ink / 2
+    assert focused["quantities"]["macro:a > arch:n"] == pytest.approx(ink, abs=2)
+    assert focused["quantities"]["card:s > arch:far"] < 100
+
+
+def test_two_cards_that_share_no_deck_are_not_thrown_apart(browser):
+    """Two cards that never share a deck are drawn as two nodes with nothing between
+    them. The weight that parts two pilots is for subjects the layout pulls to one
+    point, through what both are tied to; with no tie, two heavy nodes only push
+    each other away, and the pair was fitted as two specks 600px and more apart.
+
+    They are drawn as they were before either was marked: close, and at full size.
+    """
+    seeds = ["card:a", "card:b"]
+    apart = Subgraph(nodes=[Node("card:a", "Snapcaster Mage", "Card", group="seed:a"),
+                            Node("card:b", "Lightning Bolt", "Card", group="seed:b")],
+                     edges=[])
+    with _settled(browser, render_subgraph(apart, subjects=seeds)) as page:
+        seen = page.evaluate(_GAP, seeds)
+
+    assert seen["dot"] >= 40, f"a subject's dot is fitted {seen['dot']:.0f}px wide"
+    assert seen["gap"] < 200, f"the two cards rest {seen['gap']:.0f}px apart"
+
+
+def test_a_graph_laid_out_before_its_scripts_are_all_in_is_still_fitted(browser):
+    """Two nodes with nothing between them are laid out in one step, and the step
+    could be over before the script that fits the graph had begun to listen for it:
+    a browser may stop between two scripts of a document, as it does when the
+    document reaches it in pieces. 6 loads in 20 of the two cards above were never
+    fitted, and 2 in 20 before either card was marked.
+
+    Here every script is followed by one the browser has to wait for, so each load
+    is one of those, and the graph is fitted all the same.
+    """
+    apart = Subgraph(nodes=[Node("card:a", "Snapcaster Mage", "Card", group="seed:a"),
+                            Node("card:b", "Lightning Bolt", "Card", group="seed:b")],
+                     edges=[])
+    held_back = iter(range(100))
+    in_pieces = re.sub(
+        "</script>",
+        lambda end: f'</script><script src="/held.js?{next(held_back)}"></script>',
+        render_subgraph(apart))
+    server, url = _serve(in_pieces)
+    page = browser.new_page(viewport=BESIDE_PANEL)
+
+    def held(route):
+        time.sleep(0.05)
+        route.fulfill(body="", content_type="application/javascript")
+
+    try:
+        page.route("**/held.js?*", held)
+        page.goto(url)
+        page.wait_for_timeout(1500)
+        fitted = page.evaluate("() => settledFrame")
+        seen = page.evaluate(_DRAWN_AS)
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+
+    assert fitted == "{width}x{height}".format(**BESIDE_PANEL)
+    for node, drawn in seen.items():
+        assert drawn["name"] == pytest.approx(LEGIBLE_PX, rel=0.05), node
+
+
+def test_an_edge_selected_on_its_own_is_still_lit(browser):
+    """A click on an edge selects it with no node selected, and since #330 the
+    selected edge has been drawn in the text colour, 2.5px wider. The focus is a
+    node's, so an edge alone dims nothing, and it keeps the look it had.
+    """
+    with _settled(browser, render_subgraph(pilot_neighbourhood())) as page:
+        rest = page.evaluate(_PAINTED_ALL)
+        page.evaluate("""() => network.selectEdges([Object.values(network.body.edges)
+          .find((e) => e.fromId === 'event:e3' && e.toId === 'deck:d3').id])""")
+        selected = page.evaluate(_PAINTED_ALL)
+        page.evaluate("() => network.unselectAll()")
+        let_go = page.evaluate(_PAINTED_ALL)
+
+    edge = selected["edges"].pop("event:e3 > deck:d3")
+    assert edge["colour"] == TOKENS["text"]
+    assert edge["width"] >= 2.5
+    del rest["edges"]["event:e3 > deck:d3"]
+    assert selected == rest, "an edge selected alone changed something else"
+    assert let_go["edges"]["event:e3 > deck:d3"]["colour"] != TOKENS["text"]
