@@ -162,7 +162,9 @@ _Added 2026-11-16 (#329): three roles for the pilot and card pages, defined unde
 600 at 26 (22), in text, proportional figures as a standalone number takes. The
 **caption** on those two tabs is Hanken Grotesk 400 at 14, line-height 1.5, in text,
 where the caption role above is 13 in text-mute and was drawn in the accent inside a
-card; the other tabs keep that role until their own tickets._
+card; the other tabs keep that role until their own tickets._ _Amended 2026-11-16
+(#333): inside a card that role is in the text colour on every tab, as the field-standing
+line is. The accent is a link's._
 
 The **subject line** (§14) is the one role added by #132: it states the subject once
 above the cards, in the display face at 18 (between the insight title and the lede),
@@ -654,7 +656,9 @@ and its on-surface methodology blocks.
 - **No per-plot description paragraph** and **no on-surface methodology.** The
   `<details> How this is measured` blocks leave the plots entirely; the methodology
   they hold moves to the FAQ / Methodology tab (#133). A plot carries only its
-  title and one-line caption.
+  title and one-line caption. _Amended 2026-11-16 (#333): the words "How this is
+  measured" are back on a chart, as a small link at the end of its title's line that
+  opens the chart's FAQ entry. The methodology itself stays in the FAQ._
 - **Subject once.** The chosen subject is stated a single time for the whole
   result (a subject line above the cards), never echoed in each card title. An
   insight is titled by its **plot type only**: `Neighbourhood`, not
@@ -925,7 +929,10 @@ head's caption (§12) and "subject once" (§14).
   wherever it is drawn ("* marks a number this project worked out, not one the source
   recorded"). Applied on this ticket to every caption on Pilots and Cards. The other tabs keep the earlier caption
   roles (`.t-caption`, `.t-fieldstat`, accent inside a card) until their own tickets
-  reach them.
+  reach them. _Changed 2026-11-16 (#333): the accent is gone from those two roles on
+  every tab, since a name is now a link in it; their wording and figures still wait
+  for their own tickets. A decklist link is no longer the one accent in a table: a
+  name that opens a page is one too. See "A name opens its page (#333)"._
 
 ## The graph beside its panel (#330)
 
@@ -977,7 +984,10 @@ The prototype is kept on the branch `prototype/330-graph-side-panel`.
   and is no longer drawn there. The gem view: the gem table.
 - **A row is its node.** A click on a row of the list, or on a neighbour named under
   a node's facts, selects that node in the graph and shows its facts. The selected
-  node's row is marked in a tint of the accent.
+  node's row is marked in a tint of the accent. _Amended 2026-11-16 (#333): a name in
+  a row that has a page of its own is a link to it, and a click on the name itself
+  opens the page. The rest of the row still selects the node. See "A name opens its
+  page (#333)"._
 - **A selection cannot be missed.** _Added 2026-11-16, after the maintainer's look._
   The selected node takes a 3px ring in the text colour and every edge it reaches is
   drawn in that colour, 2.5px thicker. The widget's own highlight was a ring in a
@@ -1171,3 +1181,73 @@ the header's one-row width (§11), and the year's scope (§14).
   239,387), and the chart library 1,275.4 KB, unchanged. No text sits on a new ground:
   the contrast audit fails the same one pair on main and on the branch (the dimmed
   legend entries, 2.10).
+
+## A name opens its page (#333)
+
+Decided 2026-11-16. Names were plain text everywhere: from the leaderboard to a
+pilot's page was the Pilots tab and the name typed in, and from a gem to its card
+the same on Cards. Measured on the running app at 390, 1440 and 1920px before and
+after.
+
+- **The trial came first, and passed.** The ticket rested on a Gradio 6 feature
+  nothing here had used: custom markup that raises a click the app can answer
+  (`trigger('click', ...)` in an HTML block's `js_on_load`). Tried on the standings
+  alone, on the real record at 1440px and at 390px as a touch device: the click
+  reached the app with the pilot's key once per click, the page was drawn 0.58 to
+  0.59 s later, no document was requested, a mark set on the window before the click
+  was still there after it, and the address was unchanged. The result is on the
+  issue.
+- **A name is a link, and one script answers them all.** A pilot, a card or an
+  archetype named in a table, a list or a node's details is a link carrying its kind
+  and its key. One hidden block at the foot of the page listens on the document, so a
+  table redrawn after a pick needs nothing wired to it. The click opens the subject's
+  tab and raises the block's click; the app answers by setting the subject's picker,
+  and the picker's own change draws the page, as a typed pick does.
+- **No address, no reload.** The link holds no address and the click changes none:
+  shareable addresses were ruled out, so nothing in this app is reached by one.
+- **A subject's page is its tab's first view, with nothing compared.** A pilot opens
+  on the overview whatever view Pilots was left on, a card on its overview, and an
+  archetype alone, whatever it was last compared with.
+- **Where a name is a link.** Pilots in the standings. The card and the archetype in
+  the gems table. The archetype in a pilot's record, in the latest decks beside the
+  neighbourhood, in the archetypes played beside the affinity graph, and in both of
+  a card's archetype lists. The card in the played-with list. In a clicked node's
+  details: the node's own name, a deck's pilot and archetype, and the archetype a
+  gem was found in.
+- **Where it is not.** A name is a link only when its picker could draw it. Six
+  archetypes of the real record have no finishes line and so no page, and stay text.
+  A page never links to itself: on a pilot's or a card's overview, that pilot or
+  card is text in its own graphs' panels, where a link would open what is already
+  open. A head-to-head's two pilots and the cards a co-occurrence graph starts from
+  are links, to their overviews. The neighbours listed under a node's facts still select their
+  node (#330), so the graph can be walked from the panel; the node walked to then
+  names its page. The tiles, the head-to-head's column headings and anything a chart
+  draws are not links. No query changed: a graph's nodes already carry their keys, and a
+  record's names are matched to the pickers' own catalogues.
+- **In a panel row, the name opens the page and the rest of the row selects the
+  node.** Both were wanted of one row. The name is in the accent and the row is not,
+  which is what tells them apart.
+- **A jump to another tab starts at the top of it.** A name far down the standings
+  would otherwise open a page already drawn part way down it. A jump within a tab
+  leaves the window alone, and the draw brings its result into view as any pick's
+  does (#328).
+- **Each chart says where it is explained.** The nine charts each carry "How this is
+  measured" at the far end of the title's line, a link to the chart's own FAQ entry.
+  It is the privacy line's jump, and one script now answers both. The standings are
+  a table and carry none; the graphs carry none, though four have an entry
+  (affinity, usage, co-occurrence, gems), since the ticket asks it of charts.
+- **The accent is a link's, everywhere now.** A card's subtitle was in the accent
+  on Metagame, Hidden gems and the leaderboard: the standings' caption
+  sat in orange over a table of names that are now orange links. Inside a card both
+  older caption roles are in the text colour, and a browser test walks every tab and
+  finds nothing in the accent inside a table or a caption but a link. A decklist
+  link keeps the accent: it is a link.
+- **A name is reached by keyboard.** It is a link, so Tab reaches it, it shows the
+  app's focus ring (solid, in the bright accent), and Enter follows it.
+- **What it costs.** The page as transferred is 240.4 KB, from 239.3 KB (240,408
+  bytes, from 239,326), and the chart library 1,275.4 KB, unchanged. A draw is a
+  little heavier for the links in it: a pilot's record card of 33 decks is 10.8 KB
+  of markup from 8.8 KB, a staple card's archetypes card 15.0 KB from 9.3 KB, the
+  gems card with its graph 57.3 KB from 54.8 KB. A click from the head-to-head view
+  draws twice, once for the pilot and once for the view (1.4 to 1.8 s in the trial,
+  against 0.6 s).

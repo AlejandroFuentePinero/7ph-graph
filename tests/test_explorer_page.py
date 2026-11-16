@@ -1932,3 +1932,386 @@ def test_on_a_phone_the_list_comes_before_the_graph(chromium, explorer):
         # Each part the width of the card, one under another.
         assert graph["list"]["width"] == pytest.approx(graph["frame"]["width"], abs=0.5)
     assert sideways <= 0
+
+
+# --- A name opens its page (issue #333) ---
+
+# The page head on show on the open tab: the name it opens with.
+_PAGE_NAME = ("() => { const head = [...(" + _OPEN_TAB + ").querySelectorAll('.page-name')]"
+              ".find(el => el.getBoundingClientRect().height > 0);"
+              " return head ? head.textContent.trim() : null; }")
+
+
+def _marked(page) -> str:
+    """Mark the document, and hand back its address: what a jump must leave as it is.
+
+    A mark on the window does not survive a reload, so finding it after a click says
+    the click loaded nothing.
+    """
+    return page.evaluate("() => { window.__same_document = true; return location.href; }")
+
+
+def _assert_same_document(page, address: str) -> None:
+    """The mark :func:`_marked` left is still on the window, and the address is the
+    one it handed back."""
+    assert page.evaluate("() => [window.__same_document === true, location.href]") == [
+        True, address]
+
+
+def _assert_opened(page, tab: str, name: str, address: str) -> None:
+    """``name``'s page is drawn on ``tab``, in the document and at the address the
+    click was made in."""
+    page.wait_for_function(
+        "(name) => (" + _PAGE_NAME + ")() === name", arg=name, timeout=30_000)
+    _results_on_show(page).first.wait_for(timeout=30_000)
+    assert page.get_by_role("tab", name=tab, exact=True).get_attribute(
+        "aria-selected") == "true"
+    _assert_same_document(page, address)
+
+
+def _names_on_show(page, kind: str, within: str = ""):
+    """The names on the open tab that open a ``kind``'s page, inside ``within``."""
+    return page.locator(f"{within} a[data-opens={kind}]").locator("visible=true")
+
+
+def test_a_card_named_beside_a_card_opens_that_cards_page(page):
+    # Issue #333: a name was plain text everywhere, so going from a card to one it is
+    # played with meant typing the second card's name into the picker. The name in the
+    # list is the way there: its own page, the overview, drawn by the click.
+    shots.tab(page, "Cards")
+    shots.chip(page, "View", "Co-occurrence")
+    shots.pick(page, "Card", CARD)
+    _card_titled(page, "Co-occurrence").wait_for(timeout=20_000)
+    address = _marked(page)
+
+    name = page.locator(".panel-list a[data-opens=card]").locator("visible=true").first
+    beside = name.inner_text()
+    assert beside != CARD
+    # The name is the link, and only the name: the rest of its row still selects the
+    # card's node in the graph beside it (#330).
+    row = page.locator(".panel-list tr[data-node]").locator("visible=true").first
+    row.locator("td.num").last.click()
+    shots.wait(page, 300)
+    assert page.evaluate(_ANSWERED)["selected"] == [row.get_attribute("data-node")]
+    assert page.evaluate(_PAGE_NAME) == CARD  # and it opened nothing
+    name.click()
+
+    _assert_opened(page, "Cards", beside, address)
+    # The card's own page is its overview, and the picker holds the card now.
+    _card_titled(page, "Archetypes").wait_for(timeout=20_000)
+    assert shots.field(page, "Card").input_value() == beside
+
+
+def _assert_in_view_on_the_faq(page, entry: str, address: str) -> None:
+    """``entry``'s box is on screen on the FAQ tab, in the same document and at the
+    same address."""
+    # Gradio draws a group as two nested elements and gives both its id; the outer
+    # one is the box.
+    box = page.locator(f"#{entry}").first
+    box.wait_for()
+    assert page.get_by_role("tab", name="FAQ", exact=True).get_attribute(
+        "aria-selected") == "true"
+    assert 0 <= box.bounding_box()["y"] < page.viewport_size["height"] / 2
+    _assert_same_document(page, address)
+
+
+# Each chart on show on the open tab: its card's title, and the FAQ entry the
+# "How this is measured" link in that card's head names, or null where it has none.
+_MEASURED = "() => { const open = " + _OPEN_TAB + """;
+    return [...open.querySelectorAll('.js-plotly-plot')]
+      .filter(chart => chart.getBoundingClientRect().height > 0).map(chart => {
+        const card = chart.closest('.insight-card');
+        const link = card.querySelector('a.measured');
+        return [card.querySelector('.t-result-title').innerText,
+                link && link.getBoundingClientRect().height > 0
+                  ? link.getAttribute('href') : null];
+      }); }"""
+
+
+def _assert_each_chart_opens_its_entry(page, walk, entries: dict) -> None:
+    """Walk every chart of ``walk`` and follow its link to the FAQ and back."""
+    address = _marked(page)
+    seen = {}
+    for name, picks, charts in walk:
+        if not charts:
+            continue
+        _walked(page, [(name, picks, charts)])
+        on_show = page.evaluate(_MEASURED)
+        assert len(on_show) == charts, (name, on_show)
+        for title, href in on_show:
+            assert href == "#" + entries[title], (name, title, href)
+            seen[title] = href
+            _card_titled(page, title).locator("a.measured").click()
+            _assert_in_view_on_the_faq(page, href[1:], address)
+            shots.tab(page, name)
+    assert set(seen) == set(entries)
+
+
+def test_each_chart_carries_a_link_that_opens_how_it_is_measured(page):
+    # Issue #333: how a chart is worked out is the FAQ's to say, a tab away. Each
+    # chart's head has a small link that opens the FAQ on that chart's own entry.
+    # The suite's snapshot draws three kinds of chart.
+    _assert_each_chart_opens_its_entry(page, SUITE_WALK, {
+        "Meta share over time": "faq-meta", "Selected archetypes": "faq-meta",
+        "Adoption over time": "faq-adoption",
+    })
+
+
+def test_each_chart_opens_how_it_is_measured_on_the_real_record(chromium, record):
+    # All nine charts, which only the real record draws.
+    page = _loaded(chromium, record)
+    try:
+        _assert_each_chart_opens_its_entry(page, RECORD_WALK, {
+            "Meta share over time": "faq-meta", "Selected archetypes": "faq-meta",
+            "Metagame landscape": "faq-landscape", "Share over time": "faq-meta",
+            "Finishes over time": "faq-archetype-timeline",
+            "Adoption over time": "faq-adoption",
+            "Performance over time": "faq-performance",
+            "Head-to-head timeline": "faq-head-to-head", "Score over time": "faq-race",
+        })
+    finally:
+        page.close()
+
+
+def test_a_pilot_named_in_a_head_to_head_opens_their_own_page(page):
+    # The one pilot's name the suite's snapshot can click: a head-to-head draws two
+    # pilots, and neither's own page is the one on show. The name of a clicked node
+    # is the way to it, and the click turns the view back to the overview, which a
+    # pick alone would not draw on the view it was made from.
+    shots.tab(page, "Pilots")
+    shots.chip(page, "View", "Head-to-head")
+    shots.pick(page, "Pilot", PILOT)
+    shots.pick(page, "Second pilot (required)", PILOT_B)
+    shots.draw(page, settle=3000)
+    address = _marked(page)
+    # The second pilot's node, selected as a click on it selects it.
+    page.evaluate(
+        "() => { const split = [...(" + _OPEN_TAB + ").querySelectorAll('.graph-split')]"
+        ".find(el => el.getBoundingClientRect().height > 0);"
+        " const inside = split.querySelector('iframe').contentWindow;"
+        " const id = inside.network.body.data.nodes.getIds()"
+        ".filter(id => id.startsWith('pilot:'))[1];"
+        " inside.network.selectNodes([id]);"
+        " inside.network.body.emitter.emit('selectNode', {nodes: [id]}); }")
+
+    name = _names_on_show(page, "pilot", ".node-facts:not([hidden]) .node-name").first
+    pilot = name.inner_text()
+    assert pilot in (PILOT, PILOT_B)
+    name.click()
+
+    _assert_opened(page, "Pilots", pilot, address)
+    _card_titled(page, "Record").wait_for(timeout=20_000)
+    assert shots.field(page, "Pilot").input_value() == pilot
+
+
+def test_a_name_is_reached_by_keyboard_with_a_ring_and_opens_on_enter(page):
+    # Issue #333: a name is a link, so the Tab key reaches it like any other, it
+    # shows the app's focus ring while it has the focus, and Enter follows it.
+    shots.tab(page, "Cards")
+    shots.chip(page, "View", "Co-occurrence")
+    shots.pick(page, "Card", CARD)
+    _card_titled(page, "Co-occurrence").wait_for(timeout=20_000)
+    address = _marked(page)
+
+    # From the card's own picker, by the Tab key alone, to the first name after it.
+    shots.field(page, "Card").focus()
+    for _ in range(40):
+        page.keyboard.press("Tab")
+        if page.evaluate("() => document.activeElement.matches('a[data-opens]')"):
+            break
+    name, ring = page.evaluate(
+        "() => { const el = document.activeElement, style = getComputedStyle(el);"
+        " return [el.matches('a[data-opens]:focus-visible') ? el.textContent : null,"
+        " [style.outlineStyle, parseFloat(style.outlineWidth) >= 2, style.outlineColor]]; }")
+    assert name and name != CARD
+    assert ring == ["solid", True, _rgb(TOKENS["accent-bright"])]
+
+    page.keyboard.press("Enter")
+
+    _assert_opened(page, "Cards", name, address)
+
+
+# What is in the accent on the open tab, where it should not be: text inside a
+# table or a caption (the caption rule's, and the two older roles a chart's head
+# still uses) that is no link, and a name that opens a page that is not in it.
+_ACCENTED = "(accent) => { const open = " + _OPEN_TAB + """;
+    const shown = el => el.getBoundingClientRect().height > 0;
+    const inked = el => [...el.childNodes].some(
+      node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const said = [...open.querySelectorAll(
+      'table.data-table, .caption, .t-caption, .t-fieldstat')].filter(shown);
+    const names = [...open.querySelectorAll('a[data-opens]')].filter(shown);
+    return {
+      read: said.length,
+      names: names.length,
+      strays: said.flatMap(box => [box, ...box.querySelectorAll('*')]
+        .filter(el => inked(el) && accent.includes(getComputedStyle(el).color)
+                      && !el.closest('a'))
+        .map(el => el.innerText.slice(0, 60))),
+      plain: names.filter(el => !accent.includes(getComputedStyle(el).color))
+        .map(el => el.innerText),
+    }; }"""
+
+
+def _accented_on(page, walk) -> dict:
+    """:data:`_ACCENTED` for each stop of ``walk``, by tab and the picks made on it."""
+    read = {}
+    for name, picks, charts in walk:
+        _walked(page, [(name, picks, charts)])
+        if picks:
+            shots.drawn(page, settle=1500)
+        read[(name, *(text for _, text in picks))] = page.evaluate(_ACCENTED, _ACCENTS)
+    return read
+
+
+def _assert_the_accent_is_kept_for_links(read: dict) -> int:
+    """Nothing in a table or a caption is in the accent but a link, and every name
+    that opens a page is in it. Hands back how many such names were read."""
+    for where, found in read.items():
+        assert found["strays"] == [], where
+        assert found["plain"] == [], where
+    assert sum(found["read"] for found in read.values()) > 0
+    return sum(found["names"] for found in read.values())
+
+
+def test_in_tables_and_captions_only_a_link_is_in_the_accent(page):
+    # Issue #333: the accent is the colour of what can be clicked, and a name that
+    # opens a page is in it. So nothing else in a table or a caption may be, or a
+    # reader cannot tell a name from a figure. The chart heads on Metagame set their
+    # subtitle in the accent until now.
+    read = _accented_on(page, SUITE_WALK)
+
+    assert _assert_the_accent_is_kept_for_links(read) > 0
+    assert read[("Metagame", "Grixis")]["read"] > 0
+
+
+def test_only_a_link_is_in_the_accent_on_any_tab_of_the_real_record(chromium, record):
+    # The tabs the suite's snapshot cannot fill: the landscape and the race state a
+    # reading under their titles, the gems a count, and the standings name 50 pilots.
+    page = _loaded(chromium, record)
+    try:
+        read = _accented_on(page, RECORD_WALK)
+    finally:
+        page.close()
+
+    assert _assert_the_accent_is_kept_for_links(read) > 50
+    for tab in ("Hidden gems", "Player leaderboard"):
+        assert read[(tab,)]["names"] > 0 and read[(tab,)]["read"] > 1, tab
+
+
+@pytest.mark.parametrize("width", ["phone", "desktop"])
+def test_a_pilot_in_the_standings_opens_their_page_on_the_real_record(
+    chromium, record, width
+):
+    # Issue #333: the 50 standings rows held no clickable name, so from the board to
+    # a pilot's page was the Pilots tab and the name typed in. The suite's snapshot
+    # has no race, so this is the real record's, and whoever stands 30th there.
+    page = _loaded(chromium, record, width)
+    try:
+        # Left on the head-to-head, where a pick alone draws nothing: a pilot's page
+        # is the overview, so the click has to turn the view back as well.
+        shots.tab(page, "Pilots")
+        shots.chip(page, "View", "Head-to-head")
+        shots.tab(page, "Player leaderboard")
+        address = _marked(page)
+        names = _names_on_show(page, "pilot", ".data-table")
+        assert names.count() == 50
+        name = names.nth(29)
+        pilot = name.inner_text()
+        name.scroll_into_view_if_needed()
+        assert page.evaluate("() => window.scrollY") > 0
+
+        (name.tap if width == "phone" else name.click)()
+
+        _assert_opened(page, "Pilots", pilot, address)
+        _card_titled(page, "Record").wait_for(timeout=30_000)
+        assert shots.field(page, "Pilot").input_value() == pilot
+        # A page opened from far down another one starts at its top.
+        assert page.evaluate("() => window.scrollY") < page.viewport_size["height"] / 2
+
+        # The same name again, with the page it opens already drawn: nothing is
+        # redrawn, so nothing brings the window back up but the jump itself.
+        shots.tab(page, "Player leaderboard")
+        name = _names_on_show(page, "pilot", ".data-table").nth(29)
+        name.scroll_into_view_if_needed()
+        assert page.evaluate("() => window.scrollY") > page.viewport_size["height"] / 2
+        (name.tap if width == "phone" else name.click)()
+        _assert_opened(page, "Pilots", pilot, address)
+        assert page.evaluate("() => window.scrollY") == 0
+    finally:
+        page.close()
+
+
+def test_a_gem_its_archetype_and_who_played_it_each_open_a_page_on_the_real_record(
+    chromium, record
+):
+    # From a gem to its card was the Cards tab and the name typed in. The gems tab
+    # names three kinds of subject, and each name is the way to its page: the card
+    # in the table, the archetype heading its gems, and, in the details of a deck
+    # that ran the gem, the pilot who played it.
+    page = _loaded(chromium, record)
+    try:
+        shots.tab(page, "Hidden gems")
+        address = _marked(page)
+
+        gem = _names_on_show(page, "card", ".panel-list").first
+        card = gem.inner_text()
+        gem.click()
+        _assert_opened(page, "Cards", card, address)
+        _card_titled(page, "Archetypes").wait_for(timeout=30_000)
+
+        shots.tab(page, "Hidden gems")
+        heading = _names_on_show(page, "archetype", ".panel-list .group").first
+        archetype = heading.inner_text()
+        heading.click()
+        _assert_opened(page, "Archetypes", archetype, address)
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+
+        shots.tab(page, "Hidden gems")
+        shots.wait(page, 1500)
+        # A deck the graph draws, selected as a click on its node selects it.
+        page.evaluate(
+            "() => { const split = [...(" + _OPEN_TAB + ").querySelectorAll('.graph-split')]"
+            ".find(el => el.getBoundingClientRect().height > 0);"
+            " const inside = split.querySelector('iframe').contentWindow;"
+            " const id = inside.network.body.data.nodes.getIds().find(id => id.startsWith('deck:'));"
+            " inside.network.selectNodes([id]);"
+            " inside.network.body.emitter.emit('selectNode', {nodes: [id]}); }")
+        played_by = _names_on_show(page, "pilot", ".node-facts:not([hidden]) dd").first
+        pilot = played_by.inner_text()
+        played_by.click()
+        _assert_opened(page, "Pilots", pilot, address)
+        _card_titled(page, "Record").wait_for(timeout=30_000)
+    finally:
+        page.close()
+
+
+def test_an_archetype_in_a_pilots_record_opens_its_page_on_the_real_record(
+    chromium, record
+):
+    # The record names an archetype per deck. No archetype of the suite's snapshot
+    # has a page (none has the events for a finishes line), so this is the real
+    # record's. The archetype is opened alone, whatever it was last compared with.
+    page = _loaded(chromium, record)
+    try:
+        shots.tab(page, "Archetypes")
+        shots.pick(page, "Archetype", shots.ARCHETYPE)
+        shots.pick(page, "Second archetype (optional)", shots.ARCHETYPE_B)
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", shots.PILOT)
+        record_card = _card_titled(page, "Record")
+        record_card.wait_for(timeout=30_000)
+        address = _marked(page)
+
+        name = record_card.locator("a[data-opens=archetype]").first
+        archetype = name.inner_text()
+        name.click()
+
+        _assert_opened(page, "Archetypes", archetype, address)
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        assert shots.field(page, "Archetype").input_value().startswith(archetype + " (")
+        assert shots.field(page, "Second archetype (optional)").input_value() == ""
+        assert "compared with" not in page.locator(
+            "#archetype-page .page-descriptor").locator("visible=true").inner_text()
+    finally:
+        page.close()

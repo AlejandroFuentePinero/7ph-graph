@@ -12,6 +12,8 @@ import pytest
 
 from graph7ph import numfmt, palette, parts, theme
 from graph7ph.app import (
+    Pages,
+    _open_page,
     CLEAR_LABEL,
     DRAWING_LABEL,
     DRAW_LABEL,
@@ -255,7 +257,10 @@ def test_no_on_surface_methodology_or_plot_description_remains(tmp_path, snapsho
     surface = " ".join(_all_surface_text(_built_demo(tmp_path, snapshot_dir)))
 
     assert "<details" not in surface
-    assert "How this is measured" not in surface
+    # The words are back since #333, and only as the text of a chart's link to its
+    # FAQ entry, which is where the methodology went: the way to it, not a block of it.
+    assert "How this is measured" not in re.sub(
+        r"<a class='measured' href='#faq-[a-z-]+'>How this is measured</a>", "", surface)
     assert "723" not in surface  # the Meta classification-drift caveat is gone
     assert "over-index" not in surface  # the Hidden gems over-indexing caveat is gone
 
@@ -3163,8 +3168,10 @@ def test_a_second_archetype_adds_the_comparison_to_both_charts(tmp_path, snapsho
     assert ("Events in 2025", "3") in _tiles_of(head["value"])
     assert _legend_names(share_plot["value"]) == ["Grixis", "Jund"]
     assert plot["visible"] and not note["visible"]
+    # The title, its link to how the chart is measured (#333), then the caption.
     assert re.sub(r"<[^>]+>", "", heading["value"]).startswith(
-        "Finishes over timeGrixis and Jund each finished better at 1 of 2 shared events.")
+        "Finishes over timeHow this is measured"
+        "Grixis and Jund each finished better at 1 of 2 shared events.")
     # An archetype is one colour down the page, and the two are told apart.
     shares, finishes = _line_colours(share_plot["value"]), _line_colours(plot["value"])
     assert shares == finishes and shares["Grixis"] != shares["Jund"]
@@ -4362,3 +4369,112 @@ def test_a_real_picker_keeps_its_order_apart_from_the_names_that_had_to_move(
         if entry.value in moved:
             holder = next(e.label for e in entries[i + 1:] if e.value not in moved)
             assert entry.name.lower() in holder.lower()
+
+
+# --- A name opens its page (issue #333) ---
+
+
+def _opened(markup: str) -> list[tuple[str, str, str]]:
+    """Every name in ``markup`` that opens a page: its kind, its key and the name."""
+    return [(kind, html.unescape(key), html.unescape(name)) for kind, key, name in re.findall(
+        r"<a href='#' data-opens='([^']*)' data-key='([^']*)'>([^<]*)</a>", markup)]
+
+
+def test_a_gem_and_the_archetype_it_was_found_in_are_each_the_way_to_a_page():
+    # From a gem to its card meant opening Cards and typing the name. The card is a
+    # link to its page by its canon, which the gem's node id carries after the
+    # archetype it was found in, and the archetype heading its gems is one by its tag.
+    table = _gem_table(
+        _gems(("lands", "rishadan port", 21, 13, 10, 0.0039),
+              ("bant", "leyline", 24, 18, 3, 0.00001)),
+        Pages(cards={"rishadan port": "Rishadan Port", "leyline": "Leyline"},
+              archetypes={"lands": "Lands"}),
+    )
+
+    assert _opened(table) == [
+        ("card", "leyline", "Leyline"),
+        ("archetype", "lands", "Lands"), ("card", "rishadan port", "Rishadan Port"),
+    ]
+    # An archetype with no page still heads its gems, as text.
+    assert "scope='rowgroup'>Bant</th>" in table
+
+
+def test_every_pilot_in_the_standings_is_the_way_to_their_page():
+    # The 50 standings rows held no clickable name: from the board to a pilot's page
+    # was a tab and a typed name. The name is the link, by the pilot's key, beside
+    # the swatch that ties a drawn pilot to their line.
+    series = _race_series(
+        ("ace", 0.762, 12, _flat(0.762, 9)),
+        ("rival", 0.761, 9, _flat(0.761, 8)),
+    )
+    names = _race_names("ace", "rival")
+
+    table = _leaderboard_html(series, names, {"ace": "#123456"}, rows=50,
+                              pages=Pages(pilots=names))
+
+    assert _opened(table) == [("pilot", "ace", "Ace"), ("pilot", "rival", "Rival")]
+    assert ("<span class='swatch swatch-hue' style='background:#123456'></span>"
+            "<a href='#' data-opens='pilot'") in table
+
+
+def test_a_clicked_name_sets_its_own_tabs_picker_and_nothing_elses():
+    import gradio as gr
+
+    # What the click's answer sets, for the six controls a subject's page is drawn
+    # from: pilot and Pilots view, card and Cards view, archetype and second
+    # archetype. A subject's page is its tab's first view with nothing compared, so
+    # a pilot opens on the overview whatever the view was, and an archetype alone
+    # whatever it was last compared with. The other two tabs are not touched.
+    pages = Pages(pilots={"ada": "Ada L"}, cards={"port": "Rishadan Port"},
+                  archetypes={"lands": "Lands"})
+    same = gr.update()
+
+    assert _open_page(pages, "pilot", "ada") == ["ada", "pilot_overview", same, same, same, same]
+    assert _open_page(pages, "card", "port") == [same, same, "port", "card_overview", same, same]
+    assert _open_page(pages, "archetype", "lands") == [same, same, same, same, "lands", None]
+
+
+@pytest.mark.parametrize("kind, key", [
+    ("pilot", "nobody"), ("archetype", "soul_sisters"), ("card", "ada"), ("deck", "d1"),
+])
+def test_a_click_naming_no_page_sets_nothing(kind, key):
+    import gradio as gr
+
+    # The kind and the key arrive from the browser. A picker set to a value it does
+    # not hold fails in whatever draws from it, so a key with no page (an archetype
+    # the picker does not offer, a key of another kind, a kind with no pages) is
+    # answered by leaving every control as it is.
+    pages = Pages(pilots={"ada": "Ada L"}, cards={"port": "Rishadan Port"},
+                  archetypes={"lands": "Lands"})
+
+    assert _open_page(pages, kind, key) == [gr.update()] * 6
+
+
+def test_each_chart_is_headed_with_the_way_to_how_it_is_measured():
+    # Issue #333: the FAQ says how each chart is worked out, a tab away from the
+    # chart. Each chart's heading carries a small link to its own entry, by the id
+    # the entry's box already has. The nine charts by their titles, each against the
+    # entry whose question is about it; the three share charts are one calculation.
+    charts = {
+        "Meta share over time": "faq-meta",
+        "Selected archetypes": "faq-meta",
+        "Share over time": "faq-meta",
+        "Metagame landscape": "faq-landscape",
+        "Finishes over time": "faq-archetype-timeline",
+        "Adoption over time": "faq-adoption",
+        "Performance over time": "faq-performance",
+        "Head-to-head timeline": "faq-head-to-head",
+        "Score over time": "faq-race",
+    }
+    entries = {eid for eid, *_ in _FAQ_ENTRIES}
+
+    for title, entry in charts.items():
+        assert entry in entries, title
+        heading = _chart_heading(title, caption_html="<div class='caption'>x</div>")
+        assert f"<a class='measured' href='#{entry}'>How this is measured</a>" in heading
+        # The title is still the heading's own element, read as it was.
+        assert f"<div class='t-result-title'>{title}</div>" in heading
+        assert heading.index("measured") < heading.index("class='caption'")
+
+    # A heading over what is no chart takes no link: the standings are a table.
+    assert "measured" not in _chart_heading("Standings", "The top 50")

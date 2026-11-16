@@ -398,11 +398,32 @@ def build_css() -> str:
 .insight-card .t-result-title {{ margin-bottom: 0.1rem; }}
 /* The plot's subtitle, under its title inside the card: it names what the plot is
    bounded to (a cut, a board, a season), or states the read of it, which is part of
-   reading the plot rather than fine print about it, so it is set in the accent rather
-   than in the caption's mute. Both classes appear in that slot (a caption where the
-   subtitle names a bound, a field-standing line where it states a reading), and a
-   subtitle should not change colour with which of the two a plot happens to use. */
-.insight-card .t-caption, .insight-card .t-fieldstat {{ color: var(--accent-bright); }}
+   reading the plot rather than fine print about it, so it is set in the text colour
+   rather than in the caption's mute. It was in the accent until #333, when a name
+   became a link: the accent is kept for what can be clicked (the caption rule,
+   #329), and an orange sentence over a table of orange names read as one more link.
+   Both classes appear in that slot (a caption where the subtitle names a bound, a
+   field-standing line where it states a reading), and a subtitle should not change
+   colour with which of the two a plot happens to use. */
+.insight-card .t-caption, .insight-card .t-fieldstat {{ color: var(--text); }}
+/* A chart's title with the way to how it is measured (#333): the title, and at the
+   far end of its line a small link to the chart's FAQ entry. Where the two do not
+   fit one line, on a phone, the link goes under the title. */
+.titled {{
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 0 1rem;
+}}
+.titled a.measured {{
+  font-size: 13px; font-weight: 400; color: var(--accent-bright); text-decoration: none;
+  white-space: nowrap;
+}}
+.titled a.measured:hover {{ text-decoration: underline; }}
+/* A name that opens its subject's page (#333, `parts.opens`), wherever it is
+   drawn: in a table, heading a table's group, as a clicked node's name or among its
+   facts. In the accent, as what can be clicked is, and otherwise set as the text
+   it stands in. */
+a[data-opens] {{ color: var(--accent-bright); text-decoration: none; }}
+a[data-opens]:hover {{ text-decoration: underline; }}
 
 /* The parts every page shares (#329, `graph7ph.parts`): the page head with its
    tiles, the caption, and the one table.
@@ -465,9 +486,12 @@ def build_css() -> str:
 /* A figure that qualifies the one beside it is set back, so the eye reads the
    name and the main figure first. */
 .data-table td.quiet {{ color: var(--text-mute); }}
-/* A link is the one thing in a table in the accent. */
+/* A link is the one thing in a table in the accent. A link out, to a decklist, is
+   one short word and stays on its line; a name breaks wherever a name in plain text
+   would, so that a table of names is still no wider than its card. */
 .data-table a {{ color: var(--accent-bright); text-decoration: none; white-space: nowrap; }}
 .data-table a:hover {{ text-decoration: underline; }}
+.data-table a[data-opens] {{ white-space: normal; }}
 /* A line that heads the rows under it: the group's name in the display face, a size
    up from a row, so it reads as a heading over them and not as one more row (the
    titles on the page are in that face, and nothing else in a table is). Any figures
