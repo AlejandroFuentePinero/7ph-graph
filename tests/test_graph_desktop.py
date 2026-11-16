@@ -36,7 +36,7 @@ import pytest
 from graph7ph import serve
 from graph7ph.query import Edge, Node, Subgraph
 from graph7ph.render import render_subgraph
-from graph7ph.theme import FONTS, build_css
+from graph7ph.theme import FONTS, TOKENS, build_css
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -583,6 +583,64 @@ def test_a_frame_that_changes_under_a_reader_who_has_zoomed_does_not_refit(drawn
         f"throwing away the reader's {measured['readerZoom']:.3f} "
         f"(vis's own resize adjustment leaves {kept:.3f})"
     )
+
+
+# What the widget would paint for a node and for an edge right now, in CSS pixels:
+# vis.js works both out when it draws, from the selection as it stands.
+_PAINTED = """
+(ids) => {
+  const scale = network.getScale();
+  const node = (id) => { const v = network.body.nodes[id].getFormattingValues();
+    return {ring: v.borderWidth * scale, ringColour: v.borderColor, fill: v.color}; };
+  const edge = (from, to) => {
+    const found = Object.values(network.body.edges)
+      .find((e) => e.fromId === from && e.toId === to).getFormattingValues();
+    return {width: found.width * scale, colour: found.color}; };
+  return {hub: node(ids.hub), other: node(ids.other),
+          reached: edge(ids.hub, ids.reached), apart: edge(ids.reached, ids.other)};
+}
+"""
+
+
+@pytest.mark.parametrize("events", [pytest.param(22, id="pilot-overview-67"),
+                                    pytest.param(83, id="densest-assess-250")])
+def test_a_selected_node_and_the_edges_it_reaches_cannot_be_missed(browser, events):
+    """After the maintainer's look (#330): a click on a node, or on its row in the
+    panel, selected it in the graph, and the selection was hard to find.
+
+    vis.js rings a selected node in a shade of its own fill and thickens its edges by
+    one canvas unit, which at the zoom a hundred nodes are fitted at is under half a
+    pixel. The selected node takes a ring in the text colour, and every edge it
+    reaches is drawn in that colour, both sized on screen and not in canvas units,
+    so they hold on the densest graph the app draws. Nothing else changes: a node
+    that is not selected is drawn as it was.
+    """
+    ids = {"hub": "pilot:ariel", "reached": "event:e3", "other": "deck:d3"}
+    server, url = _serve(render_subgraph(pilot_neighbourhood(events)))
+    page = browser.new_page(viewport=BESIDE_PANEL)
+    try:
+        page.goto(url)
+        page.wait_for_function("() => settledFrame !== null")
+        page.wait_for_timeout(1000)
+        before = page.evaluate(_PAINTED, ids)
+        page.evaluate("id => network.selectNodes([id])", ids["hub"])
+        after = page.evaluate(_PAINTED, ids)
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+
+    bright = TOKENS["text"]
+    assert before["hub"]["ringColour"] != bright and before["reached"]["width"] < 1
+    # The selected node: a ring a reader cannot miss, in the brightest ink the app has.
+    assert after["hub"]["ringColour"] == bright
+    assert after["hub"]["ring"] == pytest.approx(3, abs=0.1)
+    # The edges it reaches: the same ink, as thick as a label's stroke.
+    assert after["reached"]["colour"] == bright
+    assert after["reached"]["width"] >= 2.5
+    # And nothing it does not reach is touched.
+    assert after["other"] == before["other"]
+    assert after["apart"] == before["apart"]
 
 
 @pytest.mark.parametrize("view", [

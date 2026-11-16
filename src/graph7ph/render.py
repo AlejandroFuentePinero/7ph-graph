@@ -314,6 +314,16 @@ LABEL_FACE = f"'{FONTS['body']['family']}', arial"
 # without eating into the letterforms it surrounds.
 HALO_PX = 3
 
+# What a selected node and the edges it reaches are drawn with, in CSS pixels: a ring
+# round the node, and that much added to each edge's width. vis.js rings a selected
+# node in a shade of its own fill and thickens its edges by one canvas unit, which at
+# the zoom a hundred nodes are fitted at is under half a pixel on screen: a reader who
+# clicked a node, or its row in the panel beside the graph, could not find it (#330).
+# Both are drawn in the text colour, the brightest ink the app has, and sized from the
+# zoom as the labels are (`_SETTLE`), so they hold on the densest graph drawn.
+RING_PX = 3
+PATH_PX = 2.5
+
 # vis.js draws a label in canvas units and multiplies by the zoom, then drops the label
 # entirely once that product falls under a floor of its own (`scaling.label.drawThreshold`
 # minus one, so 4px). At desktop width the fitted zoom leaves labels small rather than
@@ -339,6 +349,8 @@ _SETTLE = """
   const LABEL_PX = __LABEL_PX__;
   const HALO_PX = __HALO_PX__;
   const LABEL_FACE = "__LABEL_FACE__";
+  const RING_PX = __RING_PX__;
+  const PATH_PX = __PATH_PX__;
   const PINNED = __PINNED__;
   let hasSettled = false;
   let settledFrame = null;  // the frame the last completed settle fitted, as "WxH"
@@ -395,7 +407,25 @@ _SETTLE = """
     // it is the one already done again, and on a graph that runs the passes out it is
     // the one the loop would otherwise have left undone.
     network.fit();
+    // The selection's ring and path are widths in canvas units too, so they take the
+    // same divisor. Drawn only on what is selected, so they move no box and no fit.
+    network.setOptions({
+      nodes: {borderWidthSelected: RING_PX / network.getScale()},
+      edges: {selectionWidth: PATH_PX / network.getScale()},
+    });
     settledFrame = frame;
+  }
+
+  // What is selected is drawn in the text colour: the node's ring, and each edge it
+  // reaches. vis.js keeps a colour for the selected state on every node and edge,
+  // worked out from the one colour each was created with, so it is set on each here
+  // and not in the options, which a colour of a node's own outranks. Nothing is
+  // added to the data, so the layout is not asked to run again (ADR 0018).
+  for (const node of Object.values(network.body.nodes)) {
+    node.options.color.highlight.border = '__INK__';
+  }
+  for (const edge of Object.values(network.body.edges)) {
+    edge.options.color.highlight = '__INK__';
   }
 
   // The labels are drawn in the app's face, and a canvas does not wait for a face
@@ -546,6 +576,9 @@ def _compose(doc: str, all_pinned: bool) -> str:
         _SETTLE.replace("__LABEL_PX__", str(LABEL_PX))
         .replace("__HALO_PX__", str(HALO_PX))
         .replace("__LABEL_FACE__", LABEL_FACE)
+        .replace("__RING_PX__", str(RING_PX))
+        .replace("__PATH_PX__", str(PATH_PX))
+        .replace("__INK__", TOKENS["text"])
         .replace("__GROUND__", TOKENS["surface"])
         .replace("__PINNED__", "true" if all_pinned else "false")
     )

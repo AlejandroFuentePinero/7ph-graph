@@ -949,6 +949,12 @@ The prototype is kept on the branch `prototype/330-graph-side-panel`.
 - **A row is its node.** A click on a row of the list, or on a neighbour named under
   a node's facts, selects that node in the graph and shows its facts. The selected
   node's row is marked in a tint of the accent.
+- **A selection cannot be missed.** _Added 2026-11-16, after the maintainer's look._
+  The selected node takes a 3px ring in the text colour and every edge it reaches is
+  drawn in that colour, 2.5px thicker. The widget's own highlight was a ring in a
+  shade of the node's fill and one canvas unit on each edge, under half a pixel at
+  the zoom a hundred nodes are fitted at. Both are sized on screen, from the zoom,
+  as the labels are.
 - **The gem table's last column is "Odds it is luck".** It was "By chance", which a
   newcomer could read as how the card got into the deck.
 - **The imputed mark's legend rides the facts that carry a mark.** The panel prints
