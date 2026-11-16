@@ -118,10 +118,7 @@ _PROMPT = _state_message("Nothing picked yet.")
 # The subject dropdowns carry no help text at all (§14, issue #156). They used to hold
 # a "pick a pilot, then Draw" line each, which said what the label above and the Draw
 # button beside them already say; help text that does not change the reader's choice is
-# deleted rather than shortened. The one scope the app states on a control is the
-# Archetypes year's, which is a fact about the panel the reader cannot get from the
-# control.
-_YEAR_LABEL = "Year (landscape only)"
+# deleted rather than shortened.
 
 # The app is organised by subject, not by render modality (issue #119, v1 §11).
 # Since #126 each of Pilots and Cards collapses to two views, and one pick per view
@@ -728,6 +725,65 @@ def _pair_tiles(together: Series, cards: list[tuple[str, Series]]) -> list[parts
             f"{numfmt.count_of(both, decks)} run both",
         ))
     return tiles
+
+
+def _archetype_tiles(tag: str, shares: Series, landscape: Series | None) -> list[parts.Tile]:
+    """An archetype's four tiles: its dot on the metagame landscape for the record's
+    latest year, stated in numbers (issue #332).
+
+    Its share of that year's decks, where that ranks it among the archetypes played,
+    its mean finish, and the events that finish rests on. ``shares`` is the
+    meta-share matrix, so the share is the last point of the chart under the head.
+    ``landscape`` is that year's landscape, and the finish is the archetype's cell of
+    it: the mean with the 90% interval the landscape draws as its bar, since no mean
+    is stated without one (ADR 0013), the events it rests on and the scored decks
+    behind them. ``None`` where the year is too thin to place on a landscape. No query
+    of the tiles' own, and a test holds them to the landscape and to the archetype's
+    timeline.
+
+    The rank is by decks, and archetypes on as many share a rank, so the tile says how
+    many are level with it rather than placing one of several equals ahead.
+    """
+    year = latest_deck_year(shares)
+    played = [cell.n for cell in shares.cells if cell.year == year and cell.n]
+    own = next(cell for cell in shares.cells if cell.tag == tag and cell.year == year)
+    if own.n:
+        level = played.count(own.n) - 1
+        rank = parts.Tile(
+            f"Rank in {year}", _ordinal(1 + sum(n > own.n for n in played)),
+            f"of {_counted(len(played), 'archetype')} by share"
+            + (f", level with {_counted(level, 'other')}" if level else ""),
+        )
+    else:
+        rank = parts.Tile(f"Rank in {year}", "n/a", f"No deck in {year}")
+    cell = next((cell for cell in landscape.cells if cell.tag == tag),
+                None) if landscape else None
+    if cell and cell.mean_norm is not None:
+        # Flipped, as every finish is drawn: the raw low bound is the better end.
+        within = (f"90% range {1 - cell.mean_high:.2f} to {1 - cell.mean_low:.2f}, 1 = first"
+                  if cell.mean_low is not None else _SCORE_DIRECTION)
+        finish = parts.Tile(
+            f"Mean finish in {year}", numfmt.score(1 - cell.mean_norm, sense=False), within)
+    else:
+        finish = parts.Tile(f"Mean finish in {year}", "n/a", f"No scored deck in {year}")
+    return [
+        parts.Tile(f"Share in {year}", numfmt.share(own.share),
+                   numfmt.count_of(own.n, own.year_total, "decks")),
+        rank,
+        finish,
+        parts.Tile(f"Events in {year}", f"{cell.events if cell else 0:,}",
+                   _counted(cell.scored if cell else 0, "scored deck")),
+    ]
+
+
+def _archetype_descriptor(tag: str, shares: Series, compared_with: str | None) -> str:
+    """The line under an archetype's name: what it is, the years it has a deck in,
+    and the archetype the charts under it compare it with, if one is picked."""
+    years = sorted(cell.year for cell in shares.cells if cell.tag == tag and cell.n)
+    span = (f"in {years[0]}" if len(years) == 1
+            else f"from {years[0]} to {years[-1]}")
+    versus = f", compared with {compared_with}" if compared_with else ""
+    return f"Archetype, on record {span}{versus}."
 
 
 def _edge_share(edge) -> str:
@@ -1550,8 +1606,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "among its decks, and a year is the coarsest, safest slice of that: it is what "
         "the charts that cut up the metagame are grouped by, rather than anything "
         "finer.\n\n"
-        "Every year axis, the year selector on the Archetypes tab, the label on the Meta "
-        "tab's own control, and the span in the "
+        "Every year axis, the landscape's year selector and the cut's label on the "
+        "Metagame tab, the tiles on an archetype's page, and the span in the "
         "footer read that one number. The newest year is still filling, so its figures "
         "move as events are added. The two timelines are the exception, and place each "
         "event on its own registration date rather than in a year.",
@@ -1636,8 +1692,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "the chart will draw carry one. Where neither archetype was scored there is "
         "nothing to compare, so that meeting is neither drawn nor counted and both "
         "lines break over the date instead.\n\n"
-        "The chart spans every year in the data; the year selector above it changes "
-        "the landscape only. If two archetypes were scored together at fewer than two "
+        "The chart spans every year in the data. The four figures over it are the "
+        "latest year's alone: the ones that place the archetype on the metagame "
+        "landscape. If two archetypes were scored together at fewer than two "
         "events, the chart says so instead of drawing.",
     ),
     (
@@ -2593,7 +2650,7 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
 
 def _trend_figure(
     series: Series, tags: list[str], *, start_raised: int = _OPEN_RAISED,
-    universe: list[str] | None = None,
+    universe: list[str] | None = None, emphasis: bool = True,
 ) -> pgo.Figure:
     """A line chart of the chosen archetypes' meta share over time.
 
@@ -2656,6 +2713,10 @@ def _trend_figure(
     isolate handler cannot be used here (see the legend comment below). Two raised
     lines still hold their own hues, so the reader who wants a pair gets one.
 
+    ``emphasis=False`` draws each line once, at full strength, under a plain legend
+    (issue #332). An archetype's own page draws the one or two lines its reader
+    picked, and raising a line out of a field of them is nothing to do to those.
+
     Traces are keyed by tag, not by display name, because two tags can share a name
     (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
     every year: keyed by name they would merge into one trace holding two y values
@@ -2690,13 +2751,20 @@ def _trend_figure(
             **overrides,
         )
 
+    hues = palette.disambiguate(palette.extended(universe or drawn), drawn)
+    if not emphasis:
+        for tag in drawn:
+            fig.add_trace(trace(tag, hues[tag]))
+        _style_trend_chart(fig, "Share of meta")
+        _legend_below_plot(fig, "Archetype")
+        return fig
+
     # Emphasis (§6): every archetype is drawn twice in one hue at two strengths. The
     # faded line is on screen from the first paint and carries no legend entry of its
     # own; its full-strength twin holds the legend entry and starts hidden, so a click
     # raises exactly one line out of the field. The two layers are added in passes, not
     # per archetype, so every raised line draws above every faded one rather than only
     # above the ones that happen to follow it.
-    hues = palette.disambiguate(palette.extended(universe or drawn), drawn)
     for tag in drawn:
         # Line only. The observation marker's fill is the *opaque* surface, so a wide
         # cut would tile thirty-one archetypes' worth of discs over each other and chop
@@ -3420,12 +3488,12 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
 def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series) -> str:
     """The timeline's headline, and the one thing the picture cannot say for itself.
 
-    The countable claim first, in the field-standing form the performance and landscape
-    captions already use: the individual points are thin, so what a reader can quote is
-    the count across the whole run. With two archetypes that is the win count over the
-    events both were scored at ("beat Jund at 30 of 44 shared events"), the tally the
-    shape of the band only suggests; with one it is the same count against the middle of
-    the field, the 0.5 line the rest of the app already reads finishes against.
+    The countable claim first: the individual points are thin, so what a reader can
+    quote is the count across the whole run. With two archetypes that is the win count
+    over the events both were scored at ("finished better at 30 of 44 shared events"),
+    the tally the shape of the band only suggests; with one it is the same count
+    against the middle of the field, the 0.5 line the rest of the app already reads
+    finishes against.
 
     That count is gated on :func:`beats_a_coin` before it is allowed to read as a lead
     (issue #175). Each point is the mean of a median of one scored deck, so under the
@@ -3436,31 +3504,28 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
     split a coin could produce" in the same breath as the number. A tie needs no gate,
     since it already asserts no leader.
 
-    Then one qualifier, and only one (§14, issue #156): the span. The year selector
-    sits directly above this chart and governs the landscape alone, so a reader who is
-    not told otherwise will read these points as that year's. The two clauses this
-    caption used to carry behind it are gone from the surface: that a point is a mean
-    of one to three scored decks now lives in ``faq-archetype-timeline`` alone, and the
-    shared-event restriction is already in the pair's own headline ("of 44 shared
-    events"), so restating it under the plot said the same thing twice.
+    Then one qualifier, and only one (§14, issue #156): the span. The tiles over this
+    chart are the record's latest year alone (issue #332), so a reader who is not told
+    otherwise will read this count as that year's. That a point is a mean of one to
+    three scored decks lives in ``faq-archetype-timeline`` alone, and the shared-event
+    restriction is already in the pair's own headline ("of 44 shared events").
 
-    All app-built numerics, with the two display names escaped, so it is returned as
-    trusted markup for :func:`_chart_heading`'s ``caption_html``.
+    Under the caption rule since issue #332 (:func:`graph7ph.parts.caption`): a
+    sentence in the text colour with the count set apart, the span a sentence of its
+    own where it was a clause behind a middle dot, and the names escaped there.
     """
-    a, b = html.escape(name_a), html.escape(name_b) if name_b else None
     # The same definition the tool floors on, so the denominator here is the count the
     # refusal would have named.
-    comparable = comparable_points(series.cells, paired=b is not None)
-    span = "every year in the data"
+    comparable = comparable_points(series.cells, paired=name_b is not None)
     # A count that a fair coin produces is not a lead, and most of them are: the count
     # is printed either way (it is a fact) and only the reading is discounted (#175).
     hedge = ", a split a coin could produce"
-    if b is None:
+    if name_b is None:
         # A lower norm is a better finish, so beating the middle of the field is a
         # mean under 0.5, the same reading the 0.5 line carries on every other chart.
         led = sum(1 for c in comparable if c.mean_norm_a < 0.5)
-        headline = (f"{a} beat the middle of the field at "
-                    f"<span class='pct'>{led} of {len(comparable)}</span> events")
+        headline = f"{name_a} beat the middle of the field at {{}} events"
+        figure = f"{led} of {len(comparable)}"
         if not beats_a_coin(led, len(comparable)):
             headline += hedge
     else:
@@ -3473,31 +3538,27 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
                  for a_side, b_side in (c.drawn() for c in comparable)]
         wins_a = sum(1 for norm_a, norm_b in drawn if norm_a < norm_b)
         wins_b = sum(1 for norm_a, norm_b in drawn if norm_b < norm_a)
-        leader, led = (a, wins_a) if wins_a >= wins_b else (b, wins_b)
+        leader, led = (name_a, wins_a) if wins_a >= wins_b else (name_b, wins_b)
         # A tie is a real answer, and naming one side the leader of a draw would not
         # be, so the two counts are stated instead. It asserts no leader, so there is
         # no lead for the coin to take away and it carries no hedge.
         if wins_a == wins_b:
-            headline = (
-                f"{a} and {b} each finished better at <span class='pct'>{wins_a}</span> "
-                f"of {len(comparable)} shared events"
-            )
+            headline = (f"{name_a} and {name_b} each finished better at {{}} "
+                        f"of {len(comparable)} shared events")
+            figure = f"{wins_a}"
         else:
-            headline = (f"{leader} finished better at "
-                        f"<span class='pct'>{led} of {len(comparable)}</span> "
-                        "shared events")
+            headline = f"{leader} finished better at {{}} shared events"
+            figure = f"{led} of {len(comparable)}"
             if not beats_a_coin(led, len(comparable)):
                 headline += hedge
-    caption = (
-        f"<div class='t-fieldstat'>{headline}"
-        f"<span class='sample'> · {span}</span></div>"
-    )
-    # The bound's legend, on its own muted line rather than as a second qualifier inside
+    caption = parts.caption(
+        f"{headline}. Counted over every year in the data.", figure)
+    # The bound's legend, a caption of its own rather than a second qualifier inside
     # the headline (§14 allows the headline one, and the span is it). Drawn only where a
     # caret is actually on the plot, which is the rule `_head_to_head_caption` follows
     # for the asterisk, so a legend never stands over a plot with nothing to explain.
     if _has_bounded_point(series.cells):
-        caption += f"<div class='t-caption'>{html.escape(_BOUND_LEGEND)}</div>"
+        caption += parts.caption(f"{_BOUND_LEGEND}.")
     return caption
 
 
@@ -3646,7 +3707,6 @@ def _head_to_head_caption(series: Series) -> str | None:
         lines.append(_BOUND_LEGEND)
     # One caption per legend, as the archetype timeline gives the bound one line of
     # its own, so the two rivalry charts say the same of the same mark (issue #151).
-    # That chart's line is still in the earlier caption role, until its own ticket.
     return "".join(parts.caption(f"{line}.") for line in lines) or None
 
 
@@ -3993,6 +4053,15 @@ def build_app(artifact: Path) -> gr.Blocks:
     # same helper the cut ranks with, so the title cannot name a different year.
     latest_year = latest_deck_year(trend_series)
 
+    # That year's landscape, read once: an archetype's page states its cell of it in
+    # tiles (#332). None for a graph with no archetype deck, and for a year too thin
+    # to place on a landscape, where there is no finish to state.
+    try:
+        latest_landscape = (run_series(catalogue, ArchetypeLandscape(latest_year))
+                            if latest_year else None)
+    except NotEnoughHistory:
+        latest_landscape = None
+
     def draw_cut(cut_label: str):
         # The title is a page heading above the plot now (§6), returned beside the
         # figure. The cut's tags stay in rank order (strongest first) so a narrower
@@ -4010,8 +4079,8 @@ def build_app(artifact: Path) -> gr.Blocks:
             ),
         )
 
-    # Every year the graph holds, newest first: the Archetypes year selector's choices
-    # and its default. Read off the meta-share matrix already in hand, which is
+    # Every year the graph holds, newest first: the landscape's year selector's
+    # choices and its default. Read off the meta-share matrix already in hand, which is
     # rectangular over every year with decks, so the selector costs no query of its own.
     # Empty only for a graph with no archetype at all, which still has to build (a
     # deckless artifact and one whose decks carry no engine tag both build today), so
@@ -4021,10 +4090,10 @@ def build_app(artifact: Path) -> gr.Blocks:
 
     def _landscape_view(year: int):
         # The landscape's heading, figure, and refusal note for one year, as plain
-        # values rather than `gr.update`s, so the tab can draw itself at build time
-        # from the same code path the year selector re-draws through (the Meta
-        # precedent: a Plotly aggregate needs no Draw button). Exactly one of the
-        # figure and the note is ever set.
+        # values rather than `gr.update`s, so the card can be drawn at build time
+        # from the same code path the year selector re-draws through (the cut
+        # chart's precedent: a Plotly aggregate needs no Draw button). Exactly one of
+        # the figure and the note is ever set.
         try:
             series = run_series(ladybug.Connection(db), ArchetypeLandscape(year))
         except NotEnoughHistory as e:
@@ -4074,11 +4143,12 @@ def build_app(artifact: Path) -> gr.Blocks:
             gr.update(value=note, visible=note is not None),
         )
 
-    # The timeline's own catalogue, offering every archetype that can draw a line (121
-    # of 126 today) with its count in the label: this plot is the escape hatch for
-    # everything the landscape's top 25 hides, so the offer is filtered by drawability
-    # alone. `_distinguish` still runs over the finished labels, since two archetypes
-    # can share a display name and would then share a label even with the count on it.
+    # The Archetypes picker's catalogue, offering every archetype that can draw a
+    # finishes line (137 of 143 today) with its count in the label: the page is the
+    # escape hatch for everything the landscape's top 25 hides, so the offer is
+    # filtered by drawability alone. `_distinguish` still runs over the finished
+    # labels, since two archetypes can share a display name and would then share a
+    # label even with the count on it.
     drawable_archetypes = archetypes_with_history(catalogue)
     # Listed by the count each label carries, most events first (#326); the sort is
     # stable, so archetypes with as many events keep the name order they came in.
@@ -4097,75 +4167,67 @@ def build_app(artifact: Path) -> gr.Blocks:
         [(name, tag) for name, tag, _ in drawable_archetypes]
     ))
 
-    def timeline_drawing(a: str | None, _b: str | None):
-        """The timeline card as the running line while its query runs (§8).
-
-        Same reasoning as :func:`landscape_drawing`, and the reason AC 9 was not closed
-        by the Draw buttons alone: this card is built hidden, so on the first pick there
-        was nothing on screen for Gradio's own indicator to paint over and the click
-        looked like a no-op. With nothing picked the card stays down, since the real
-        handler is about to hide it anyway and a card that flashes "Drawing…" before
-        disappearing is worse than one that never moved.
-
-        Takes the same two selectors as the handler it precedes, though only the first
-        decides anything, so both steps of the chain read one input list rather than the
-        wiring carrying two.
-        """
+    def draw_archetype_page(a: str | None, b: str | None):
+        # One pick draws the whole page (#332): the head with its four tiles, the
+        # archetype's share over time and its finishes over time. Returns the head,
+        # the results stack, the share card's heading and plot, and the finishes
+        # card's heading, plot and note. With nothing picked the head and the stack
+        # hide, and the panel above is the whole surface, as on Cards and Pilots.
+        hide = gr.update(visible=False)
         if not a:
-            hide = gr.update(visible=False)
-            return hide, hide, hide, hide
-        return (
-            gr.update(visible=True),                                # card
-            gr.update(visible=False),                               # heading
-            gr.update(visible=False),                               # plot
-            gr.update(value=DRAWING_LABEL, visible=True),           # note
-        )
-
-    def draw_archetype_timeline(a: str | None, b: str | None):
-        # Returns the card, the heading, the plot, and a refusal note. The card holds
-        # the whole thing, so with nothing picked it hides rather than sitting empty
-        # under the scatter (§12, the Meta manual panel's precedent). A second
-        # archetype equal to the first collapses to the solo line, as the adoption
-        # chart's second card does, rather than drawing one line twice.
-        if not a:
-            hide = gr.update(visible=False)
-            return hide, hide, hide, hide
+            return (hide, hide, *[gr.update()] * 5)
+        # A second archetype equal to the first is that archetype alone, as the
+        # adoption chart's second card is, rather than one line drawn twice.
         second = b if b and b != a else None
+        name = timeline_labels[a]
+        name_b = timeline_labels[second] if second else None
         try:
-            series = run_series(ladybug.Connection(db), ArchetypeTimeline(a, second))
+            # Alone this never refuses: the picker offers only archetypes it can
+            # draw (`archetypes_with_history`). A pair can.
+            finishes = run_series(ladybug.Connection(db), ArchetypeTimeline(a, second))
         except NotEnoughHistory as e:
             # One short line in the app's voice (#114, §14), phrased from the count the
             # refusal carries. Refusal is a common path for a pair, not an edge case
             # (the median pair of the 105 best-covered archetypes shares 4 events and a
             # fifth share one or none), so it has to read as an answer about the two
-            # archetypes rather than as a failure.
-            if second is None:
-                had = ("no event" if not e.found
-                       else f"only {e.found} event" + ("s" if e.found > 1 else ""))
-                note = f"{timeline_labels[a]} has {had} with a finish to place on a timeline."
-            else:
-                met = ("were never both placed at the same event" if not e.found
-                       else f"were both placed at only {e.found} event"
-                            + ("s" if e.found > 1 else ""))
-                note = (f"{timeline_labels[a]} and {timeline_labels[second]} {met}, "
-                        "so there is no run to compare.")
-            return (
-                gr.update(visible=True), gr.update(visible=False),
-                gr.update(visible=False), gr.update(value=note, visible=True),
-            )
-        name_a = timeline_labels[a]
-        name_b = timeline_labels[second] if second else None
-        return (
-            gr.update(visible=True),
-            gr.update(
-                value=_chart_heading(
-                    "Finishes over time",
-                    caption_html=_archetype_timeline_caption(name_a, name_b, series),
+            # archetypes rather than as a failure. It takes the finishes card alone:
+            # the head and the share chart need no shared event.
+            met = ("were never both placed at the same event" if not e.found
+                   else f"were both placed at only {e.found} event"
+                        + ("s" if e.found > 1 else ""))
+            finishes_card = (hide, hide, gr.update(
+                value=f"{name} and {name_b} {met}, so there is no run to compare.",
+                visible=True))
+        else:
+            finishes_card = (
+                gr.update(
+                    value=_chart_heading(
+                        "Finishes over time",
+                        caption_html=_archetype_timeline_caption(name, name_b, finishes)),
+                    visible=True,
                 ),
+                gr.update(value=_archetype_timeline_figure(name, name_b, finishes),
+                          visible=True),
+                hide,
+            )
+        drawn = [a, second] if second else [a]
+        return (
+            gr.update(
+                value=parts.page_head(
+                    name, _archetype_descriptor(a, trend_series, name_b),
+                    _archetype_tiles(a, trend_series, latest_landscape)),
                 visible=True,
             ),
-            gr.update(value=_archetype_timeline_figure(name_a, name_b, series), visible=True),
-            gr.update(visible=False),
+            gr.update(visible=True),
+            gr.update(value=_chart_heading(
+                "Share over time",
+                caption_html=parts.caption("Share of each year's decks."))),
+            # The meta-share chart, cut to this page's archetypes and drawn plainly.
+            # Their own universe, so the hues are the palette's first two in pick
+            # order: the ones the finishes chart under it draws the same archetypes in.
+            gr.update(value=_trend_figure(
+                trend_series, drawn, universe=drawn, emphasis=False)),
+            *finishes_card,
         )
 
     def draw_manual(manual_tags: list[str]):
@@ -4391,17 +4453,18 @@ def build_app(artifact: Path) -> gr.Blocks:
         # pipelines stay separate under the hood (ADR 0013); only the presentation is
         # combined.
 
-        # Meta is single-view since #125 promoted hidden gems to its own tab (v1
-        # §11): it holds meta share over time alone, so there is no subject entity
-        # and no view picker, just the chart and its controls.
-        with gr.Tab("Meta"):
-            # Meta and Archetypes are both about archetypes, so each lede states the
-            # reader question that is its own (#145): who is played, against who wins.
+        # Metagame is the whole field (#332): meta share over time, then the metagame
+        # landscape. It was "Meta" and held the share chart alone, with the landscape
+        # on Archetypes (#145: who is played, against who wins); the two tabs are cut
+        # by level now, the field here and one archetype there. No subject entity and
+        # no view picker, and both charts are drawn at build time, so the app opens
+        # on a drawn answer.
+        with gr.Tab("Metagame"):
             gr.Markdown(
-                "Who is being played, and how that has shifted year to year.",
+                "What the field plays, how that has moved, and what wins.",
                 elem_classes="t-lede",
             )
-            # §13: both plot-affecting controls sit in the panel above the charts. The
+            # §13: both controls of the share charts sit in the panel above them. The
             # archetype-focus multiselect used to sit *below* the cut chart (#132); it
             # moves up here with the cut, so no control is stranded below its plot.
             with gr.Group(elem_classes="control-panel"):
@@ -4427,50 +4490,16 @@ def build_app(artifact: Path) -> gr.Blocks:
                 manual_heading = gr.HTML(visible=False, padding=False)
                 manual_plot = gr.Plot(visible=False)
 
-            # Each pick ends by bringing what it drew into view (#328): the focus
-            # chart lands under the cut chart, most of a screen below the control
-            # that asked for it.
-            cut.change(
-                draw_cut, inputs=cut, outputs=[cut_heading, cut_plot],
-            ).then(fn=None, js=theme.into_view_js("meta-cut-result"))
-            manual.change(
-                draw_manual, inputs=manual,
-                outputs=[manual_card, manual_heading, manual_plot],
-            ).then(fn=None, js=theme.into_view_js("meta-focus-result"))
-
-        # Archetypes sits directly after Meta and splits the two archetype questions
-        # between them (#145): Meta keeps "who is played, over time", this owns "who
-        # wins". Single-view, so no picker, and Plotly aggregates only, so no Draw
-        # button either: the scatter is drawn at build time on the latest year and
-        # re-draws on the year selector, the same way the Meta cut chart does.
-        with gr.Tab("Archetypes") as archetypes_tab:
-            gr.Markdown(
-                "Which archetypes actually win, and how many decks are on them.",
-                elem_classes="t-lede",
-            )
+            # The year governs the landscape alone, so it sits beside it (#332): in a
+            # panel of its own directly over the landscape's card, under the share
+            # charts it has no say in. In the tab's top panel it would read as
+            # governing them too, which is what its old label had to deny.
             with gr.Group(elem_classes="control-panel"):
                 landscape_year = gr.Radio(
                     choices=[(str(y), y) for y in corpus_years],
-                    value=latest_landscape_year,
-                    # The two plots below read different spans and sit under one control
-                    # panel (§13), so the year says which of them it governs. Two words,
-                    # and only from this side: the timeline's caption says "every year in
-                    # the data" from the other, and §14 states a scope once (#156). In
-                    # the label since #328: a help line under the chips made the year the
-                    # one control in the row a line taller than the rest.
-                    label=_YEAR_LABEL,
+                    value=latest_landscape_year, label="Year",
                 )
-                timeline_a, _ = search(
-                    "timeline-archetype", "archetypes",
-                    choices=timeline_archetypes, value=None, label="Archetype",
-                    elem_classes="primary-control",
-                )
-                timeline_b, _ = search(
-                    "timeline-second-archetype", "archetypes",
-                    choices=timeline_archetypes, value=None,
-                    label="Second archetype (optional)",
-                )
-            # A graph with no archetype at all has no year to open on, so the tab shows
+            # A graph with no archetype at all has no year to open on, so the card shows
             # the same shape of refusal a thin year does rather than failing to build.
             _ls_heading, _ls_fig, _ls_note = (
                 _landscape_view(latest_landscape_year) if latest_landscape_year
@@ -4485,43 +4514,91 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 landscape_plot = gr.Plot(value=_ls_fig, visible=_ls_fig is not None)
 
-            # The timeline under the scatter, its whole card hidden until an archetype
-            # is picked, so the tab opens on the landscape alone with no empty card
-            # below it (§12, the Meta focus panel's precedent).
-            with gr.Group(
-                elem_classes="insight-card", elem_id="timeline-result", visible=False,
-            ) as timeline_card:
-                timeline_heading = gr.HTML(visible=False, padding=False)
-                timeline_note = gr.Markdown(visible=False)
-                timeline_plot = gr.Plot(visible=False)
-
-            # Each of these two runs a real query, so each shows the running state first
-            # and then fills (§8). Chained with `.then`, which unlike `.success` runs
-            # whether the query returned or raised, so a refusal cannot leave the card
-            # stuck reading "Drawing…".
+            # Each pick ends by bringing what it drew into view (#328): the focus
+            # chart lands under the cut chart, most of a screen below the control
+            # that asked for it.
+            cut.change(
+                draw_cut, inputs=cut, outputs=[cut_heading, cut_plot],
+            ).then(fn=None, js=theme.into_view_js("meta-cut-result"))
+            manual.change(
+                draw_manual, inputs=manual,
+                outputs=[manual_card, manual_heading, manual_plot],
+            ).then(fn=None, js=theme.into_view_js("meta-focus-result"))
+            # The year's query shows the running state first and then fills (§8).
+            # Chained with `.then`, which unlike `.success` runs whether the query
+            # returned or raised, so a refusal cannot leave the card stuck reading
+            # "Drawing…".
             landscape_outputs = [landscape_heading, landscape_plot, landscape_note]
             landscape_year.change(
                 landscape_drawing, outputs=landscape_outputs,
             ).then(
                 draw_landscape, inputs=landscape_year, outputs=landscape_outputs,
             ).then(fn=None, js=theme.into_view_js("landscape-result"))
-            # Either selector redraws, and the year is not among the inputs: the
-            # timeline spans the whole corpus whatever the landscape is showing.
-            timeline_outputs = [
-                timeline_card, timeline_heading, timeline_plot, timeline_note,
-            ]
+
+        # Archetypes is one archetype's page (#332), working like Cards and Pilots:
+        # pick one and its head, its share over time and its finishes over time draw,
+        # and an optional second archetype is compared on both charts. Single-view, so
+        # no view picker, and a pick draws, so no Draw button.
+        with gr.Tab("Archetypes"):
+            gr.Markdown(
+                "One archetype: how much it is played and how it finishes.",
+                elem_classes="t-lede",
+            )
+            with gr.Group(elem_classes="control-panel"):
+                timeline_a, _ = search(
+                    "timeline-archetype", "archetypes",
+                    choices=timeline_archetypes, value=None, label="Archetype",
+                    elem_classes="primary-control",
+                )
+                timeline_b, _ = search(
+                    "timeline-second-archetype", "archetypes",
+                    choices=timeline_archetypes, value=None,
+                    label="Second archetype (optional)",
+                )
+
+            # The running state of a pick, as on Cards.
+            archetypes_running = gr.HTML(
+                _state_message(DRAWING_LABEL), visible=False, padding=False,
+            )
+
+            # The page: hidden until an archetype is picked, then its head and, under
+            # it, a card each for its share and its finishes over time.
+            with gr.Group(elem_classes="view-body", elem_id="archetype-page"):
+                archetype_head = gr.HTML(visible=False, padding=False)
+                with gr.Group(visible=False, elem_classes="results-stack") as archetype_results:
+                    with gr.Group(elem_classes="insight-card"):
+                        share_heading = gr.HTML(padding=False)
+                        share_plot = gr.Plot()
+                    with gr.Group(elem_classes="insight-card"):
+                        timeline_heading = gr.HTML(visible=False, padding=False)
+                        timeline_note = gr.Markdown(visible=False)
+                        timeline_plot = gr.Plot(visible=False)
+
+            def archetypes_drawing(a):
+                # The step ahead of every draw, as on Cards: the running line where
+                # the page will land, and the drawn page taken down, so a stale answer
+                # never sits under changed controls. With no archetype there is
+                # nothing to wait for.
+                hide = gr.update(visible=False)
+                return [gr.update(visible=bool(a)), hide, hide]
+
+            # Either selector redraws the page. The line comes down through `.then`,
+            # which runs whether the query returned or raised.
             for control in (timeline_a, timeline_b):
-                control.change(
-                    timeline_drawing, inputs=[timeline_a, timeline_b],
-                    outputs=timeline_outputs,
-                ).then(
-                    draw_archetype_timeline, inputs=[timeline_a, timeline_b],
-                    outputs=timeline_outputs,
-                ).then(fn=None, js=theme.into_view_js("timeline-result"))
-            # The landscape is the one plot drawn before its tab is ever shown, so it is
-            # the one that comes up at Plotly's fallback width; opening the tab measures
-            # it against the card it actually sits in (theme.RESIZE_PLOTS_JS).
-            archetypes_tab.select(fn=None, js=theme.RESIZE_PLOTS_JS)
+                (
+                    control.change(
+                        archetypes_drawing, inputs=timeline_a,
+                        outputs=[archetypes_running, archetype_head, archetype_results],
+                    )
+                    .then(
+                        draw_archetype_page, inputs=[timeline_a, timeline_b],
+                        outputs=[archetype_head, archetype_results,
+                                 share_heading, share_plot,
+                                 timeline_heading, timeline_plot, timeline_note],
+                    )
+                    .then(lambda: gr.update(visible=False), outputs=archetypes_running)
+                    .then(fn=None, js=theme.into_view_js("archetype-page"))
+                )
 
         with gr.Tab("Cards"):
             gr.Markdown(
@@ -4974,7 +5051,7 @@ def build_app(artifact: Path) -> gr.Blocks:
 
         # The race sits after Pilots and asks the question that tab cannot: not how one
         # pilot did, but who the leading pilots were and when (#135). It is field-wide, so
-        # it takes the Archetypes tab's shape rather than the Pilots one: no subject
+        # it takes the Metagame tab's shape rather than the Pilots one: no subject
         # picker, no Draw, and nothing to click on the chart. Everything on it is fixed
         # at build time, so unlike the landscape it needs no callbacks at all.
         with gr.Tab("Player leaderboard") as race_tab:
@@ -5002,9 +5079,9 @@ def build_app(artifact: Path) -> gr.Blocks:
                 gr.HTML(value=_chart_heading("Standings", race_standings),
                         padding=False)
                 gr.HTML(value=race_table, padding=False)
-            # Drawn before its tab is ever shown, so like the landscape it comes up at
-            # Plotly's fallback width until the tab is opened and it is measured against
-            # the card it actually sits in.
+            # Drawn before its tab is ever shown, so it comes up at Plotly's fallback
+            # width until the tab is opened and it is measured against the card it
+            # actually sits in (theme.RESIZE_PLOTS_JS).
             race_tab.select(fn=None, js=theme.RESIZE_PLOTS_JS)
 
         # FAQ is the last tab (#133): static content, no controls. Each question is its

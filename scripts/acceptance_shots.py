@@ -250,9 +250,8 @@ def recipes() -> list[Shot]:
         pick(page, "Or focus on specific archetypes", ARCHETYPE_B)
         wait(page, 2500)
 
-    def archetypes_landscape(page):
+    def archetypes_nothing_picked(page):
         tab(page, "Archetypes")
-        wait(page, 2000)
 
     def archetypes_timeline(page):
         tab(page, "Archetypes")
@@ -353,11 +352,11 @@ def recipes() -> list[Shot]:
         wait(page, 600)
 
     return [
-        Shot("meta-default", "Meta, cold start: the app opens on a drawn chart", meta_default),
-        Shot("meta-focus", "Meta with two archetypes focused", meta_focus),
-        Shot("archetypes-landscape", "Archetypes, the metagame landscape", archetypes_landscape),
-        Shot("archetypes-timeline", "Archetypes, one archetype's finishes over time", archetypes_timeline),
-        Shot("archetypes-head-to-head", "Archetypes, two archetypes compared", archetypes_head_to_head),
+        Shot("meta-default", "Metagame, cold start: the share chart and the landscape, drawn", meta_default),
+        Shot("meta-focus", "Metagame with two archetypes focused", meta_focus),
+        Shot("archetypes-nothing-picked", "Archetypes, nothing picked: the picker", archetypes_nothing_picked),
+        Shot("archetypes-timeline", "Archetypes, one archetype's page: tiles, share and finishes over time", archetypes_timeline),
+        Shot("archetypes-head-to-head", "Archetypes, two archetypes compared on both charts", archetypes_head_to_head),
         Shot("archetypes-refused", "Archetypes, a pair with no shared ranked event (refusal)", archetypes_refused),
         Shot("cards-nothing-picked", "Cards, nothing picked yet: the examples to try", cards_nothing_picked),
         Shot("cards-overview", "Cards, a card's usage graph and adoption trend", cards_overview),
@@ -619,7 +618,7 @@ def main() -> None:
             for shot in shots:
                 throttle(page, 0)  # release any latency the state before emulated
                 page.goto(url, wait_until="networkidle")
-                # The Meta chart is drawn at build time and lays out on its own frame.
+                # The Metagame charts are drawn at build time and lay out on their own frame.
                 page.wait_for_timeout(3500)
                 shot.steps(page)
                 image = directory / f"{shot.name}.png"

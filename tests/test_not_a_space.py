@@ -60,7 +60,7 @@ def test_a_page_served_from_a_space_asks_no_other_host_for_anything(
             thrown = []
             page.on("pageerror", lambda error: thrown.append(str(error)))
             page.goto(url, wait_until="networkidle")
-            page.get_by_role("tab", name="Meta", exact=True).wait_for()
+            page.get_by_role("tab", name="Metagame", exact=True).wait_for()
 
             assert page.request.get(url + "config").json()["space_id"] is None
             # Nothing at all, and not only nothing of the Hub's: the badge also brought

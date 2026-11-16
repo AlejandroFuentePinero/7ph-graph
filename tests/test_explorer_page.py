@@ -29,7 +29,7 @@ from graph7ph.build import build_graph
 from graph7ph.db import artifact_path, database_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
-from graph7ph.theme import FONTS, TOKENS, contrast_ratio
+from graph7ph.theme import FONTS, HEADER_ONE_ROW_PX, TOKENS, contrast_ratio
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -85,7 +85,7 @@ def _loaded(chromium, url: str, width: str = "desktop"):
     """The explorer freshly loaded at one of the acceptance script's three widths."""
     tab = chromium.new_page(**shots.VIEWPORTS[width])
     tab.goto(url, wait_until="networkidle")
-    tab.get_by_role("tab", name="Meta", exact=True).wait_for()
+    tab.get_by_role("tab", name="Metagame", exact=True).wait_for()
     return tab
 
 
@@ -250,11 +250,11 @@ def test_the_standings_and_the_gems_draw_no_table_frame_on_the_real_record(chrom
 
 # Every tab, the picks that put its charts on screen, and how many charts that is.
 # Cards is walked twice, since its two views each draw a chart of their own. The
-# suite's snapshot draws the two on Meta and a card's adoption in both views; it
-# has no archetype with a timeline, no pilot with a year to average or a rivalry
-# to chart, and no race.
+# suite's snapshot draws the two share charts on Metagame and a card's adoption in
+# both views; it has no year with a landscape, no archetype with a timeline, no
+# pilot with a year to average or a rivalry to chart, and no race.
 SUITE_WALK = [
-    ("Meta", [("Or focus on specific archetypes", "Grixis")], 2),
+    ("Metagame", [("Or focus on specific archetypes", "Grixis")], 2),
     ("Archetypes", [], 0),
     ("Cards", [("Card", CARD)], 1),
     ("Cards", [("View", "Co-occurrence"), ("Card", CARD)], 1),
@@ -327,11 +327,12 @@ def test_no_chart_shows_the_chart_librarys_toolbar(chromium, explorer, width):
 
 
 # The same walk over the real record, which draws the charts the suite's snapshot
-# cannot: the landscape and an archetype's timeline, a pilot's performance, a
-# rivalry, and the race. Pilots is walked twice as Cards is, so the walk covers all
-# nine of the app's plots. The picks are the acceptance script's own.
+# cannot: the landscape, an archetype's share and its timeline, a pilot's
+# performance, a rivalry, and the race. Pilots is walked twice as Cards is, so the
+# walk covers all ten of the app's plots. The picks are the acceptance script's own.
 RECORD_WALK = [
-    ("Meta", [("Or focus on specific archetypes", shots.ARCHETYPE)], 2),
+    # The two share charts and, under them since #332, the landscape.
+    ("Metagame", [("Or focus on specific archetypes", shots.ARCHETYPE)], 3),
     ("Archetypes", [("Archetype", shots.ARCHETYPE)], 2),
     ("Cards", [("Card", shots.CARD)], 1),
     ("Cards", [("View", "Co-occurrence"), ("Card", shots.CARD),
@@ -428,7 +429,8 @@ def test_typing_an_archetype_and_pressing_enter_picks_it_on_the_real_record(
     # picked "Noracle", in the Meta focus list and in the Archetypes picker alike.
     page = _loaded(chromium, record)
     try:
-        focus = _picked_by_typing(page, "Meta", "Or focus on specific archetypes", name)
+        focus = _picked_by_typing(
+            page, "Metagame", "Or focus on specific archetypes", name)
         (timeline,) = _picked_by_typing(page, "Archetypes", "Archetype", name)
     finally:
         page.close()
@@ -451,7 +453,7 @@ def test_a_first_visit_fetches_the_page_once_and_ends_dark(chromium, explorer, s
             and documents.append(request.url))
     try:
         page.goto(explorer + "?from=a-link&year=2025", wait_until="networkidle")
-        page.get_by_role("tab", name="Meta", exact=True).wait_for()
+        page.get_by_role("tab", name="Metagame", exact=True).wait_for()
         # Long enough for a page that means to send itself elsewhere to have done so.
         page.wait_for_timeout(1000)
         dark, ground, query = page.evaluate(
@@ -546,6 +548,28 @@ def test_one_slim_row_carries_the_mark_the_name_the_tabs_and_the_freshness(page)
     strip = page.locator("[role=tablist]")
     assert strip.get_by_role("tab").count() == 7
     assert strip.evaluate("strip => strip.scrollWidth <= strip.clientWidth")
+
+
+def test_the_narrowest_one_row_header_holds_every_tab(chromium, record):
+    # Issue #332: "Metagame" is 33px wider than "Meta", and the header went to one
+    # row at a window 5px too narrow for seven tabs: from 1100 to 1105px the strip
+    # was clipped by up to 5px beside the freshness line, with nothing saying it
+    # scrolled. At the narrowest window whose header is one row, every tab is on the
+    # strip. On the real record, whose freshness line is the width the row is
+    # measured against.
+    page = chromium.new_page(viewport={"width": HEADER_ONE_ROW_PX, "height": 900})
+    try:
+        page.goto(record, wait_until="networkidle")
+        page.get_by_role("tab", name="Metagame", exact=True).wait_for()
+        parts = _header_parts(page)
+        strip = page.locator("[role=tablist]").evaluate(
+            "strip => [strip.scrollWidth, strip.clientWidth]")
+    finally:
+        page.close()
+
+    order = [parts[part] for part in ("mark", "name", "tabs", "freshness")]
+    assert max(box["top"] for box in order) < min(box["bottom"] for box in order)
+    assert strip[0] <= strip[1]
 
 
 def test_the_first_result_on_meta_starts_high_on_a_desktop(page):
@@ -703,12 +727,15 @@ def test_the_small_options_are_chips_and_a_chip_redraws(page):
     # Issue #328: View, Board, Year and Cards to show were each a dropdown on a row of
     # its own, two clicks to change one of three values. Each is a row of chips, as
     # the Meta cut always was, and only a search is left as a dropdown.
-    assert list(_chips(page).values()) == [["Top 25%", "Top 50%", "Top 75%"]]
+    # Metagame carries two: the cut over the share chart and, since #332, the year
+    # beside the landscape it governs.
+    (_, cuts), (year, years) = _chips(page).items()
+    assert cuts == ["Top 25%", "Top 50%", "Top 75%"]
+    assert year == "Year" and years and all(y.isdigit() for y in years)
     assert _dropdown_labels(page) == ["Or focus on specific archetypes"]
 
     shots.tab(page, "Archetypes")
-    (year, years), = _chips(page).items()
-    assert year.startswith("Year") and years and all(y.isdigit() for y in years)
+    assert _chips(page) == {}
     assert _dropdown_labels(page) == ["Archetype", "Second archetype (optional)"]
 
     shots.tab(page, "Pilots")
@@ -783,7 +810,7 @@ def _placeholders(page) -> dict[str, str]:
 # Every search in the app: its tab, the chip that brings it on screen where it is
 # not there on open, its label, and what it searches.
 SEARCHES = [
-    ("Meta", None, "Or focus on specific archetypes", "archetypes"),
+    ("Metagame", None, "Or focus on specific archetypes", "archetypes"),
     ("Archetypes", None, "Archetype", "archetypes"),
     ("Archetypes", None, "Second archetype (optional)", "archetypes"),
     ("Cards", None, "Card", "cards"),
@@ -884,10 +911,11 @@ def _label_lines(controls: list[dict]) -> set[float]:
     return {round(c["label"], 1) for c in controls if c["label"] is not None}
 
 
-# Every state of every control panel: the tab, and the chip that turns it to its
-# other view.
+# Every state of every tab's control panel: the tab, and the chip that turns it to
+# its other view. Metagame's is the panel at its top; the year's own, over the
+# landscape (#332), holds one control and is no row to grade.
 PANELS = [
-    ("Meta", None), ("Archetypes", None),
+    ("Metagame", None), ("Archetypes", None),
     ("Cards", None), ("Cards", "Co-occurrence"),
     ("Pilots", None), ("Pilots", "Head-to-head"),
 ]
@@ -1042,13 +1070,16 @@ def test_a_pick_brings_its_result_into_view(page):
 
 
 def test_a_pick_brings_its_result_into_view_on_the_real_record(chromium, record):
-    # The picks the suite's snapshot cannot draw: an archetype's timeline, which
-    # landed 1,330px down a 900px window, and a rivalry.
+    # The picks the suite's snapshot cannot draw: an archetype's page, whose
+    # timeline landed 1,330px down a 900px window before #328, and a rivalry. Since
+    # #332 the pick draws a whole page, and its head is what comes into view.
     page = _loaded(chromium, record)
     try:
         shots.tab(page, "Archetypes")
         shots.pick(page, "Archetype", shots.ARCHETYPE)
-        timeline = _settled_top(page, _card_titled(page, "Finishes over time"))
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        archetype = _settled_top(page, page.locator(
+            ".view-body", has=page.locator(".page-head")).locator("visible=true").first)
 
         shots.tab(page, "Pilots")
         shots.chip(page, "View", "Head-to-head")
@@ -1057,7 +1088,7 @@ def test_a_pick_brings_its_result_into_view_on_the_real_record(chromium, record)
         page.get_by_role("button", name="Draw", exact=True).locator("visible=true").click()
         rivalry = _settled_top(page, page.locator(
             ".view-body", has=page.locator(".subject-line")).locator("visible=true").first)
-        in_view = [_in_view(page, timeline), _in_view(page, rivalry)]
+        in_view = [_in_view(page, archetype), _in_view(page, rivalry)]
     finally:
         page.close()
 
@@ -1126,7 +1157,7 @@ def _over(colour: str, ground: str) -> str:
     )
 
 
-@pytest.mark.parametrize("tab", ["Meta", "Archetypes", "Cards", "Pilots"])
+@pytest.mark.parametrize("tab", ["Metagame", "Archetypes", "Cards", "Pilots"])
 def test_what_sits_on_the_control_panel_is_legible_there(page, tab):
     # Issue #328: a control used to carry a surface of its own, and its label and
     # its clear button were read against that. In the row they sit on the panel,
@@ -1205,6 +1236,101 @@ def test_a_drawn_pilot_page_puts_the_record_after_the_chart_on_the_real_record(
     assert read["order"] == [*_HEAD, "Neighbourhood", "Archetype affinity",
                              "Performance over time", "Record"]
     assert read["tiles"] == 4 and read["rows"][0] > 2
+
+
+def test_a_drawn_archetype_page_runs_head_then_share_then_finishes(chromium, record):
+    # Issue #332: everything about one archetype was split across two tabs, two picks
+    # and no numbers. One pick draws its page: the name in the display face, a
+    # descriptor and four tiles, then its share over time and its finishes over
+    # time, with the page's top brought into view. A second archetype is compared
+    # on both charts and named in the descriptor. The suite's snapshot has no
+    # archetype with a timeline, so this is the real record's.
+    page = _loaded(chromium, record)
+    try:
+        shots.tab(page, "Archetypes")
+        opened_on = page.evaluate(
+            "() => [..." + _OPEN_TAB + """.querySelectorAll('.page-head, .insight-card')]
+                 .filter(part => part.getBoundingClientRect().height > 0).length"""
+        )
+        shots.pick(page, "Archetype", shots.ARCHETYPE)
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        read = page.evaluate(_PAGE_FROM_THE_TOP)
+        name = page.locator(".page-name").locator("visible=true").inner_text()
+        alone = _lines_named(page)
+
+        shots.pick(page, "Second archetype (optional)", shots.ARCHETYPE_B)
+        page.locator(".page-descriptor").locator("visible=true").filter(
+            has_text=f"compared with {shots.ARCHETYPE_B}").wait_for(timeout=30_000)
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        compared = _lines_named(page)
+    finally:
+        page.close()
+
+    # It opens on its picker and nothing else: no head and no card.
+    assert opened_on == 0
+    assert read["order"] == [*_HEAD, "Share over time", "Finishes over time"]
+    assert read["tiles"] == 4 and _display_face(read) and name == shots.ARCHETYPE
+    assert alone == [[shots.ARCHETYPE]] * 2
+    assert compared == [[shots.ARCHETYPE, shots.ARCHETYPE_B]] * 2
+
+
+def _lines_named(page) -> list[list[str]]:
+    """For each chart the open tab shows, the lines it draws by name, in order. Read
+    off the chart's own traces, since the chart library draws no legend for a line
+    on its own."""
+    return page.evaluate(
+        "() => [..." + _OPEN_TAB + """.querySelectorAll('.js-plotly-plot')]
+             .filter(chart => chart.getBoundingClientRect().height > 0)
+             .map(chart => chart.data
+                .filter(trace => trace.name && trace.showlegend !== false)
+                .map(trace => trace.name))"""
+    )
+
+
+def test_metagame_draws_the_landscape_under_the_share_chart_with_its_year_beside_it(
+    chromium, record
+):
+    # Issue #332: Metagame is the whole field, so the landscape is drawn on it, under
+    # the share chart, when the app opens. The year governs the landscape alone and
+    # sits between the two cards, directly over the one it redraws. The landscape
+    # is drawn at the width of its card: on Archetypes it was drawn before its tab
+    # was ever shown and came up at the chart library's fallback width until the
+    # tab was opened. Read off the running page, at each of the three widths.
+    found = {}
+    for width in shots.VIEWPORTS:
+        page = _loaded(chromium, record, width)
+        try:
+            _card_titled(page, "Metagame landscape").wait_for(timeout=30_000)
+            page.wait_for_timeout(1500)
+            found[width] = page.evaluate(
+                "() => { const open = " + _OPEN_TAB + """;
+                    const box = el => el.getBoundingClientRect();
+                    // Gradio sets a group as two boxes of one class, one in the other.
+                    const cards = [...open.querySelectorAll('.insight-card')]
+                      .filter(card => box(card).height > 0
+                                      && !card.parentElement.closest('.insight-card'));
+                    const year = [...open.querySelectorAll('fieldset')]
+                      .find(group => group.querySelector('[data-testid=block-info]')
+                                          .textContent.trim() === 'Year');
+                    const landscape = cards[cards.length - 1];
+                    const plot = landscape.querySelector('.js-plotly-plot .main-svg');
+                    return {
+                      titles: cards.map(card =>
+                        card.querySelector('.t-result-title').innerText),
+                      year_under_share: box(year).top >= box(cards[0]).bottom,
+                      year_over_landscape: box(year).bottom <= box(landscape).top,
+                      fills: box(plot).width / landscape.clientWidth,
+                    }; }"""
+            )
+        finally:
+            page.close()
+
+    for width, read in found.items():
+        assert read["titles"] == ["Meta share over time", "Metagame landscape"], width
+        # Under the share chart and over the landscape, with no card between: the
+        # two titles above are every card on show.
+        assert read["year_under_share"] and read["year_over_landscape"], width
+        assert read["fills"] >= 0.9, width
 
 
 def test_a_drawn_card_page_opens_with_its_head_and_carries_a_list_on_each_view(page):
