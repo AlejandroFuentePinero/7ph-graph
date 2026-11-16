@@ -2052,7 +2052,8 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "whole leaderboard, and doing that a thousand times over. The column is the "
         "band of places a pilot landed in across 900 of those thousand runs, and the "
         "bar beside it draws that band on a line of every place on the leaderboard, "
-        "first at its left end and last at its right. Near the "
+        "first at its left end and last at its right, with a tick at the pilot's own "
+        "rank. Near the "
         "top the bands are wide and overlap heavily, so read the leading group as a "
         "group, not as a 1-2-3.",
     ),
@@ -3241,6 +3242,11 @@ def _leaderboard_html(
     beside it (``.rank-bar`` in the stylesheet), so the two cannot disagree, and the
     scale is set once, on the element the table sits in, so no row can be on another.
 
+    A bar alone was not readable (the maintainer's look): nothing said what the track
+    was, or where on it the pilot stood. So the column's header names the track's two
+    ends, set over the tracks, and each row marks the pilot's own rank on its track
+    with a tick. The tick is where they stand and the bar is how far that could move.
+
     Display names are free text from the source, so they are escaped. Each is the
     way to its pilot's page (issue #333).
     """
@@ -3254,8 +3260,9 @@ def _leaderboard_html(
             f"{cell.score:.{LEADERBOARD_SCORE_PLACES}f}",
             str(cell.majors),
             parts.Markup(
-                "<span class='rank-track' aria-hidden='true'><span class='rank-bar' "
-                f"style='--low:{cell.rank_low};--high:{cell.rank_high}'></span></span>"
+                "<span class='rank-track' aria-hidden='true' "
+                f"style='--low:{cell.rank_low};--high:{cell.rank_high};--rank:{cell.rank}'>"
+                "<span class='rank-bar'></span><span class='rank-mark'></span></span>"
                 f"<span class='rank-numbers'>{cell.rank_low}&ndash;{cell.rank_high}</span>"
             ),
         ]
@@ -3266,7 +3273,11 @@ def _leaderboard_html(
             parts.Column("#", numeric=True, quiet=True), parts.Column("Pilot"),
             parts.Column("Score", numeric=True),
             parts.Column("Major events", numeric=True),
-            parts.Column("Rank CI", numeric=True, quiet=True),
+            parts.Column(parts.Markup(
+                "<span class='rank-ends' aria-hidden='true'><span>1st</span>"
+                f"<span>{_ordinal(len(contenders))}</span></span>"
+                "<span class='rank-numbers'>Rank CI</span>"
+            ), numeric=True, quiet=True),
         ],
         [row(cell) for cell in contenders[:rows]],
     )
@@ -3314,14 +3325,17 @@ def _standings_caption(series: Series, rows: int) -> str:
     claim a ranking it did not apply.
 
     Then what the last column's numbers are, since "Rank CI" names an interval but not
-    its confidence level, and a range with no confidence attached is not one. What the
-    bar beside them is drawn against is ``faq-race-certainty``'s to say: a caption is
-    one claim and one qualifier (§14).
+    its confidence level, and a range with no confidence attached is not one. The same
+    qualifier reads the drawing beside the numbers, which mark is the rank and what
+    the bar is, since the bar alone was not understood (the maintainer's look, #336).
+    It is still one claim and one qualifier (§14); the track's two ends are named in
+    the column's header.
     """
     contenders = len({cell.pilot for cell in series.cells})
     held = (f"top {rows:,} of {contenders:,} contenders" if contenders > rows
             else f"all {contenders:,} contenders")
-    return (f"{held}, best first · Rank CI is where a pilot's rank landed in "
+    return (f"{held}, best first · the tick is a pilot's rank, and the bar and the "
+            "Rank CI beside it are where that rank landed in "
             f"{RACE_INTERVAL:.0%} of a thousand redraws of their own record")
 
 

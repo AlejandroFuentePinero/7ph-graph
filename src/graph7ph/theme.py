@@ -513,31 +513,52 @@ a[data-opens]:hover {{ text-decoration: underline; }}
 /* The standings' rank range, drawn beside its numbers (#336). The track is every
    place in the field, first at its left edge and last at its right, and the bar
    covers the places from the row's low rank to its high one: a place is one
-   `--places`th of the track, so a range of a single place still shows. `--low` and
-   `--high` are set on the bar and `--places` once, on the element the table sits
-   in, so every row is on
-   the one scale. The numbers take a set width, or the tracks would start at a
+   `--places`th of the track, so a range of a single place still shows. `--low`,
+   `--high` and `--rank` are set on each row's track, and `--places` once, on the
+   element the table sits in, so every row is on the one scale. The numbers take a
+   set width, or the tracks would start at a
    different point in each row. Neutral, not a hue: colour in this table names a
    drawn pilot. The track is as long as the window leaves room for, since a top
-   rank's range is a small part of it. */
-.standings .rank-track {{
-  position: relative; display: inline-block; vertical-align: middle;
-  width: clamp(4rem, 18vw, 16rem); height: 8px; margin-right: 0.6rem; border-radius: 2px;
-  background: var(--border);
+   rank's range is a small part of it.
+   What makes a bar readable: the header names the track's two ends (`.rank-ends`,
+   as wide as a track and set where one is, so each end sits over the end it names),
+   and a tick marks the pilot's own rank, at the middle of its place. A tick and not
+   a dot: a top rank's bar is a few pixels long, and a dot hid it. The bar is set
+   back behind the tick, which is the one bright thing on the track. The ends are
+   told to take their header's ink: left alone they take the main ink, which Gradio
+   gives every element inside an HTML block (see `.rank-numbers` below). */
+.standings {{ --track: clamp(4rem, 18vw, 16rem); }}
+.standings .rank-track, .standings .rank-ends {{
+  display: inline-block; vertical-align: middle; width: var(--track); margin-right: 0.6rem;
 }}
+.standings .rank-track {{
+  position: relative; height: 8px; border-radius: 2px; background: var(--border);
+}}
+.standings .rank-ends {{ display: inline-flex; justify-content: space-between; }}
+.standings .rank-ends, .standings .rank-ends span {{ color: inherit; }}
 .standings .rank-bar {{
   position: absolute; top: 0; bottom: 0; border-radius: 2px;
   left: calc((var(--low) - 1) / var(--places) * 100%);
   width: calc((var(--high) - var(--low) + 1) / var(--places) * 100%);
-  background: var(--text-dim);
+  background: var(--text-mute);
+}}
+.standings .rank-mark {{
+  position: absolute; top: 50%; width: 2px; height: 14px; border-radius: 1px;
+  left: calc((var(--rank) - 0.5) / var(--places) * 100%);
+  transform: translate(-50%, -50%);
+  background: var(--text);
 }}
 /* `color: inherit`, or the numbers lose the set-back ink of their column: Gradio
-   colours every element inside an HTML block, this one included. */
-.standings .rank-numbers {{ display: inline-block; min-width: 7ch; color: inherit; }}
+   colours every element inside an HTML block, this one included. The width is in
+   rem and not ch, since the header's label wears this class too, in a smaller face:
+   in ch its box was 8px narrower than a row's, and the ends sat 8px off the tracks. */
+.standings .rank-numbers {{ display: inline-block; min-width: 4rem; color: inherit; }}
 /* On a narrow screen the track sits over its numbers, not beside them: beside
    them it took the room the names need. */
 @media (max-width: 640px) {{
-  .standings .rank-track {{ display: block; width: 3.75rem; margin: 0 0 4px auto; }}
+  .standings {{ --track: 3.75rem; }}
+  .standings .rank-track {{ display: block; margin: 0 0 4px auto; }}
+  .standings .rank-ends {{ display: flex; margin: 0 0 4px auto; letter-spacing: 0; }}
   .standings .rank-numbers {{ min-width: 0; }}
 }}
 /* A cell's second line, and a column left out, both for a narrow screen (below). */

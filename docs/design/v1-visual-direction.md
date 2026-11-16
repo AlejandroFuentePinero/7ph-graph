@@ -1264,16 +1264,32 @@ range written as two numbers. Measured on the running app over the real record a
 1440 and 1920px, before and after.
 
 - **The standings come first.** The table starts 222px down at 1440 and at 1920,
-  from 985px, and 370px down at 390, from 1,169px. The chart follows it: 2,042px down
-  on a desktop and 2,696px on a phone.
+  from 985px, and 390px down at 390, from 1,169px. The chart follows it: 2,042px down
+  on a desktop and 2,719px on a phone.
 - **A rank's range is drawn beside the numbers that state it.** A bar on a track,
   in the last column. The track is every place in the field, first at its left end
   and last at its right (184 places today), and it is the same track in every row, so
   two rows' bars can be compared. The bar is placed by the two ranks the row states,
   and a browser test reads all fifty bars back off the page as ranks at the three
-  widths. What the bar is drawn against is said in the FAQ's answer on how settled
-  the order is, beside what the column is: the standings' caption already holds its
-  one claim and one qualifier (§14).
+  widths.
+- **The track names its ends and marks the rank.** _Added after the maintainer's
+  look, the same day: the bar alone was "not intuitive"._ Nothing on the row said
+  what the track was or where on it the pilot stood. The column's header now reads
+  "1st" over the track's left end and "184th" over its right, and a bright tick on
+  each track marks the pilot's own rank, so a row reads: the tick is where they
+  stand, the bar is how far that could move. The caption says so: its one qualifier
+  (§14) now reads the drawing and the numbers together, "the tick is a pilot's
+  rank, and the bar and the Rank CI beside it are where that rank landed in 90% of
+  a thousand redraws of their own record", and the FAQ's answer on how settled the
+  order is says it at length. A tick and not a dot, since a top
+  rank's bar is a few pixels long and a dot hid it. Every one of the 184 ranks sits
+  inside its own range, so no tick stands off its bar. The same browser test holds
+  each tick to its row's rank and the two names to the track's two ends. It caught
+  the names 8px off the tracks: the header's label box was sized in the header's
+  smaller face. The marks are not text, so their contrast is worked out by hand from
+  the tokens (§2): the bar (`--text-mute`) on the track (`--border`) is 3.36, the
+  tick (`--text`) on the bar 3.28 and on the track 11.02. The bar was `--text-dim`
+  (5.72 on the track) until the tick needed to be the brighter of the two.
 - **The scale is the whole field, not the rows shown.** The fifty rows' ranges end at
   127th, so a scale cut there would draw longer bars, but its right end would mean
   nothing a reader could name. On the whole field a top rank's bar is short (1 to 24
@@ -1284,7 +1300,7 @@ range written as two numbers. Measured on the running app over the real record a
 - **On a phone the track sits over its numbers.** Beside them it took the room the
   names need. The track is 60px there and 256px on a desktop. One name wraps to a
   second line, as one did before. What it costs: a row is 42px tall, from 30px, so the
-  tab is 3,589px long at 390, from 3,001px.
+  tab is 3,613px long at 390, from 3,001px.
 - **One band stands for the other contenders.** From the lowest of their scores to
   the highest at each date, in the accent at 0.10, with the legend saying so ("All
   other contenders, lowest to highest"). The reach and not the middle of the field,
@@ -1294,8 +1310,8 @@ range written as two numbers. Measured on the running app over the real record a
   where "Every major played up to" left the tick under it to finish the sentence.
 - **Ranks, scores and ranges are as they were.** No query changed and no build input
   was touched.
-- **What it costs.** The page as transferred is 236.0 KB, from 240.6 KB (236,010
+- **What it costs.** The page as transferred is 236.9 KB, from 240.6 KB (236,850
   bytes, from 240,593): 176 lines of five points each left the page and fifty bars
   joined it. The chart library is 1,275.4 KB, unchanged. No text sits on a new ground:
-  the contrast audit of the tab measures 912 text nodes with none below AA, on main
-  and on the branch.
+  the contrast audit of the tab finds none below AA on main (912 text nodes) or on
+  the branch (918: the two end names at three widths, in the header's own ink).

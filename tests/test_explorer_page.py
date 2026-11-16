@@ -248,9 +248,10 @@ def test_the_standings_and_the_gems_draw_no_table_frame_on_the_real_record(chrom
             assert table["lines"] == ["0px"], tab
 
 
-# The standings on the open tab: where the table and the chart under it start, and
-# for each row the track its rank range is drawn on, the bar drawn on it, and the
-# range written beside it.
+# The standings on the open tab: where the table and the chart under it start, the
+# two ends the header names over the tracks, and for each row its rank, the track its
+# rank range is drawn on, the bar and the tick drawn on it, and the range written
+# beside it.
 _STANDINGS = "() => { const open = " + _OPEN_TAB + """;
     const box = el => { const r = el.getBoundingClientRect();
                         return {left: r.left, right: r.right, top: r.top, bottom: r.bottom,
@@ -261,9 +262,13 @@ _STANDINGS = "() => { const open = " + _OPEN_TAB + """;
       first: [...open.querySelectorAll('.insight-card')].filter(shown)[0].contains(table),
       table: box(table),
       chart: box(open.querySelector('.js-plotly-plot')),
+      ends: [...table.querySelectorAll('thead .rank-ends span')].map(box),
+      named: table.querySelector('thead .rank-ends').textContent,
       rows: [...table.querySelectorAll('tbody tr')].map(row => ({
+        rank: row.querySelector('td').innerText,
         track: box(row.querySelector('.rank-track')),
         bar: box(row.querySelector('.rank-bar')),
+        mark: box(row.querySelector('.rank-mark')),
         said: row.querySelector('.rank-numbers').innerText,
         ink: getComputedStyle(row.querySelector('.rank-numbers')).color,
       })),
@@ -321,6 +326,17 @@ def test_each_standings_row_draws_the_rank_range_it_states_on_the_real_record(
                  round((row["bar"]["right"] - row["track"]["left"]) / place))
         stated = tuple(int(rank) for rank in re.findall(r"\d+", row["said"]))
         assert drawn == stated, row
+        # The tick is the pilot's own rank: it stands at the middle of that place.
+        middle = (row["mark"]["left"] + row["mark"]["right"]) / 2 - row["track"]["left"]
+        assert round(middle / place + 0.5) == int(row["rank"]), row
+    # The header names the track's two ends, first place and last, and each name sits
+    # over the end it names: the first starts where a track starts, the last ends
+    # where a track ends, and the two do not meet.
+    assert re.findall(r"\d+", read["named"]) == ["1", str(places)]
+    first, last = read["ends"]
+    assert first["left"] == pytest.approx(rows[0]["track"]["left"], abs=0.5)
+    assert last["right"] == pytest.approx(rows[0]["track"]["right"], abs=0.5)
+    assert first["right"] < last["left"]
     # The numbers are still set back, as the column was before it drew anything:
     # Gradio colours every element inside an HTML block, so a figure wrapped in an
     # element of its own takes the main ink unless the stylesheet hands it its cell's.

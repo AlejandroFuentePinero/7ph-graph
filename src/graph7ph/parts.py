@@ -6,7 +6,8 @@ takes display values and returns the HTML the app sets in a ``gr.HTML``. What ea
 class looks like is the stylesheet's (:func:`graph7ph.theme.build_css`).
 
 Every string handed in is escaped, since names come from the source. The one way
-round that is :class:`Markup`, for a cell the app has already built as markup.
+round that is :class:`Markup`, for a cell or a column header the app has already
+built as markup.
 """
 
 import html
@@ -69,7 +70,8 @@ def card_head(title: str, *captions: str) -> str:
 
 
 class Markup(str):
-    """A table cell the app has already built as markup, set as it stands."""
+    """A table cell or column header the app has already built as markup, set as
+    it stands."""
 
 
 def link(text: str, href: str) -> Markup:
@@ -105,7 +107,8 @@ def folded(text: str, sub: str) -> Markup:
 
 @dataclass(frozen=True)
 class Column:
-    """One column of a table: its header, and how its cells are set.
+    """One column of a table: its header, text or :class:`Markup`, and how its
+    cells are set.
 
     ``numeric`` sets the header and every cell right-aligned in tabular figures.
     ``quiet`` sets the column back, for a figure that qualifies the one beside it.
@@ -157,7 +160,7 @@ def table(columns: Sequence[Column], rows: Sequence[Group | Row | Sequence[str]]
 
     def header(column: Column) -> str:
         title = f" title='{html.escape(column.title, quote=True)}'" if column.title else ""
-        return f"<th{classes(column)}{title}>{html.escape(column.header)}</th>"
+        return f"<th{classes(column)}{title}>{_cell(column.header)}</th>"
 
     def row(cells: Group | Sequence[str]) -> str:
         if isinstance(cells, Group):

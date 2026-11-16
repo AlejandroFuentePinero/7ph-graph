@@ -3961,6 +3961,14 @@ def test_every_leaderboard_row_draws_the_rank_range_it_states_on_one_scale():
     assert drawn == stated == [(1, 4), (1, 5), (1, 6), (1, 7), (2, 8)]
     # One scale for every row: the twelve places of the field, with five rows shown.
     assert re.findall(r"--places:(\d+)", table) == ["12"]
+    # A bar alone is a length with nothing to read it against (the maintainer's look:
+    # "not intuitive"). So the column's header names the two ends of the track, over
+    # the tracks themselves, and each row marks the pilot's own rank on its track:
+    # the mark is where they stand and the bar is how far that could move.
+    assert "<span>1st</span><span>12th</span>" in table
+    marked = [int(rank) for rank in re.findall(r"--rank:(\d+)", table)]
+    assert marked == [1, 2, 3, 4, 5]
+    assert table.count("class='rank-mark'") == 5
 
 
 def test_a_leaderboard_name_carrying_markup_is_escaped():
@@ -4032,11 +4040,10 @@ def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_pat
         pytest.skip(f"cannot grade the real record: {staleness(artifact)}")
     demo = build_app(artifact)
 
-    # Found by the race's own column, not by the shared table class: the gem table
-    # wears that class too and is drawn at build time since #184.
+    # Found by the standings' own wrapper, not by the shared table class: the gem
+    # table wears that class too and is drawn at build time since #184.
     (table,) = [b.value for b in demo.blocks.values()
-                if isinstance(b, gr.HTML) and "<th class='num quiet'>Rank CI</th>"
-                in (b.value or "")]
+                if isinstance(b, gr.HTML) and "class='standings'" in (b.value or "")]
     # Capped at the display cut, and every drawn line is marked in the table.
     assert table.count("<tr") == _LEADERBOARD_ROWS + 1
     assert table.count("swatch-hue") == _RACE_LINES
@@ -4086,6 +4093,9 @@ def test_the_standings_caption_states_what_the_table_actually_holds():
     assert f"{RACE_INTERVAL:.0%} of a thousand redraws" in _standings_caption(big, rows=5)
     # Named exactly as the column header it explains, so the two read as one thing.
     assert "Rank CI" in _standings_caption(big, rows=5)
+    # And it reads the drawing as well as the numbers (the maintainer's look, #336: the
+    # bar alone was "not intuitive"): which mark is the rank, and what the bar is.
+    assert "the tick is a pilot's rank, and the bar" in _standings_caption(big, rows=5)
 
 
 def test_every_other_contender_is_drawn_behind_the_race_as_one_band():
