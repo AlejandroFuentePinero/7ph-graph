@@ -147,6 +147,45 @@ Two things are still typed by hand in the Space card
 to the lock's gradio, and `python_version` to the interpreter in
 `.python-version`. A gradio upgrade therefore edits the card in the same commit.
 
+### The usage record
+
+The Space records its own use: each page it serves and each view a visitor draws,
+one line each (issue #356, the reasoning in
+[research/usage-series.md](research/usage-series.md)). Nothing else counts visits
+to this app, and nothing a visitor downloads is different for it: no script, no
+outside request, no cookie.
+
+Two things on the Space make it record, both set by hand and neither in the repo:
+
+- **A private Storage Bucket attached as a volume.** `Alejandrofupi/7ph-graph-usage`,
+  mounted read-write at `/usage`. A Space's own disk is wiped at every restart; the
+  bucket is not part of the Space and outlives it. Attached with
+  `hf spaces volumes set Alejandrofupi/7ph-graph -v hf://buckets/Alejandrofupi/7ph-graph-usage:/usage`,
+  which replaces any volumes already set, and listed with `hf spaces volumes ls`.
+- **A variable naming the folder.** `GRAPH7PH_USAGE_DIR=/usage`, a variable and not
+  a secret. With it unset, or naming a folder that is not there, the app records
+  nothing and behaves exactly as it does otherwise: that is every local run, Colab
+  and the suite.
+
+The app holds no credential for this. It writes files to a folder.
+
+What a line holds: the time, which address was used (the custom domain or the
+Space's own), the site a visitor came from where the browser said, and for a draw
+the function and view drawn and a token Gradio makes per page load, which ties one
+visit's draws together. What it never holds: what was looked up (a draw's inputs
+carry card and pilot names and are discarded), a visitor's address, or anything
+that tells one person from another. So the record counts visits, not people.
+
+Notes are saved every five minutes as one new file under `/usage/<year>/<month>/<day>/`.
+A restart loses whatever was noted since the last save, at most five minutes. Each
+start of the app writes a `start` line at its first save, so a restart shows in
+the record, and so does a folder that takes no files: the run log then carries a
+line opening `*** USAGE RECORD NOT WRITTEN`, and one opening `*** USAGE RECORD OFF`
+when the variable names a folder that is not mounted. Neither stops the app.
+
+Reading it is a step of the refresh round: see
+[development.md](development.md#reading-the-usage-record).
+
 ## Colab
 
 ```python

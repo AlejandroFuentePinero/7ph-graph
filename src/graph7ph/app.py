@@ -74,6 +74,7 @@ from graph7ph.render import (
     render_subgraph,
 )
 from graph7ph.serve import APP_KWARGS
+from graph7ph.usage import recording
 from graph7ph.trends import (
     ArchetypeLandscape,
     ArchetypeTimeline,
@@ -5348,7 +5349,10 @@ def launch_kwargs() -> dict:
         "css": theme.build_css(),
         "head": theme.build_head(),  # the favicon (#115)
         "favicon_path": theme.favicon_file(),
-        "app_kwargs": APP_KWARGS,
+        # With the listener that records visits in front, on the Space and nowhere
+        # else (`usage`, issue #356). The two tabs with a view picker are the views
+        # a draw can name; every other draw is named by its function.
+        "app_kwargs": recording(APP_KWARGS, views=frozenset(_PILOTS_TAB) | frozenset(_CARDS_TAB)),
         # Rendered in the browser, never on the server, which the Space would otherwise
         # ask for (it sets GRADIO_SSR_MODE). ADR 0029 has the measurements. Gradio 6's
         # server-side renderer writes the app's own address into the page with the
