@@ -9,7 +9,9 @@ whether a label reaches the reader is decided at paint time by numbers no string
 assertion can see. These tests ask the running widget instead.
 
 Chromium at a 1440x810 viewport, the interior of the graph frame on a 1440x900
-desktop. Alongside legibility, these tests hold the three regressions ADR 0018 names
+desktop when the graph had the card's whole width. Since #330 the graph sits beside a
+panel in a frame about two thirds as wide (`BESIDE_PANEL`), which is measured too:
+the narrower frame is the harder fit. Alongside legibility, these tests hold the three regressions ADR 0018 names
 as the price #174 paid and #178 refuses: physics stays live, node positions are never
 mutated, and edge quantities keep vis.js's own size, scaled by the zoom.
 
@@ -34,14 +36,19 @@ import pytest
 from graph7ph import serve
 from graph7ph.query import Edge, Node, Subgraph
 from graph7ph.render import render_subgraph
-from graph7ph.theme import build_css
+from graph7ph.theme import FONTS, build_css
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
-# The interior of the graph frame on a 1440x900 desktop: the widget iframe spans the
-# app's width, and `app._embed` sizes its height at `clamp(525px, 90vh, 950px)`, which
-# on that viewport is 90vh = 810px.
+# The interior of the graph frame on a 1440x900 desktop while the graph had the card
+# to itself: the frame spanned the app's width at `clamp(525px, 90vh, 950px)` tall,
+# which on that viewport is 90vh = 810px. Kept as the wider of the two frames these
+# documents are measured in.
 DESKTOP = {"width": 1440, "height": 810}
+
+# The frame a graph is drawn in beside its panel (#330), on that same desktop: the
+# graph's share of a 1150px card, at 78vh. Read off the running page.
+BESIDE_PANEL = {"width": 791, "height": 702}
 
 # The theme's smallest type role, read off the stylesheet rather than restated: a label
 # under it is not "small", it is below anything the design asks a reader to read at all.
@@ -53,8 +60,8 @@ THEME_MIN_PX = min(float(px) for px in re.findall(r"font-size:\s*([\d.]+)px", bu
 VIS_DEFAULT_PX = 14
 
 # The size a node's name should reach the reader at: the colour key's chips
-# (`.legend-chip`, 12px) in the same document, so a name is never smaller than the
-# key it is read beside. Stated here as the number the design asks for, not imported
+# (`.key-chip`, 12px) in the panel beside the graph, so a name is never smaller than
+# the key it is read beside. Stated here as the number the design asks for, not imported
 # from the renderer, so the test can disagree with it.
 LEGIBLE_PX = 12
 
@@ -168,16 +175,16 @@ def drawn(browser):
     Waited on by condition, not by clock: the settle's own ``settledFrame`` says when
     it has finished, so a slow stabilisation (the 250-node view is a thousand physics
     iterations) is waited out rather than raced. The two scenarios that assert an
-    *absence* (nothing refits on a tab return or a node click) keep fixed graces
-    instead, since an absence has no moment at which it announces itself.
+    *absence* (nothing refits on a tab return, or under a reader who has zoomed) keep
+    fixed graces instead, since an absence has no moment at which it announces itself.
     """
     def measure(subgraph: Subgraph, then_resize_to: dict | None = None,
                 then_hide_and_show: bool = False, hidden_while_drawing: bool = False,
-                then_reader_zooms_and_opens_details: bool = False) -> dict:
+                then_reader_zooms: bool = False, frame: dict = DESKTOP) -> dict:
         server, url = _serve(render_subgraph(subgraph))
         page = None
         try:
-            page = browser.new_page(viewport=DESKTOP)
+            page = browser.new_page(viewport=frame)
             if hidden_while_drawing:
                 # Hidden from the first frame, so the graph's own first settle is the one
                 # that happens with no frame to settle against. Applied as a stylesheet on
@@ -196,21 +203,23 @@ def drawn(browser):
             # A grace for the physics vis.js resumes after a settle whose layout had
             # iterations left: what is measured should be the graph at rest.
             page.wait_for_timeout(1000)
-            if then_reader_zooms_and_opens_details:
+            if then_reader_zooms:
                 # A reader reading: a wheel zoom into the middle of the graph (vis's
-                # own zoom, so the widget can know the view is now theirs), then a
-                # node's details opened, which grows the panel under the canvas and
-                # so shrinks the canvas: a frame change from inside the document.
+                # own zoom, so the widget can know the view is now theirs).
                 page.evaluate("() => { window._preZoom = network.getScale(); }")
-                page.mouse.move(DESKTOP["width"] / 2, DESKTOP["height"] / 2)
+                page.mouse.move(frame["width"] / 2, frame["height"] / 2)
                 page.mouse.wheel(0, -240)
                 page.wait_for_timeout(300)  # the wheel is dispatched asynchronously
                 page.evaluate("() => { window._readerZoom = network.getScale();"
                               " const c = network.canvas.frame.canvas;"
-                              " window._preFrame = [c.clientWidth, c.clientHeight];"
-                              " showNode(Object.keys(NODE_META)[0]); }")
-                page.wait_for_timeout(2500)  # vis notices the shrunken canvas on its poll
-            if then_resize_to is not None:
+                              " window._preFrame = [c.clientWidth, c.clientHeight]; }")
+            if then_resize_to is not None and then_reader_zooms:
+                # Nothing announces a settle that is not owed, so this waits out the
+                # one that would come: vis notices the new size on its poll, and the
+                # settle is held back 150ms behind that.
+                page.set_viewport_size(then_resize_to)
+                page.wait_for_timeout(2500)
+            elif then_resize_to is not None:
                 fitted = page.evaluate("() => settledFrame")
                 page.set_viewport_size(then_resize_to)
                 # vis.js notices the new size on its own poll; the settle marks the
@@ -331,6 +340,58 @@ def test_drawing_a_graph_asks_no_other_host_for_anything(browser):
         page.close()
         server.shutdown()
         server.server_close()
+
+
+# Notes, the moment the graph says it has settled, whether the app's face was in.
+_NOTE_THE_FACE_AT_THE_SETTLE = """
+const watch = setInterval(() => {
+  if (typeof settledFrame === 'undefined' || settledFrame === null) return;
+  window._faceAtTheSettle = document.fonts.check("12px '__FACE__'");
+  clearInterval(watch);
+}, 5);
+"""
+
+
+def test_labels_are_drawn_in_the_apps_face_and_measured_only_once_it_is_in(browser):
+    """Issue #330: the graph is a document of its own and loaded no face, so every
+    label was drawn in Arial beside a page set in the app's own.
+
+    A label's box is measured when the graph settles, and the fit is solved from
+    those boxes, so a face that arrives afterwards leaves the graph fitted to the
+    widths of another face's letters. The face is held back for a second here, as a
+    first visit on a slow line holds it, on the view that would otherwise settle at
+    once (every node pinned, nothing to stabilise): the settle has to wait for it.
+    """
+    face = FONTS["body"]["family"]
+    server, url = _serve(render_subgraph(card_cooccurrence()))
+    page = browser.new_page(viewport=DESKTOP)
+    try:
+        page.add_init_script(_NOTE_THE_FACE_AT_THE_SETTLE.replace("__FACE__", face))
+        page.route("**/*.woff2", lambda route: (page.wait_for_timeout(1000), route.continue_()))
+        page.goto(url)
+        page.wait_for_function("() => window._faceAtTheSettle !== undefined")
+        read = page.evaluate("""() => {
+          const faces = (things) => [...new Set(Object.values(things)
+            .filter((thing) => thing.options.label)
+            .map((thing) => thing.labelModule.fontOptions.face))];
+          return {
+            inAtTheSettle: window._faceAtTheSettle,
+            loaded: [...document.fonts].filter((f) => f.status === 'loaded')
+              .map((f) => f.family.replace(/['"]/g, '')),
+            nodes: faces(network.body.nodes),
+            edges: faces(network.body.edges),
+          };
+        }""")
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+
+    assert read["inAtTheSettle"], "the graph settled before the face was in"
+    assert read["loaded"] == [face]
+    for drawn_in in (*read["nodes"], *read["edges"]):
+        assert drawn_in.strip("'\"").startswith(face), drawn_in
+    assert read["nodes"] and read["edges"]
 
 
 @pytest.mark.parametrize("view", [
@@ -488,22 +549,26 @@ def test_a_tab_switch_and_return_keeps_the_readers_zoom(drawn):
         )
 
 
-def test_opening_a_nodes_details_does_not_refit_the_readers_view(drawn):
-    """Clicking a node is not a new frame either, even though it resizes one.
+def test_a_frame_that_changes_under_a_reader_who_has_zoomed_does_not_refit(drawn):
+    """Once the reader has taken the view, no change of frame takes it back.
 
-    The details panel sits under the canvas in the same flex column, so filling it
-    takes rows of height off the canvas, and vis.js announces that as a resize. A
-    settle that answered it would refit the whole graph because the reader clicked
-    a node: their wheel zoom thrown away by the very interaction the panel exists
-    to serve. Once the reader has taken the view (a wheel zoom, a pan), no frame
-    change refits it out from under them.
+    A frame that changes size is a different frame to fit, and the settle answers it
+    (the test below). Not under a reader who has zoomed in to read a corner: a refit
+    then throws their zoom away for a frame they never asked to be fitted to. This
+    was first held against the details strip that used to sit under the canvas in
+    this document, whose filling on a node click shrank the canvas and so refitted
+    the graph because the reader clicked a node. That strip is the page's now (#330),
+    and the frame changes under a reader the way it still can: the window narrows.
     """
-    measured = drawn(pilot_neighbourhood(), then_reader_zooms_and_opens_details=True)
+    narrower = {"width": 1000, "height": DESKTOP["height"]}
+
+    measured = drawn(pilot_neighbourhood(), then_reader_zooms=True, then_resize_to=narrower)
 
     # One wheel tick is a 1.1x zoom in vis.js, whatever the delta's magnitude.
     assert measured["readerZoom"] > measured["preZoom"] * 1.05, (
         "the wheel zoom never reached the canvas, so nothing is being held"
     )
+    assert measured["frame"][0] < measured["preFrame"][0], "the frame never changed"
     # vis.js itself keeps the formerly visible world in view when its canvas
     # shrinks, multiplying the zoom by the shrunken axis's ratio. That adjustment
     # is the widget's baseline behaviour and not the refit being forbidden here:
@@ -514,10 +579,29 @@ def test_opening_a_nodes_details_does_not_refit_the_readers_view(drawn):
         measured["frame"][1] / measured["preFrame"][1],
     )
     assert measured["zoom"] == pytest.approx(kept, rel=0.01), (
-        f"opening the details refitted the graph to zoom {measured['zoom']:.3f}, "
+        f"the narrowed window refitted the graph to zoom {measured['zoom']:.3f}, "
         f"throwing away the reader's {measured['readerZoom']:.3f} "
         f"(vis's own resize adjustment leaves {kept:.3f})"
     )
+
+
+@pytest.mark.parametrize("view", [
+    pytest.param(pilot_neighbourhood(), id="pilot-overview-67"),
+    pytest.param(pilot_neighbourhood(83), id="densest-assess-250"),
+    pytest.param(card_cooccurrence(), id="co-occurrence"),
+])
+def test_every_label_is_legible_in_the_frame_beside_the_panel(drawn, view):
+    """Issue #330: the graph is drawn in a frame about two thirds as wide as it was,
+    beside the panel that answers it. A narrower frame is a smaller fitted zoom, which
+    is the direction the label size and the zoom have furthest to travel to agree in,
+    so the size asked for is held there too, on the densest view the app draws."""
+    measured = drawn(view, frame=BESIDE_PANEL)
+
+    assert measured["frame"] == [BESIDE_PANEL["width"], BESIDE_PANEL["height"]]
+    for label in measured["labels"]:
+        assert label["px"] == pytest.approx(LEGIBLE_PX, rel=0.05), (
+            f"{label['id']}'s label renders at {label['px']:.2f}px"
+        )
 
 
 def test_a_resized_window_refits_and_keeps_its_labels_legible(drawn):

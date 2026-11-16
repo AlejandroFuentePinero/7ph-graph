@@ -153,8 +153,10 @@ class Node:
     gem_luck: float | None = None
     # The event a drawn deck was played at. The gem view labels a deck by pilot and
     # finish, so one pilot who placed the same at two events is two nodes with one
-    # label; the event is what tells them apart, carried here for the details panel
-    # rather than in the label, which stays short so the picture stays readable.
+    # label; the event is what tells them apart, carried here rather than in the
+    # label, which stays short so the picture stays readable. Nothing the app draws
+    # reads it since #330: the panel beside the graph takes a deck's event from its
+    # row of the record (`deck_records`).
     event: str | None = None
 
 
@@ -1307,18 +1309,53 @@ def pilot_record(conn: ladybug.Connection, pilot: str) -> list[PilotDeck]:
                   e.fieldSize, e.fieldImputed, d.deckId""",
         {"pilot": pilot},
     )))
-    dates = dict(rows(conn.execute(
-        """MATCH (f:Deck)-[:PLAYED_AT]->(e:Event)
-           WHERE e.event IN $events
-           RETURN e.event, min(f.createdAt)""",
-        {"events": sorted({event for event, *_ in decks})},
-    )))
+    dates = _registered(conn, {event for event, *_ in decks})
     return sorted(
         (PilotDeck(event, dates[event], *rest) for event, *rest in decks),
         # Newest first, and by event then deck where two share a date, so the order
         # never rests on the row order of a query with no ORDER BY.
         key=lambda r: (r.date, r.event, r.deck_id), reverse=True,
     )
+
+
+def _registered(conn: ladybug.Connection, events: set[str]) -> dict[str, datetime]:
+    """Each event's registration date: the earliest ``createdAt`` across its field."""
+    return dict(rows(conn.execute(
+        """MATCH (f:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE e.event IN $events
+           RETURN e.event, min(f.createdAt)""",
+        {"events": sorted(events)},
+    )))
+
+
+@dataclass(frozen=True)
+class DeckRecord(PilotDeck):
+    """A deck's row of the record, with the display name of whoever played it."""
+
+    pilot: str
+
+
+def deck_records(conn: ladybug.Connection, deck_ids: list[str]) -> dict[str, DeckRecord]:
+    """The record's row for each named deck, by deck id (issue #330).
+
+    What a drawn deck answers a click with: :func:`pilot_record`'s row, read by
+    deck and not by pilot, since the gem view and a head-to-head draw the decks of
+    many pilots. A deck that is not on record is left out.
+    """
+    decks = list(rows(conn.execute(
+        """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
+           WHERE d.deckId IN $decks
+           OPTIONAL MATCH (d)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype)
+           RETURN e.event, a.name, d.placement, d.placementImputed,
+                  e.fieldSize, e.fieldImputed, d.deckId, p.displayName""",
+        {"decks": sorted(deck_ids)},
+    )))
+    dates = _registered(conn, {event for event, *_ in decks})
+    return {
+        deck_id: DeckRecord(event, dates[event], archetype, place, place_rule, field,
+                            field_rule, deck_id, pilot)
+        for event, archetype, place, place_rule, field, field_rule, deck_id, pilot in decks
+    }
 
 
 def gem_archetypes(conn: ladybug.Connection) -> list[tuple[str, str]]:

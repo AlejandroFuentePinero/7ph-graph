@@ -46,7 +46,7 @@ from starlette.middleware import Middleware
 from starlette.responses import FileResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from graph7ph.theme import ground_style, preview_tags, title_tag
+from graph7ph.theme import FONT_DIR, FONTS, ground_style, preview_tags, title_tag
 
 # The page shell and the config. Every other endpoint is either small or already
 # covered by Gradio's own middleware.
@@ -85,19 +85,24 @@ _ASSETS: dict[str, Path] = {}
 """The files we serve ourselves, by the URL each is served at."""
 
 
-def _serve_asset(name: str) -> str:
-    """Add one of pyvis's own library files to what we serve, answering with the
-    URL it is served at: a digest of its bytes, so a different library cannot
-    reuse a cached copy of this one."""
-    path = _VIS / name
+def _serve_asset(path: Path) -> str:
+    """Add a file to what we serve, answering with the URL it is served at: a
+    digest of its bytes, so a different file cannot reuse a cached copy of this
+    one."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
-    url = f"{_ASSET_ROOT}/{digest}/{name}"
+    url = f"{_ASSET_ROOT}/{digest}/{path.name}"
     _ASSETS[url] = path
     return url
 
 
-VIS_JS_URL = _serve_asset("vis-network.min.js")
-VIS_CSS_URL = _serve_asset("vis-network.css")
+VIS_JS_URL = _serve_asset(_VIS / "vis-network.min.js")
+VIS_CSS_URL = _serve_asset(_VIS / "vis-network.css")
+
+# The face a graph's labels are drawn in (issue #330). The graph is a document of
+# its own, which the face embedded in the page's stylesheet does not reach, and
+# embedding it again in every graph drawn would put 47 KB on the stream that cannot
+# be compressed or cached. So the graph asks for it here, once.
+LABEL_FACE_URL = _serve_asset(FONT_DIR / FONTS["body"]["file"])
 
 
 class _ServeAssets:

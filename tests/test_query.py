@@ -23,6 +23,7 @@ from graph7ph.query import (
     card_usage_subgraph,
     coverage,
     deck_points,
+    deck_records,
     gem_archetypes,
     hidden_gems_subgraph,
     land_cards,
@@ -957,8 +958,8 @@ def test_a_gem_is_drawn_between_its_archetype_and_its_best_decks(tmp_path, built
 def test_a_drawn_gem_deck_names_the_event_it_was_played_at(tmp_path, built_graph):
     # A drawn deck is labelled by pilot and finish alone, so one pilot who placed the
     # same at two events is two nodes with one label. The event is what tells them
-    # apart, and it rides on the node for the details panel rather than in the label,
-    # which stays short so the picture stays readable.
+    # apart, and it rides on the node rather than in the label, which stays short so
+    # the picture stays readable.
     decks = _slice("x", 200, {"tech": range(10)})
     for position, deck in enumerate(decks):
         deck["event"] = "spring" if position % 2 else "autumn"
@@ -1863,3 +1864,35 @@ def test_a_result_is_dated_by_its_events_first_registration(tmp_path, snapshot_d
 
 def test_an_unknown_pilot_has_no_record(tmp_path, snapshot_dir, built_graph):
     assert pilot_record(built_graph(tmp_path, snapshot_dir), "nobody") == []
+
+
+def test_a_drawn_deck_is_read_with_its_pilot_event_finish_and_date(
+    tmp_path, snapshot_dir, built_graph
+):
+    # Issue #330: a clicked deck answers with what a reader asks next, whoever played
+    # it, so the read is by deck and not by pilot. Read off the fixture's decks.json:
+    # one deck of Jordan C's and Tom S's only one, entered at the same event.
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    decks = deck_records(conn, ["pkUbzmgN3UeqaWdYQYRgRg", "bLaqow87tE2TCnphLvH1lg"])
+
+    assert {
+        deck_id: (d.pilot, d.event, d.archetype, d.placement, d.field_size, d.deck_id)
+        for deck_id, d in decks.items()
+    } == {
+        "pkUbzmgN3UeqaWdYQYRgRg": (
+            "Jordan C", "PogNov25", "Grixis", 12, 31, "pkUbzmgN3UeqaWdYQYRgRg"),
+        "bLaqow87tE2TCnphLvH1lg": (
+            "Tom S", "PogNov25", "Storm", 21, 31, "bLaqow87tE2TCnphLvH1lg"),
+    }
+    # Both dated by the event's first registration (ADR 0013), which decks.json puts
+    # at 05:33 on 1 December 2025: Jordan C's own, eight minutes ahead of Tom S's.
+    assert {(d.date.date().isoformat(), d.date.hour, d.date.minute)
+            for d in decks.values()} == {("2025-12-01", 5, 33)}
+
+
+def test_a_deck_that_is_not_on_record_is_left_out(tmp_path, snapshot_dir, built_graph):
+    conn = built_graph(tmp_path, snapshot_dir)
+
+    assert deck_records(conn, ["no-such-deck"]) == {}
+    assert deck_records(conn, []) == {}

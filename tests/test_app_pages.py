@@ -8,7 +8,7 @@ own files, and on the real record to a second, independent reading.
 
 import html
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -16,10 +16,12 @@ from graph7ph import numfmt
 from graph7ph.app import (
     _archetype_card,
     _card_tiles,
+    _drawn_card,
+    _graph_list,
+    _node_facts,
     _pair_tiles,
     _pilot_descriptor,
     _pilot_tiles,
-    _played_with_card,
     _record_card,
     _record_table,
     build_app,
@@ -28,6 +30,7 @@ from graph7ph.build import build_graph
 from graph7ph.db import rows
 from graph7ph.models import load_snapshot
 from graph7ph.query import (
+    DeckRecord,
     Edge,
     Node,
     PilotDeck,
@@ -35,6 +38,7 @@ from graph7ph.query import (
     card_cooccurrence_subgraph,
     card_deck_counts,
     card_usage_subgraph,
+    deck_records,
     pilot_affinity_subgraph,
     pilot_record,
     pilot_subgraph,
@@ -396,15 +400,35 @@ def _package(*partners: tuple[str, int], decks: int = 1560) -> Subgraph:
     return Subgraph(nodes=nodes, edges=edges)
 
 
+def _played_with(cooccurrence: Subgraph) -> str:
+    """The co-occurrence panel's list, whose title is always the same."""
+    title, body = _graph_list("card_cooccurrence", cooccurrence, {})
+    assert title == "Played with"
+    return body
+
+
+def _named_rows(markup: str) -> list[str]:
+    """The node each body row of a table names, in row order."""
+    return [html.unescape(node) for node in re.findall(
+        r"<tr data-node='([^']*)'>", markup.split("<tbody>")[1])]
+
+
 def test_the_cards_a_card_is_played_with_are_ranked_with_the_rates_the_edges_carry():
-    card = _played_with_card(_package(("Ponder", 1203), ("Daze", 780)))
+    # The list sat in a card of its own under the plots, a screen away from the graph
+    # it restates. It is the graph's panel now (issue #330), every card the graph
+    # draws and not a first ten, in the graph's own order, so the row's place is its
+    # rank and it needs no column for one.
+    partners = [(f"Card {i}", 1500 - 100 * i) for i in range(12)]
+    card = _played_with(_package(*partners))
 
     header = re.findall(r"<th(?: [^>]*)?>(.*?)</th>", card.split("<tbody>")[0])
-    assert header == ["#", "Card", "Decks together", "Rate"]
-    assert _table_rows(card) == [
-        ["1", "Ponder", "1,203 / 1,560", "77.12%"],
-        ["2", "Daze", "780 / 1,560", "50%"],
-    ]
+    assert header == ["Card", "Decks together", "Rate"]
+    rows = _table_rows(card)
+    assert len(rows) == 12
+    assert rows[:2] == [["Card 0", "1,500 / 1,560", "96.15%"],
+                        ["Card 1", "1,400 / 1,560", "89.74%"]]
+    # Each row names the node it stands for, so a click on it selects that card.
+    assert _named_rows(card)[:2] == ["card:Card 0", "card:Card 1"]
     # What a rate is a share of, said once over the table.
     assert "Seed's <span class='figure'>1,560</span> decks" in card
     assert "same board" in card
@@ -425,18 +449,18 @@ def test_two_cards_are_listed_with_what_the_decks_running_both_also_run():
                Edge(hub, "card:c", "90%", decks=281, total_decks=312)],
     )
 
-    card = _played_with_card(both)
+    card = _played_with(both)
 
-    assert _table_rows(card) == [["1", "C", "281 / 312", "90.06%"]]
+    assert _table_rows(card) == [["C", "281 / 312", "90.06%"]]
     assert "the <span class='figure'>312</span> decks running both A and B" in card
 
 
 def test_a_card_with_nothing_beside_it_gets_a_line_not_an_empty_table():
-    alone = _played_with_card(_package())
+    alone = _played_with(_package())
     assert "<table" not in alone and "No card to list" in alone
 
     # Two cards no deck runs together: two seeds and no hub.
-    apart = _played_with_card(Subgraph(
+    apart = _played_with(Subgraph(
         nodes=[Node("card:a", "A", "Card", group="seed:a"),
                Node("card:b", "B", "Card", group="seed:b")], edges=[]))
     assert "<table" not in apart and "No card to list" in apart
@@ -494,10 +518,321 @@ def test_a_cards_tiles_lists_and_pictures_agree_on_the_real_record(live_graph):
             ), where
 
         # One card's view has no board: a rate is a share of every deck running it.
-        played_with = _played_with_card(card_cooccurrence_subgraph(conn, canon))
+        played_with = _played_with(card_cooccurrence_subgraph(conn, canon))
         either = _card_tiles(card_usage_subgraph(conn, canon),
                              card_adoption_over_time(conn, canon))[2]
         assert f"<span class='figure'>{either.value}</span> decks" in played_with, canon
+
+
+# --- What a clicked node answers with, in the panel beside its graph (issue #330) ---
+
+
+def _answers(view: str, subgraph: Subgraph, decks: dict) -> dict:
+    """Each node's facts as the panel states them, by node id."""
+    facts = _node_facts(view, subgraph, decks)
+    assert [f.node for f in facts] == [n.id for n in subgraph.nodes]
+    return {f.node: f for f in facts}
+
+
+def _on_record(conn, subgraph: Subgraph) -> dict:
+    """The record of every deck a graph draws, as the app reads it for the panel."""
+    return deck_records(conn, [n.id.removeprefix("deck:") for n in subgraph.nodes
+                               if n.kind == "Deck"])
+
+
+def test_a_clicked_deck_answers_with_its_event_finish_date_and_list(
+    tmp_path, snapshot_dir, built_graph
+):
+    # The details line read "Kind: Deck, Name: Grixis". A deck now says what a reader
+    # asks next: who played it, where, how it finished and when, with its list one
+    # click away. Read off the fixture's decks.json: Jordan C's Grixis, 12th of the
+    # 31 at PogNov25, an event first registered on 1 December 2025.
+    conn = built_graph(tmp_path, snapshot_dir)
+    neighbourhood = pilot_subgraph(conn, "Jordan C")
+    deck_id = "pkUbzmgN3UeqaWdYQYRgRg"
+
+    said = _answers("pilot_neighbourhood", neighbourhood, _on_record(conn, neighbourhood))
+
+    deck = said[f"deck:{deck_id}"]
+    assert (deck.kind, deck.label) == ("Deck", "Grixis")
+    assert list(deck.rows) == [
+        ("Pilot", "Jordan C"), ("Event", "PogNov25"), ("Finish", "12 / 31"),
+        ("Registered", "1 Dec 2025"), ("Archetype", "Grixis"),
+    ]
+    assert f"href='https://moxfield.com/decks/{deck_id}'" in deck.link
+    # Its placement is a node of its own, and answers for the same deck.
+    placement = said[f"placement:{deck_id}"]
+    assert list(placement.rows) == [
+        ("Deck", "Grixis"), ("Event", "PogNov25"), ("Finish", "12 / 31"),
+        ("Registered", "1 Dec 2025"),
+    ]
+    assert placement.link == deck.link
+    # An event says when and how big, and names what hangs off it.
+    event = said["event:PogNov25"]
+    assert list(event.rows) == [("Registered", "1 Dec 2025"), ("Field size", "31")]
+    assert [(other.label, other.note) for other in event.linked] == [
+        ("Jordan C", ""), ("Grixis", "12 / 31")]
+    # And the pilot at the hub counts the events drawn round them.
+    assert list(said["pilot:Jordan C"].rows) == [("Events played", "2")]
+
+
+def _gem_graph() -> tuple[Subgraph, dict]:
+    """One gem of one archetype and a deck running it, with that deck's record."""
+    graph = Subgraph(
+        nodes=[Node("arch:lands", "Lands", "Archetype", decks=100),
+               Node("card:lands:port", "Rishadan Port", "Card", decks=21, total_decks=100,
+                    top_decks=13, pilots=10, gem_luck=0.0039),
+               Node("deck:d1", "Ada L · 3rd", "Deck", event="PogMay26")],
+        edges=[Edge("arch:lands", "card:lands:port", "IN"),
+               Edge("deck:d1", "card:lands:port", "CONTAINS:Main")],
+    )
+    record = DeckRecord("PogMay26", datetime(2026, 5, 2), "Lands", 3, None, 40,
+                        "cohort", "d1", "Ada L")
+    return graph, {"d1": record}
+
+
+def test_no_node_of_any_view_answers_with_only_its_kind_and_name(
+    tmp_path, snapshot_dir, built_graph
+):
+    # "Kind: Macro, Name: combo" was the whole answer for some nodes. Every node of
+    # every view the app draws states at least one fact of its own, over all eight
+    # kinds: the fixture's graphs, and a gem graph, which the fixture cannot draw.
+    conn = built_graph(tmp_path, snapshot_dir)
+    gems, gem_decks = _gem_graph()
+    drawn = [
+        ("pilot_neighbourhood", pilot_subgraph(conn, "Jordan C"), None),
+        ("pilot_neighbourhood", pilot_subgraph(conn, "Jordan C", "AmberTealViper"), None),
+        ("pilot_affinity", pilot_affinity_subgraph(conn, "Jordan C"), None),
+        ("card_usage", card_usage_subgraph(conn, "brainstorm"), None),
+        ("card_cooccurrence", card_cooccurrence_subgraph(conn, "brainstorm", top_n=5), None),
+        ("card_cooccurrence",
+         card_cooccurrence_subgraph(conn, "brainstorm", "daze", top_n=5), None),
+        ("meta_gems", gems, gem_decks),
+    ]
+
+    kinds = set()
+    for view, subgraph, decks in drawn:
+        assert subgraph.nodes, view
+        said = _answers(view, subgraph, decks or _on_record(conn, subgraph))
+        for node in subgraph.nodes:
+            facts = said[node.id]
+            assert facts.rows, (view, node.kind, node.label)
+            assert all(label and value for label, value in facts.rows), (view, facts)
+            kinds.add(node.kind)
+    assert kinds == {"Deck", "Pilot", "Card", "Archetype", "Macro", "Event",
+                     "Placement", "Intersection"}
+
+
+def test_a_gem_and_its_archetype_state_the_claim_in_the_apps_one_count_form():
+    # A gem's facts are its row of the gem table, said in full. A count against its
+    # sample is written one way everywhere (§4): 13 of the card's 21 decks in the
+    # archetype's best fifth is "13 / 21", as 21 of the archetype's 100 is "21 / 100".
+    gems, decks = _gem_graph()
+
+    said = _answers("meta_gems", gems, decks)
+
+    assert list(said["card:lands:port"].rows) == [
+        ("Archetype", "Lands"), ("Decks running it", "21 / 100"),
+        ("In top 20%", "13 / 21"), ("Pilots", "10"), ("Odds it is luck", "0.39%"),
+    ]
+    assert list(said["arch:lands"].rows) == [("Scored decks", "100"), ("Gems", "1")]
+    # The gem names the decks running it, each with the event that tells two decks
+    # of one pilot apart, since their labels can be the same.
+    assert [(other.label, other.note) for other in said["card:lands:port"].linked] == [
+        ("Lands", ""), ("Ada L \u00b7 3rd", "PogMay26")]
+
+
+def test_the_imputed_mark_is_explained_exactly_where_the_panel_draws_one():
+    # A number this project worked out carries a mark, and the mark its legend
+    # (issue #166). The panel prints a finish or a field for every deck drawn, most
+    # of them the source's own, so the legend rides the facts that carry a mark and
+    # not the whole card: a legend for an asterisk nobody can see is chrome (§14).
+    legend = f"{numfmt.IMPUTED_MARK} marks a number this project worked out, " \
+             "not one the source recorded."
+    recorded, placed_by_us, unranked = (
+        DeckRecord("Event 0", datetime(2025, 1, 1), "Grixis", 3, None, 40, None, "d0", "Ada L"),
+        DeckRecord("Event 1", datetime(2025, 1, 8), "Grixis", 5, "title", 24, None, "d1", "Ada L"),
+        DeckRecord("Event 2", datetime(2025, 1, 15), "Grixis", None, None, 30, "cohort", "d2",
+                   "Ada L"),
+    )
+    decks = {deck.deck_id: deck for deck in (recorded, placed_by_us, unranked)}
+    graph = _drawing(decks)
+
+    said = _answers("pilot_neighbourhood", graph, decks)
+
+    assert ("Finish", "3 / 40") in said["deck:d0"].rows and said["deck:d0"].note is None
+    assert ("Finish", "5* / 24") in said["deck:d1"].rows and said["deck:d1"].note == legend
+    # An event names its deck with that deck's finish, so it carries the mark too.
+    assert said["event:Event 0"].note is None
+    assert said["event:Event 1"].linked[1].note == "5* / 24"
+    assert said["event:Event 1"].note == legend
+    # A deck with no finish on record prints no field, so it has no mark to explain.
+    # Its event does print the field, which here is one the project worked out.
+    assert said["deck:d2"].note is None
+    assert ("Field size", "30*") in said["event:Event 2"].rows
+    assert said["event:Event 2"].note == legend
+
+    # And the list says it once, when one of the finishes it lists is marked.
+    _, marked = _graph_list("pilot_neighbourhood", graph, decks)
+    _, clean = _graph_list("pilot_neighbourhood", _drawing({"d0": recorded}), {"d0": recorded})
+    assert f"<div class='caption'>{legend}</div>" in marked
+    assert legend not in clean
+
+
+def test_one_card_explains_the_imputed_mark_once():
+    # One wording for one mark, and one place for it on a card (§14). A placement
+    # this project decided is marked on the graph's own label, so the card's head
+    # carries the legend and the panel does not repeat it over its list or under a
+    # node's facts. With no mark on the graph, the list carries it if it prints
+    # one, and a node's facts only when nothing above them has.
+    legend = f"{numfmt.IMPUTED_MARK} marks a number this project worked out"
+    ours = DeckRecord("Event 1", datetime(2025, 1, 8), "Grixis", 5, "title", 24, None,
+                      "d1", "Ada L")
+    fielded = DeckRecord("Event 2", datetime(2025, 1, 15), "Grixis", None, None, 30,
+                         "cohort", "d2", "Ada L")
+    values = {"pilot": "ada", "pilot2": None}
+
+    on_the_graph = _drawing({"d1": ours})
+    on_the_graph.nodes.append(Node("placement:d1", "5th*", "Placement"))
+    on_the_graph.edges.append(Edge("deck:d1", "placement:d1", "PLACED"))
+    card = _drawn_card("pilot_neighbourhood", values, on_the_graph, {"d1": ours})
+    assert card.count(legend) == 1 and card.index(legend) < card.index("graph-split")
+
+    in_the_list = _drawn_card("pilot_neighbourhood", values, _drawing({"d1": ours}),
+                              {"d1": ours})
+    assert in_the_list.count(legend) == 1
+    assert in_the_list.index("class='panel-list'") < in_the_list.index(legend)
+
+    # A deck with no finish is listed with none, so only its event prints a mark.
+    in_the_facts = _drawn_card("pilot_neighbourhood", values, _drawing({"d2": fielded}),
+                               {"d2": fielded})
+    assert in_the_facts.count(legend) == 1
+    assert f"<div class='facts-note'>{legend}" in in_the_facts
+
+
+# --- The list each graph's panel carries (issue #330) ---
+
+
+def _results(count: int) -> dict:
+    """``count`` decks of one pilot, a day apart, the newest numbered highest."""
+    return {
+        f"d{i}": DeckRecord(f"Event {i}", datetime(2025, 1, 1) + timedelta(days=i),
+                            "Grixis", i + 1, None, 40, None, f"d{i}", "Ada L")
+        for i in range(count)
+    }
+
+
+def _drawing(decks: dict) -> Subgraph:
+    """A one-pilot neighbourhood drawing ``decks``, as `pilot_subgraph` shapes it."""
+    nodes = [Node("pilot:ada", "Ada L", "Pilot")]
+    edges = []
+    for deck_id, deck in decks.items():
+        nodes += [Node(f"event:{deck.event}", deck.event, "Event"),
+                  Node(f"deck:{deck_id}", "Grixis", "Deck")]
+        edges += [Edge("pilot:ada", f"event:{deck.event}", "PLAYED_AT"),
+                  Edge(f"event:{deck.event}", f"deck:{deck_id}", "ENTERED")]
+    return Subgraph(nodes=nodes, edges=edges)
+
+
+def test_a_pilots_panel_lists_their_latest_ten_decks_and_points_at_the_rest():
+    # The whole record is a table further down the page, so the panel holds only what
+    # fits beside the graph: the ten newest, each naming its deck's node. Twelve
+    # decks, numbered oldest to newest, so the ten are d11 down to d2.
+    decks = _results(12)
+
+    title, body = _graph_list("pilot_neighbourhood", _drawing(decks), decks)
+
+    assert title == "Latest decks"
+    assert _named_rows(body) == [f"deck:d{i}" for i in (11, 10, 9, 8, 7, 6, 5, 4, 3, 2)]
+    # The event with its date under it, the archetype, and the finish over the field.
+    assert _table_rows(body)[0] == [
+        "Event 11<span class='sub'>12 Jan 2025</span>", "Grixis", "12 / 40"]
+    assert "latest 10 of <span class='figure'>12</span> decks" in body
+
+    # A record that fits is listed whole, with nothing to point at.
+    _, short = _graph_list("pilot_neighbourhood", _drawing(_results(3)), _results(3))
+    assert len(_table_rows(short)) == 3 and "class='caption'" not in short
+
+
+def test_a_head_to_heads_panel_lists_the_shared_events_with_each_pilots_finish():
+    ada, bob = "pilot:ada", "pilot:bob"
+    nodes = [Node(ada, "Ada L", "Pilot", group=ada), Node(bob, "Bob C", "Pilot", group=bob)]
+    edges, decks = [], {}
+    for i, (when, a_place, b_place) in enumerate([(3, 1, 9), (20, 5, None)]):
+        event = f"Event {i}"
+        nodes.append(Node(f"event:{event}", event, "Event"))
+        for who, name, place in ((ada, "Ada L", a_place), (bob, "Bob C", b_place)):
+            deck_id = f"{who[-3:]}{i}"
+            nodes.append(Node(f"deck:{deck_id}", "Grixis", "Deck", group=who))
+            edges += [Edge(who, f"event:{event}", "PLAYED_AT"),
+                      Edge(f"event:{event}", f"deck:{deck_id}", "ENTERED")]
+            decks[deck_id] = DeckRecord(event, datetime(2025, 3, when), "Grixis", place,
+                                        None, 24, None, deck_id, name)
+
+    title, body = _graph_list("pilot_neighbourhood", Subgraph(nodes=nodes, edges=edges), decks)
+
+    assert title == "Shared events"
+    header = re.findall(r"<th(?: [^>]*)?>(.*?)</th>", body.split("<tbody>")[0])
+    assert header == ["Event", "Ada L", "Bob C"]
+    # Newest first, each pilot's finish under their own name, and none where no
+    # finish is on record. A row names its event, the node the two chains meet at.
+    assert _table_rows(body) == [
+        ["Event 1<span class='sub'>20 Mar 2025</span>", "5 / 24", ""],
+        ["Event 0<span class='sub'>3 Mar 2025</span>", "1 / 24", "9 / 24"],
+    ]
+    assert _named_rows(body) == ["event:Event 1", "event:Event 0"]
+
+
+def test_an_affinity_panel_lists_every_archetype_played_by_events():
+    # No table under the page restates this graph, so the list is not cut short.
+    played = [(f"Archetype {i}", 20 - i) for i in range(14)]
+    nodes = [Node("pilot:ada", "Ada L", "Pilot"), Node("macro:tempo", "tempo", "Macro", weight=30)]
+    edges = [Edge("pilot:ada", "macro:tempo", "PLAYS:30", events=30)]
+    for name, events in reversed(played):
+        nodes.append(Node(f"arch:{name}", name, "Archetype", weight=events))
+        edges.append(Edge("macro:tempo", f"arch:{name}", f"PLAYS:{events}", events=events))
+
+    title, body = _graph_list("pilot_affinity", Subgraph(nodes=nodes, edges=edges), {})
+
+    assert title == "Archetypes played"
+    assert _table_rows(body) == [[name, "tempo", str(events)] for name, events in played]
+    assert _named_rows(body) == [f"arch:{name}" for name, _ in played]
+
+
+def test_a_cards_panel_lists_the_ten_archetypes_running_it_most_and_points_at_the_rest():
+    # The archetype table under the plots holds every one, grouped by broad class.
+    # The panel is the short answer to "where is it a staple": the ten by share.
+    nodes = [Node("card:x", "X (12% of meta)", "Card", decks=120, total_decks=1000),
+             Node("macro:tempo", "tempo", "Macro")]
+    edges = [Edge("card:x", "macro:tempo", "12%", visible=True, decks=120, total_decks=1000)]
+    for i in range(13):
+        nodes.append(Node(f"arch:a{i}", f"Archetype {i}", "Archetype"))
+        edges.append(Edge("macro:tempo", f"arch:a{i}", f"{i}%", visible=True,
+                          decks=i + 1, total_decks=20))
+
+    title, body = _graph_list("card_usage", Subgraph(nodes=nodes, edges=edges), {})
+
+    assert title == "Archetypes by share"
+    rows = _table_rows(body)
+    assert rows[0] == ["Archetype 12", "13 / 20", "65%"] and len(rows) == 10
+    assert _named_rows(body)[:2] == ["arch:a12", "arch:a11"]
+    assert "top 10 of <span class='figure'>13</span> archetypes" in body
+
+    # A card no archetype runs has a line and no empty table.
+    _, none = _graph_list("card_usage", Subgraph(nodes=nodes[:1], edges=[]), {})
+    assert "<table" not in none and "No archetype runs it" in none
+
+
+def test_the_gems_panel_is_the_gem_table_with_each_row_naming_its_gem():
+    gems, decks = _gem_graph()
+
+    title, body = _graph_list("meta_gems", gems, decks)
+
+    assert title == "The gems"
+    header = re.findall(r"<th(?: [^>]*)?>(.*?)</th>", body.split("<tbody>")[0])
+    # The odds column says what it is the odds of, for a reader new to the page.
+    assert header == ["Card", "Decks running it", "In top 20%", "Pilots", "Odds it is luck"]
+    assert _named_rows(body) == ["card:lands:port"]
 
 
 # --- The pages as the app draws them: each tab's own callback, over the fixture ---
@@ -559,7 +894,7 @@ def test_a_drawn_card_page_opens_with_its_head_and_lists_its_archetypes(demo):
 
 def test_a_cards_played_with_list_is_on_the_view_that_draws_those_cards(demo):
     outputs = _drawn(demo, "draw_cards", "card_cooccurrence", "daze", "", None, 5, False)
-    head, played_with = outputs[7], outputs[-1]
+    head, graph = outputs[7], outputs[9]
 
     # The view draws no usage graph and has no board control, so its head is the
     # card over either board: the tiles Card overview shows on "Main or side".
@@ -567,13 +902,18 @@ def test_a_cards_played_with_list_is_on_the_view_that_draws_those_cards(demo):
     tiles = r"<div class='tiles'>.*</div>"
     assert "Daze" in head
     assert re.search(tiles, head).group() == re.search(tiles, either).group()
-    rows = _table_rows(played_with)
-    # Five asked for, five listed, ranked, each in both of Daze's two decks at most.
-    assert [row[0] for row in rows] == ["1", "2", "3", "4", "5"]
-    assert all(row[2] in {"2 / 2", "1 / 2"} for row in rows)
-    assert rows[0][2:] == ["2 / 2", "100%"]
+    # The list is in the panel beside the graph that draws those cards (issue #330),
+    # and the card that held it under the plots is gone: the view's last output is
+    # its adoption chart's note.
+    assert "class='graph-panel'" in graph and "Played with" in graph
+    assert len(outputs) == 13
+    rows = _table_rows(graph)
+    # Five asked for, five listed, each in both of Daze's two decks at most.
+    assert len(rows) == 5
+    assert all(row[1] in {"2 / 2", "1 / 2"} for row in rows)
+    assert rows[0][1:] == ["2 / 2", "100%"]
     # A rate is a share of the decks the Decks tile counts.
-    assert "Daze's <span class='figure'>2</span> decks" in played_with
+    assert "Daze's <span class='figure'>2</span> decks" in graph
 
 
 def _tile_values(markup: str) -> list[str]:
@@ -592,7 +932,7 @@ def test_two_cards_get_a_head_about_the_pair_not_about_the_first_card(demo):
     # run the other. Off the fixture: Brainstorm is in all three decks of 2025 and
     # Daze in the two Grixis ones, so both are in two.
     outputs = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", "daze", 5, False)
-    head, graph, played_with = outputs[7], outputs[9], outputs[-1]
+    head, graph = outputs[7], outputs[9]
 
     assert (head.index("page-name") < head.index("Brainstorm and Daze")
             < head.index("Two cards, and what the decks running both also run.")
@@ -605,7 +945,7 @@ def test_two_cards_get_a_head_about_the_pair_not_about_the_first_card(demo):
     # The decks running both are the hub the graph hangs its cards off, and the base
     # the played-with list's rates are a share of.
     assert "Both \\u00b7 2 decks" in html.unescape(graph)  # as the graph's own data writes it
-    assert "the <span class='figure'>2</span> decks running both" in played_with
+    assert "the <span class='figure'>2</span> decks running both" in graph
 
 
 def _adoption_lines(demo, *picked) -> dict[str, list[float]]:
@@ -723,5 +1063,7 @@ def test_a_graph_card_says_what_it_draws_in_a_sentence(demo):
     assert said(usage) == ["How much of each broad class and archetype runs it."]
 
     pair = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", "daze", 5, True)
+    # The card's own sentence, then the one its panel's list carries (issue #330).
     assert said(pair[9]) == [
-        "The 5 cards most often in the decks that run it with Daze, lands left out."]
+        "The 5 cards most often in the decks that run it with Daze, lands left out.",
+        "Each rate is a share of the 2 decks running both Brainstorm and Daze."]

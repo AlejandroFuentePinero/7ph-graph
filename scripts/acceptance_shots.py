@@ -192,7 +192,7 @@ def draw(page: Page, settle: int = 6000) -> None:
 
 
 def click_a_node(page: Page) -> None:
-    """Click a node inside the pyvis iframe, so the details panel is populated.
+    """Click a node inside the pyvis iframe, so the panel beside it answers.
 
     The graph is a canvas, so there is no element to target: the node's position is
     asked of vis.js and converted to document coordinates, and the click is a real
@@ -210,12 +210,12 @@ def click_a_node(page: Page) -> None:
     handle = page.locator("iframe").locator("visible=true").first
     point = handle.element_handle().content_frame().evaluate(
         """() => {
-             // A deck, so the panel shows its Moxfield link as well as its fields;
+             // A deck, so the panel shows its Moxfield link as well as its facts;
              // failing that (a graph of cards and archetypes holds no deck), the most
              // connected node, which is the query's own seed in the middle.
              const ids = network.body.data.nodes.getIds();
              const degree = id => network.getConnectedNodes(id).length;
-             const deck = ids.find(id => NODE_META[id] && NODE_META[id].moxfield);
+             const deck = ids.find(id => String(id).startsWith("deck:"));
              const id = deck || ids.reduce((a, b) => (degree(b) > degree(a) ? b : a));
              return network.canvasToDOM(network.getPositions([id])[id]);
            }"""
@@ -224,10 +224,13 @@ def click_a_node(page: Page) -> None:
     # graph into view itself and the coordinate needs no page-offset arithmetic.
     frame.locator("#mynetwork canvas").click(position=point)
     wait(page, 800)
-    # The panel opens on a prompt to click a node; if that is still what it says, the
-    # click missed and the shot would show the un-clicked state as if it were the panel.
-    if "Click a node" in frame.locator("#node-details").inner_text():
-        raise SystemExit("the node click selected nothing: the details panel is unchanged")
+    # The panel beside the graph (issue #330) opens on a prompt to click a node; if
+    # no node's facts are showing, the click missed and the shot would show the
+    # un-clicked state as if it were the answer.
+    answered = page.locator(".graph-split").locator("visible=true").first.locator(
+        ".node-facts:not([hidden])")
+    if not answered.count():
+        raise SystemExit("the node click selected nothing: the panel is unchanged")
 
 
 @dataclass
@@ -363,7 +366,7 @@ def recipes() -> list[Shot]:
         Shot("pilots-nothing-picked", "Pilots, nothing picked yet", pilots_nothing_picked),
         Shot("pilots-running", "Pilots, mid-query: progress while a pick draws", pilots_running),
         Shot("pilots-overview", "Pilots, a pilot's neighbourhood, affinity and performance", pilots_overview),
-        Shot("pilots-node-details", "Pilots, a deck node clicked: the details panel and its Moxfield link", pilots_node_details),
+        Shot("pilots-node-details", "Pilots, a deck node clicked: its facts in the panel and its Moxfield link", pilots_node_details),
         Shot("pilots-thin-history", "Pilots, a pilot with too little history to average (refusal)", pilots_thin_history),
         Shot("pilots-head-to-head", "Pilots, a rivalry drawn", pilots_head_to_head),
         Shot("pilots-same-pilot", "Pilots, the same pilot picked twice", pilots_same_pilot),

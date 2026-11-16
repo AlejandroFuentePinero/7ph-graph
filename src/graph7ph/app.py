@@ -50,6 +50,8 @@ from graph7ph.query import (
     HiddenGems,
     PilotAffinity,
     PilotNeighbourhood,
+    DeckRecord,
+    Node,
     PilotDeck,
     QuerySpec,
     Subgraph,
@@ -57,13 +59,20 @@ from graph7ph.query import (
     card_catalogue,
     card_deck_counts,
     coverage,
+    deck_records,
     land_cards,
     pilot_catalogue,
     pilot_record,
     run_query,
 )
 from graph7ph.provenance import built_at
-from graph7ph.render import moxfield_url, render_subgraph
+from graph7ph.render import (
+    colour_key,
+    kind_name,
+    moxfield_url,
+    node_colours,
+    render_subgraph,
+)
 from graph7ph.serve import APP_KWARGS
 from graph7ph.trends import (
     ArchetypeLandscape,
@@ -339,6 +348,11 @@ def _gem_luck_label(luck: float) -> str:
     return written
 
 
+# What the gem table and a clicked gem call the odds column. It was "By chance",
+# which a newcomer could read as how the card got into the deck (issue #330).
+_GEM_LUCK_HEADER = "Odds it is luck"
+
+
 def _gem_table(subgraph: Subgraph) -> str:
     """The gems as a table: the claim each one makes, and how often chance alone makes it.
 
@@ -355,8 +369,8 @@ def _gem_table(subgraph: Subgraph) -> str:
     the constant cannot drift apart. **Pilots** says whether those decks are as many
     opinions or one pilot's, a
     distinction the deck count cannot make and #175 showed matters more than any
-    other. **By chance** is the exact odds of a card that rare landing that much of
-    itself in that cut by luck alone.
+    other. **Odds it is luck** is the exact odds of a card that rare landing that much
+    of itself in that cut by luck alone.
 
     Grouped by archetype and then ordered by those odds, longest first. Grouped rather
     than ranked outright, because a gem is a claim about one archetype and a flat
@@ -369,6 +383,9 @@ def _gem_table(subgraph: Subgraph) -> str:
     with every other archetype banded: the one table draws hairline rows only (issue
     #329), and the column was a sixth of a table that ran 125px past its card on a
     phone.
+
+    Each row names its gem's node, so in the panel beside the graph a click on the
+    row selects the card it is about (issue #330).
 
     Card and archetype names are free text from the source, which the table escapes.
     """
@@ -386,15 +403,16 @@ def _gem_table(subgraph: Subgraph) -> str:
     rows: list = []
     for archetype, block in groupby(gems, key=lambda node: named[node.id]):
         rows.append(parts.Group(archetype))
-        rows += [[node.label, str(node.decks), str(node.top_decks), str(node.pilots),
-                  _gem_luck_label(node.gem_luck)] for node in block]
+        rows += [parts.Row(node.id, [
+            node.label, str(node.decks), str(node.top_decks), str(node.pilots),
+            _gem_luck_label(node.gem_luck)]) for node in block]
     return parts.table(
         [
             parts.Column("Card"),
             parts.Column("Decks running it", numeric=True),
             parts.Column(f"In top {GEM_TOP_CUT:.0%}", numeric=True),
             parts.Column("Pilots", numeric=True),
-            parts.Column("By chance", numeric=True, quiet=True,
+            parts.Column(_GEM_LUCK_HEADER, numeric=True, quiet=True,
                          title="How often plain luck would put this much of the card "
                                "in the best decks"),
         ],
@@ -548,6 +566,26 @@ def _day(when: datetime) -> str:
     return f"{when.day} {when:%b %Y}"
 
 
+def _finish_is_imputed(deck: PilotDeck) -> bool:
+    """Whether a deck's finish, as :func:`_finish_of` writes it, carries the imputed
+    mark on either number: what a surface printing it owes the mark's legend for."""
+    return deck.placement is not None and (
+        deck.placement_imputed is not None or deck.field_imputed is not None)
+
+
+def _finish_of(deck: PilotDeck) -> str:
+    """A deck's finish: its place over the field it was ranked in, in the app's one
+    form for a count against its sample (§4), each number marked where the project
+    decided it (issue #166). Empty where no finish is on record."""
+    if deck.placement is None:
+        return ""
+    return numfmt.count_of(
+        deck.placement, deck.field_size,
+        count_imputed=deck.placement_imputed is not None,
+        total_imputed=deck.field_imputed is not None,
+    )
+
+
 def _record_table(record: list[PilotDeck]) -> str:
     """A pilot's record as a table: every deck, with its list one click away.
 
@@ -562,13 +600,8 @@ def _record_table(record: list[PilotDeck]) -> str:
     """
     def row(deck: PilotDeck) -> list[str]:
         day = _day(deck.date)
-        finish = "" if deck.placement is None else numfmt.count_of(
-            deck.placement, deck.field_size,
-            count_imputed=deck.placement_imputed is not None,
-            total_imputed=deck.field_imputed is not None,
-        )
         return [
-            parts.folded(deck.event, day), day, deck.archetype or "", finish,
+            parts.folded(deck.event, day), day, deck.archetype or "", _finish_of(deck),
             parts.link("Open", moxfield_url(deck.deck_id)),
         ]
 
@@ -599,8 +632,7 @@ def _record_card(record: list[PilotDeck]) -> str:
         "each event's first deck was registered.",
         f"{len(record):,}",
     )]
-    if any(deck.placement is not None and (deck.placement_imputed or deck.field_imputed)
-           for deck in record):
+    if any(_finish_is_imputed(deck) for deck in record):
         captions.append(parts.caption(f"{_IMPUTED_LEGEND}."))
     return parts.card_head("Record", *captions) + _record_table(record)
 
@@ -689,6 +721,13 @@ def _edge_share(edge) -> str:
     return numfmt.share(edge.decks / edge.total_decks)
 
 
+def _by_share(edges, names: dict[str, str]) -> list:
+    """Rate edges by the share each states, largest first, then the larger slice,
+    then by the name of what the edge reaches."""
+    return sorted(edges, key=lambda e: (-e.decks / e.total_decks, -e.total_decks,
+                                        names[e.target], e.target))
+
+
 def _archetype_card(usage: Subgraph) -> str:
     """The archetypes running a card, as a table under the usage graph (issue #329).
 
@@ -706,18 +745,14 @@ def _archetype_card(usage: Subgraph) -> str:
     card = usage.nodes[0]
     names = {node.id: node.label for node in usage.nodes}
 
-    def by_share(edges) -> list:
-        return sorted(edges, key=lambda e: (-e.decks / e.total_decks, -e.total_decks,
-                                            names[e.target], e.target))
-
     rows: list = []
     archetypes = 0
-    for tier in by_share(edge for edge in usage.edges if edge.source == card.id):
+    for tier in _by_share((edge for edge in usage.edges if edge.source == card.id), names):
         rows.append(parts.Group(
             names[tier.target].capitalize(),
             [numfmt.count_of(tier.decks, tier.total_decks), _edge_share(tier)],
         ))
-        for edge in by_share(e for e in usage.edges if e.source == tier.target):
+        for edge in _by_share((e for e in usage.edges if e.source == tier.target), names):
             archetypes += 1
             rows.append([names[edge.target],
                          numfmt.count_of(edge.decks, edge.total_decks), _edge_share(edge)])
@@ -735,39 +770,330 @@ def _archetype_card(usage: Subgraph) -> str:
     )
 
 
-def _played_with_card(cooccurrence: Subgraph) -> str:
-    """The cards a card is played with, ranked, under the co-occurrence graph (#329).
+# How many rows a panel's list holds where a table further down the page holds them
+# all. A list no table restates is given whole.
+_PANEL_ROWS = 10
 
-    A row per card the graph draws beside the subject, in the graph's own order
-    (most decks together first), carrying the rate its edge carries: the edge's two
-    counts, and their share to the app's two decimals (§4). With one card a rate is a
-    share of that card's decks; with two it is a share of the decks running both, the
-    hub every shared card hangs off. The caption says which, since the number means
-    nothing without what it is a share of.
+
+def _graph_list(
+    view: str, subgraph: Subgraph, decks: dict[str, DeckRecord], explained: bool = False,
+) -> tuple[str, str]:
+    """The list a graph's panel carries: its title, and its body as markup (#330).
+
+    The readable answer beside the picture, and on a phone ahead of it. Every row
+    names the node it is about, so a click on it selects that node in the graph.
+    A list that prints an imputed mark carries the mark's legend, unless the card's
+    head has already ``explained`` it.
+
+    - A pilot's neighbourhood: their latest decks. The whole record is a table
+      further down the page, so the panel holds the newest ten.
+    - A head-to-head: the events both played, with each pilot's finish.
+    - An affinity graph: every archetype played, by events. No table restates it.
+    - A card's usage: the ten archetypes running it most, by share. The archetype
+      table under the plots holds them all.
+    - A co-occurrence graph: every card the graph draws beside the subject, in the
+      graph's own order (most decks together first), with the rate its edge
+      carries. With one card a rate is a share of that card's decks; with two it
+      is a share of the decks running both, the hub every shared card hangs off.
+      The caption says which, since the number means nothing without what it is a
+      share of. This is the whole list: it was a card of its own under the plots.
+    - The gem view: the gem table, which is where its claims are stated.
     """
-    hub = next((n for n in cooccurrence.nodes if n.kind == "Intersection"), None)
-    seeds = _seeds(cooccurrence)
-    source = hub or seeds[0]
-    partners = [edge for edge in cooccurrence.edges if edge.source == source.id]
-    if not partners:
-        return parts.card_head("Played with") + _state_message("No card to list beside it.")
-    names = {node.id: node.label for node in cooccurrence.nodes}
-    if hub:
-        said = parts.caption(
-            "Each rate is a share of the {} decks running both "
-            f"{seeds[0].label} and {seeds[1].label}.", f"{hub.decks:,}")
-    else:
-        said = parts.caption(
-            f"Each rate is a share of {source.label}'s {{}} decks, counting a card "
-            "on the same board.", f"{partners[0].total_decks:,}")
-    return parts.card_head("Played with", said) + parts.table(
-        [parts.Column("#", numeric=True, quiet=True), parts.Column("Card"),
-         parts.Column("Decks together", numeric=True, quiet=True),
-         parts.Column("Rate", numeric=True)],
-        [[str(rank), names[edge.target],
-          numfmt.count_of(edge.decks, edge.total_decks), _edge_share(edge)]
-         for rank, edge in enumerate(partners, start=1)],
-    )
+    names = {node.id: node.label for node in subgraph.nodes}
+    kinds = {node.id: node.kind for node in subgraph.nodes}
+
+    def event_cell(event: str, date: datetime) -> parts.Markup:
+        return parts.folded(event, _day(date))
+
+    def legend(listed) -> str:
+        # The mark's legend, when a finish the list prints carries the mark.
+        if not explained and any(_finish_is_imputed(deck) for deck in listed):
+            return parts.caption(f"{_IMPUTED_LEGEND}.")
+        return ""
+
+    match view:
+        case "pilot_neighbourhood":
+            pilots = [node for node in subgraph.nodes if node.kind == "Pilot"]
+            if len(pilots) == 2:
+                # Each chain is tinted by its pilot, which is what says whose deck
+                # a deck is: two pilots can share a display name.
+                whose = {node.id.partition(":")[2]: node.group
+                         for node in subgraph.nodes if node.kind == "Deck"}
+                dated = {deck.event: deck.date for deck in decks.values()}
+                finishes = {(deck.event, whose[deck.deck_id]): _finish_of(deck)
+                            for deck in decks.values()}
+                newest = sorted(dated, key=lambda event: (dated[event], event), reverse=True)
+                return "Shared events", parts.caption(
+                    "Newest first, with each pilot's finish."
+                ) + legend(decks.values()) + parts.table(
+                    [parts.Column("Event"),
+                     *[parts.Column(pilot.label, numeric=True) for pilot in pilots]],
+                    [parts.Row(f"event:{event}", [
+                        event_cell(event, dated[event]),
+                        *[finishes.get((event, pilot.id), "") for pilot in pilots]])
+                     for event in newest],
+                )
+            newest = sorted(decks.values(), key=lambda d: (d.date, d.event, d.deck_id),
+                            reverse=True)
+            said = parts.caption(
+                f"The latest {_PANEL_ROWS} of {{}} decks. The whole record is the last "
+                "table on the page.", f"{len(newest):,}",
+            ) if len(newest) > _PANEL_ROWS else ""
+            said += legend(newest[:_PANEL_ROWS])
+            return "Latest decks", said + parts.table(
+                [parts.Column("Event"), parts.Column("Archetype"),
+                 parts.Column("Finish", numeric=True, title="Place / size of the field")],
+                [parts.Row(f"deck:{deck.deck_id}", [
+                    event_cell(deck.event, deck.date), deck.archetype or "",
+                    _finish_of(deck)]) for deck in newest[:_PANEL_ROWS]],
+            )
+        case "pilot_affinity":
+            classes: dict[str, list[str]] = {}
+            for edge in subgraph.edges:
+                if kinds[edge.source] == "Macro":
+                    classes.setdefault(edge.target, []).append(names[edge.source])
+            played = sorted((node for node in subgraph.nodes if node.kind == "Archetype"),
+                            key=lambda node: (-node.weight, node.label, node.id))
+            if not played:
+                return "Archetypes played", _state_message("No archetype on record.")
+            return "Archetypes played", parts.table(
+                [parts.Column("Archetype"), parts.Column("Broad class", quiet=True),
+                 parts.Column("Events", numeric=True)],
+                [parts.Row(node.id, [node.label, ", ".join(classes.get(node.id, [])),
+                                     f"{node.weight:,}"]) for node in played],
+            )
+        case "card_usage":
+            ranked = _by_share(
+                (edge for edge in subgraph.edges if kinds[edge.target] == "Archetype"), names)
+            if not ranked:
+                return "Archetypes by share", _state_message(
+                    "No archetype runs it under these filters.")
+            said = parts.caption(
+                f"The top {_PANEL_ROWS} of {{}} archetypes. Every one is in the table "
+                "under the plots.", f"{len(ranked):,}",
+            ) if len(ranked) > _PANEL_ROWS else ""
+            return "Archetypes by share", said + parts.table(
+                [parts.Column("Archetype"),
+                 parts.Column("Decks", numeric=True, quiet=True,
+                              title="Decks running it / decks of the archetype"),
+                 parts.Column("Share", numeric=True)],
+                [parts.Row(edge.target, [
+                    names[edge.target], numfmt.count_of(edge.decks, edge.total_decks),
+                    _edge_share(edge)]) for edge in ranked[:_PANEL_ROWS]],
+            )
+        case "card_cooccurrence":
+            hub = next((n for n in subgraph.nodes if n.kind == "Intersection"), None)
+            seeds = _seeds(subgraph)
+            source = hub or seeds[0]
+            partners = [edge for edge in subgraph.edges if edge.source == source.id]
+            if not partners:
+                return "Played with", _state_message("No card to list beside it.")
+            if hub:
+                said = parts.caption(
+                    "Each rate is a share of the {} decks running both "
+                    f"{seeds[0].label} and {seeds[1].label}.", f"{hub.decks:,}")
+            else:
+                said = parts.caption(
+                    f"Each rate is a share of {source.label}'s {{}} decks, counting a card "
+                    "on the same board.", f"{partners[0].total_decks:,}")
+            return "Played with", said + parts.table(
+                [parts.Column("Card"),
+                 parts.Column("Decks together", numeric=True, quiet=True),
+                 parts.Column("Rate", numeric=True)],
+                [parts.Row(edge.target, [
+                    names[edge.target], numfmt.count_of(edge.decks, edge.total_decks),
+                    _edge_share(edge)]) for edge in partners],
+            )
+        case "meta_gems":
+            return "The gems", _gem_table(subgraph)
+
+
+# How many of a node's neighbours its facts name before the rest are counted.
+_LINKED = 8
+
+
+def _node_facts(
+    view: str, subgraph: Subgraph, decks: dict[str, DeckRecord], explained: bool = False,
+) -> list[parts.Facts]:
+    """What each node of a drawn graph answers a click with (issue #330).
+
+    The answer was a kind and a name, which the node's own label had already said.
+    Each kind now states what a reader asks of it next, off numbers the graph
+    already carries: a node's own counts, the edge that draws it, the nodes round
+    it. The one thing a graph does not carry is a deck's row of the record, which
+    ``decks`` holds by deck id (:func:`graph7ph.query.deck_records`): an event, a
+    deck and its placement all answer from it.
+
+    A node with more than one neighbour also names up to :data:`_LINKED` of them,
+    each with what ties the two where an edge carries it, so a reader can walk the
+    graph from the panel. Three kinds of node name none: a deck and a placement,
+    whose facts already say all that hangs off them; a node with one neighbour,
+    which the picture shows; and any node of a co-occurrence graph, where the list
+    under the facts is those same neighbours in full. One :class:`parts.Facts` per
+    node, in the graph's order.
+
+    Where one of a node's facts carries the imputed mark, the mark's legend is the
+    note under them, so it shows exactly when a mark is on screen (§14). Not where
+    the card has already ``explained`` the mark, in its head or over its list.
+    """
+    by_id = {node.id: node for node in subgraph.nodes}
+    colours = node_colours(subgraph)
+    head_to_head = sum(node.kind == "Pilot" for node in subgraph.nodes) == 2
+    two_cards = len(_seeds(subgraph)) == 2
+    incoming: dict[str, object] = {}
+    around: dict[str, list] = {node.id: [] for node in subgraph.nodes}
+    for edge in subgraph.edges:
+        incoming.setdefault(edge.target, edge)
+        around[edge.source].append((by_id[edge.target], edge))
+        around[edge.target].append((by_id[edge.source], edge))
+
+    def near(node: Node, kind: str) -> list[Node]:
+        return [other for other, _ in around[node.id] if other.kind == kind]
+
+    def deck_of(node: Node) -> DeckRecord:
+        return decks[node.id.partition(":")[2]]
+
+    def result(deck: DeckRecord) -> list[tuple[str, str]]:
+        return [("Event", deck.event), ("Finish", _finish_of(deck) or "Not on record"),
+                ("Registered", _day(deck.date))]
+
+    def rate(edge) -> list[tuple[str, str]]:
+        return [("Decks running it", numfmt.count_of(edge.decks, edge.total_decks)),
+                ("Share", _edge_share(edge))]
+
+    def rows(node: Node) -> list[tuple[str, str]]:
+        edge_in = incoming.get(node.id)
+        match node.kind:
+            case "Deck":
+                deck = deck_of(node)
+                return [("Pilot", deck.pilot), *result(deck),
+                        ("Archetype", deck.archetype or _NOTHING)]
+            case "Placement":
+                deck = deck_of(node)
+                return [("Deck", by_id[f"deck:{deck.deck_id}"].label), *result(deck)]
+            case "Event":
+                deck = deck_of(near(node, "Deck")[0])
+                mark = numfmt.IMPUTED_MARK if deck.field_imputed is not None else ""
+                return [("Registered", _day(deck.date)),
+                        ("Field size", f"{deck.field_size:,}{mark}")]
+            case "Pilot" if view == "pilot_affinity":
+                archetypes = sum(other.kind == "Archetype" for other in subgraph.nodes)
+                return [("Broad classes", f"{len(near(node, 'Macro')):,}"),
+                        ("Archetypes", f"{archetypes:,}")]
+            case "Pilot":
+                return [("Shared events" if head_to_head else "Events played",
+                         f"{len(near(node, 'Event')):,}")]
+            case "Macro" if view == "pilot_affinity":
+                return [("Events played", f"{node.weight:,}"),
+                        ("Archetypes", f"{len(near(node, 'Archetype')):,}")]
+            case "Archetype" if view == "pilot_affinity":
+                return [("Events played", f"{node.weight:,}"),
+                        ("Broad class", ", ".join(m.label for m in near(node, "Macro")))]
+            case "Macro":
+                return [*rate(edge_in), ("Archetypes", f"{len(near(node, 'Archetype')):,}")]
+            case "Archetype" if view == "card_usage":
+                return [*rate(edge_in), ("Broad class", by_id[edge_in.source].label)]
+            case "Archetype":
+                # The gem view: the archetype a gem is rare in.
+                return [("Scored decks", f"{node.decks:,}"),
+                        ("Gems", f"{len(near(node, 'Card')):,}")]
+            case "Intersection":
+                return [("Decks running both", f"{node.decks:,}")]
+            case "Card" if view == "meta_gems":
+                return [
+                    ("Archetype", near(node, "Archetype")[0].label),
+                    ("Decks running it", numfmt.count_of(node.decks, node.total_decks)),
+                    (f"In top {GEM_TOP_CUT:.0%}", numfmt.count_of(node.top_decks, node.decks)),
+                    ("Pilots", f"{node.pilots:,}"),
+                    (_GEM_LUCK_HEADER, _gem_luck_label(node.gem_luck)),
+                ]
+            case "Card" if view == "card_usage":
+                return [("Decks running it",
+                         numfmt.count_of(node.decks, node.total_decks, "decks")),
+                        ("Share", numfmt.share(node.decks / node.total_decks))]
+            case "Card" if node.group == "cooccur":
+                # A card played with the subject: the rate its edge carries.
+                return [("Decks together", numfmt.count_of(edge_in.decks, edge_in.total_decks)),
+                        ("Rate", _edge_share(edge_in))]
+            case "Card" if two_cards:
+                # One of two subjects: how much of it is in the pair, off its edge
+                # to the hub. With no deck running both there is no hub to reach.
+                to_hub = [edge for other, edge in around[node.id]
+                          if other.kind == "Intersection"]
+                if not to_hub:
+                    return [("Decks running both", "0")]
+                return [("Decks running both",
+                         numfmt.count_of(to_hub[0].decks, to_hub[0].total_decks)),
+                        ("Share of its decks", _edge_share(to_hub[0]))]
+            case "Card":
+                # The one subject of a co-occurrence graph. Every rate round it is a
+                # share of its own decks, so any edge states how many those are.
+                beside = [edge for _, edge in around[node.id]]
+                own = [("Decks", f"{beside[0].total_decks:,}")] if beside else []
+                return [*own, ("Cards beside it", f"{len(beside):,}")]
+
+    def tie(other: Node, edge) -> str:
+        if other.kind == "Deck":
+            # The gem view labels a deck by pilot and finish, so two decks of one
+            # pilot can share a label: the event is what tells them apart there.
+            deck = deck_of(other)
+            return deck.event if view == "meta_gems" else _finish_of(deck)
+        if edge.decks is not None and edge.total_decks is not None:
+            return _edge_share(edge)
+        if edge.events is not None:
+            return _counted(edge.events, "event")
+        return ""
+
+    out = []
+    for node in subgraph.nodes:
+        link = None
+        linked: list[parts.Linked] = []
+        marked = False
+        if node.kind in ("Deck", "Placement"):
+            link = parts.link("Open the decklist on Moxfield \u2197",
+                              moxfield_url(deck_of(node).deck_id))
+            marked = _finish_is_imputed(deck_of(node))
+        elif len(around[node.id]) > 1 and view != "card_cooccurrence":
+            named = around[node.id][:_LINKED]
+            linked = [parts.Linked(other.id, other.label, colours[other.id], tie(other, edge))
+                      for other, edge in named]
+            marked = view != "meta_gems" and any(
+                other.kind == "Deck" and _finish_is_imputed(deck_of(other))
+                for other, _ in named)
+        if node.kind == "Event":
+            marked = marked or deck_of(near(node, "Deck")[0]).field_imputed is not None
+        out.append(parts.Facts(
+            node.id, kind_name(node.kind), node.label, colours[node.id], rows(node),
+            note=f"{_IMPUTED_LEGEND}." if marked and not explained else None,
+            link=link, linked=linked,
+            more=len(around[node.id]) - len(linked) if linked else 0,
+        ))
+    return out
+
+
+def _drawn_card(
+    view: str, values: dict, subgraph: Subgraph, decks: dict[str, DeckRecord]
+) -> str:
+    """A drawn graph's card: its head, then the graph beside the panel that answers
+    it (#330), which holds the colour key, the facts of whichever node is clicked,
+    and the view's list.
+
+    ``decks`` is the record of every deck the graph draws. The gem view's list is its
+    evidence, the table that stops a threshold crossing reading as a settled fact
+    (#176), under the line that says what the list is.
+
+    The imputed mark is explained once on a card (§14): in the head where the graph's
+    own labels carry it, otherwise over the list if the list prints one, and under a
+    node's facts only when nothing above them has.
+    """
+    said = parts.card_head(_PLOT_LABELS[view], *_graph_captions(view, values, subgraph))
+    if view == "meta_gems":
+        said += _gem_caption(subgraph)
+    legend = parts.caption(f"{_IMPUTED_LEGEND}.")
+    title, body = _graph_list(view, subgraph, decks, explained=legend in said)
+    facts = _node_facts(view, subgraph, decks, explained=legend in said + body)
+    return said + parts.beside_graph(
+        _embed(render_subgraph(subgraph)), colour_key(subgraph), facts, title, body)
 
 
 # Who to reach about the graph, under the coverage line: the data behind it is
@@ -938,36 +1264,16 @@ def _provenance_html(cov: Coverage, built_iso: str | None) -> str:
     )
 
 
-# Every graph plot shares one frame (§12), so a dense graph and a sparse one land in
-# the same canvas across the tabs rather than each jumping to its own node-count-scaled
-# height. The frame is a share of the viewport between a floor and a ceiling, not a
-# fixed slab: at 760px flat it was most of a phone's screen and a letterbox on a tall
-# monitor, which is the fixed-height letterbox #85 set out to retire.
-#
-# The ceiling began as the size the pilot neighbourhood was tuned to (760px), and all
-# three values were then raised 25 percent together: same width, a taller plot, traded
-# knowingly against the room `72vh` used to leave around the card. The floor keeps a
-# dense graph legible where the proportion would otherwise squeeze it.
-GRAPH_HEIGHT = 950
-GRAPH_MIN_HEIGHT = 525
-GRAPH_VIEWPORT_SHARE = "90vh"
-
-
 def _embed(doc: str) -> str:
-    """Wrap a standalone pyvis document in an iframe so its scripts run, in the shared
-    responsive graph frame (:data:`GRAPH_HEIGHT` and friends).
-
-    The pyvis document inside is already a full-height flex column (see
-    ``render._DOC_STYLE``), so it takes whatever height the iframe gives it and the
-    colour key and details panel stay pinned to its top and bottom at any size. This
-    frame is the only thing that was ever fixed.
+    """Wrap a standalone pyvis document in an iframe so its scripts run.
 
     gr.HTML does not execute injected <script> tags, so the widget is isolated in
-    an iframe via srcdoc (which the browser renders as its own document)."""
-    srcdoc = html.escape(doc, quote=True)
-    height = f"clamp({GRAPH_MIN_HEIGHT}px, {GRAPH_VIEWPORT_SHARE}, {GRAPH_HEIGHT}px)"
-    style = f"width:100%;height:{height};border:none"
-    return f'<iframe srcdoc="{srcdoc}" style="{style}"></iframe>'
+    an iframe via srcdoc (which the browser renders as its own document). The
+    document inside is a full-height flex column the graph fills (see
+    ``render._DOC_STYLE``), so it takes whatever size the frame is given, and that
+    is the stylesheet's to say: every graph shares one frame beside its panel
+    (``theme.GRAPH_HEIGHT`` and friends, ``parts.beside_graph``)."""
+    return f'<iframe srcdoc="{html.escape(doc, quote=True)}"></iframe>'
 
 
 # The Draw button's two states, and the running state's words.
@@ -4031,16 +4337,12 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "No card in the format clears the bar yet."
                 if view == "meta_gems" else "No matches for these filters."
             )
-        # The gem view states its evidence in a table above the picture (#176). Above,
-        # not below it as the race's leaderboard sits under its chart: the graph fills
-        # the frame, so a table under it is a screen away, and these numbers are the
-        # ones that stop a threshold crossing reading as a settled fact.
-        evidence = (
-            _gem_caption(subgraph) + _gem_table(subgraph) if view == "meta_gems" else ""
-        )
-        header = parts.card_head(
-            _PLOT_LABELS[view], *_graph_captions(view, values, subgraph))
-        return header + evidence + _embed(render_subgraph(subgraph))
+        # A deck's facts in the panel are its row of the record, read here for
+        # every deck the graph draws.
+        deck_ids = [node.id.removeprefix("deck:") for node in subgraph.nodes
+                    if node.kind == "Deck"]
+        decks = deck_records(ladybug.Connection(db), deck_ids) if deck_ids else {}
+        return _drawn_card(view, values, subgraph, decks)
 
     def run_graph(view: str, values: dict) -> str:
         # A graph view hands its view id and the values it surfaces; _spec turns them
@@ -4294,10 +4596,6 @@ def build_app(artifact: Path) -> gr.Blocks:
                         cooc_adopt_heading = gr.HTML(visible=False, padding=False)
                         cooc_adopt_note = gr.Markdown(visible=False)
                         cooc_adopt_plot = gr.Plot(visible=False)
-                    # The co-occurrence graph as a table (#329): the cards drawn
-                    # beside the subject, ranked, with the rates their edges carry.
-                    with gr.Group(elem_classes="insight-card"):
-                        cooc_with_out = gr.HTML(padding=False)
 
             def card_head(c: str, descriptor: str, usage: Subgraph, adoption: Series):
                 # The top of a card's page (#329): its name, a descriptor, and the four
@@ -4337,11 +4635,11 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # chosen (#126). With one card the head is that card's, over either
                 # board: the view has no board control, so it reads the usage query
                 # unfiltered for the two tiles the co-occurrence graph does not hold.
-                # With two it is the pair's. The table under the plots lists the cards
-                # the graph draws (#329).
+                # With two it is the pair's. The cards the graph draws are listed in
+                # the panel beside it (#330).
                 if not c:
                     hide = gr.update(visible=False)
-                    return (hide, hide, gr.update(), *draw_adoption([], None), gr.update())
+                    return (hide, hide, gr.update(), *draw_adoption([], None))
                 values = {
                     "card": c, "cooccur_card2": c2,
                     "cooccur_top_n": n, "cooccur_drop_lands": dl,
@@ -4371,15 +4669,13 @@ def build_app(artifact: Path) -> gr.Blocks:
                     gr.update(visible=True),
                     gr.update(value=graph_card("card_cooccurrence", values, cooccurrence)),
                     *draw_adoption(series, None),
-                    gr.update(value=_played_with_card(cooccurrence)),
                 )
 
             cov_outputs = [cov_head, cov_results, cov_usage_out,
                            cov_adopt_heading, cov_adopt_plot, cov_adopt_note,
                            cov_archetypes_out]
             cooc_outputs = [cooc_head, cooc_results, cooc_graph_out,
-                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note,
-                            cooc_with_out]
+                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note]
 
             def cards_drawing(c):
                 # The step ahead of every draw: the running line where the results

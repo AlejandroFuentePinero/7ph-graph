@@ -7,7 +7,7 @@ from pyvis.network import Network
 from graph7ph.palette import CATEGORICAL
 from graph7ph import render
 from graph7ph.query import Edge, Node, Subgraph
-from graph7ph.render import render_subgraph
+from graph7ph.render import colour_key, node_colours, render_subgraph
 from graph7ph.serve import VIS_CSS_URL, VIS_JS_URL
 from graph7ph.theme import TOKENS
 
@@ -52,13 +52,14 @@ def test_a_graph_document_loads_nothing_from_outside_the_app():
     """pyvis's template also asks a CDN for Bootstrap, a stylesheet and a script the
     graph uses three rules of (issue #312). A visitor's browser fetched both for every
     graph drawn, from a host the deployment does not control. A Deck is drawn because
-    its Moxfield address is the one outside address the document should still carry,
-    as a link for the reader to follow and not as a file for the browser to load."""
+    its Moxfield address is the one outside address a graph leads to, and that is a
+    link in the panel beside the graph (issue #330), no longer anything the document
+    itself names."""
     html = render_subgraph(Subgraph(nodes=[Node("deck:d1", "Grixis", "Deck")], edges=[]))
 
     loaded = re.findall(r'<(?:link|script)\b[^>]*\b(?:href|src)\s*=\s*"((?:https?:)?//[^"]*)"', html)
     assert loaded == []
-    assert "moxfield.com/decks/d1" in html
+    assert "moxfield.com" not in html
 
 
 def test_a_pyvis_template_that_loads_another_outside_file_fails_loudly(monkeypatch):
@@ -107,10 +108,10 @@ def test_a_node_kind_colour_key_names_the_kinds_present():
         nodes=[Node("pilot:p", "Jordan", "Pilot"), Node("deck:d1", "Grixis", "Deck")],
         edges=[],
     )
-    html = render_subgraph(sub)
-    assert "graph-legend" in html
-    assert "Pilot" in html and "Deck" in html  # both kinds present are named
-    assert "Archetype" not in html  # a kind absent from the graph is not keyed
+    # Both kinds present are named, in the fixed slot order, each with the colour
+    # its nodes are drawn in; a kind absent from the graph is not keyed.
+    assert colour_key(sub) == [("Deck", CATEGORICAL[0]), ("Pilot", CATEGORICAL[1])]
+    assert node_colours(sub) == {"pilot:p": CATEGORICAL[1], "deck:d1": CATEGORICAL[0]}
 
 
 def test_a_grouped_view_keys_the_groups_by_friendly_name_not_raw_id():
@@ -127,11 +128,14 @@ def test_a_grouped_view_keys_the_groups_by_friendly_name_not_raw_id():
         ],
         edges=[],
     )
-    html = render_subgraph(sub)
-    assert CATEGORICAL[0] in html and CATEGORICAL[1] in html  # slots 1-2 for the groups
-    # the chip label is the friendly name, never the raw group id
-    assert "Ada Lovelace</span>" in html and "Bob Carter</span>" in html
-    assert "pilot:ada</span>" not in html and "pilot:bob</span>" not in html
+    # Slots 1-2 for the groups, each named by its pilot, never by the raw group id.
+    assert colour_key(sub) == [
+        ("Ada Lovelace", CATEGORICAL[0]), ("Bob Carter", CATEGORICAL[1])]
+    # And every node of a chain is drawn in its pilot's colour, whatever its kind.
+    assert node_colours(sub) == {
+        "pilot:ada": CATEGORICAL[0], "deck:a": CATEGORICAL[0],
+        "pilot:bob": CATEGORICAL[1], "deck:b": CATEGORICAL[1],
+    }
 
 
 def test_the_co_occurrence_view_is_keyed_even_though_no_node_names_its_groups():
@@ -150,11 +154,9 @@ def test_the_co_occurrence_view_is_keyed_even_though_no_node_names_its_groups():
         ],
         edges=[],
     )
-    html = render_subgraph(sub)
-    assert "Sol Ring</span>" in html  # the seed names its own bucket
-    assert "Played alongside</span>" in html  # the partner set is named for what it is
-    # and no internal group value reaches the screen as a chip
-    assert "seed:sol ring</span>" not in html and "cooccur</span>" not in html
+    # The partner set is named for what it is and the seed names its own bucket, in
+    # group order, so no internal group value reaches the screen as a chip.
+    assert [name for name, _ in colour_key(sub)] == ["Played alongside", "Sol Ring"]
 
 
 def test_a_grouped_key_leaves_out_a_group_it_cannot_name():
@@ -169,9 +171,7 @@ def test_a_grouped_key_leaves_out_a_group_it_cannot_name():
         ],
         edges=[],
     )
-    html = render_subgraph(sub)
-    assert "Ada Lovelace</span>" in html
-    assert "mystery</span>" not in html
+    assert [name for name, _ in colour_key(sub)] == ["Ada Lovelace"]
 
 
 def test_the_pyvis_document_takes_its_height_from_its_frame():
@@ -182,26 +182,17 @@ def test_the_pyvis_document_takes_its_height_from_its_frame():
     assert "700px" not in html
 
 
-def test_details_panel_has_field_labels_and_the_moxfield_affordance():
-    # §7 / AC: the details readout is structured (field labels, hierarchy), not
-    # debug output, and a deck carries its Moxfield page as a link affordance.
-    html = render_subgraph(Subgraph(nodes=[Node("deck:abc123", "Grixis", "Deck")], edges=[]))
-    assert "nd-label" in html and "nd-value" in html  # structured field rows
-    assert "Kind" in html and "Name" in html  # the field labels
-    assert "moxfield.com/decks/abc123" in html  # the deck's page
-    assert "Open on Moxfield" in html  # as a link affordance, not a raw url
-
-
-def test_a_deck_that_knows_its_event_shows_it_in_the_details():
-    # The gem view labels a deck by pilot and finish, so two decks by one pilot who
-    # placed the same at two events read as one. The event is the detail that tells
-    # them apart, shown on click; a node without one shows no empty row.
-    with_event = Node("deck:abc123", "Liam W 1 · 3rd", "Deck", event="PogMay26")
-    without = Node("deck:def456", "Liam W 1 · 3rd", "Deck")
-    html = render_subgraph(Subgraph(nodes=[with_event, without], edges=[]))
-    assert '"event": "PogMay26"' in html
-    assert '"event": null' in html
-    assert 'row("Event", m.event)' in html
+def test_the_document_is_the_graph_alone():
+    # Issue #330: the key sat over the graph and the answer to a click under it, at
+    # the far edge of a frame taller than most windows. Both are the page's now, in
+    # the panel beside the frame, so the document holds neither and every pixel of
+    # the frame is the graph's. What a node answers with is the panel's to say; the
+    # document only says which node was clicked.
+    html = render_subgraph(Subgraph(
+        nodes=[Node("deck:abc123", "Grixis", "Deck", event="PogMay26")], edges=[]))
+    assert "graph-legend" not in html and "legend-chip" not in html
+    assert "node-details" not in html and "PogMay26" not in html
+    assert ".graph-panel" in html  # where it looks for the panel that answers
 
 
 def test_a_visible_rate_edge_hovers_its_own_counts():

@@ -49,7 +49,7 @@ contrast pass and the findings further down are from the two-width run of #118.
 | `pilots-nothing-picked` | Pilots before a pick |
 | `pilots-running` | Mid-query: the progress feedback while a pick draws (a Draw, until #328) |
 | `pilots-overview` | A pilot's neighbourhood, archetype affinity and performance |
-| `pilots-node-details` | A deck node clicked: the details panel and its Moxfield link |
+| `pilots-node-details` | A deck node clicked: its facts in the panel beside the graph, and its Moxfield link |
 | `pilots-thin-history` | A pilot with too little history to average: the refusal |
 | `pilots-head-to-head` | A rivalry drawn |
 | `pilots-same-pilot` | The same pilot picked twice |
