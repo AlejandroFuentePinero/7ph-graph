@@ -80,6 +80,20 @@ def link(text: str, href: str) -> Markup:
     )
 
 
+def opens(kind: str, key: str, text: str) -> Markup:
+    """A name that opens its subject's page on a click (issue #333).
+
+    ``kind`` is what the subject is (a pilot, a card, an archetype) and ``key`` is
+    what its picker knows it by. The link carries no address, since nothing in this
+    app is reached by one: the page's own script answers the click
+    (``app._JUMPS_JS``) by opening the subject's tab with its page drawn.
+    """
+    return Markup(
+        f"<a href='#' data-opens='{html.escape(kind, quote=True)}' "
+        f"data-key='{html.escape(key, quote=True)}'>{html.escape(text)}</a>"
+    )
+
+
 def folded(text: str, sub: str) -> Markup:
     """A cell with a second line that shows only on a narrow screen.
 
@@ -108,8 +122,9 @@ class Column:
 
 @dataclass(frozen=True)
 class Group:
-    """A line that heads the rows under it: the group's name, and optionally its own
-    cells for the columns after the first, set as those columns are."""
+    """A line that heads the rows under it: the group's name, text or
+    :class:`Markup`, and optionally its own cells for the columns after the first,
+    set as those columns are."""
 
     label: str
     cells: Sequence[str] = ()
@@ -151,7 +166,7 @@ def table(columns: Sequence[Column], rows: Sequence[Group | Row | Sequence[str]]
             span = "" if cells.cells else f" colspan='{len(columns)}'"
             return (
                 f"<tr class='group'><th{span} scope='rowgroup'>"
-                f"{html.escape(cells.label)}</th>" + "".join(
+                f"{_cell(cells.label)}</th>" + "".join(
                     f"<td{classes(column)}>{_cell(value)}</td>"
                     for column, value in zip(columns[1:], cells.cells)
                 ) + "</tr>"
@@ -190,9 +205,10 @@ class Facts:
     """What the panel says about one node of a graph when it is clicked.
 
     Its id, kind and name, the colour it is drawn in, and ``rows`` of label and
-    value. ``note`` is a line under the rows, for what one of them needs said about
-    it. ``link`` is somewhere to go from it (built by :func:`link`). ``linked``
-    names some of its neighbours, and ``more`` counts the ones left out.
+    value. The name and a value are each text or :class:`Markup`. ``note`` is a line
+    under the rows, for what one of them needs said about it. ``link`` is somewhere
+    to go from it (built by :func:`link`). ``linked`` names some of its neighbours,
+    and ``more`` counts the ones left out.
     """
 
     node: str
@@ -217,7 +233,7 @@ def _dot(colour: str) -> str:
 
 def _facts_block(facts: Facts) -> str:
     rows = "".join(
-        f"<dt>{html.escape(label)}</dt><dd>{html.escape(value)}</dd>"
+        f"<dt>{html.escape(label)}</dt><dd>{_cell(value)}</dd>"
         for label, value in facts.rows
     )
     note = f"<div class='facts-note'>{html.escape(facts.note)}</div>" if facts.note else ""
@@ -237,7 +253,7 @@ def _facts_block(facts: Facts) -> str:
     return (
         f"<div class='node-facts' data-node='{html.escape(facts.node, quote=True)}' hidden>"
         f"<div class='node-kind'>{_dot(facts.colour)}{html.escape(facts.kind)}</div>"
-        f"<div class='node-name'>{html.escape(facts.label)}</div>"
+        f"<div class='node-name'>{_cell(facts.label)}</div>"
         f"<dl class='facts'>{rows}</dl>{note}{link}{linked}</div>"
     )
 

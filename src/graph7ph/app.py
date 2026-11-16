@@ -98,6 +98,145 @@ from graph7ph.trends import (
     run_series,
 )
 
+class Pages:
+    """Every pilot, card and archetype with a page of its own, so that one named in
+    a table, a list or a node's details can be the way to its page (issue #333).
+
+    Each kind is its picker's own catalogue, key to label, so a name is a link
+    exactly when the picker could draw it: every pilot and every card, and the
+    archetypes with a finishes line to draw (``archetypes_with_history``). Anything
+    else stays the plain text it was. Empty, as every builder's default is, nothing
+    is a link.
+    """
+
+    def __init__(self, pilots: dict[str, str] | None = None,
+                 cards: dict[str, str] | None = None,
+                 archetypes: dict[str, str] | None = None):
+        self._labels = {"pilot": pilots or {}, "card": cards or {},
+                        "archetype": archetypes or {}}
+        # A picker's labels are distinct (`_distinguish`), so a label is one key's.
+        self._keys = {kind: {label: key for key, label in labels.items()}
+                      for kind, labels in self._labels.items()}
+
+    def has(self, kind: str, key: str) -> bool:
+        """Whether ``key`` is one of ``kind``'s pages."""
+        return key in self._labels.get(kind, {})
+
+    def link(self, kind: str, key: str, text: str) -> parts.Markup:
+        """``text`` as the link to the page ``key`` has, or as the text it is where
+        it has none. Markup either way, escaped here."""
+        if self.has(kind, key):
+            return parts.opens(kind, key, text)
+        return parts.Markup(html.escape(text))
+
+    def named(self, kind: str, name: str) -> parts.Markup:
+        """``name`` as the link to the page of the ``kind`` it names: for a surface
+        that holds a subject's display name and not its key, as a deck's row of the
+        record does."""
+        return self.link(kind, self._keys[kind].get(name), name)
+
+    def apart_from(self, subjects) -> "Pages":
+        """These pages without ``subjects``, each a kind and a key: what a page
+        about those subjects links to, since a page does not link to itself."""
+        left = {kind: dict(labels) for kind, labels in self._labels.items()}
+        for kind, key in subjects:
+            left[kind].pop(key, None)
+        return Pages(left["pilot"], left["card"], left["archetype"])
+
+
+_NO_PAGES = Pages()
+
+
+def _keyed(node_id: str) -> str:
+    """The key a node's id carries after its kind: a pilot's, a card's canon, an
+    archetype's tag. What the subject's picker knows it by."""
+    return node_id.partition(":")[2]
+
+
+def _page_of(view: str, node: Node) -> tuple[str, str] | None:
+    """The kind and key of the page a drawn node could open, or ``None`` for a node
+    that is no subject (an event, a deck, a broad class). A gem's id holds the
+    archetype it was found in ahead of its card's canon, since one card can be a
+    gem in two archetypes."""
+    match node.kind:
+        case "Pilot":
+            return "pilot", _keyed(node.id)
+        case "Archetype":
+            return "archetype", _keyed(node.id)
+        case "Card":
+            return "card", (node.id.split(":", 2)[2] if view == "meta_gems"
+                            else _keyed(node.id))
+    return None
+
+
+# The tab each kind of subject has its page on.
+_PAGE_TABS = {"pilot": "Pilots", "card": "Cards", "archetype": "Archetypes"}
+
+# What a click on a link to another part of the app does (issue #333), as the
+# script of one block at the foot of the page. A tab is not something an address
+# can open, and nothing in this app is reached by one, so the click opens the tab
+# here, and the address is left alone and nothing is loaded. One listener on the
+# document answers every such link, wherever it is drawn, a table redrawn after a
+# pick included.
+#
+# A name is a link carrying its subject's kind and key (`parts.opens`). The click
+# raises the block's own click with that kind and key, which the app answers by
+# setting the subject's picker, and the picker's change draws the page as a typed
+# pick does. A jump to another tab starts at the top of it. One on the tab already
+# open leaves the window where it is, and the draw brings its result into view as
+# any pick's does.
+#
+# A link to an FAQ entry names the entry's box by its id (`#faq-...`): a chart's
+# "How this is measured" and the privacy line's "How to ask". The click opens the
+# FAQ and brings that box into view. The frame lets the tab be shown before the box
+# is looked up and scrolled to: a tab's content is put in the page when the tab is
+# first shown, so before that there is no box to find.
+_JUMPS_JS = f"""
+const tabs = {json.dumps(_PAGE_TABS)};
+const show = (label) => {{
+  const tab = [...document.querySelectorAll('[role=tablist] [role=tab]')]
+    .find((tab) => tab.textContent.trim() === label);
+  const already = tab.getAttribute('aria-selected') === 'true';
+  tab.click();
+  return !already;
+}};
+document.addEventListener('click', (event) => {{
+  const link = event.target.closest('a[data-opens], a[href^="#faq-"]');
+  if (!link) return;
+  event.preventDefault();
+  if (link.dataset.opens) {{
+    trigger('click', {{kind: link.dataset.opens, key: link.dataset.key}});
+    if (show(tabs[link.dataset.opens])) window.scrollTo(0, 0);
+  }} else {{
+    show('FAQ');
+    const entry = link.getAttribute('href').slice(1);
+    requestAnimationFrame(() => document.getElementById(entry).scrollIntoView());
+  }}
+}});
+"""
+
+
+def _open_page(pages: Pages, kind: str, key: str) -> list:
+    """What a clicked name sets, for the six controls that draw a subject's page:
+    the pilot and the Pilots view, the card and the Cards view, the archetype and
+    the second archetype.
+
+    A subject's page is its tab's first view with nothing compared: a pilot's
+    overview, a card's overview, an archetype alone. The other tabs are left as
+    they are. So is everything, for a key that names no page: the click's kind and
+    key arrive from the browser, and a picker set to a value it does not hold would
+    fail in whatever draws from it.
+    """
+    same = gr.update()
+    if not pages.has(kind, key):
+        return [same] * 6
+    return {
+        "pilot": [key, next(iter(_PILOTS_TAB)), same, same, same, same],
+        "card": [same, same, key, next(iter(_CARDS_TAB)), same, same],
+        "archetype": [same, same, same, same, key, None],
+    }[kind]
+
+
 def _state_message(text: str) -> str:
     """The one on-theme treatment every state with nothing (or not yet) to draw shares
     (#114): the message set in the app's own body type role (§3) on the tokens, in place
@@ -365,7 +504,7 @@ def _gem_luck_label(luck: float) -> str:
 _GEM_LUCK_HEADER = "Odds it is luck"
 
 
-def _gem_table(subgraph: Subgraph) -> str:
+def _gem_table(subgraph: Subgraph, pages: Pages = _NO_PAGES) -> str:
     """The gems as a table: the claim each one makes, and how often chance alone makes it.
 
     The graph beside it draws which of an archetype's best decks run which card and
@@ -397,7 +536,8 @@ def _gem_table(subgraph: Subgraph) -> str:
     phone.
 
     Each row names its gem's node, so in the panel beside the graph a click on the
-    row selects the card it is about (issue #330).
+    row selects the card it is about (issue #330). The card's name and the
+    archetype's are each the way to that subject's own page (issue #333).
 
     Card and archetype names are free text from the source, which the table escapes.
     """
@@ -405,18 +545,20 @@ def _gem_table(subgraph: Subgraph) -> str:
                   if node.kind == "Archetype"}
     # Which archetype a gem was measured inside is carried by the edge that draws it,
     # since the same card can be a gem in two archetypes and is then two nodes.
-    named = {edge.target: archetypes[edge.source] for edge in subgraph.edges
-             if edge.source in archetypes}
+    found_in = {edge.target: edge.source for edge in subgraph.edges
+                if edge.source in archetypes}
     gems = sorted(
         (node for node in subgraph.nodes if node.kind == "Card"),
-        key=lambda n: (named[n.id], n.gem_luck, n.label),
+        key=lambda n: (archetypes[found_in[n.id]], found_in[n.id], n.gem_luck, n.label),
     )
 
     rows: list = []
-    for archetype, block in groupby(gems, key=lambda node: named[node.id]):
-        rows.append(parts.Group(archetype))
+    for archetype, block in groupby(gems, key=lambda node: found_in[node.id]):
+        rows.append(parts.Group(
+            pages.link("archetype", _keyed(archetype), archetypes[archetype])))
         rows += [parts.Row(node.id, [
-            node.label, str(node.decks), str(node.top_decks), str(node.pilots),
+            pages.link(*_page_of("meta_gems", node), node.label),
+            str(node.decks), str(node.top_decks), str(node.pilots),
             _gem_luck_label(node.gem_luck)]) for node in block]
     return parts.table(
         [
@@ -466,6 +608,21 @@ def _gem_caption(subgraph: Subgraph) -> str:
     )
 
 
+# The FAQ entry that says how each chart is measured, by the chart's title, which
+# is the plot type alone (§14). What a chart's head links to (issue #333).
+_HOW_MEASURED = {
+    "Meta share over time": "faq-meta",
+    "Selected archetypes": "faq-meta",
+    "Metagame landscape": "faq-landscape",
+    "Share over time": "faq-meta",
+    "Finishes over time": "faq-archetype-timeline",
+    "Adoption over time": "faq-adoption",
+    "Performance over time": "faq-performance",
+    "Head-to-head timeline": "faq-head-to-head",
+    "Score over time": "faq-race",
+}
+
+
 def _chart_heading(title: str, caption: str | None = None, caption_html: str | None = None) -> str:
     """A chart's title as an insight-card head in the insight-title type role (§3/§12).
 
@@ -477,8 +634,15 @@ def _chart_heading(title: str, caption: str | None = None, caption_html: str | N
     for a caption the app has already built as markup: one under the caption rule
     (:func:`graph7ph.parts.caption`, the Pilots and Cards charts since #329), or a
     field-standing line with its figure emphasised. It is inserted as it stands and
-    takes precedence over the plain ``caption``."""
+    takes precedence over the plain ``caption``.
+
+    A chart's title is followed by a small link to the FAQ entry that says how the
+    chart is measured (:data:`_HOW_MEASURED`, issue #333), on the title's own line.
+    A heading over what is no chart, the standings table, has none."""
     head = f"<div class='t-result-title'>{html.escape(title)}</div>"
+    if title in _HOW_MEASURED:
+        head = (f"<div class='titled'>{head}<a class='measured' "
+                f"href='#{_HOW_MEASURED[title]}'>How this is measured</a></div>")
     if caption_html:
         head += caption_html
     elif caption:
@@ -598,7 +762,7 @@ def _finish_of(deck: PilotDeck) -> str:
     )
 
 
-def _record_table(record: list[PilotDeck]) -> str:
+def _record_table(record: list[PilotDeck], pages: Pages = _NO_PAGES) -> str:
     """A pilot's record as a table: every deck, with its list one click away.
 
     One row per deck, in the order the record is handed over (newest first). The
@@ -613,7 +777,8 @@ def _record_table(record: list[PilotDeck]) -> str:
     def row(deck: PilotDeck) -> list[str]:
         day = _day(deck.date)
         return [
-            parts.folded(deck.event, day), day, deck.archetype or "", _finish_of(deck),
+            parts.folded(deck.event, day), day,
+            pages.named("archetype", deck.archetype or ""), _finish_of(deck),
             parts.link("Open", moxfield_url(deck.deck_id)),
         ]
 
@@ -628,7 +793,7 @@ def _record_table(record: list[PilotDeck]) -> str:
     )
 
 
-def _record_card(record: list[PilotDeck]) -> str:
+def _record_card(record: list[PilotDeck], pages: Pages = _NO_PAGES) -> str:
     """The record card: its title, how many decks it holds, and the table.
 
     The legend for the imputed mark shows only when the table draws one, as the
@@ -646,7 +811,7 @@ def _record_card(record: list[PilotDeck]) -> str:
     )]
     if any(_finish_is_imputed(deck) for deck in record):
         captions.append(parts.caption(f"{_IMPUTED_LEGEND}."))
-    return parts.card_head("Record", *captions) + _record_table(record)
+    return parts.card_head("Record", *captions) + _record_table(record, pages)
 
 
 def _adoption_tiles(adoption: Series, this_year: str) -> list[parts.Tile]:
@@ -799,7 +964,7 @@ def _by_share(edges, names: dict[str, str]) -> list:
                                         names[e.target], e.target))
 
 
-def _archetype_card(usage: Subgraph) -> str:
+def _archetype_card(usage: Subgraph, pages: Pages = _NO_PAGES) -> str:
     """The archetypes running a card, as a table under the usage graph (issue #329).
 
     The graph's two tiers as rows: each broad class heads the archetypes drawn under
@@ -825,7 +990,7 @@ def _archetype_card(usage: Subgraph) -> str:
         ))
         for edge in _by_share((e for e in usage.edges if e.source == tier.target), names):
             archetypes += 1
-            rows.append([names[edge.target],
+            rows.append([pages.link("archetype", _keyed(edge.target), names[edge.target]),
                          numfmt.count_of(edge.decks, edge.total_decks), _edge_share(edge)])
     if not archetypes:
         return parts.card_head("Archetypes") + _state_message(
@@ -848,6 +1013,7 @@ _PANEL_ROWS = 10
 
 def _graph_list(
     view: str, subgraph: Subgraph, decks: dict[str, DeckRecord], explained: bool = False,
+    pages: Pages = _NO_PAGES,
 ) -> tuple[str, str]:
     """The list a graph's panel carries: its title, and its body as markup (#330).
 
@@ -915,7 +1081,8 @@ def _graph_list(
                 [parts.Column("Event"), parts.Column("Archetype"),
                  parts.Column("Finish", numeric=True, title="Place / size of the field")],
                 [parts.Row(f"deck:{deck.deck_id}", [
-                    event_cell(deck.event, deck.date), deck.archetype or "",
+                    event_cell(deck.event, deck.date),
+                    pages.named("archetype", deck.archetype or ""),
                     _finish_of(deck)]) for deck in newest[:_PANEL_ROWS]],
             )
         case "pilot_affinity":
@@ -930,8 +1097,10 @@ def _graph_list(
             return "Archetypes played", parts.table(
                 [parts.Column("Archetype"), parts.Column("Broad class", quiet=True),
                  parts.Column("Events", numeric=True)],
-                [parts.Row(node.id, [node.label, ", ".join(classes.get(node.id, [])),
-                                     f"{node.weight:,}"]) for node in played],
+                [parts.Row(node.id, [
+                    pages.link("archetype", _keyed(node.id), node.label),
+                    ", ".join(classes.get(node.id, [])),
+                    f"{node.weight:,}"]) for node in played],
             )
         case "card_usage":
             ranked = _by_share(
@@ -949,7 +1118,8 @@ def _graph_list(
                               title="Decks running it / decks of the archetype"),
                  parts.Column("Share", numeric=True)],
                 [parts.Row(edge.target, [
-                    names[edge.target], numfmt.count_of(edge.decks, edge.total_decks),
+                    pages.link("archetype", _keyed(edge.target), names[edge.target]),
+                    numfmt.count_of(edge.decks, edge.total_decks),
                     _edge_share(edge)]) for edge in ranked[:_PANEL_ROWS]],
             )
         case "card_cooccurrence":
@@ -972,11 +1142,12 @@ def _graph_list(
                  parts.Column("Decks together", numeric=True, quiet=True),
                  parts.Column("Rate", numeric=True)],
                 [parts.Row(edge.target, [
-                    names[edge.target], numfmt.count_of(edge.decks, edge.total_decks),
+                    pages.link("card", _keyed(edge.target), names[edge.target]),
+                    numfmt.count_of(edge.decks, edge.total_decks),
                     _edge_share(edge)]) for edge in partners],
             )
         case "meta_gems":
-            return "The gems", _gem_table(subgraph)
+            return "The gems", _gem_table(subgraph, pages)
 
 
 # How many of a node's neighbours its facts name before the rest are counted.
@@ -985,6 +1156,7 @@ _LINKED = 8
 
 def _node_facts(
     view: str, subgraph: Subgraph, decks: dict[str, DeckRecord], explained: bool = False,
+    pages: Pages = _NO_PAGES,
 ) -> list[parts.Facts]:
     """What each node of a drawn graph answers a click with (issue #330).
 
@@ -1002,6 +1174,11 @@ def _node_facts(
     which the picture shows; and any node of a co-occurrence graph, where the list
     under the facts is those same neighbours in full. One :class:`parts.Facts` per
     node, in the graph's order.
+
+    A pilot, a card or an archetype is named as the way to its own page (issue
+    #333): as the node's name where the node is one, and among the facts of a deck
+    (who played it, its archetype) and of a gem (the archetype it was found in). The
+    neighbours listed under the facts are not: a click on one walks the graph.
 
     Where one of a node's facts carries the imputed mark, the mark's legend is the
     note under them, so it shows exactly when a mark is on screen (§14). Not where
@@ -1037,8 +1214,9 @@ def _node_facts(
         match node.kind:
             case "Deck":
                 deck = deck_of(node)
-                return [("Pilot", deck.pilot), *result(deck),
-                        ("Archetype", deck.archetype or _NOTHING)]
+                return [("Pilot", pages.named("pilot", deck.pilot)), *result(deck),
+                        ("Archetype", pages.named("archetype", deck.archetype)
+                         if deck.archetype else _NOTHING)]
             case "Placement":
                 deck = deck_of(node)
                 return [("Deck", by_id[f"deck:{deck.deck_id}"].label), *result(deck)]
@@ -1071,8 +1249,9 @@ def _node_facts(
             case "Intersection":
                 return [("Decks running both", f"{node.decks:,}")]
             case "Card" if view == "meta_gems":
+                found_in = near(node, "Archetype")[0]
                 return [
-                    ("Archetype", near(node, "Archetype")[0].label),
+                    ("Archetype", pages.link(*_page_of(view, found_in), found_in.label)),
                     ("Decks running it", numfmt.count_of(node.decks, node.total_decks)),
                     (f"In top {GEM_TOP_CUT:.0%}", numfmt.count_of(node.top_decks, node.decks)),
                     ("Pilots", f"{node.pilots:,}"),
@@ -1133,8 +1312,11 @@ def _node_facts(
                 for other, _ in named)
         if node.kind == "Event":
             marked = marked or deck_of(near(node, "Deck")[0]).field_imputed is not None
+        page = _page_of(view, node)
         out.append(parts.Facts(
-            node.id, kind_name(node.kind), node.label, colours[node.id], rows(node),
+            node.id, kind_name(node.kind),
+            pages.link(*page, node.label) if page else node.label,
+            colours[node.id], rows(node),
             note=f"{_IMPUTED_LEGEND}." if marked and not explained else None,
             link=link, linked=linked,
             more=len(around[node.id]) - len(linked) if linked else 0,
@@ -1143,7 +1325,8 @@ def _node_facts(
 
 
 def _drawn_card(
-    view: str, values: dict, subgraph: Subgraph, decks: dict[str, DeckRecord]
+    view: str, values: dict, subgraph: Subgraph, decks: dict[str, DeckRecord],
+    pages: Pages = _NO_PAGES,
 ) -> str:
     """A drawn graph's card: its head, then the graph beside the panel that answers
     it (#330), which holds the colour key, the facts of whichever node is clicked,
@@ -1156,15 +1339,26 @@ def _drawn_card(
     The imputed mark is explained once on a card (§14): in the head where the graph's
     own labels carry it, otherwise over the list if the list prints one, and under a
     node's facts only when nothing above them has.
+
+    The panel names each subject with a page as the way to it (#333). On a
+    subject's own page, the one pilot's or card's graphs on its tab's first view,
+    that subject is left as text: a link there would open what is already open. A
+    head-to-head's two pilots and the cards a co-occurrence graph starts from are
+    links, since their own pages are another view.
     """
+    subjects = _subjects(view, subgraph)
+    if len(subjects) == 1 and view != "card_cooccurrence":
+        pages = pages.apart_from(
+            _page_of(view, node) for node in subgraph.nodes if node.id in subjects)
     said = parts.card_head(_PLOT_LABELS[view], *_graph_captions(view, values, subgraph))
     if view == "meta_gems":
         said += _gem_caption(subgraph)
     legend = parts.caption(f"{_IMPUTED_LEGEND}.")
-    title, body = _graph_list(view, subgraph, decks, explained=legend in said)
-    facts = _node_facts(view, subgraph, decks, explained=legend in said + body)
+    title, body = _graph_list(view, subgraph, decks, explained=legend in said, pages=pages)
+    facts = _node_facts(view, subgraph, decks, explained=legend in said + body,
+                        pages=pages)
     return said + parts.beside_graph(
-        _embed(render_subgraph(subgraph, _subjects(view, subgraph))),
+        _embed(render_subgraph(subgraph, subjects)),
         colour_key(subgraph), facts, title, body)
 
 
@@ -1208,26 +1402,16 @@ _PRIVACY_LINE = (
     "<a href='#faq-privacy'>How to ask</a>"
 )
 
-# What that link does. The note is a box on another tab, which an address cannot
-# open, so the click opens the FAQ tab itself and brings the box into view. The
-# address is left alone: nothing in this app is reached by one. The frame lets the
-# tab be shown before the box is scrolled to, or there is nothing to scroll to.
-_OPEN_PRIVACY_NOTE_JS = """
-element.addEventListener('click', (event) => {
-  if (!event.target.closest('a')) return;
-  event.preventDefault();
-  [...document.querySelectorAll('[role=tablist] [role=tab]')]
-    .find((tab) => tab.textContent.trim() === 'FAQ').click();
-  requestAnimationFrame(() => document.getElementById('faq-privacy').scrollIntoView());
-});
-"""
+# What that link does is the page's one script for a link to another tab
+# (`_JUMPS_JS`): the note is a box on the FAQ tab, which an address cannot open, so
+# the click opens the tab and brings the box into view.
 
 
 def _privacy_line() -> gr.HTML:
     """The one-line offer, as a block of the tab being built."""
     return gr.HTML(
         f"<div class='t-body'>{_PRIVACY_LINE}</div>",
-        elem_classes="privacy-line", padding=False, js_on_load=_OPEN_PRIVACY_NOTE_JS,
+        elem_classes="privacy-line", padding=False,
     )
 
 
@@ -3017,7 +3201,8 @@ def _race_hues(lines: list[list[RaceCell]]) -> dict[str, str]:
 
 
 def _leaderboard_html(
-    series: Series, names: dict[str, str], hues: dict[str, str], rows: int
+    series: Series, names: dict[str, str], hues: dict[str, str], rows: int,
+    pages: Pages = _NO_PAGES,
 ) -> str:
     """The standings as a table: rank, pilot, score, the majors it rests on, and its width.
 
@@ -3041,7 +3226,8 @@ def _leaderboard_html(
     different claim from a rank of 4 and a reader has to see the two together. It is the
     one column that can say the table is less certain than it looks.
 
-    Display names are free text from the source, so they are escaped.
+    Display names are free text from the source, so they are escaped. Each is the
+    way to its pilot's page (issue #333).
     """
     def row(cell: RaceCell) -> list[str]:
         hue = hues.get(cell.pilot)
@@ -3049,7 +3235,7 @@ def _leaderboard_html(
                   if hue else "<span class='swatch'></span>")
         return [
             str(cell.rank),
-            parts.Markup(swatch + html.escape(names[cell.pilot])),
+            parts.Markup(swatch + pages.link("pilot", cell.pilot, names[cell.pilot])),
             f"{cell.score:.{LEADERBOARD_SCORE_PLACES}f}",
             str(cell.majors),
             parts.Markup(f"{cell.rank_low}&ndash;{cell.rank_high}"),
@@ -4167,6 +4353,10 @@ def build_app(artifact: Path) -> gr.Blocks:
         [(name, tag) for name, tag, _ in drawable_archetypes]
     ))
 
+    # What has a page, by the key its picker draws it from: what a name on any page
+    # links to (#333).
+    pages = Pages(pilot_labels, card_names, timeline_labels)
+
     def draw_archetype_page(a: str | None, b: str | None):
         # One pick draws the whole page (#332): the head with its four tiles, the
         # archetype's share over time and its finishes over time. Returns the head,
@@ -4388,7 +4578,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         )
         race_fig = _race_figure(drawn, trajectories[_RACE_LINES:], pilot_labels)
         race_table = _leaderboard_html(
-            race, pilot_labels, _race_hues(drawn), _LEADERBOARD_ROWS,
+            race, pilot_labels, _race_hues(drawn), _LEADERBOARD_ROWS, pages,
         )
         race_standings = _standings_caption(race, _LEADERBOARD_ROWS)
         race_note = None
@@ -4420,7 +4610,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         deck_ids = [node.id.removeprefix("deck:") for node in subgraph.nodes
                     if node.kind == "Deck"]
         decks = deck_records(ladybug.Connection(db), deck_ids) if deck_ids else {}
-        return _drawn_card(view, values, subgraph, decks)
+        return _drawn_card(view, values, subgraph, decks, pages)
 
     def run_graph(view: str, values: dict) -> str:
         # A graph view hands its view id and the values it surfaces; _spec turns them
@@ -4718,7 +4908,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     gr.update(visible=True),
                     gr.update(value=graph_card("card_usage", values, usage)),
                     *draw_adoption(series, board),
-                    gr.update(value=_archetype_card(usage)),
+                    gr.update(value=_archetype_card(usage, pages)),
                 )
 
             def draw_cooccurrence(c: str, c2: str, n: int, dl: bool):
@@ -4959,7 +5149,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     gr.update(value=graph_card("pilot_neighbourhood", values, neighbourhood)),
                     gr.update(value=graph_card("pilot_affinity", values, affinity)),
                     *draw_performance(p),
-                    gr.update(value=_record_card(record)),
+                    gr.update(value=_record_card(record, pages)),
                 )
 
             def draw_head_to_head_view(a: str, b: str):
@@ -5118,6 +5308,18 @@ def build_app(artifact: Path) -> gr.Blocks:
         gr.HTML(_provenance_html(cov, built), padding=False)
 
         demo.load(fn=None, js=theme.placeholders_js(placeholders))
+
+        # The one block that answers a click on a link to another tab (#333): a
+        # name, or a link to an FAQ entry. Hidden, and in the page all the same,
+        # which is what its script needs.
+        def open_page(event: gr.EventData):
+            return _open_page(pages, event.kind, event.key)
+
+        gr.HTML("", visible="hidden", js_on_load=_JUMPS_JS).click(
+            open_page,
+            outputs=[pilot, pilots_view, card, cards_view, timeline_a, timeline_b],
+            show_progress="hidden",
+        )
 
     # The page is not told it runs on a Space. Gradio reads the Space's name from the
     # environment, and a page handed one asks huggingface.co about it so it can draw

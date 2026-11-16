@@ -15,6 +15,7 @@ import pytest
 
 from graph7ph import numfmt
 from graph7ph.app import (
+    Pages,
     _archetype_card,
     _archetype_tiles,
     _landscape_figure,
@@ -1253,3 +1254,165 @@ def test_a_graph_card_says_what_it_draws_in_a_sentence(demo):
     assert said(pair[9]) == [
         "The 5 cards most often in the decks that run it with Daze, lands left out.",
         "Each rate is a share of the 2 decks running both Brainstorm and Daze."]
+
+
+# --- A name opens its page (issue #333) ---
+
+
+def _opened(markup: str) -> list[tuple[str, str, str]]:
+    """Every name in ``markup`` that opens a page: its kind, its key and the name."""
+    return [(kind, html.unescape(key), html.unescape(name)) for kind, key, name in re.findall(
+        r"<a href='#' data-opens='([^']*)' data-key='([^']*)'>([^<]*)</a>", markup)]
+
+
+def test_a_records_archetype_is_the_way_to_its_page_where_it_has_one():
+    # A pilot's record names an archetype per deck, by its display name. The name is
+    # a link where an archetype of that name has a page, and the text it was where
+    # none does: six archetypes of the real record have no finishes line to draw, so
+    # the picker does not offer them and a link would open nothing.
+    record = [_deck(archetype="Grixis"), _deck(archetype="Soul Sisters", deck_id="d2"),
+              _deck(archetype=None, deck_id="d3")]
+    pages = Pages(archetypes={"grixis": "Grixis"})
+
+    table = _record_table(record, pages)
+
+    assert _opened(table) == [("archetype", "grixis", "Grixis")]
+    assert [row[2] for row in _table_rows(table)][1:] == ["Soul Sisters", ""]
+    # The card under the same table, and the panel's short copy of it beside the graph.
+    assert _opened(_record_card(record, pages)) == [("archetype", "grixis", "Grixis")]
+    decks = _results(2)
+    _, panel = _graph_list("pilot_neighbourhood", _drawing(decks), decks, pages=pages)
+    assert _opened(panel) == [("archetype", "grixis", "Grixis")] * 2
+
+
+def test_an_archetype_listed_on_a_pilots_or_a_cards_page_is_the_way_to_its_page():
+    # The lists that hold an archetype by its node, which carries the tag its picker
+    # draws it from: a pilot's archetypes beside the affinity graph, a card's ten
+    # beside the usage graph, and all of a card's in the table under the plots. One
+    # archetype of each has no page, and stays text.
+    pages = Pages(archetypes={"grixis": "Grixis", "storm": "Storm"})
+    affinity = Subgraph(
+        nodes=[Node("pilot:ada", "Ada L", "Pilot"), Node("macro:tempo", "tempo", "Macro", weight=5),
+               Node("arch:grixis", "Grixis", "Archetype", weight=3),
+               Node("arch:soul_sisters", "Soul Sisters", "Archetype", weight=2)],
+        edges=[Edge("pilot:ada", "macro:tempo", "PLAYS:5", events=5),
+               Edge("macro:tempo", "arch:grixis", "PLAYS:3", events=3),
+               Edge("macro:tempo", "arch:soul_sisters", "PLAYS:2", events=2)],
+    )
+    usage = Subgraph(
+        nodes=[Node("card:x", "X (12% of meta)", "Card", decks=120, total_decks=1000),
+               Node("macro:combo", "combo", "Macro"),
+               Node("arch:storm", "Storm", "Archetype"),
+               Node("arch:soul_sisters", "Soul Sisters", "Archetype")],
+        edges=[Edge("card:x", "macro:combo", "12%", visible=True, decks=120, total_decks=1000),
+               Edge("macro:combo", "arch:storm", "50%", visible=True, decks=10, total_decks=20),
+               Edge("macro:combo", "arch:soul_sisters", "10%", visible=True, decks=1,
+                    total_decks=10)],
+    )
+
+    _, played = _graph_list("pilot_affinity", affinity, {}, pages=pages)
+    _, by_share = _graph_list("card_usage", usage, {}, pages=pages)
+    under_the_plots = _archetype_card(usage, pages)
+
+    assert _opened(played) == [("archetype", "grixis", "Grixis")]
+    assert _opened(by_share) == _opened(under_the_plots) == [("archetype", "storm", "Storm")]
+    for listed in (played, by_share, under_the_plots):
+        assert ">Soul Sisters<" in listed
+    # A broad class heads its archetypes and is no subject: it has no page to open.
+    assert ">Combo<" in under_the_plots
+
+
+def test_a_clicked_node_names_the_subjects_it_can_open():
+    # A node's details are where a reader meets a subject they did not ask about: the
+    # card a gem is, the archetype it was found in, who played the deck that ran it.
+    # Each is the way to its own page. The neighbours listed under the facts stay a
+    # way round the graph, as they were (#330): a click there selects the node.
+    gems, decks = _gem_graph()
+    gems.edges.append(Edge("arch:lands", "deck:d1", "IN"))  # two neighbours, so listed
+    pages = Pages(pilots={"ada": "Ada L"}, cards={"port": "Rishadan Port"},
+                  archetypes={"lands": "Lands"})
+
+    said = {facts.node: facts for facts in _node_facts("meta_gems", gems, decks, pages=pages)}
+
+    gem, archetype, deck = said["card:lands:port"], said["arch:lands"], said["deck:d1"]
+    assert _opened(gem.label) == [("card", "port", "Rishadan Port")]
+    assert _opened(dict(gem.rows)["Archetype"]) == [("archetype", "lands", "Lands")]
+    assert _opened(archetype.label) == [("archetype", "lands", "Lands")]
+    assert _opened(dict(deck.rows)["Pilot"]) == [("pilot", "ada", "Ada L")]
+    assert _opened(dict(deck.rows)["Archetype"]) == [("archetype", "lands", "Lands")]
+    # A deck is no subject, and neither is anything else its facts state.
+    assert deck.label == "Ada L · 3rd"
+    assert [_opened(value) for label, value in deck.rows
+            if label not in ("Pilot", "Archetype")] == [[], [], []]
+    assert archetype.linked and all(not _opened(other.label) for other in archetype.linked)
+
+
+def test_a_page_never_links_to_itself(tmp_path, snapshot_dir, built_graph):
+    # A graph names its own subject over and over: the pilot at the hub and on every
+    # deck's facts, the card a usage graph is about. On the subject's own page, its
+    # tab's first view, a link there would open what is already open, so the subject
+    # is text and every other subject drawn beside it is a link.
+    #
+    # The other view of each tab is not the subject's page. A head-to-head names two
+    # pilots and a co-occurrence graph starts from a card, and there each is a link
+    # like any other name: the click opens that pilot's or that card's overview.
+    conn = built_graph(tmp_path, snapshot_dir)
+    pages = Pages(pilots={"Jordan C": "Jordan C", "AmberTealViper": "Tom S"},
+                  cards={"brainstorm": "Brainstorm", "daze": "Daze", "ponder": "Ponder"},
+                  archetypes={"grixis": "Grixis", "storm": "Storm"})
+
+    def opened(view, values, subgraph):
+        return set(_opened(_drawn_card(view, values, subgraph, _on_record(conn, subgraph),
+                                       pages)))
+
+    alone = opened("pilot_neighbourhood", {"pilot": "Jordan C", "pilot2": None},
+                   pilot_subgraph(conn, "Jordan C"))
+    played = opened("pilot_affinity", {"pilot": "Jordan C", "pilot2": None},
+                    pilot_affinity_subgraph(conn, "Jordan C"))
+    usage = opened("card_usage", {"card": "brainstorm", "card_board": ""},
+                   card_usage_subgraph(conn, "brainstorm"))
+    rivals = opened("pilot_neighbourhood", {"pilot": "Jordan C", "pilot2": "AmberTealViper"},
+                    pilot_subgraph(conn, "Jordan C", "AmberTealViper"))
+    beside = opened("card_cooccurrence",
+                    {"card": "brainstorm", "cooccur_card2": None, "cooccur_top_n": 5,
+                     "cooccur_drop_lands": False},
+                    card_cooccurrence_subgraph(conn, "brainstorm", top_n=120))
+
+    grixis, storm = ("archetype", "grixis", "Grixis"), ("archetype", "storm", "Storm")
+    jordan, tom = ("pilot", "Jordan C", "Jordan C"), ("pilot", "AmberTealViper", "Tom S")
+    # Jordan C's decks are Grixis; the pair's shared event has Tom S's Storm as well.
+    assert alone == played == {grixis}
+    assert usage == {grixis, storm}
+    assert rivals == {grixis, storm, jordan, tom}
+    assert beside == {("card", "brainstorm", "Brainstorm"), ("card", "daze", "Daze"),
+                      ("card", "ponder", "Ponder")}
+
+
+def test_the_built_page_answers_a_clicked_name_on_the_controls_that_draw_its_page(demo):
+    # One hidden block answers every name. Its click sets six controls, in the order
+    # its answer is written in: the pilot and the Pilots view, the card and the Cards
+    # view, the archetype and the one it is compared with. The suite's snapshot can
+    # only click a card in a browser, so the other two kinds are held here.
+    import gradio as gr
+
+    answer = next(dep for dep in demo.fns.values()
+                  if getattr(dep.fn, "__name__", "") == "open_page")
+
+    def control(block) -> str:
+        return block.elem_id or block.choices[0][1]
+
+    assert [control(block) for block in answer.outputs] == [
+        "pilot-search", "pilot_overview", "card-search", "card_overview",
+        "timeline-archetype", "timeline-second-archetype",
+    ]
+    (source,) = [block for block in demo.blocks.values()
+                 if isinstance(block, gr.HTML) and "data-opens" in (block.js_on_load or "")]
+    assert source.visible == "hidden" and answer.targets == [(source._id, "click")]
+
+    same = gr.update()
+    assert answer.fn(gr.EventData(source, {"kind": "pilot", "key": "Jordan C"})) == [
+        "Jordan C", "pilot_overview", same, same, same, same]
+    assert answer.fn(gr.EventData(source, {"kind": "card", "key": "brainstorm"})) == [
+        same, same, "brainstorm", "card_overview", same, same]
+    # Neither archetype of the snapshot has a page, so a click naming one sets nothing.
+    assert answer.fn(gr.EventData(source, {"kind": "archetype", "key": "grixis"})) == [same] * 6

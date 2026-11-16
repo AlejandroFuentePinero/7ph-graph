@@ -9,7 +9,7 @@ import re
 from graph7ph import theme
 from graph7ph.parts import (
     Column, Facts, Group, Linked, Row, Tile, beside_graph, caption, card_head, folded,
-    link, page_head, table, tiles,
+    link, opens, page_head, table, tiles,
 )
 
 
@@ -216,3 +216,40 @@ def test_every_class_the_panel_emits_is_one_the_stylesheet_draws():
     classes = set(re.findall(r"class='([^']+)'", _beside()))
     for name in {c for group in classes for c in group.split()}:
         assert f".{name}" in css, name
+
+
+def test_a_name_that_opens_a_page_carries_its_kind_and_key_and_no_address():
+    # Issue #333: the name is the way to its subject's page. What the page's script
+    # needs to open it rides on the link, and nothing else: no page here is reached
+    # by an address, so the link holds none.
+    name = opens("card", "lightning bolt", "Lightning Bolt")
+
+    assert name == ("<a href='#' data-opens='card' data-key='lightning bolt'>"
+                    "Lightning Bolt</a>")
+
+
+def test_a_name_that_opens_a_page_escapes_the_key_and_the_name():
+    # Both are free text from the source: a card's canon can hold a quote.
+    name = opens("card", "urza's <saga>", "Urza's <Saga>")
+
+    assert "data-key='urza&#x27;s &lt;saga&gt;'" in name
+    assert ">Urza&#x27;s &lt;Saga&gt;</a>" in name
+
+
+def test_a_group_heading_a_nodes_name_and_a_fact_can_each_be_a_name_that_opens_a_page():
+    # Wherever a subject is named: heading the rows of a table, as the name of the
+    # node a panel is answering for, and as one of that node's facts. Text handed in
+    # as text is still escaped in all three.
+    lands, port = opens("archetype", "lands", "Lands"), opens("card", "port", "Port")
+
+    grouped = table([Column("Card")], [Group(lands), Group("A<b>"), ["x"]])
+    assert f"scope='rowgroup'>{lands}</th>" in grouped
+    assert "scope='rowgroup'>A&lt;b&gt;</th>" in grouped
+
+    panel = beside_graph("<iframe></iframe>", [], [
+        Facts("card:port", "Card", port, "#111", [("Archetype", lands), ("Decks", "<3>")]),
+        Facts("deck:d", "Deck", "A<b>", "#111", []),
+    ], "List", "")
+    assert f"<div class='node-name'>{port}</div>" in panel
+    assert f"<dt>Archetype</dt><dd>{lands}</dd>" in panel
+    assert "<dd>&lt;3&gt;</dd>" in panel and "<div class='node-name'>A&lt;b&gt;</div>" in panel
