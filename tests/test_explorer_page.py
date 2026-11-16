@@ -1732,6 +1732,16 @@ def test_on_a_phone_a_row_takes_the_focus_from_a_node_tapped_before_it(chromium,
         assert inside.evaluate("() => network.getSelectedNodes()") == [tapped["id"]]
         assert inside.evaluate(_FILLS, [tapped["id"], reached])[1] != at_rest[1], (
             "the tap took no focus")
+        # Those made-up mouse events land where the finger was, and by then the
+        # tapped node's row has scrolled the page under it: 65px down the graph here,
+        # on another node 1 load in 5. So one over the other event takes nothing.
+        other = inside.evaluate(
+            "(id) => network.canvasToDOM(network.getPositions([id])[id])", reached)
+        box = frame.bounding_box()
+        page.mouse.move(box["x"] + other["x"], box["y"] + other["y"])
+        shots.wait(page, 300)
+        assert inside.evaluate(_FILLS, [tapped["id"], reached])[1] != at_rest[1], (
+            "a mouse event took the focus from the tapped node")
         row.scroll_into_view_if_needed()
         row.tap()
         shots.wait(page, 400)

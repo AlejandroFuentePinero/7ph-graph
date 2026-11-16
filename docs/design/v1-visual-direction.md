@@ -1041,6 +1041,11 @@ top-ranked pilots (47 nodes). The prototype is kept on the branch
   or more edges those quantities overprint one another ("tempo" on Brainstorm's
   graph); the panel's list carries the same figures.
 - **A phone has no pointer**, so there the focus is the selection: a tap on a node.
+  The graph is not asked what the pointer is over on a device that cannot hover.
+  A browser makes up mouse events for a tap, and they land where the finger was
+  after the tapped node's row has scrolled the page under it, 65px down the graph
+  on the suite's pilot: on 5 loads in 25 that was another node, which took the
+  focus from the tapped one.
 - **Not taken: only the best-connected nodes named at rest.** It left 8 names of
   106 on the card graph and was the only variant that stopped the archetype names
   overprinting round each broad class. On the pilot graph it still left the 60 event names overprinting at the

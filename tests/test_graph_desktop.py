@@ -31,6 +31,7 @@ import contextlib
 import http.server
 import re
 import threading
+import time
 
 import pytest
 
@@ -1048,6 +1049,47 @@ def test_two_cards_that_share_no_deck_are_not_thrown_apart(browser):
 
     assert seen["dot"] >= 40, f"a subject's dot is fitted {seen['dot']:.0f}px wide"
     assert seen["gap"] < 200, f"the two cards rest {seen['gap']:.0f}px apart"
+
+
+def test_a_graph_laid_out_before_its_scripts_are_all_in_is_still_fitted(browser):
+    """Two nodes with nothing between them are laid out in one step, and the step
+    could be over before the script that fits the graph had begun to listen for it:
+    a browser may stop between two scripts of a document, as it does when the
+    document reaches it in pieces. 6 loads in 20 of the two cards above were never
+    fitted, and 2 in 20 before either card was marked.
+
+    Here every script is followed by one the browser has to wait for, so each load
+    is one of those, and the graph is fitted all the same.
+    """
+    apart = Subgraph(nodes=[Node("card:a", "Snapcaster Mage", "Card", group="seed:a"),
+                            Node("card:b", "Lightning Bolt", "Card", group="seed:b")],
+                     edges=[])
+    held_back = iter(range(100))
+    in_pieces = re.sub(
+        "</script>",
+        lambda end: f'</script><script src="/held.js?{next(held_back)}"></script>',
+        render_subgraph(apart))
+    server, url = _serve(in_pieces)
+    page = browser.new_page(viewport=BESIDE_PANEL)
+
+    def held(route):
+        time.sleep(0.05)
+        route.fulfill(body="", content_type="application/javascript")
+
+    try:
+        page.route("**/held.js?*", held)
+        page.goto(url)
+        page.wait_for_timeout(1500)
+        fitted = page.evaluate("() => settledFrame")
+        seen = page.evaluate(_DRAWN_AS)
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+
+    assert fitted == "{width}x{height}".format(**BESIDE_PANEL)
+    for node, drawn in seen.items():
+        assert drawn["name"] == pytest.approx(LEGIBLE_PX, rel=0.05), node
 
 
 def test_an_edge_selected_on_its_own_is_still_lit(browser):

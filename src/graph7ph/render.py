@@ -490,7 +490,10 @@ _SETTLE = """
   }
   // A physics graph is only worth fitting once its layout has stopped moving; a graph
   // whose every node is pinned never stabilises, because there is nothing to solve.
-  if (PINNED) { settleInTheFace(); }
+  // Two nodes with nothing between them are laid out in one step, which can be over
+  // before this script has run, where the browser stops between two scripts of the
+  // document: the layout is then ready, and has already said the one thing it says.
+  if (PINNED || network.physics.ready) { settleInTheFace(); }
   else { network.once("stabilizationIterationsDone", settleInTheFace); }
   // The settle owns the view only until the reader takes it: a wheel or button zoom
   // (vis emits "zoom" for those and never for our own fits) or a pan (a drag holding
@@ -621,9 +624,13 @@ _FOCUS = """
       body.edgeIndices.splice(0, Infinity, ...last(edgeOrder, lit));
     }
 
-    // The pointer over a node is a focus, so the widget is asked to say when it is.
-    // The widths it would add to a hovered or selected edge are this script's to add.
-    network.setOptions({interaction: {hover: true},
+    // The pointer over a node is a focus, so the widget is asked to say when it is,
+    // where there is a pointer that hovers. A phone has none, and the mouse events a
+    // browser makes up for a tap land where the finger was after the tapped node's
+    // row has scrolled the page under it, which can be on another node.
+    // The widths the widget would add to a hovered or selected edge are this
+    // script's to add.
+    network.setOptions({interaction: {hover: matchMedia('(hover: hover)').matches},
                         edges: {selectionWidth: 0, hoverWidth: 0}});
     // Nothing is painted yet, so the first draw paints the graph at rest and puts
     // its subjects last.
