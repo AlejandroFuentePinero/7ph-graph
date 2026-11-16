@@ -101,3 +101,11 @@ Neither is changed here. What this ADR adds beyond the race is the **practice**:
 The app's copy changes with the quantity: the lede, the chart caption, the hover, the x axis title, and the FAQ, plus a second FAQ entry on how settled the order is. The tool gains one dependency on `random`, seeded, and about 0.4 seconds of startup work for the bootstrap.
 
 The oracle is unaffected: the race is a `Series`, and `graph7ph baseline` grades subgraphs.
+
+## Amended 2026-11-16 (#336): the field is one band, and the interval is drawn
+
+This ADR describes the chart as eight lines over a faded layer of every other contender. On the current record that layer was 176 dashed lines, which merged into a hatch that shimmered behind the eight. It is now **one shaded band**: at each sample date it runs from the lowest score among the other contenders to the highest. Nothing about the quantity, the eight, the interval or the populations changed, and no query did.
+
+The band is the whole reach of the field and not its middle, because the reading this ADR gives the layer lives at its upper edge. On the current record the contenders above the lowest drawn line run **23, 5, 8, 1, 0** across the five dates (the 36, 33, 10, 5, 0 above was an earlier record), so the band's top sits among the drawn lines at the left and under all of them at the right. A band of the middle half would end at 0.614 at the newest date, 0.119 under the lowest drawn line, and would show none of that. What the band gives up is density: the lines showed where the crowd was thick, and the band shows only how far it reaches.
+
+The interval this ADR puts on every rank is now drawn as well as written. Each standings row carries a bar from `rank_low` to `rank_high` on a track that is every place in the field, first to last, the same track in every row, with the two numbers still beside it. The column's header names the track's two ends and a tick on each track marks `rank`, so a row shows the rank and its interval together, which is what this ADR asks a reader to be able to see. The standings also come first on the tab and the chart second: the table is where the interval is, and it started a screen below the chart.

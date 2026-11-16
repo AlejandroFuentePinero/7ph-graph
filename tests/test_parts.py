@@ -8,8 +8,8 @@ import re
 
 from graph7ph import theme
 from graph7ph.parts import (
-    Column, Facts, Group, Linked, Row, Tile, beside_graph, caption, card_head, folded,
-    link, opens, page_head, table, tiles,
+    Column, Facts, Group, Linked, Markup, Row, Tile, beside_graph, caption, card_head,
+    folded, link, opens, page_head, table, tiles,
 )
 
 
@@ -83,6 +83,20 @@ def test_a_table_sets_its_numbers_apart_and_escapes_its_names():
     assert "<th class='num'>Decks</th>" in header
     assert "<td class='num'>12 / 48</td>" in first
     assert "<td class='num quiet'>2 to 9</td>" in second
+
+
+def test_a_table_header_is_text_or_markup_the_app_has_built():
+    # A header is escaped as a cell is, and like a cell it can be markup the app has
+    # already built: the standings head their last column with the scale its bars
+    # are drawn on (issue #336).
+    out = table(
+        [Column("A <b>"), Column(Markup("<span class='scale'>1st</span>Range"), numeric=True)],
+        [["x", "1 to 4"]],
+    )
+
+    header, _ = _rows(out)
+    assert "<th>A &lt;b&gt;</th>" in header
+    assert "<th class='num'><span class='scale'>1st</span>Range</th>" in header
 
 
 def test_a_table_cell_can_carry_a_link_and_a_line_a_phone_folds_in():

@@ -1512,7 +1512,8 @@ def test_the_markers_that_sit_on_a_tinted_fill_drop_their_opaque_ring():
     # in it: 0 of 6 band-facing half-discs matched the band on the pilot chart, 1 of 67
     # on the archetype one, median channel delta 36. Those points go fully transparent
     # so the ring reads against what it covers. Every chart that paints nothing under
-    # its points keeps the opaque fill and the occlusion it buys.
+    # its points keeps the opaque fill and the occlusion it buys, and so does the
+    # leaderboard's, whose band is faint and whose points nearly all overlap (#336).
     def marker_fills(fig):
         return {t.marker.color for t in fig.data if "markers" in (t.mode or "")}
 
@@ -3447,10 +3448,10 @@ def test_the_race_locks_its_legend_and_puts_the_windows_in_time_order():
     ]
     assert fig.layout.yaxis.tickformat == numfmt.SCORE_TICKFORMAT
     assert fig.layout.yaxis.rangemode != "tozero"
-    # The context layer is named in the legend and sorted below the pilots, so the
-    # ground the lines are read against is labelled without displacing the standings.
+    # The band is named in the legend and sorted below the pilots, so the ground the
+    # lines are read against is labelled without displacing the standings.
     ranks = {t.name: t.legendrank for t in fig.data if t.showlegend is not False}
-    assert ranks["Ace"] < ranks["Rival"] < ranks["All other contenders"]
+    assert ranks["Ace"] < ranks["Rival"] < ranks["All other contenders, lowest to highest"]
 
 
 def test_a_race_point_hovers_the_record_so_far_its_standing_and_its_sample():
@@ -3482,10 +3483,10 @@ def test_a_race_point_hovers_the_record_so_far_its_standing_and_its_sample():
         numfmt.score(0.74, LEADERBOARD_SCORE_PLACES), "1 of 3", 7]
     assert "Ace" in ace.hovertemplate
     assert "major events so far" in ace.hovertemplate
-    # The context layer is chart ground, so it answers no hover of its own and never
-    # steals one from a drawn pilot.
-    context = next(t for t in fig.data if t.name == "All other contenders")
-    assert context.hoverinfo == "skip"
+    # The band is chart ground, so it answers no hover of its own and never steals one
+    # from a drawn pilot.
+    band = next(t for t in fig.data if t.name not in ("Ace", "Rival"))
+    assert band.hoverinfo == "skip"
 
 
 def test_the_race_hover_reads_a_score_to_the_precision_that_separates_contenders():
@@ -3939,6 +3940,37 @@ def test_every_leaderboard_row_qualifies_its_rank_with_the_interval_behind_it():
     assert table.count("class='num quiet'") == 2 * (1 + 12)  # the rank, and its range
 
 
+def test_every_leaderboard_row_draws_the_rank_range_it_states_on_one_scale():
+    # Issue #336: the range was only written, "1 to 24", and fifty of them down a
+    # column do not show that the top ranks overlap. Each row draws its range as a bar
+    # now, with the numbers still beside it, and the two cannot disagree: the bar is
+    # placed by the same two ranks the row states. Every bar is on one scale, first
+    # place to last of the whole field, not of the rows the table happens to show, so
+    # two rows' bars can be compared.
+    series = _race_series(*[
+        (f"p{i}", 0.9 - i / 100, 10, _flat(0.7)) for i in range(12)
+    ], spread=3)
+    table = _leaderboard_html(series, {f"p{i}": f"Pilot {i}" for i in range(12)},
+                              {}, rows=5)
+
+    drawn = [(int(low), int(high))
+             for low, high in re.findall(r"--low:(\d+);--high:(\d+)", table)]
+    stated = [(int(low), int(high))
+              for low, high in re.findall(r"(\d+)&ndash;(\d+)", table)]
+    # Three places either side of each rank, cut off at first place.
+    assert drawn == stated == [(1, 4), (1, 5), (1, 6), (1, 7), (2, 8)]
+    # One scale for every row: the twelve places of the field, with five rows shown.
+    assert re.findall(r"--places:(\d+)", table) == ["12"]
+    # A bar alone is a length with nothing to read it against (the maintainer's look:
+    # "not intuitive"). So the column's header names the two ends of the track, over
+    # the tracks themselves, and each row marks the pilot's own rank on its track:
+    # the mark is where they stand and the bar is how far that could move.
+    assert "<span>1st</span><span>12th</span>" in table
+    marked = [int(rank) for rank in re.findall(r"--rank:(\d+)", table)]
+    assert marked == [1, 2, 3, 4, 5]
+    assert table.count("class='rank-mark'") == 5
+
+
 def test_a_leaderboard_name_carrying_markup_is_escaped():
     # Pilot display names come from the source, so they are free text on a surface the
     # app builds as raw HTML.
@@ -4008,11 +4040,10 @@ def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_pat
         pytest.skip(f"cannot grade the real record: {staleness(artifact)}")
     demo = build_app(artifact)
 
-    # Found by the race's own column, not by the shared table class: the gem table
-    # wears that class too and is drawn at build time since #184.
+    # Found by the standings' own wrapper, not by the shared table class: the gem
+    # table wears that class too and is drawn at build time since #184.
     (table,) = [b.value for b in demo.blocks.values()
-                if isinstance(b, gr.HTML) and "<th class='num quiet'>Rank CI</th>"
-                in (b.value or "")]
+                if isinstance(b, gr.HTML) and "class='standings'" in (b.value or "")]
     # Capped at the display cut, and every drawn line is marked in the table.
     assert table.count("<tr") == _LEADERBOARD_ROWS + 1
     assert table.count("swatch-hue") == _RACE_LINES
@@ -4023,19 +4054,25 @@ def test_the_race_tab_draws_its_chart_and_standings_over_the_real_record(tmp_pat
              if isinstance(b, gr.Plot) and b.value]
     (fig,) = [f for f in plots
               if "played up to" in str(f["layout"]["xaxis"].get("title"))]
-    # The eight lines, plus the one trace holding every other contender behind them.
+    # The eight lines, plus the one band standing for every other contender behind them.
     assert len(fig["data"]) == _RACE_LINES + 1
     assert all(len(trace["x"]) == RACE_POINTS for trace in fig["data"][1:])
     # The right edge is the leaderboard (ADR 0017): the running score means the drawn
-    # eight hold the eight highest points at the newest sample, so nothing in the faded
-    # layer behind them crosses above the lowest of them there. This is the property the
-    # rolling version could not offer, and the reason the chart was rebuilt.
-    context, *drawn = fig["data"]
+    # eight hold the eight highest points at the newest sample, so the band behind them
+    # reaches no higher than the lowest of them there. This is the property the rolling
+    # version could not offer, and the reason the chart was rebuilt.
+    band, *drawn = fig["data"]
     lowest = min(trace["y"][-1] for trace in drawn)
-    # Each contender's run is five points then a null separator, so the newest sample of
-    # every one of them is the fifth of each six.
-    behind = [y for y in context["y"][RACE_POINTS - 1::RACE_POINTS + 1] if y is not None]
-    assert behind and max(behind) <= lowest
+    newest = drawn[0]["x"][-1]
+    behind = [y for x, y in zip(band["x"], band["y"]) if x == newest]
+    assert len(behind) == 2 and max(behind) <= lowest
+    # The standings come first on the tab and the chart after them (issue #336): the
+    # chart was the first screen and the table started 985px down at 1440.
+    race_tab = _tab_blocks(demo, "Player leaderboard")
+    (standings_at,) = [i for i, b in enumerate(race_tab)
+                       if isinstance(b, gr.HTML) and b.value == table]
+    (chart_at,) = [i for i, b in enumerate(race_tab) if isinstance(b, gr.Plot)]
+    assert standings_at < chart_at
     # Nothing on the tab says the race was refused.
     notes = [b.value for b in demo.blocks.values()
              if isinstance(b, gr.Markdown) and "major events to race" in (b.value or "")]
@@ -4056,50 +4093,62 @@ def test_the_standings_caption_states_what_the_table_actually_holds():
     assert f"{RACE_INTERVAL:.0%} of a thousand redraws" in _standings_caption(big, rows=5)
     # Named exactly as the column header it explains, so the two read as one thing.
     assert "Rank CI" in _standings_caption(big, rows=5)
+    # And it reads the drawing as well as the numbers (the maintainer's look, #336: the
+    # bar alone was "not intuitive"): which mark is the rank, and what the bar is.
+    assert "the tick is a pilot's rank, and the bar" in _standings_caption(big, rows=5)
 
 
-def test_every_other_contender_is_drawn_behind_the_race_as_one_faded_layer():
-    # The field is drawn rather than summarised (user call, replacing a p25-p75 band):
-    # every contender the cut left out is traced behind the eight in one neutral tint, so
-    # the reader sees the real spread, and where a drawn line sits inside it, instead of a
-    # box that stands for it. It is the emphasis model §6 already uses on the meta chart,
-    # with one difference: there hue traces each faded line, here the context is one
-    # colour, because 131 lines cannot each be named and the legend says so with a single
-    # entry.
-    series = _race_series(*[
-        (f"p{i}", 0.9 - i / 100, 9, _flat(0.8 - i / 100)) for i in range(12)
-    ])
+def test_every_other_contender_is_drawn_behind_the_race_as_one_band():
+    # Issue #336: every contender the cut left out was traced behind the drawn lines as
+    # a dashed line of its own, 176 of them on the real record, which merged into a
+    # hatch that shimmered. One shaded band stands for them now, and it is the whole of
+    # them: at each date it runs from the lowest of their scores to the highest, so a
+    # reader still sees how far the field reaches and where a drawn line sits against
+    # it. A contender with no score at a date is left out of that date's reach.
+    series = _race_series(
+        ("ace", 0.90, 12, _flat(0.85, 8)),
+        ("rival", 0.88, 9, _flat(0.80, 6)),
+        ("p2", 0.70, 9, [(None, 1), (0.50, 3), (0.55, 4), (0.60, 5), (0.62, 6)]),
+        ("p3", 0.65, 9, [(0.70, 2), (0.66, 3), (0.64, 4), (0.61, 5), (0.60, 6)]),
+        ("p4", 0.60, 9, [(0.40, 2), (0.58, 3), (0.45, 4), (0.65, 5), (0.58, 6)]),
+    )
     trajectories = _race_trajectories(series)
-    fig = _race_figure(trajectories[:3], trajectories[3:],
-                       {f"p{i}": f"Pilot {i}" for i in range(12)})
+    fig = _race_figure(trajectories[:2], trajectories[2:],
+                       _race_names("ace", "rival", "p2", "p3", "p4"))
 
-    # Read in the order the legend lays them out, which is legendrank, not trace order:
-    # the context is added first so every drawn line paints over it, and sorted last so
-    # the legend still reads as the standings.
-    named = sorted((t for t in fig.data if t.showlegend is not False),
-                   key=lambda t: t.legendrank)
-    # Three drawn pilots and one entry for all the rest: four legend entries, not twelve.
-    assert [t.name for t in named] == ["Pilot 0", "Pilot 1", "Pilot 2",
-                                       "All other contenders"]
-    context = named[-1]
-    # One trace holds all nine, so the legend cannot fill with them. Each pilot's run is
-    # closed with a null, or the last window of one would join the first of the next.
-    assert context.y.count(None) == 9
-    assert len([v for v in context.y if v is not None]) == 9 * len(_RACE_ENDS)
-    # Lines only: an observation marker's fill is the opaque surface, so nine of them
-    # per window would tile over each other and over the drawn lines beneath.
-    assert context.mode == "lines"
+    # Two drawn pilots and one mark for all the rest: no line per contender.
+    (band,) = [t for t in fig.data if t.name not in ("Ace", "Rival")]
+    assert band.fill == "toself"
+    assert not band.line.width
+    # The outline of the band: each date's lowest and highest score among the others.
+    months = ["Jul 2024", "Jan 2025", "Jul 2025", "Jan 2026", "Jul 2026"]
+    lowest = [0.40, 0.50, 0.45, 0.60, 0.58]
+    highest = [0.70, 0.66, 0.64, 0.65, 0.62]
+    assert sorted(zip(band.x, band.y)) == sorted(
+        [*zip(months, lowest), *zip(months, highest)])
+    # The legend says what the band is, and lists it after the standings.
+    assert band.name == "All other contenders, lowest to highest"
+    assert band.legendrank > max(t.legendrank for t in fig.data if t is not band)
     # It is chart ground, so it answers no hover and never steals one from a drawn pilot.
-    assert context.hoverinfo == "skip"
-    # Neutral, not a ninth hue: the palette's eight name the race, this names nobody.
-    assert not any(hue in str(context.line.color) for hue in palette.CATEGORICAL)
-    # And sorted below the standings, as the band it replaces was.
-    assert context.legendrank > max(t.legendrank for t in named[:3])
+    assert band.hoverinfo == "skip"
+    # Not a ninth hue: the palette's eight name the race, this names nobody.
+    assert not any(hue in str(band.fillcolor) for hue in palette.CATEGORICAL)
+    # Painted first, so every drawn line sits over it.
+    assert fig.data[0] is band
+
+
+def test_the_race_says_under_its_dates_what_a_point_counts():
+    # Issue #336: the axis title read "Every major played up to", a sentence left for
+    # the tick under it to finish. It is a whole phrase now, in the words the standings
+    # and the hover use for these events.
+    fig = _race_figure(*_race_figure_args())
+
+    assert fig.layout.xaxis.title.text == "Every major event played up to this date"
 
 
 def test_a_field_small_enough_to_draw_whole_advertises_no_context_layer():
-    # Every contender fits inside the cut, so there is no "other" contender to trace
-    # behind them. The layer is dropped rather than added empty, which would put a
+    # Every contender fits inside the cut, so there is no "other" contender for a band
+    # to stand for. The band is dropped rather than added empty, which would put a
     # legend entry on the chart for a set with nothing in it.
     series = _race_series(("ace", 0.78, 12, _flat(0.76, 8)))
     fig = _race_figure(_race_trajectories(series), [], _race_names("ace"))

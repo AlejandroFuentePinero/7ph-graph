@@ -343,7 +343,7 @@ def recipes() -> list[Shot]:
         draw(page, settle=6000)
 
     def leaderboard(page):
-        # Fixed at build time like the gems: the chart and the standings under it.
+        # Fixed at build time like the gems: the standings and the chart under them.
         tab(page, "Player leaderboard")
         wait(page, 2000)
 
@@ -370,7 +370,7 @@ def recipes() -> list[Shot]:
         Shot("pilots-head-to-head", "Pilots, a rivalry drawn", pilots_head_to_head),
         Shot("pilots-same-pilot", "Pilots, the same pilot picked twice", pilots_same_pilot),
         Shot("pilots-never-met", "Pilots, a pair who never met (refusal)", pilots_never_met),
-        Shot("leaderboard", "Player leaderboard, the race and the standings", leaderboard),
+        Shot("leaderboard", "Player leaderboard, the standings and the race", leaderboard),
         Shot("faq", "FAQ", faq),
     ]
 

@@ -327,7 +327,11 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   itself: **occlusion is preferred over transparency only where nothing is painted
   beneath.** That is why the player leaderboard chart keeps the opaque fill (32 of its 36
   markers overlap, and nothing is drawn under them) and the rivalry charts do not (0 of
-  8 markers overlap on the pilot chart, so the fill was buying nothing there). The cost
+  8 markers overlap on the pilot chart, so the fill was buying nothing there).
+  _Amended 2026-11-16 (#336): a band is painted under that chart now, beneath 12 of
+  its 37 markers. It keeps the opaque fill: 35 of the 37 overlap another, and the
+  band is faint enough (the accent at 0.10) that the fill is within 22 of 255 of it
+  on every channel, against the 36 measured on the rivalry band._ The cost
   accepted: on the archetype timeline at phone width 75 of 116 discs overlap, and
   crossing rings read muddier than occluding ones. Taken because that chart's density is
   a separately acknowledged problem, and because the two rivalry charts must not drift
@@ -1251,3 +1255,63 @@ after.
   gems card with its graph 57.3 KB from 54.8 KB. A click from the head-to-head view
   draws twice, once for the pilot and once for the view (1.4 to 1.8 s in the trial,
   against 0.6 s).
+
+## The leaderboard (#336)
+
+Decided 2026-11-16. The tab opened on its chart, the chart drew 176 dashed lines
+behind its eight named ones, and the standings started a screen down with each rank's
+range written as two numbers. Measured on the running app over the real record at 390,
+1440 and 1920px, before and after.
+
+- **The standings come first.** The table starts 222px down at 1440 and at 1920,
+  from 985px, and 390px down at 390, from 1,169px. The chart follows it: 2,042px down
+  on a desktop and 2,719px on a phone.
+- **A rank's range is drawn beside the numbers that state it.** A bar on a track,
+  in the last column. The track is every place in the field, first at its left end
+  and last at its right (184 places today), and it is the same track in every row, so
+  two rows' bars can be compared. The bar is placed by the two ranks the row states,
+  and a browser test reads all fifty bars back off the page as ranks at the three
+  widths.
+- **The track names its ends and marks the rank.** _Added after the maintainer's
+  look, the same day: the bar alone was "not intuitive"._ Nothing on the row said
+  what the track was or where on it the pilot stood. The column's header now reads
+  "1st" over the track's left end and "184th" over its right, and a bright tick on
+  each track marks the pilot's own rank, so a row reads: the tick is where they
+  stand, the bar is how far that could move. The caption says so: its one qualifier
+  (§14) now reads the drawing and the numbers together, "the tick is a pilot's
+  rank, and the bar and the Rank CI beside it are where that rank landed in 90% of
+  a thousand redraws of their own record", and the FAQ's answer on how settled the
+  order is says it at length. A tick and not a dot, since a top
+  rank's bar is a few pixels long and a dot hid it. Every one of the 184 ranks sits
+  inside its own range, so no tick stands off its bar. The same browser test holds
+  each tick to its row's rank and the two names to the track's two ends. It caught
+  the names 8px off the tracks: the header's label box was sized in the header's
+  smaller face. The marks are not text, so their contrast is worked out by hand from
+  the tokens (§2): the bar (`--text-mute`) on the track (`--border`) is 3.36, the
+  tick (`--text`) on the bar 3.28 and on the track 11.02. The bar was `--text-dim`
+  (5.72 on the track) until the tick needed to be the brighter of the two.
+- **The scale is the whole field, not the rows shown.** The fifty rows' ranges end at
+  127th, so a scale cut there would draw longer bars, but its right end would mean
+  nothing a reader could name. On the whole field a top rank's bar is short (1 to 24
+  is 33px of 256) and the overlap of the leading group still reads.
+- **The bar is neutral.** Colour in this table names a drawn pilot, and the accent is
+  a link's. No bar is drawn behind the score: the top scores differ in the third
+  decimal, so the bars would all be one length.
+- **On a phone the track sits over its numbers.** Beside them it took the room the
+  names need. The track is 60px there and 256px on a desktop. One name wraps to a
+  second line, as one did before. What it costs: a row is 42px tall, from 30px, so the
+  tab is 3,613px long at 390, from 3,001px.
+- **One band stands for the other contenders.** From the lowest of their scores to
+  the highest at each date, in the accent at 0.10, with the legend saying so ("All
+  other contenders, lowest to highest"). The reach and not the middle of the field,
+  for the reason ADR 0017's dated note gives. 0.10 was settled by eye against 0.07
+  and 0.16.
+- **The axis title is a whole phrase:** "Every major event played up to this date",
+  where "Every major played up to" left the tick under it to finish the sentence.
+- **Ranks, scores and ranges are as they were.** No query changed and no build input
+  was touched.
+- **What it costs.** The page as transferred is 236.9 KB, from 240.6 KB (236,850
+  bytes, from 240,593): 176 lines of five points each left the page and fifty bars
+  joined it. The chart library is 1,275.4 KB, unchanged. No text sits on a new ground:
+  the contrast audit of the tab finds none below AA on main (912 text nodes) or on
+  the branch (918: the two end names at three widths, in the header's own ink).

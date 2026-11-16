@@ -54,7 +54,7 @@ contrast pass and the findings further down are from the two-width run of #118.
 | `pilots-head-to-head` | A rivalry drawn |
 | `pilots-same-pilot` | The same pilot picked twice |
 | `pilots-never-met` | A pair who never met: the refusal |
-| `leaderboard` | The player leaderboard: the race and the standings under it (added by #324) |
+| `leaderboard` | The player leaderboard: the standings and the race under them (added by #324, reordered by #336) |
 | `faq` | The FAQ tab |
 | `forced-too-large` | Too large to draw, with the draw limit lowered to 20 nodes |
 
