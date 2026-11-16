@@ -380,6 +380,10 @@ _Amended 2026-11-16 (#330): the colour key and the details are no longer inside 
 graph's frame. They are a panel beside it, with the page's list. See "The graph
 beside its panel (#330)"._
 
+_Amended 2026-11-16 (#331): the dots are no longer uniform. The node a graph was
+asked about is drawn larger, and a hovered or selected node dims what is outside its
+neighbourhood. See "The subject, and a node in focus (#331)"._
+
 ## 8. States, first contact, provenance
 
 - **One treatment for all five states**: nothing picked, running, empty result,
@@ -975,3 +979,75 @@ The prototype is kept on the branch `prototype/330-graph-side-panel`.
   library is unchanged. Every node's facts ride with its graph, so a draw is heavier
   on the stream, which is not compressed: a 100-node pilot neighbourhood is 133 KB
   of markup, from 90 KB, and a card's usage graph 75 KB, from 58 KB.
+
+## The subject, and a node in focus (#331)
+
+Decided 2026-11-16, after the maintainer looked at three variants on the running app
+at 1440px (today's graph; the subject marked, with a focus on hover and selection;
+and that with only the best-connected nodes named at rest) and chose the second as
+shown. Measured
+on the running app at 390, 1440 and 1920px before and after, on Brainstorm's usage
+graph (106 nodes), a 181-node pilot neighbourhood and the head-to-head of the two
+top-ranked pilots (47 nodes). The prototype is kept on the branch
+`prototype/331-subject-and-focus`.
+
+- **The subject stands out.** The node a graph was asked about is a larger dot with
+  a larger name: 40 of vis.js's units against the 25 of every other dot, and 15px
+  on screen against the 12px of every other name. A card's usage graph drew all 106
+  of its nodes one size, the card among them. The subject is the pilot, or both of a
+  head-to-head; the card, or the one or two cards a co-occurrence graph starts
+  from. The gem view is about the whole format and marks nothing.
+- **The two pilots of a head-to-head rest apart, by weight.** They came to rest
+  26px apart at 1440px, one dot over the other, because every event they share is
+  tied to both. Each is now given a mass of 25 against the 1 of every other node,
+  and they rest 168 to 185px apart over the runs measured, the layout differing a
+  little each draw (193 to 196px from 32px at 1920px, 65 to 70px from 12px at 390px).
+  The weight goes to a subject that shares a neighbour with another subject, which
+  is what pulls a pair to one point. Two cards that share no deck are drawn as two
+  nodes with nothing between them, and get none: weight threw that pair 600px and
+  more apart, fitted as two specks.
+  The ticket asked for starting positions, which do nothing: started 300, 600 or
+  1,200 units apart, with or without vis.js's own pre-layout, the pair settles 23px
+  apart. This is the one change to the physics, and it is a parameter of two nodes:
+  physics stays on, neither pilot is pinned, and each still answers a drag (ADR
+  0018). It spreads the graph, so the head-to-head is fitted at a smaller zoom,
+  0.47 to 0.50 from 0.56 at 1440px. The other two graphs are fitted as they were.
+- **A node in focus brings its neighbourhood forward.** The focus is the node under
+  the pointer, or else the selected one. Every node it does not reach and every edge
+  that does not touch it is taken 82% of the way to the ground: a dot lands between
+  1.17:1 and 1.30:1 on it, an edge at 1.40:1, and a name, taken 72% of the way, at
+  2.33:1. Each edge it reaches is drawn in the text colour and 2.5px wider, as a
+  selection's edges were since #330. Nothing changes at rest, and losing the focus
+  puts every colour back.
+- **The pointer comes first.** With one node selected, the pointer over another
+  lights that other's neighbourhood, and the selection takes the focus back when the
+  pointer leaves. Meanwhile the selected node keeps its ring and its shade, since
+  the panel beside the graph is still showing its facts.
+- **A subject's dot never dims**, wherever the focus is, and is drawn over whatever
+  the layout leaves lying across it. The neighbourhood in focus is drawn over
+  everything it is not, and a dimmed name loses its halo, so nothing dimmed cuts
+  across what is lit. vis.js itself still draws a selected node, then a hovered one,
+  over all of these.
+- **The pointer gives the focus up when it leaves the graph.** vis.js is not told
+  that it left, so the last node it crossed on the way to the panel kept the focus,
+  and a row clicked there lit the wrong neighbourhood.
+- **An edge selected on its own stays lit**, in the text colour and 2.5px wider, as
+  it has been since #330, and dims nothing: the focus is a node's.
+- **A node in focus states its quantities.** At rest an edge's quantity is drawn at
+  vis.js's own size scaled by the zoom, between 5 and 8px on the three graphs
+  measured. The edges a
+  node in focus reaches state theirs in the text colour at the size of a name, and
+  the other quantities are not drawn while there is a focus. On a node with twenty
+  or more edges those quantities overprint one another ("tempo" on Brainstorm's
+  graph); the panel's list carries the same figures.
+- **A phone has no pointer**, so there the focus is the selection: a tap on a node.
+- **Not taken: only the best-connected nodes named at rest.** It left 8 names of
+  106 on the card graph and was the only variant that stopped the archetype names
+  overprinting round each broad class. On the pilot graph it still left the 60 event names overprinting at the
+  centre, and hid the deck and finish names of the outer ring, which read today.
+  Every name stays drawn.
+- **What it costs.** The page as transferred is 233.6 KB, from 231.6 KB: the gem
+  graph is drawn as the page loads and carries the focus script. The chart library
+  is unchanged at 1,245.5 KB. Each graph drawn is 5.8 KB heavier on the stream,
+  which is not compressed: Brainstorm's usage graph is 56.9 KB of document, from
+  51.1 KB.

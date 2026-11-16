@@ -7,6 +7,7 @@ own files, and on the real record to a second, independent reading.
 """
 
 import html
+import json
 import re
 from datetime import datetime, timedelta
 
@@ -621,6 +622,47 @@ def test_no_node_of_any_view_answers_with_only_its_kind_and_name(
             kinds.add(node.kind)
     assert kinds == {"Deck", "Pilot", "Card", "Archetype", "Macro", "Event",
                      "Placement", "Intersection"}
+
+
+def _drawn_to_stand_out(card: str) -> set[str]:
+    """The nodes a drawn card's graph draws larger than vis.js's own dot."""
+    doc = html.unescape(re.search(r'<iframe srcdoc="([^"]*)"', card).group(1))
+    nodes = json.loads(re.search(r"nodes = new vis\.DataSet\((\[.*?\])\)", doc, re.S).group(1))
+    return {node["id"] for node in nodes if node.get("size", 25) > 25}
+
+
+def test_each_view_marks_the_pilot_or_card_it_was_asked_about(
+    tmp_path, snapshot_dir, built_graph
+):
+    # Issue #331: the card a usage graph was asked about was one dot among 106 of the
+    # same size. Every view that is about a pilot or a card draws that node to stand
+    # out: the pilot, or both of a head-to-head; the card, or both of a pair. The gem
+    # view is about the whole format, so it marks nothing.
+    conn = built_graph(tmp_path, snapshot_dir)
+    gems, gem_decks = _gem_graph()
+    lone = {"pilot": "Jordan C", "pilot2": None}
+    pair = {"pilot": "Jordan C", "pilot2": "AmberTealViper"}
+    lands = {"cooccur_drop_lands": False}
+    drawn = [
+        ("pilot_neighbourhood", lone, pilot_subgraph(conn, "Jordan C"), None,
+         {"pilot:Jordan C"}),
+        ("pilot_neighbourhood", pair, pilot_subgraph(conn, "Jordan C", "AmberTealViper"),
+         None, {"pilot:Jordan C", "pilot:AmberTealViper"}),
+        ("pilot_affinity", lone, pilot_affinity_subgraph(conn, "Jordan C"), None,
+         {"pilot:Jordan C"}),
+        ("card_usage", {}, card_usage_subgraph(conn, "brainstorm"), None,
+         {"card:brainstorm"}),
+        ("card_cooccurrence", lands, card_cooccurrence_subgraph(conn, "brainstorm", top_n=5),
+         None, {"card:brainstorm"}),
+        ("card_cooccurrence", lands,
+         card_cooccurrence_subgraph(conn, "brainstorm", "daze", top_n=5), None,
+         {"card:brainstorm", "card:daze"}),
+        ("meta_gems", {}, gems, gem_decks, set()),
+    ]
+
+    for view, values, subgraph, decks, subject in drawn:
+        card = _drawn_card(view, values, subgraph, decks or _on_record(conn, subgraph))
+        assert _drawn_to_stand_out(card) == subject, view
 
 
 def test_a_gem_and_its_archetype_state_the_claim_in_the_apps_one_count_form():

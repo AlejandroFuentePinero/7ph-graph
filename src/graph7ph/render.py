@@ -12,8 +12,9 @@ pyvis's own generated graph internals (its node/edge JS, its layout) are deliber
 not asserted, per the PRD testing plan. What this module *injects onto* that document
 is: the tests hold the shared-palette node colours, the colour key, the dark
 ground, the count hover on a visible rate edge (#211),
-and the fit-and-label settle (:data:`_SETTLE`),
-since those are this module's contribution and the visual-direction contract (§7) they
+the fit-and-label settle (:data:`_SETTLE`), the mark on the node a graph was asked
+about (:data:`SUBJECT_SIZE`) and the focus a hovered or selected node takes
+(:data:`_FOCUS`, #331), since those are this module's contribution and the visual-direction contract (§7) they
 answer to.
 
 One part of that contribution cannot be held in the emitted string at all. Whether a
@@ -24,7 +25,9 @@ labels merely small at desktop width, one dense view from vis.js dropping them.
 width and measures them there.
 """
 
+import json
 import re
+from collections.abc import Collection
 
 from pyvis.network import Network
 
@@ -214,7 +217,24 @@ def colour_key(subgraph: Subgraph) -> list[tuple[str, str]]:
     return [(kind_name(k), _KIND_COLOURS[k]) for k in _KIND_ORDER if k in kinds_present]
 
 
-def render_subgraph(subgraph: Subgraph) -> str:
+def _tied(subgraph: Subgraph, subjects: Collection[str]) -> set[str]:
+    """The subjects the layout pulls onto another subject: those that share a
+    neighbour with one, as the two pilots of a head-to-head share every event. They
+    are the ones given weight (:data:`SUBJECT_MASS`). Two subjects with nothing
+    between them, two cards that share no deck, are held near by nothing, and weight
+    would only throw them apart."""
+    around: dict[str, set[str]] = {subject: set() for subject in subjects}
+    for edge in subgraph.edges:
+        for end, other in ((edge.source, edge.target), (edge.target, edge.source)):
+            if end in around:
+                around[end].add(other)
+    return {a for a in around for b in around if a != b and around[a] & around[b]}
+
+
+def render_subgraph(subgraph: Subgraph, subjects: Collection[str] = ()) -> str:
+    """The graph as a document. ``subjects`` are the ids of the nodes the graph was
+    asked about (a pilot, a card), which are drawn to stand out (:data:`SUBJECT_SIZE`).
+    """
     # Both dimensions are the frame's, not a number of our own: `_DOC_STYLE` lays the
     # document out as a full-height flex column and the graph fills it, so the height
     # the embedding iframe is given (`app._embed`) is the height.
@@ -225,6 +245,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
     palette = _group_palette(subgraph.nodes)
     colours = node_colours(subgraph)
     group_by_id = {n.id: n.group for n in subgraph.nodes}
+    heavy = _tied(subgraph, subjects)
     for node in subgraph.nodes:
         # A weighted node is sized by its value; vis.js scales the values in the
         # graph between a min and max radius, so bigger weight reads as a bigger
@@ -240,6 +261,9 @@ def render_subgraph(subgraph: Subgraph) -> str:
             if node.pin is not None
             else {}
         )
+        marked = {"size": SUBJECT_SIZE} if node.id in subjects else {}
+        if node.id in heavy:
+            marked["mass"] = SUBJECT_MASS
         net.add_node(
             node.id,
             label=node.label,
@@ -249,6 +273,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
             **weighted,
             **shaped,
             **pinned,
+            **marked,
         )
         if node.shape is not None:
             # A shaped node draws its label over its own fill rather than over the
@@ -292,7 +317,7 @@ def render_subgraph(subgraph: Subgraph) -> str:
         net.toggle_physics(False)
 
     doc = _nothing_from_outside(_hosted_library(net.generate_html(notebook=False)))
-    return _compose(doc, all_pinned)
+    return _compose(doc, all_pinned, [n.id for n in subgraph.nodes if n.id in subjects])
 
 
 # The on-screen size every node label settles to, in CSS pixels. It matches the colour
@@ -320,9 +345,31 @@ HALO_PX = 3
 # the zoom a hundred nodes are fitted at is under half a pixel on screen: a reader who
 # clicked a node, or its row in the panel beside the graph, could not find it (#330).
 # Both are drawn in the text colour, the brightest ink the app has, and sized from the
-# zoom as the labels are (`_SETTLE`), so they hold on the densest graph drawn.
+# zoom as the labels are, so they hold on the densest graph drawn: the ring where the
+# graph settles (`_SETTLE`), the path wherever a node takes the focus (`_FOCUS`).
 RING_PX = 3
 PATH_PX = 2.5
+
+# The node a graph was asked about, its subject, stands out from the nodes round it
+# (#331): a card's usage graph drew all 106 of its nodes one size, the card among
+# them. Its dot is `SUBJECT_SIZE` in vis.js's own units, where every other dot is
+# vis.js's default 25, and its name is `SUBJECT_PX` on screen, a step up from
+# `LABEL_PX`.
+SUBJECT_SIZE = 40
+SUBJECT_PX = 15
+
+# The weight a subject is given where the layout pulls it onto another (`_tied`),
+# against the 1 of every other node. The two pilots of a head-to-head came to rest 27px apart, one dot over the
+# other: every event they share is tied to both, so the layout pulls the pair to one
+# point. Where they start makes no difference (measured from 300, 600 and 1200 units
+# apart, with and without vis.js's own pre-layout: 23px each time), and a pin would
+# take them out of the simulation, which ADR 0018 rules out. A heavier node pushes
+# harder on every other, the second subject included, so the two rest apart with
+# physics live and each still answers a drag. Measured on a 72-node head-to-head in
+# the frame beside the panel: 31px apart at 3, 61px at 12, 120px at 25, and 190px at
+# 50, by which point the events have bunched into two clumps. Two cards' co-occurrence
+# is fully pinned, so physics is off there and the weight does nothing.
+SUBJECT_MASS = 25
 
 # vis.js draws a label in canvas units and multiplies by the zoom, then drops the label
 # entirely once that product falls under a floor of its own (`scaling.label.drawThreshold`
@@ -350,8 +397,9 @@ _SETTLE = """
   const HALO_PX = __HALO_PX__;
   const LABEL_FACE = "__LABEL_FACE__";
   const RING_PX = __RING_PX__;
-  const PATH_PX = __PATH_PX__;
   const PINNED = __PINNED__;
+  const SUBJECTS = __SUBJECTS__;
+  const SUBJECT_PX = __SUBJECT_PX__;
   let hasSettled = false;
   let settledFrame = null;  // the frame the last completed settle fitted, as "WxH"
   let readerHasView = false;  // the reader has zoomed or panned: the view is theirs now
@@ -397,6 +445,11 @@ _SETTLE = """
         size: LABEL_PX / zoom, strokeWidth: HALO_PX / zoom,
         strokeColor: '__GROUND__',
       }}});
+      // A subject's name is a step larger, and is sized here with the rest because
+      // its box is part of what the next pass fits.
+      for (const id of SUBJECTS) {
+        network.body.nodes[id].setOptions({font: {size: SUBJECT_PX / zoom}});
+      }
       // A node's box is measured as it is drawn, and vis.js draws on the next frame,
       // where this loop runs to convergence within one. Without the redraw every pass
       // after the first fits against the box the *previous* label size gave, and the
@@ -407,25 +460,19 @@ _SETTLE = """
     // it is the one already done again, and on a graph that runs the passes out it is
     // the one the loop would otherwise have left undone.
     network.fit();
-    // The selection's ring and path are widths in canvas units too, so they take the
-    // same divisor. Drawn only on what is selected, so they move no box and no fit.
-    network.setOptions({
-      nodes: {borderWidthSelected: RING_PX / network.getScale()},
-      edges: {selectionWidth: PATH_PX / network.getScale()},
-    });
+    // The selection's ring is a width in canvas units too, so it takes the same
+    // divisor. Drawn only on what is selected, so it moves no box and no fit.
+    network.setOptions({nodes: {borderWidthSelected: RING_PX / network.getScale()}});
     settledFrame = frame;
   }
 
-  // What is selected is drawn in the text colour: the node's ring, and each edge it
-  // reaches. vis.js keeps a colour for the selected state on every node and edge,
-  // worked out from the one colour each was created with, so it is set on each here
-  // and not in the options, which a colour of a node's own outranks. Nothing is
-  // added to the data, so the layout is not asked to run again (ADR 0018).
+  // A selected node's ring is drawn in the text colour. vis.js keeps a colour for
+  // the selected state on every node, worked out from the one colour it was created
+  // with, so it is set on each here and not in the options, which a colour of a
+  // node's own outranks. Nothing is added to the data, so the layout is not asked
+  // to run again (ADR 0018). The edges a selected node reaches are `_FOCUS`'s.
   for (const node of Object.values(network.body.nodes)) {
     node.options.color.highlight.border = '__INK__';
-  }
-  for (const edge of Object.values(network.body.edges)) {
-    edge.options.color.highlight = '__INK__';
   }
 
   // The labels are drawn in the app's face, and a canvas does not wait for a face
@@ -465,6 +512,142 @@ _SETTLE = """
     clearTimeout(resettle);
     resettle = setTimeout(() => { if (!readerHasView) settle(); }, 150);
   });
+</script>
+"""
+
+# How far a node, a name or an edge outside the neighbourhood in focus is taken toward
+# the ground, as a share of the way there. At 0.82 the eight palette colours land
+# between 1.17:1 and 1.30:1 on the ground, and a neutral edge at 1.40:1: there to say
+# where the rest of the graph is and no more. A name is taken less far, to 2.33:1,
+# since a thin stroke fades faster than a filled dot.
+DIM = 0.82
+DIM_NAME = 0.72
+
+# On a dense graph a selected node's ring and bright edges were lit among a hundred
+# nodes drawn as bright as they were (#331). A node in focus, the one under the
+# pointer or else the selected one, brings its neighbourhood forward: every node it
+# does not reach, and every edge that does not touch it, is taken most of the way to
+# the ground, and each edge it reaches is drawn in the text colour, `PATH_PX` wider,
+# with its quantity at the size of a name.
+# Nothing changes at rest, and losing the focus puts every colour back.
+#
+# The focus is read as the graph is drawn, off what is hovered and selected at that
+# moment, and not from the events that change either: a selection made from the panel
+# beside the frame (`_ANSWER`) raises no event of vis.js's own, and it draws all the
+# same. What is drawn is repainted only when the focus changes, or the zoom under a
+# focus, since the widths are sizes on screen. An edge selected on its own, with no
+# node, is lit as a reached edge is and dims nothing.
+#
+# It writes colours and widths onto the nodes and edges vis.js already holds, and adds
+# nothing to the data, so the layout is not asked to run again: no node is moved and
+# physics is never touched (ADR 0018). It runs after pyvis's ``drawGraph()`` has
+# assigned the global ``network``, and after `_SETTLE`, whose `SUBJECTS`, `LABEL_PX`
+# and `HALO_PX` it reads. It is inside a function so that it adds no name of its own
+# to the ones the document's scripts share.
+_FOCUS = """
+<script>
+  (() => {
+    const INK = '__INK__', GROUND = '__GROUND__', CLEAR = 'rgba(0,0,0,0)';
+    const PATH_PX = __PATH_PX__;
+    const body = network.body;
+    const toGround = (hex, share) => '#' + [1, 3, 5].map((at) => Math.round(
+      parseInt(hex.slice(at, at + 2), 16) * (1 - share)
+      + parseInt(GROUND.slice(at, at + 2), 16) * share
+    ).toString(16).padStart(2, '0')).join('');
+
+    // What each node and edge is drawn with at rest, kept so it can be put back.
+    const nodeRest = {}, edgeRest = {};
+    for (const [id, node] of Object.entries(body.nodes)) {
+      nodeRest[id] = {fill: node.options.color.background, border: node.options.color.border};
+    }
+    for (const [id, edge] of Object.entries(body.edges)) {
+      const {color, strokeColor, size, strokeWidth} = edge.labelModule.fontOptions;
+      edgeRest[id] = {colour: edge.options.color.color, width: edge.options.width,
+                      quantity: {color, strokeColor, size, strokeWidth}};
+    }
+    const DIM_INK = toGround(INK, __DIM_NAME__);
+    // vis.js draws in the order it holds its nodes and edges in, later over earlier.
+    const nodeOrder = [...body.nodeIndices], edgeOrder = [...body.edgeIndices];
+    const subjects = new Set(SUBJECTS);
+    const last = (order, those) => [...order.filter((id) => !those.has(id)),
+                                    ...order.filter((id) => those.has(id))];
+
+    function ink(label, colour, halo) {
+      label.fontOptions.color = colour;
+      label.fontOptions.strokeColor = halo;
+      label.labelDirty = true;
+    }
+
+    function paint(focus, lit) {
+      const scale = network.getScale();
+      const near = focus === null ? null : new Set([focus, ...network.getConnectedNodes(focus)]);
+      for (const [id, rest] of Object.entries(nodeRest)) {
+        const node = body.nodes[id], out = near !== null && !near.has(id);
+        // A subject's dot stays lit wherever the focus is: it is what the graph is about.
+        const dim = out && !subjects.has(id);
+        const fill = dim ? toGround(rest.fill, __DIM__) : rest.fill;
+        const border = dim ? toGround(rest.border, __DIM__) : rest.border;
+        // The same under the pointer as away from it: a hovered node's answer is its
+        // neighbourhood, and vis.js goes on holding a node as hovered after the
+        // pointer has left the canvas over it.
+        Object.assign(node.options.color, {background: fill, border, hover: {background: fill, border}});
+        // A halo parts two names drawn over one another. A dimmed name is given
+        // none: its halo would be cut out of the lit nodes it lies across.
+        ink(node.labelModule, out ? DIM_INK : INK, out ? CLEAR : GROUND);
+      }
+      for (const [id, rest] of Object.entries(edgeRest)) {
+        const edge = body.edges[id], reached = lit.has(id);
+        const colour = reached ? INK : (focus === null ? rest.colour : toGround(rest.colour, __DIM__));
+        // One colour for every state vis.js keeps, so an edge is drawn by the focus
+        // alone, the same whether its node is under the pointer or selected.
+        Object.assign(edge.options.color, {color: colour, highlight: colour, hover: colour});
+        edge.options.width = reached ? rest.width + PATH_PX / scale : rest.width;
+        if (!edge.options.label) continue;
+        // A quantity is drawn at vis.js's own size scaled by the zoom (ADR 0018),
+        // too small to read on a fitted graph. A reached edge states its own as a
+        // name is stated, and the others are not drawn while there is a focus.
+        Object.assign(edge.labelModule.fontOptions, reached
+          ? {color: INK, strokeColor: GROUND,
+             size: LABEL_PX / scale, strokeWidth: HALO_PX / scale}
+          : (focus === null ? rest.quantity
+                            : {...rest.quantity, color: CLEAR, strokeColor: CLEAR}));
+        edge.labelModule.labelDirty = true;
+      }
+      // The neighbourhood is drawn over what it is not, so nothing dimmed cuts across
+      // it, and a subject over whatever the layout has left lying across it. vis.js
+      // itself draws a selected node, then a hovered one, after all of these.
+      body.nodeIndices.splice(0, Infinity,
+        ...last(near === null ? nodeOrder : last(nodeOrder, near), subjects));
+      body.edgeIndices.splice(0, Infinity, ...last(edgeOrder, lit));
+    }
+
+    // The pointer over a node is a focus, so the widget is asked to say when it is.
+    // The widths it would add to a hovered or selected edge are this script's to add.
+    network.setOptions({interaction: {hover: true},
+                        edges: {selectionWidth: 0, hoverWidth: 0}});
+    // Nothing is painted yet, so the first draw paints the graph at rest and puts
+    // its subjects last.
+    let hovered = null, painted = null;
+    network.on('hoverNode', (params) => { hovered = params.node; });
+    network.on('blurNode', () => { hovered = null; });
+    // vis.js is not told when the pointer leaves the canvas, so the last node it
+    // crossed on its way to the panel would keep the focus from a row clicked there.
+    network.canvas.frame.addEventListener('mouseleave', () => {
+      hovered = null;
+      network.redraw();
+    });
+    network.on('beforeDrawing', () => {
+      const selected = network.getSelectedNodes();
+      const focus = hovered !== null ? hovered : (selected.length ? selected[0] : null);
+      // The edges drawn lit: the ones the focus reaches, or with no focus an edge the
+      // reader has selected on its own, which dims nothing.
+      const lit = focus === null ? network.getSelectedEdges() : network.getConnectedEdges(focus);
+      const state = lit.length ? [focus, network.getScale(), ...lit].join('|') : '';
+      if (state === painted) return;
+      painted = state;
+      paint(focus, new Set(lit));
+    });
+  })();
 </script>
 """
 
@@ -568,22 +751,29 @@ _ANSWER = """
 """
 
 
-def _compose(doc: str, all_pinned: bool) -> str:
+def _compose(doc: str, all_pinned: bool, subjects: list[str]) -> str:
     """Bring the standalone pyvis document onto the theme: inject the dark doc-level
-    style, and at the end of the body the fit-and-label settle and the script that
-    answers a click in the panel beside the frame."""
+    style, and at the end of the body the fit-and-label settle, the focus a hovered
+    or selected node takes, and the script that answers a click in the panel beside
+    the frame."""
     settle = (
         _SETTLE.replace("__LABEL_PX__", str(LABEL_PX))
         .replace("__HALO_PX__", str(HALO_PX))
         .replace("__LABEL_FACE__", LABEL_FACE)
         .replace("__RING_PX__", str(RING_PX))
-        .replace("__PATH_PX__", str(PATH_PX))
         .replace("__INK__", TOKENS["text"])
         .replace("__GROUND__", TOKENS["surface"])
         .replace("__PINNED__", "true" if all_pinned else "false")
+        .replace("__SUBJECT_PX__", str(SUBJECT_PX))
+        .replace("__SUBJECTS__", json.dumps(subjects))
+    )
+    focus = (
+        _FOCUS.replace("__INK__", TOKENS["text"]).replace("__GROUND__", TOKENS["surface"])
+        .replace("__DIM_NAME__", str(DIM_NAME)).replace("__DIM__", str(DIM))
+        .replace("__PATH_PX__", str(PATH_PX))
     )
     doc = _inject(doc, "</head>", _DOC_STYLE + "</head>")
-    return _inject(doc, "</body>", settle + _ANSWER + "</body>")
+    return _inject(doc, "</body>", settle + focus + _ANSWER + "</body>")
 
 
 def _inject(doc: str, anchor: str, replacement: str) -> str:

@@ -19,3 +19,12 @@ A 67-node neighbourhood on a 390px screen is not a readable object, labelled or 
 Desktop label legibility remains a real, open problem on its own terms: pre-#174 desktop labels drew around 5px effective, and the densest view may cross the 4px drop threshold. That is #178, which inherits #174's diagnosis and paint-measuring harness (`tests/test_graph_phone.py` at 40505c8) without its constraints.
 
 A future pass that sees unlabelled dots on a phone should land here, not re-file #161.
+
+## Amended 2026-11-16 (#331)
+
+Two changes to the desktop graph touch what this decision guards. The three regression tests above pass unchanged.
+
+- **Two nodes are heavier.** Where two subjects of a graph share a neighbour (the pilots of a head-to-head share every event), each is given a mass of 25 against the 1 of every other node, so the two rest apart instead of one over the other. This is a parameter the simulation runs with, not a freeze: physics stays on, no node is pinned, and none is moved after the layout. Starting positions were tried first and change nothing.
+- **A quantity is read at rest and on focus differently.** At rest an edge's quantity keeps vis.js's own size, scaled by the zoom, as the third regression holds. While a node is hovered or selected, the edges it reaches state their quantities at the size of a name, and the others are not drawn.
+
+The design doc has the measurements, under "The subject, and a node in focus (#331)".

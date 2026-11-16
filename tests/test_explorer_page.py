@@ -1654,6 +1654,96 @@ def test_a_row_of_the_list_and_a_named_neighbour_each_select_their_node(page):
     assert by_neighbour["marked"] == []  # an event is no row of a pilot's results
 
 
+# The fill the widget would paint each of these nodes with right now.
+_FILLS = "(ids) => ids.map((id) => network.body.nodes[id].getFormattingValues().color)"
+
+# The event a deck was played at: the one event node its own node touches.
+_ITS_EVENT = ("(deck) => network.getConnectedNodes(deck)"
+              ".find((id) => id.startsWith('event:'))")
+
+
+def test_a_row_takes_the_focus_from_a_node_the_pointer_has_left(page):
+    # Issue #331: the node under the pointer is the graph's focus. A pointer that
+    # leaves the graph for the panel is over no node, and vis.js is never told it
+    # left, so the last node it crossed kept the focus: a row clicked next selected
+    # its node and lit the other one's neighbourhood.
+    shots.tab(page, "Pilots")
+    shots.pick(page, "Pilot", PILOT)
+    shots.drawn(page, settle=3000)
+    split = page.locator(".graph-split").locator("visible=true").first
+    frame = split.locator("iframe").element_handle()
+    row = split.locator(".panel-list tr[data-node]").first
+    named = row.get_attribute("data-node")
+    frame.scroll_into_view_if_needed()
+    shots.wait(page, 500)
+    # An event the row's deck was not played at.
+    crossed = frame.content_frame().evaluate(
+        """(deck) => { const id = network.body.nodeIndices.find((id) => id.startsWith('event:')
+             && !network.getConnectedNodes(id).includes(deck));
+             const at = network.canvasToDOM(network.getPositions([id])[id]);
+             return {id, x: at.x, y: at.y}; }""", named)
+    box = frame.bounding_box()
+    inside = frame.content_frame()
+    reached = inside.evaluate(_ITS_EVENT, named)
+    at_rest = inside.evaluate(_FILLS, [crossed["id"], reached])
+
+    page.mouse.move(box["x"] + crossed["x"], box["y"] + crossed["y"])
+    shots.wait(page, 300)
+    under_the_pointer = inside.evaluate(_FILLS, [crossed["id"], reached])
+    assert under_the_pointer[0] == at_rest[0] and under_the_pointer[1] != at_rest[1], (
+        "the pointer never took the focus, so nothing is being held here")
+    row.click()
+    shots.wait(page, 300)
+
+    assert inside.evaluate("() => network.getSelectedNodes()") == [named]
+    row_clicked = inside.evaluate(_FILLS, [crossed["id"], reached])
+    assert row_clicked[1] == at_rest[1], "the event of the row's deck is not lit"
+    assert row_clicked[0] != at_rest[0], "the node the pointer left is still lit"
+
+
+def test_on_a_phone_a_row_takes_the_focus_from_a_node_tapped_before_it(chromium, explorer):
+    # A phone has no pointer to hover with, so there the focus is the selection and
+    # nothing else. A tap is followed by the mouse events a browser makes up for it,
+    # and a node tapped on the graph must not be left holding the focus as a hovered
+    # one when a row is tapped next.
+    page = _loaded(chromium, explorer, "phone")
+    try:
+        shots.tab(page, "Pilots")
+        shots.pick(page, "Pilot", PILOT)
+        shots.drawn(page, settle=3000)
+        split = page.locator(".graph-split").locator("visible=true").first
+        frame = split.locator("iframe").element_handle()
+        row = split.locator(".panel-list tr[data-node]").first
+        named = row.get_attribute("data-node")
+        frame.scroll_into_view_if_needed()
+        shots.wait(page, 500)
+        tapped = frame.content_frame().evaluate(
+            """(deck) => { const id = network.body.nodeIndices.find((id) => id.startsWith('event:')
+                 && !network.getConnectedNodes(id).includes(deck));
+                 const at = network.canvasToDOM(network.getPositions([id])[id]);
+                 return {id, x: at.x, y: at.y}; }""", named)
+        box = frame.bounding_box()
+        inside = frame.content_frame()
+        reached = inside.evaluate(_ITS_EVENT, named)
+        at_rest = inside.evaluate(_FILLS, [tapped["id"], reached])
+
+        page.touchscreen.tap(box["x"] + tapped["x"], box["y"] + tapped["y"])
+        shots.wait(page, 400)
+        assert inside.evaluate("() => network.getSelectedNodes()") == [tapped["id"]]
+        assert inside.evaluate(_FILLS, [tapped["id"], reached])[1] != at_rest[1], (
+            "the tap took no focus")
+        row.scroll_into_view_if_needed()
+        row.tap()
+        shots.wait(page, 400)
+
+        assert inside.evaluate("() => network.getSelectedNodes()") == [named]
+        row_tapped = inside.evaluate(_FILLS, [tapped["id"], reached])
+        assert row_tapped[1] == at_rest[1], "the event of the row's deck is not lit"
+        assert row_tapped[0] != at_rest[0], "the node tapped before the row is still lit"
+    finally:
+        page.close()
+
+
 def test_a_selected_or_hovered_row_keeps_every_word_legible(page):
     # A row answers the pointer and the selection with a tint, which lightens the
     # ground under it. The quiet figure in a row is 4.57:1 on the card and would be

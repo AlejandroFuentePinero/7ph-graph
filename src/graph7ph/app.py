@@ -272,6 +272,21 @@ def _seeds(cooccurrence: Subgraph) -> list:
     return [n for n in cooccurrence.nodes if (n.group or "").startswith("seed:")]
 
 
+def _subjects(view: str, subgraph: Subgraph) -> list[str]:
+    """The nodes a graph was asked about, by id, which it draws to stand out (#331):
+    the pilot or the two of a head-to-head, the card, the one or two cards a
+    co-occurrence graph starts from. The gem view is about the whole format and has
+    none."""
+    match view:
+        case "pilot_neighbourhood" | "pilot_affinity":
+            return [node.id for node in subgraph.nodes if node.kind == "Pilot"]
+        case "card_usage":
+            return [node.id for node in subgraph.nodes if node.kind == "Card"]
+        case "card_cooccurrence":
+            return [node.id for node in _seeds(subgraph)]
+    return []
+
+
 def _graph_captions(view: str, values: dict, subgraph: Subgraph) -> list[str]:
     """A drawn graph's captions: what the picture holds, in a sentence (issue #329).
 
@@ -1093,7 +1108,8 @@ def _drawn_card(
     title, body = _graph_list(view, subgraph, decks, explained=legend in said)
     facts = _node_facts(view, subgraph, decks, explained=legend in said + body)
     return said + parts.beside_graph(
-        _embed(render_subgraph(subgraph)), colour_key(subgraph), facts, title, body)
+        _embed(render_subgraph(subgraph, _subjects(view, subgraph))),
+        colour_key(subgraph), facts, title, body)
 
 
 # Who to reach about the graph, under the coverage line: the data behind it is
