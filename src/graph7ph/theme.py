@@ -510,6 +510,36 @@ a[data-opens]:hover {{ text-decoration: underline; }}
   margin-right: 0.6rem; vertical-align: middle;
 }}
 .data-table .swatch-hue {{ box-shadow: 0 0 0 3px var(--surface); }}
+/* The standings' rank range, drawn beside its numbers (#336). The track is every
+   place in the field, first at its left edge and last at its right, and the bar
+   covers the places from the row's low rank to its high one: a place is one
+   `--places`th of the track, so a range of a single place still shows. `--low` and
+   `--high` are set on the bar and `--places` once, on the element the table sits
+   in, so every row is on
+   the one scale. The numbers take a set width, or the tracks would start at a
+   different point in each row. Neutral, not a hue: colour in this table names a
+   drawn pilot. The track is as long as the window leaves room for, since a top
+   rank's range is a small part of it. */
+.standings .rank-track {{
+  position: relative; display: inline-block; vertical-align: middle;
+  width: clamp(4rem, 18vw, 16rem); height: 8px; margin-right: 0.6rem; border-radius: 2px;
+  background: var(--border);
+}}
+.standings .rank-bar {{
+  position: absolute; top: 0; bottom: 0; border-radius: 2px;
+  left: calc((var(--low) - 1) / var(--places) * 100%);
+  width: calc((var(--high) - var(--low) + 1) / var(--places) * 100%);
+  background: var(--text-dim);
+}}
+/* `color: inherit`, or the numbers lose the set-back ink of their column: Gradio
+   colours every element inside an HTML block, this one included. */
+.standings .rank-numbers {{ display: inline-block; min-width: 7ch; color: inherit; }}
+/* On a narrow screen the track sits over its numbers, not beside them: beside
+   them it took the room the names need. */
+@media (max-width: 640px) {{
+  .standings .rank-track {{ display: block; width: 3.75rem; margin: 0 0 4px auto; }}
+  .standings .rank-numbers {{ min-width: 0; }}
+}}
 /* A cell's second line, and a column left out, both for a narrow screen (below). */
 .data-table .sub {{ display: none; }}
 @media (max-width: 640px) {{

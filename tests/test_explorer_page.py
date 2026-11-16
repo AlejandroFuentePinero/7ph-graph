@@ -248,6 +248,85 @@ def test_the_standings_and_the_gems_draw_no_table_frame_on_the_real_record(chrom
             assert table["lines"] == ["0px"], tab
 
 
+# The standings on the open tab: where the table and the chart under it start, and
+# for each row the track its rank range is drawn on, the bar drawn on it, and the
+# range written beside it.
+_STANDINGS = "() => { const open = " + _OPEN_TAB + """;
+    const box = el => { const r = el.getBoundingClientRect();
+                        return {left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+                                width: r.width}; };
+    const shown = el => el.getBoundingClientRect().height > 0;
+    const table = open.querySelector('table.data-table');
+    return {
+      first: [...open.querySelectorAll('.insight-card')].filter(shown)[0].contains(table),
+      table: box(table),
+      chart: box(open.querySelector('.js-plotly-plot')),
+      rows: [...table.querySelectorAll('tbody tr')].map(row => ({
+        track: box(row.querySelector('.rank-track')),
+        bar: box(row.querySelector('.rank-bar')),
+        said: row.querySelector('.rank-numbers').innerText,
+        ink: getComputedStyle(row.querySelector('.rank-numbers')).color,
+      })),
+    }; }"""
+
+
+def test_the_standings_are_the_first_result_on_the_leaderboard_on_the_real_record(
+    chromium, record
+):
+    # Issue #336: the tab opened on its chart and the standings started a screen
+    # down (985px at 1440 by 900). They are the first result now, on the first
+    # screen, and the chart follows them. The suite's snapshot has no race, so this
+    # is the real record's.
+    page = _loaded(chromium, record)
+    try:
+        assert page.viewport_size == {"width": 1440, "height": 900}
+        shots.tab(page, "Player leaderboard")
+        read = page.evaluate(_STANDINGS)
+    finally:
+        page.close()
+
+    assert read["first"]
+    assert _in_view(page, read["table"]["top"])
+    assert read["chart"]["top"] > read["table"]["bottom"]
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_each_standings_row_draws_the_rank_range_it_states_on_the_real_record(
+    chromium, record, width
+):
+    # Issue #336: a row's rank range is drawn as a bar beside the numbers that state
+    # it. Where the bar lands is the stylesheet's arithmetic on what the markup
+    # carries, so only the drawn page can say the two agree: each bar is measured
+    # against its track, read back as ranks, and held to the numbers beside it. A
+    # track is every place in the field, so its scale is the count of contenders the
+    # card's own caption states.
+    page = _loaded(chromium, record, width)
+    try:
+        shots.tab(page, "Player leaderboard")
+        caption = _card_titled(page, "Standings").inner_text()
+        read = page.evaluate(_STANDINGS)
+    finally:
+        page.close()
+
+    places = int(re.search(r"of (\d+) contenders", caption).group(1))
+    rows = read["rows"]
+    assert len(rows) == 50
+    # One scale: every row's track starts at the same point and is the same length.
+    assert len({(round(row["track"]["left"], 1), round(row["track"]["width"], 1))
+                for row in rows}) == 1
+    for row in rows:
+        place = row["track"]["width"] / places
+        assert place > 0
+        drawn = (round((row["bar"]["left"] - row["track"]["left"]) / place) + 1,
+                 round((row["bar"]["right"] - row["track"]["left"]) / place))
+        stated = tuple(int(rank) for rank in re.findall(r"\d+", row["said"]))
+        assert drawn == stated, row
+    # The numbers are still set back, as the column was before it drew anything:
+    # Gradio colours every element inside an HTML block, so a figure wrapped in an
+    # element of its own takes the main ink unless the stylesheet hands it its cell's.
+    assert {row["ink"] for row in rows} == {_rgb(TOKENS["text-mute"])}
+
+
 # Every tab, the picks that put its charts on screen, and how many charts that is.
 # Cards is walked twice, since its two views each draw a chart of their own. The
 # suite's snapshot draws the two share charts on Metagame and a card's adoption in
