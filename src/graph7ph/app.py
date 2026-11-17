@@ -1825,7 +1825,11 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "full standings (see the finish question above); an archetype with none of "
         "those still counts in the year's total but is not drawn.\n\n"
         "Only the 25 most-played archetypes of the year are drawn, and the caption "
-        "says how many the year held in all.",
+        "says how many the year held in all. A name is printed beside a dot where it "
+        "fits without covering another name or another dot, the most played first. "
+        "Every dot gives its name when you point at it or tap it, and dragging the "
+        "share range filter under the chart opens a crowd up and brings its names "
+        "back.",
     ),
     (
         "faq-landscape-certainty",
@@ -2334,8 +2338,10 @@ def _adoption_cards(subject: str, second: str | None) -> list[str]:
 # same division of labour as `_CUTS`: `archetype_landscape` returns the year's whole
 # field and this picks what is drawn). Twenty-five, because that is 78 / 73 / 69 / 68
 # percent of the field for 2023 / 2024 / 2025 / 2026, landing near the Meta tab's own
-# "top 75%" cut vocabulary, and because every one of the 25 carries its name on the
-# chart: labelling a subset of a larger set would read as arbitrary (issue #145).
+# "top 75%" cut vocabulary. Every one of the 25 carried its name on the chart until
+# #337, on the argument that labelling a subset would read as arbitrary (issue #145);
+# the names printed over each other, so the page now draws the ones that fit, the most
+# played first, and every dot keeps its name on hover.
 _LANDSCAPE_TOP_N = 25
 
 # The landscape draws taller than Plotly's 450px default, because it is the one chart
@@ -3544,42 +3550,11 @@ def _landscape_caption(
     )
 
 
-def _label_sides(cells: list[LandscapeCell]) -> list[str]:
-    """Which side of its dot each archetype's name sits on, alternating along the axis.
-
-    Plotly has no collision avoidance, and the landscape's names overprint: a year's 25
-    drawn archetypes crowd into the low-share end (in 2026, twenty of them sit between
-    1% and 3%), so a single ``textposition`` stacks four or five names into the same
-    patch of frame. The bars added in #175 took the space above each dot, which is where
-    the names used to go, so they move beside the rings and alternate: sorted along the
-    share axis they collide on, each dot takes the opposite side from its neighbour.
-
-    A heuristic, and it is worth being plain about its limit rather than implying the
-    problem is solved: two dots that are two apart in share and close in finish still
-    take the same side, so a band holding four or more names can still overprint. It
-    clears the common case (adjacent pairs) at the cost of no layout engine, which is
-    the trade this chart's docstring already contemplated when it named a
-    label-fewer fallback. That fallback stays available and unchosen: every archetype
-    keeps its name here, which is what the top-25 cut exists to make possible.
-
-    The alternation starts from the lowest share, which points the leftmost dot's name
-    inward, away from the frame edge it sits against. That is the end worth protecting:
-    it is where the dots crowd, and where a name hung outward would run at the axis.
-
-    The highest-share end takes what the alternation gives it, which is inward only when
-    the count is even. Forcing it inward regardless was tried and was worse: with an odd
-    count, and ``_LANDSCAPE_TOP_N`` is 25, it overwrote a "middle right" and left the top
-    **two** dots sharing a side, converting a clipping risk into the exact overprint this
-    function exists to prevent. The trade is safe because the top dot is the most
-    isolated on the axis by construction: share is long-tailed, so the gap below the
-    biggest archetype runs 1.4 to 4.7 points across the corpus years against a median
-    gap of 0.15, and a name with that much clear air beside it collides with nothing.
-    """
-    order = sorted(range(len(cells)), key=lambda i: cells[i].share)
-    positions = [""] * len(cells)
-    for rank, index in enumerate(order):
-        positions[index] = "middle right" if rank % 2 == 0 else "middle left"
-    return positions
+# The page script that decides which of the landscape's names are drawn and fills the
+# last field of each dot's hover (:func:`_landscape_figure`, issue #337), for the card
+# the app draws the landscape in. The words are the hover's, so they are kept beside
+# the rest of that line: a dot standing in for Grixis ends "· also on this spot: Grixis".
+_LANDSCAPE_NAMES_JS = theme.chart_names_js("landscape-result", " · also on this spot: ")
 
 
 def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
@@ -3595,22 +3570,30 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     reference the pilot charts use, so the three read alike while the tool keeps the raw
     ``placementNorm`` (0 a win) the agent reads.
 
-    Every dot carries its archetype name: the set is bounded to
-    :data:`_LANDSCAPE_TOP_N`, so labelling a subset of it would read as arbitrary, and
-    an all-hover chart says nothing in a screenshot (§14, #132/#133). Plotly has no
-    collision avoidance, and the labels did overprint once the bars took the space above
-    each dot, so they sit beside the rings on alternating sides (:func:`_label_sides`)
-    rather than falling back to the top 8 by share plus the top 5 and worst 3 by finish,
-    the roughly 14 labels this docstring used to name: every archetype keeps its name,
-    which is what the top-25 cut exists to make possible.
+    Every dot is sent with its archetype name, and the page decides which are drawn
+    (:func:`theme.chart_names_js`, issue #337). Plotly has no collision avoidance, and
+    a real year is past any rule that only moves names about: 2026 puts twenty of its
+    twenty-five drawn archetypes between 1% and 3% of share, and the names printed
+    over each other at every width. Which of them fit is a matter of pixels (how wide
+    a name is set, where its dot lands at this width), so it is settled in the
+    browser, which knows both: the most played archetypes keep their names, and a
+    name that would land on another name, on another archetype's dot or outside the
+    plot is left to the hover, which every dot has. Each name is sent to the right of
+    its dot, where the page starts from; it moves a name to the left where only that
+    side is free. Until #337 the sides alternated along the share axis
+    (``_label_sides``), which kept neighbours apart and no more, and with the page
+    placing the names it kept none the page does not keep without it.
 
-    Alternating sides clears colliding pairs and stops there, and a real year is worse
-    than pairs: 2026 puts twenty of its twenty-five drawn archetypes between 1% and 3%
-    of share, four and five names deep. The axis itself is the fix, so this chart takes
-    :func:`_range_filter` over share, the control the rivalry charts already carry over
-    time. A reader pulls the crowded end open instead of being handed a subset of the
-    names, which is the same bargain the top-25 cut makes: bound what is drawn, and say
-    what was bounded. The ring's
+    The hover is what makes leaving a name out safe, so it has to reach every dot,
+    and Plotly's answers for one dot at a time: where two overlap, the smaller. In
+    2024 Grixis and Boros Moonshine are 1px apart and the pointer finds Boros
+    Moonshine on all of Grixis but a rim half a pixel wide. So each dot's hover ends
+    in a field the page fills: the archetypes whose dots this one answers the
+    pointer for. It is sent empty.
+
+    The share axis is a control as well: this chart takes :func:`_range_filter`, the
+    one the rivalry charts carry over time, and a reader who pulls the crowded end
+    open is given the names the room now allows. The ring's
     size carries the archetype's distinct events, not its decks: within a year share is
     monotone in decks, so sizing by decks would say the same thing the x axis already
     does, while the events are the independent trials the finish rests on. One colour
@@ -3625,7 +3608,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         y=scores,
         mode="markers+text",
         text=[cell.archetype for cell in cells],
-        textposition=_label_sides(cells),
+        textposition="middle right",
         textfont=dict(color=_AXIS, size=11),
         marker={**_observation_marker(colour),
                 "size": [_confidence_size(cell.events) for cell in cells]},
@@ -3638,11 +3621,12 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
              numfmt.count_of(cell.n, cell.year_total, "decks"),
              # The axis below already carries the sense (:data:`_SCORE_DIRECTION`), and
              # a "(1 = 1st)" inside a named half would read as part of the label.
-             numfmt.score(score, sense=False), cell.scored, cell.events]
+             # The last field is the page's (see the docstring), empty as sent.
+             numfmt.score(score, sense=False), cell.scored, cell.events, ""]
             for cell, score in zip(cells, scores)
         ],
-        # Let a dot and its label at the edge of the field draw over the axis rather
-        # than being clipped out of the plot.
+        # Let a dot at the edge of the field draw over the axis rather than being
+        # clipped out of the plot.
         cliponaxis=False,
         # Named halves, because the dot's two axes are taken over different decks (ADR
         # 0022): every deck of the archetype places it horizontally, and only the ones
@@ -3652,7 +3636,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         hovertemplate=(
             "%{customdata[0]} · share %{customdata[1]} (%{customdata[2]}) · "
             "finish %{customdata[3]} (%{customdata[4]} scored at "
-            "%{customdata[5]} events)<extra></extra>"
+            "%{customdata[5]} events)%{customdata[6]}<extra></extra>"
         ),
         showlegend=False,
     ))
@@ -3667,8 +3651,8 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     # The one chart that states its own height (:data:`_LANDSCAPE_HEIGHT`), and it does
     # so before the filter, whose label is placed off the plot's height.
     fig.update_layout(height=_LANDSCAPE_HEIGHT)
-    # The names crowd the low-share end past what any placement rule can separate, so
-    # the reader gets the axis: drag to open that end up. Named for its own axis, since
+    # The names crowd the low-share end and most of them are not drawn there, so the
+    # reader gets the axis: drag to open that end up. Named for its own axis, since
     # a drag here slices share where the rivalry charts' slices time.
     _range_filter(fig, "◀ Share range filter (drag to zoom) ▶")
     # The 0-1 score, but ranged to the dots rather than pinned to the full scale the
@@ -3679,7 +3663,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     # each dot's name is drawn over it.
     # Clamped to the ends of the score, since it is bounded: 2023's best archetype
     # finishes at 0.93, and unclamped headroom carried the axis to 1.09, which is axis
-    # no dot could ever occupy. A label at the very top draws over the edge instead
+    # no dot could ever occupy. A dot at the very top draws over the edge instead
     # (`cliponaxis` above), rather than the axis growing to hold it.
     # Ranged over the whiskers and not only the dots (#175): an interval drawn past the
     # top of the frame would show a narrower claim than the dot actually carries, which
@@ -5349,6 +5333,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         gr.HTML(_provenance_html(cov, built), padding=False)
 
         demo.load(fn=None, js=theme.placeholders_js(placeholders))
+        demo.load(fn=None, js=_LANDSCAPE_NAMES_JS)
 
         # The one block that answers a click on a link to another tab (#333): a
         # name, or a link to an FAQ entry. Hidden, and in the page all the same,

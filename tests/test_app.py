@@ -1838,8 +1838,8 @@ def test_the_landscape_plots_share_against_finish_with_every_dot_named():
     assert fig.layout.xaxis.tickformat == numfmt.SHARE_TICKFORMAT
     assert list(trace.x) == [0.30, 0.06]
     assert list(trace.y) == [pytest.approx(0.55), pytest.approx(0.75)]
-    # Every dot carries its archetype name on the chart, so it reads in a screenshot
-    # rather than only under a cursor.
+    # Every dot is sent with its archetype name. The page draws the ones that fit
+    # (#337), so the chart still reads in a screenshot rather than only under a cursor.
     assert list(trace.text) == ["Grixis", "Storm"]
     assert "text" in trace.mode
 
@@ -1852,7 +1852,7 @@ def test_the_landscape_plots_share_against_finish_with_every_dot_named():
     grixis = trace.customdata[0]
     assert list(grixis) == ["Grixis", numfmt.share(0.30),
                             numfmt.count_of(30, 100, "decks"),
-                            numfmt.score(0.55, sense=False), 26, 12]
+                            numfmt.score(0.55, sense=False), 26, 12, ""]
     assert "share" in trace.hovertemplate and "finish" in trace.hovertemplate
     assert "scored" in trace.hovertemplate and "events" in trace.hovertemplate
     # The y axis already says which end is good, so the readout beside it does not.
@@ -1936,11 +1936,12 @@ def test_every_chart_that_reads_finishes_against_the_middle_draws_one_neutral_li
 
 
 def test_the_landscape_carries_a_share_range_filter_to_pull_the_crowded_end_apart():
-    # Alternating sides cleared the adjacent pairs and no more: a real year puts twenty
-    # of its twenty-five archetypes between 1% and 3% of share, which is four or five
-    # names deep in one band, and no label placement rule survives that. The reader gets
-    # the axis instead, as a range filter on share, the same control the rivalry charts
-    # give the date axis. Landscape only: it is the one chart whose x crowds.
+    # A real year puts twenty of its twenty-five archetypes between 1% and 3% of share,
+    # which is four or five names deep in one band, and no rule that only moves names
+    # about survives that (since #337 the page leaves most of that band's names to the
+    # hover). The reader gets the axis as well, as a range filter on share, the same
+    # control the rivalry charts give the date axis. Landscape only: it is the one
+    # chart whose x crowds.
     fig = _landscape_figure(_landscape_cells(
         ("grixis", 30, 0.45), ("storm", 20, 0.4), ("lands", 10, 0.55),
     ))
@@ -2014,27 +2015,32 @@ def test_the_range_filter_is_the_same_band_on_every_chart_whatever_its_height():
     assert len(heights) == 2
 
 
-def test_landscape_labels_alternate_sides_so_neighbouring_dots_do_not_overprint():
-    # 25 archetype names crowd into the low-share end of the axis and overprint each
-    # other, and the bars now own the space above every dot, so the names sit beside
-    # the rings and adjacent dots take opposite sides. Ordered by share, since that is
-    # the axis they collide along.
-    # Both parities, because the real chart draws an odd count: _LANDSCAPE_TOP_N is 25,
-    # and an earlier version forced the highest-share dot inward unconditionally, which
-    # on an odd count overwrote its alternated side and left the top two dots sharing
-    # one. An even-count test never sees it.
-    for count in (4, 5, 25):
-        cells = _landscape_cells(*(
-            (f"deck{i:02d}", 30 - i, 0.4 + i / 100) for i in range(count)
-        ))
-        sides = dict(zip([c.tag for c in cells],
-                         _landscape_figure(cells).data[0].textposition))
+def test_the_landscape_hands_the_page_every_name_and_names_no_region():
+    # Issue #337: which names are drawn is settled on the page, where a name's size
+    # and its dot's place are known (`theme.chart_names_js`, held on a real browser
+    # in tests/test_explorer_page.py). The figure sends every name, each to the
+    # right of its dot, where the page starts from. Until #337 it alternated the
+    # side along the share axis, which kept neighbours apart and nothing more; with
+    # the page placing them the alternation kept no name it does not keep without
+    # (measured over the four years at 390, 1440 and 1920px).
+    cells = _landscape_cells(*(
+        (f"deck{i:02d}", 30 - i, 0.4 + i / 100) for i in range(25)
+    ))
+    fig = _landscape_figure(cells)
+    (trace,) = fig.data
 
-        by_share = [c.tag for c in sorted(cells, key=lambda c: c.share)]
-        for left, right in zip(by_share, by_share[1:]):
-            assert sides[left] != sides[right], f"{left} and {right} overprint at n={count}"
-        # The low-share end points inward: that is where the dots crowd the frame edge.
-        assert sides[by_share[0]] == "middle right"
+    assert list(trace.text) == [cell.archetype for cell in cells]
+    assert trace.textposition == "middle right"
+    # The last field of each dot's hover is the page's: it names the archetypes
+    # whose dots this one answers the pointer for, and is empty as sent.
+    assert [row[-1] for row in trace.customdata] == [""] * 25
+    assert trace.hovertemplate.endswith("%{customdata[6]}<extra></extra>")
+    # No corner of the plot is named ("popular and winning" and so on): the caption
+    # says almost no archetype is reliably above or below the middle, so a corner
+    # called "winning" would claim more than the record does. The one line of text
+    # the figure adds is its filter's label.
+    assert [note.text for note in fig.layout.annotations] == [
+        "◀ Share range filter (drag to zoom) ▶"]
 
 
 def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line():

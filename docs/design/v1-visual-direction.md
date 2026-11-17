@@ -1315,3 +1315,42 @@ range written as two numbers. Measured on the running app over the real record a
   joined it. The chart library is 1,275.4 KB, unchanged. No text sits on a new ground:
   the contrast audit of the tab finds none below AA on main (912 text nodes) or on
   the branch (918: the two end names at three widths, in the header's own ink).
+
+## The landscape's names (#337)
+
+Decided 2026-11-17. The landscape printed a name beside each of its 25 dots, and in
+the crowd between 1.5 and 2.3% of share the names landed on each other. Measured on
+the running app over the real record at 390, 1440 and 1920px, for all four years,
+before and after. The reasoning is ADR 0013's amendment of the same date.
+
+- **Every name drawn can be read.** Names printed over each other in 8 to 21 pairs
+  a year at 390px and 2 to 11 at 1440 and 1920; now in none. At 390 the most played
+  archetype's name was cut off at the right edge in three of the four years; now it
+  is set to the left of its dot.
+- **The most played keep their names.** Names are placed most played first. One is
+  drawn where it fits inside the plot without touching a name already placed or
+  another archetype's dot, to the right of its own dot, or to the left where the
+  right is taken. At 390 that is 9, 7, 9 and 15 names for 2026 to 2023; at 1440 and
+  1920 it is 18, 18, 21 and 24, of 25 dots (24 in 2023).
+- **A name never sits on another archetype's dot.** The name is in the muted ink
+  and the ring in the series colour, and a name with a ring through it reads as
+  neither's. At 1440 the rule costs nothing: allowing a name over a dot draws 20, 20,
+  19 and 23, and leaves out the 7th most played in 2026, where the rule's first name
+  left out is the 11th. At 390 it costs: allowing it draws 16, 11, 14 and 17, and
+  with the rule the most played archetype left without a name is the 5th, 3rd, 2nd
+  and 6th for 2026 to 2023. The range filter is the way back to those.
+- **The rest are on hover, all of them.** Every dot gives its name under the
+  pointer, or under a finger on a phone, as before. Where one dot answers the
+  pointer in another's place (the
+  chart library answers for the smaller of two that overlap), its box names both:
+  "Boros Moonshine · share ... · also on this spot: Grixis". In 2024 the Grixis dot
+  answered for itself on a rim half a pixel wide and nowhere else, at every width.
+- **The range filter gives names back.** Dragging the crowded end open makes room,
+  and the names that now fit are drawn.
+- **No region of the plot is named.**
+- **Share, finish and the bars are as they were.** No query changed and no build
+  input was touched.
+- **What it costs.** The page as transferred is 238.3 KB, from 237.0 KB (238,318
+  bytes, from 236,989): the page script. The chart library is 1,275.4 KB, unchanged.
+  No text sits on a new ground, so the contrast audit was not rerun: the names are
+  the same ink on the same plot, fewer of them.
