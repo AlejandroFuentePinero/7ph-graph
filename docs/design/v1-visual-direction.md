@@ -1479,6 +1479,28 @@ the same date, and the wording rule is `CONTEXT.md`'s "On record".
   record and oldest first: an ordered quantity, so steps of one hue and not four
   categorical hues (§5). A part's number is set in the main ink or the ground,
   whichever reads better on its step: 4.85 to 1 at the least over the four.
+- **Any other number of years is stepped from the orange** (#363, 2026-11-18). The
+  oldest year keeps the deep stop, and the later years are spread evenly from the
+  pilot orange to the pale end, along the line through the third stop. Four years
+  are still the four stops, so the page as approved did not change, and a record of
+  two years would take the deep stop and the orange. No step is read off between
+  the deep stop and the orange, because a shade there is too light for the main ink
+  and too dark for the ground. Stepped evenly over the whole ramp, as it was first
+  built, one step fell there and its count was under 4.5 to 1 in the better of the
+  two inks: `#ca5121` at 4.22 with five years on record (white would be 4.46),
+  `#c14d1e` at 4.15 with six (4.83), `#ba4a1c` at 4.42 with seven (5.14) and
+  `#d05523` at 4.49 with eight (4.20). So neither of the page's inks read on it,
+  and a third ink was no answer: white clears the floor at six and seven and not at
+  five or eight. Stepped from the orange, the least for every number of years from
+  two to eight is the orange's own 4.85 to 1, and a test reads each part's hue and
+  ink off the page and holds them to 4.5. What it costs: the later years share the
+  orange-to-pale stretch, so neighbouring steps sit closer the more years there
+  are. The closest pair is 1.52 to 1 apart with four years, 1.32 with five, 1.23
+  with six, 1.18 with seven and 1.15 with eight. The parts are still set 2px apart
+  and named in the key, oldest first. Rendered on the real record with a made-up
+  fifth year, at 390 and 1440px: the contrast audit read 108 and 124 text nodes and
+  none was below AA, where the same audit over the ramp as first built found the
+  count on `#ca5121` at 4.22.
 - **The header is one row from 1240px up**, and a phone's tabs sit closer. The
   eighth tab is 104px of strip (§11's note has both measurements).
 - **What it costs.** The page as transferred is 248.2 KB, from 238.6 KB (248,219
