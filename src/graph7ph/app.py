@@ -34,7 +34,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
-from graph7ph import community, numfmt, palette, parts, theme
+from graph7ph import community, numfmt, palette, parts, prototype_334, theme  # PROTOTYPE #334
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.figures import figures_path
@@ -4284,14 +4284,22 @@ def build_app(artifact: Path) -> gr.Blocks:
         share, raised = _CUTS[cut_label]
         tags = latest_year_share_cut(trend_series, share)
         # Title is the plot type only (§14); the cut is a filter and rides the caption.
+        today = _chart_heading("Meta share over time", f"{cut_label} of {latest_year} decks")
+        # PROTOTYPE #334: the head holds each variant's own, and the list of variant a.
+        hues = palette.disambiguate(palette.extended(trend_universe), tags)
         return (
-            _chart_heading("Meta share over time", f"{cut_label} of {latest_year} decks"),
-            # Measured a no-op at all three cuts, since a cut is already a prefix of the
-            # universe: passing it says so, rather than leaving that invariant to hold
-            # the colours up by accident.
+            f"<div class='p334-today'>{today}</div>"
+            f"<div class='p334-a'>"
+            f"{prototype_334.ranked_list(trend_series, tags, share, latest_year, pages)}</div>"
+            f"<div class='p334-b'>"
+            f"{prototype_334.restyled_head(len(tags), share, latest_year)}</div>",
             _trend_figure(
                 trend_series, tags, start_raised=raised, universe=trend_universe,
             ),
+            prototype_334.restyled_figure(_trend_figure(
+                trend_series, tags, start_raised=raised, universe=trend_universe,
+            )),
+            prototype_334.chips(trend_series, tags, hues, raised),
         )
 
     # Every year the graph holds, newest first: the landscape's year selector's
@@ -4456,10 +4464,15 @@ def build_app(artifact: Path) -> gr.Blocks:
         # nothing is focused (§12).
         tags = list(dict.fromkeys(manual_tags or []))
         if not tags:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+            return (gr.update(visible=False), gr.update(visible=False),
+                    gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+        # PROTOTYPE #334: the focus chart in today's form and in variant b's.
+        hues = palette.disambiguate(palette.extended(trend_universe), tags)
         return (
             gr.update(visible=True),
-            gr.update(value=_chart_heading("Selected archetypes"), visible=True),
+            gr.update(value=f"<div class='p334-today'>{_chart_heading('Selected archetypes')}</div>"
+                            f"<div class='p334-b'>{prototype_334.picked_head()}</div>",
+                      visible=True),
             # Hand-picked, so every pick opens raised rather than the cut's leading
             # few: the reader has already said which lines they want, and opening any
             # of them faded would ask them to choose the same archetypes twice. The
@@ -4467,6 +4480,11 @@ def build_app(artifact: Path) -> gr.Blocks:
             # colour still when a chip in the middle of the list is removed.
             gr.update(value=_trend_figure(trend_series, tags, start_raised=len(tags),
                                           universe=trend_universe),
+                      visible=True),
+            gr.update(value=prototype_334.restyled_figure(_trend_figure(
+                trend_series, tags, start_raised=len(tags), universe=trend_universe)),
+                      visible=True),
+            gr.update(value=prototype_334.chips(trend_series, tags, hues, len(tags)),
                       visible=True),
         )
 
@@ -4709,17 +4727,22 @@ def build_app(artifact: Path) -> gr.Blocks:
                     label="Or focus on specific archetypes",
                 )
             # The cut chart in its own insight card, open on the default cut.
-            _cut_heading, _cut_fig = draw_cut(_DEFAULT_CUT)
+            # PROTOTYPE #334: today's chart, variant b's, and b's legend under it.
+            _cut_heading, _cut_fig, _cut_fig_b, _cut_chips = draw_cut(_DEFAULT_CUT)
             with gr.Group(elem_classes="insight-card", elem_id="meta-cut-result"):
                 cut_heading = gr.HTML(value=_cut_heading, padding=False)
-                cut_plot = gr.Plot(value=_cut_fig)
+                cut_plot = gr.Plot(value=_cut_fig, elem_classes="p334-plot-today")
+                cut_plot_b = gr.Plot(value=_cut_fig_b, elem_classes="p334-plot-b")
+                cut_chips = gr.HTML(value=_cut_chips, padding=False, elem_classes="p334-b")
             # The focused-archetypes chart in its own card, the whole card hidden until
             # a pick is made so the view opens on the cut chart alone (no empty card).
             with gr.Group(
                 elem_classes="insight-card", elem_id="meta-focus-result", visible=False,
             ) as manual_card:
                 manual_heading = gr.HTML(visible=False, padding=False)
-                manual_plot = gr.Plot(visible=False)
+                manual_plot = gr.Plot(visible=False, elem_classes="p334-plot-today")
+                manual_plot_b = gr.Plot(visible=False, elem_classes="p334-plot-b")
+                manual_chips = gr.HTML(visible=False, padding=False, elem_classes="p334-b")
 
             # The year governs the landscape alone, so it sits beside it (#332): in a
             # panel of its own directly over the landscape's card, under the share
@@ -4749,11 +4772,12 @@ def build_app(artifact: Path) -> gr.Blocks:
             # chart lands under the cut chart, most of a screen below the control
             # that asked for it.
             cut.change(
-                draw_cut, inputs=cut, outputs=[cut_heading, cut_plot],
+                draw_cut, inputs=cut, outputs=[cut_heading, cut_plot, cut_plot_b, cut_chips],
             ).then(fn=None, js=theme.into_view_js("meta-cut-result"))
             manual.change(
                 draw_manual, inputs=manual,
-                outputs=[manual_card, manual_heading, manual_plot],
+                outputs=[manual_card, manual_heading, manual_plot, manual_plot_b,
+                         manual_chips],
             ).then(fn=None, js=theme.into_view_js("meta-focus-result"))
             # The year's query shows the running state first and then fills (§8).
             # Chained with `.then`, which unlike `.success` runs whether the query
