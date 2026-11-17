@@ -5,6 +5,7 @@ import re
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
+from html.parser import HTMLParser
 from typing import NamedTuple
 
 import pytest
@@ -212,8 +213,10 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     # Every box is tagged with its category, and every category is one the stylesheet
     # tints: a tag named here and nowhere in `theme.FAQ_TAGS` would render untinted.
+    # The index names each tag once more, over its group (#338), and is not a box.
     tags = [b.value for b in demo.blocks.values()
-            if isinstance(b, gr.HTML) and "faq-tag" in (b.value or "")]
+            if isinstance(b, gr.HTML) and "faq-tag" in (b.value or "")
+            and "faq-index" not in (b.elem_classes or [])]
     assert len(tags) == len(_FAQ_ENTRIES)
     for category in {cat for _, cat, _, _ in _FAQ_ENTRIES}:
         assert category in theme.FAQ_TAGS
@@ -229,6 +232,58 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
                    "Player leaderboard", "Finishes over time", "Usage", "Co-occurrence",
                    "Archetype affinity"):
         assert metric in body, metric
+
+
+class _FaqIndex(HTMLParser):
+    """The FAQ's index as a reader meets it: each link's group, target and text."""
+
+    def __init__(self):
+        super().__init__()
+        self.links: list[tuple[str, str, str]] = []
+        self._group = self._into = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = (attrs.get("class") or "").split()
+        if "faq-tag" in classes:
+            self._into = "group"
+        elif tag == "a" and "faq-up" in classes:
+            self.back = attrs["href"]
+        elif tag == "a":
+            self._into = "link"
+            self.links.append((self._group, attrs["href"], ""))
+
+    def handle_data(self, data):
+        if self._into == "group":
+            self._group = data
+        elif self._into == "link":
+            group, href, text = self.links[-1]
+            self.links[-1] = (group, href, text + data)
+
+    def handle_endtag(self, tag):
+        self._into = None
+
+
+def test_the_faq_leads_with_an_index_of_every_question_under_its_tag(tmp_path, snapshot_dir):
+    # Issue #338: 21 questions down one column gave no way to find one. The tab
+    # carries a list of them, each a link to its own box, grouped under the tags
+    # the boxes already wear and in the order the boxes run down the page.
+    import gradio as gr
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    (block,) = [b for b in _tab_blocks(demo, "FAQ")
+                if isinstance(b, gr.HTML) and "faq-index" in (b.elem_classes or [])]
+    index = block.value
+    read = _FaqIndex()
+    read.feed(index)
+
+    assert read.links == [(cat, f"#{eid}", q) for eid, cat, q, _ in _FAQ_ENTRIES]
+    assert list(dict.fromkeys(group for group, _, _ in read.links)) == [
+        "Metric", "Archetypes", "Pilots", "Cards"]
+    # A group is named once, over its questions, not on every line.
+    assert index.count("faq-tag-") == 4
+    # And the way back to the list is a link to the list's own block.
+    assert read.back == f"#{block.elem_id}"
 
 
 def _built_demo(tmp_path, snapshot_dir):

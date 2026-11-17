@@ -96,8 +96,9 @@ def test_every_prose_role_takes_the_reading_measure_and_the_faq_is_the_exception
         css,
     )
     # And no bound has crept back onto the card or a grid onto its container, either of
-    # which would quietly undo the layout that was asked for.
-    assert not re.search(r"\.faq-card\s*\{", css)
+    # which would quietly undo the layout that was asked for. The card's one rule of
+    # its own is where a jump to it stops (#338), which bounds nothing.
+    assert not re.search(r"\.faq-card\s*\{[^}]*width", css)
     assert ".faq-grid" not in css
 
 

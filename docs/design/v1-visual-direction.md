@@ -183,6 +183,20 @@ so it reads as the heading of the answer, not another control label.
   1,856px wide and the longest FAQ paragraph averaged 273 characters a line; it is
   1,216px and 176 at every width from 1440 up. The FAQ's own layout is unchanged: one
   box per row, the answer filling its box._
+  _Amended 2026-11-18 (#338): a third layout was prototyped and turned down at the
+  maintainer's call, and the exception stands. The questions were listed down the
+  left as links, fixed in view, with the answers down the right in boxes as wide as
+  the measure. That is the third attempt to bring the answers onto the measure and
+  the third reverted: the narrow boxes made the page half as long again (7,648px to
+  11,901px at 1440) and the scrolling itself awkward, where the full-width boxes are
+  easy to read. What was kept from it is the way to a question. The tab opens on its
+  questions as a list of links grouped by tag, over the boxes, at every width: three
+  columns on a desktop (278px) and one on a phone (840px). Once the list has scrolled
+  out of view a button, "All questions", stays in the bottom right corner of the
+  column and brings the tab back to its top. This reverses the removal of the
+  contents list, which had gone as a page of links to what the reader could already
+  see: at 21 boxes over several screens the reader cannot see them. A box brought
+  into view by any link to it stops 16px short of the window's edge._
 - **Figures**: `font-variant-numeric: tabular-nums` (Hanken Grotesk carries tabular
   figures) only where digits align in a column (axis ticks, table rows). Standalone
   large numbers (coverage stats, hero) use proportional figures, since tabular makes

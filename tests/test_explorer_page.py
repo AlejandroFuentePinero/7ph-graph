@@ -30,6 +30,7 @@ import pytest
 
 from graph7ph import community, palette
 from graph7ph.app import (
+    _FAQ_ENTRIES,
     _FIT_EVENTS_JS,
     _LANDSCAPE_NAMES_JS,
     _archetype_timeline_figure,
@@ -882,6 +883,97 @@ def test_the_privacy_line_is_one_line_whose_link_opens_the_note_in_full(page, ta
     assert 0 <= note.bounding_box()["y"] < page.viewport_size["height"] / 2
     # And the address is as it was, since nothing here is reached by one.
     assert page.evaluate("() => location.hash") == ""
+
+
+# The FAQ's list of questions and its boxes as the browser laid them out (issue
+# #338): the list's own box and the text of each link in it, each answer box in
+# turn, the tab's own edges, how many columns the list is set in, how far the page
+# has scrolled, and the button back to the list where it is on show.
+_FAQ_LAYOUT = "() => { const open = " + _OPEN_TAB + """;
+    const rect = el => { const box = el.getBoundingClientRect();
+      return {left: box.left, right: box.right, top: box.top, bottom: box.bottom}; };
+    const list = open.querySelector('.faq-index nav');
+    const back = open.querySelector('.faq-index a.faq-up');
+    return {list: rect(list), tab: rect(open), scrolled: window.scrollY,
+            links: [...list.querySelectorAll('a')].map(a => a.innerText),
+            columns: new Set([...list.querySelectorAll('a')]
+              .map(a => Math.round(a.getBoundingClientRect().left))).size,
+            boxes: [...open.querySelectorAll('.faq-card')]
+              .filter(box => box.parentElement.closest('.faq-card') === null)
+              .map(rect),
+            back: back.getBoundingClientRect().height > 0 ? rect(back) : null}; }"""
+
+
+@pytest.mark.parametrize("width, columns", [("phone", 1), ("desktop", 3), ("wide", 3)])
+def test_the_faq_opens_on_a_list_of_its_questions_over_full_width_boxes(
+    chromium, explorer, width, columns
+):
+    # Issue #338: 21 boxes down one column, several screens of them, and no way to
+    # find a question. The tab opens on the questions as a list, over the boxes,
+    # which are laid out as they were: one to a row, each the width of the tab.
+    # A list beside narrow boxes was tried first and turned down on 2026-11-18,
+    # for what it did to the reading.
+    page = _loaded(chromium, explorer, width, on="FAQ")
+    try:
+        laid = page.evaluate(_FAQ_LAYOUT)
+    finally:
+        page.close()
+
+    assert laid["links"] == [q for _, _, q, _ in _FAQ_ENTRIES]
+    # Side by side where there is room, so the list is a short block over the first
+    # answer and not a screen of its own.
+    assert laid["columns"] == columns
+    boxes = laid["boxes"]
+    assert len(boxes) == len(_FAQ_ENTRIES)
+    assert 0 < laid["list"]["top"] < laid["list"]["bottom"] <= boxes[0]["top"]
+    for box in boxes:
+        assert (box["left"], box["right"]) == (laid["tab"]["left"], laid["tab"]["right"])
+    assert all(above["bottom"] <= below["top"] for above, below in zip(boxes, boxes[1:]))
+    # With the list on screen there is nothing to go back to.
+    assert laid["back"] is None
+
+
+# The first question is the one whose box sits right under the list, so a jump to it
+# leaves the list only just out of view: at 1100px wide its foot came to rest within
+# half a pixel of the window's edge, still counted as on screen, and no button showed.
+@pytest.mark.parametrize("window, entry", [
+    (shots.VIEWPORTS["phone"], "faq-race"),
+    (shots.VIEWPORTS["desktop"], "faq-race"),
+    ({"viewport": {"width": 1100, "height": 800}}, "faq-finish"),
+], ids=["phone", "desktop", "the first question"])
+def test_a_question_opens_its_answer_and_a_button_goes_back_to_the_list(
+    chromium, explorer, window, entry
+):
+    # Issue #338: the list is the way to a question, so a click on one puts its box
+    # on screen. From there the list is screens away, so a button stays in the
+    # corner of the window for as long as the list is out of view, and brings the
+    # tab back to its top.
+    page = chromium.new_page(**window)
+    window = page.viewport_size
+    try:
+        page.goto(explorer, wait_until="networkidle")
+        shots.tab(page, "FAQ")
+        address = _marked(page)
+        page.locator(f".faq-index a[href='#{entry}']").click()
+        # The page moves on the frame after the click.
+        page.locator(".faq-index a.faq-up").wait_for()
+        _assert_in_view_on_the_faq(page, entry, address)
+        away = page.evaluate(_FAQ_LAYOUT)
+
+        page.locator(".faq-index a.faq-up").click()
+        page.locator(".faq-index a.faq-up").wait_for(state="hidden")
+        back = page.evaluate(_FAQ_LAYOUT)
+        _assert_same_document(page, address)
+    finally:
+        page.close()
+
+    # At the foot of the window, whole, its edge on the edge of the boxes.
+    button = away["back"]
+    assert button["right"] == pytest.approx(away["boxes"][0]["right"], abs=1)
+    assert window["height"] / 2 < button["top"] < button["bottom"] <= window["height"]
+    # The tab as it opened, with the button gone.
+    assert back["scrolled"] == 0
+    assert back["back"] is None
 
 
 def test_a_phone_gets_tabs_a_finger_can_hit_and_a_chart_with_room(chromium, explorer):
