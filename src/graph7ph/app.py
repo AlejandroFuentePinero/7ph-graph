@@ -34,7 +34,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
-from graph7ph import community, numfmt, palette, parts, theme
+from graph7ph import community, numfmt, palette, parts, prototype_335, theme  # PROTOTYPE #335
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.figures import figures_path
@@ -4316,7 +4316,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # hide, and the panel above is the whole surface, as on Cards and Pilots.
         hide = gr.update(visible=False)
         if not a:
-            return (hide, hide, *[gr.update()] * 5)
+            return (hide, hide, *[gr.update()] * 7)  # PROTOTYPE #335: two more plots
         # A second archetype equal to the first is that archetype alone, as the
         # adoption chart's second card is, rather than one line drawn twice.
         second = b if b and b != a else None
@@ -4336,19 +4336,30 @@ def build_app(artifact: Path) -> gr.Blocks:
             met = ("were never both placed at the same event" if not e.found
                    else f"were both placed at only {e.found} event"
                         + ("s" if e.found > 1 else ""))
-            finishes_card = (hide, hide, gr.update(
+            finishes_card = (hide, hide, hide, hide, gr.update(
                 value=f"{name} and {name_b} {met}, so there is no run to compare.",
                 visible=True))
         else:
+            # PROTOTYPE #335: today's chart, and the pair's two variants. Alone, both
+            # variants carry the single timeline's direct change.
+            p335 = prototype_335
+            caption = _archetype_timeline_caption(name, name_b, finishes)
+            today = _chart_heading("Finishes over time", caption_html=caption)
+            if name_b is None:
+                fig_a = fig_b = p335.solo_figure(name, finishes)
+                head_a = today
+            else:
+                fig_a = p335.gap_figure(name, name_b, finishes, p335.archetype_readout)
+                fig_b = p335.spaced_figure(
+                    name, name_b, finishes, p335.archetype_readout, "Archetype")
+                head_a = _chart_heading(
+                    "Finishes over time", caption_html=p335.gap_caption(caption))
             finishes_card = (
-                gr.update(
-                    value=_chart_heading(
-                        "Finishes over time",
-                        caption_html=_archetype_timeline_caption(name, name_b, finishes)),
-                    visible=True,
-                ),
+                gr.update(value=p335.three(today, head_a, today), visible=True),
                 gr.update(value=_archetype_timeline_figure(name, name_b, finishes),
                           visible=True),
+                gr.update(value=fig_a, visible=True),
+                gr.update(value=fig_b, visible=True),
                 hide,
             )
         drawn = [a, second] if second else [a]
@@ -4449,7 +4460,7 @@ def build_app(artifact: Path) -> gr.Blocks:
         # empty on.
         if not a or not b or a == b:
             hide = gr.update(visible=False)
-            return hide, hide, hide
+            return hide, hide, hide, hide, hide  # PROTOTYPE #335: two more plots
         try:
             series = run_series(ladybug.Connection(db), HeadToHeadTimeline(a, b))
         except NotEnoughHistory as e:
@@ -4464,7 +4475,8 @@ def build_app(artifact: Path) -> gr.Blocks:
             )
             # One short line in the app's voice (#114, §14): what happened, from the
             # shared-event count itself, with no methodology-restating tail.
-            return gr.update(visible=False), gr.update(visible=False), gr.update(
+            hide = gr.update(visible=False)  # PROTOTYPE #335: two more plots
+            return hide, hide, hide, hide, gr.update(
                 value=f"{pilot_labels[a]} and {pilot_labels[b]} {met}.",
                 visible=True,
             )
@@ -4473,14 +4485,20 @@ def build_app(artifact: Path) -> gr.Blocks:
         # (a vs b) is named in the subject line above the cards (§14), so the card title
         # is the plot type alone.
         fig = _head_to_head_figure(pilot_labels[a], pilot_labels[b], series)
+        # PROTOTYPE #335: today's chart and the pair's two variants.
+        p335 = prototype_335
+        caption = _head_to_head_caption(series)
+        today = _chart_heading("Head-to-head timeline", caption_html=caption)
+        head_a = _chart_heading(
+            "Head-to-head timeline", caption_html=p335.gap_caption(caption))
         return (
-            gr.update(
-                value=_chart_heading(
-                    "Head-to-head timeline",
-                    caption_html=_head_to_head_caption(series)),
-                visible=True,
-            ),
+            gr.update(value=p335.three(today, head_a, today), visible=True),
             gr.update(value=fig, visible=True),
+            gr.update(value=p335.gap_figure(
+                pilot_labels[a], pilot_labels[b], series, p335.pilot_readout), visible=True),
+            gr.update(value=p335.spaced_figure(
+                pilot_labels[a], pilot_labels[b], series, p335.pilot_readout, "Pilot"),
+                visible=True),
             gr.update(visible=False),
         )
 
@@ -4672,7 +4690,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                     with gr.Group(elem_classes="insight-card"):
                         timeline_heading = gr.HTML(visible=False, padding=False)
                         timeline_note = gr.Markdown(visible=False)
-                        timeline_plot = gr.Plot(visible=False)
+                        # PROTOTYPE #335: today's chart and the two variants.
+                        timeline_plot = gr.Plot(visible=False, elem_classes="p335-plot-today")
+                        timeline_plot_a = gr.Plot(visible=False, elem_classes="p335-plot-a")
+                        timeline_plot_b = gr.Plot(visible=False, elem_classes="p335-plot-b")
 
             def archetypes_drawing(a):
                 # The step ahead of every draw, as on Cards: the running line where
@@ -4694,7 +4715,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                         draw_archetype_page, inputs=[timeline_a, timeline_b],
                         outputs=[archetype_head, archetype_results,
                                  share_heading, share_plot,
-                                 timeline_heading, timeline_plot, timeline_note],
+                                 timeline_heading, timeline_plot, timeline_plot_a,
+                                 timeline_plot_b, timeline_note],  # PROTOTYPE #335
                     )
                     .then(lambda: gr.update(visible=False), outputs=archetypes_running)
                     .then(fn=None, js=theme.into_view_js("archetype-page"))
@@ -5029,7 +5051,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                     with gr.Group(elem_classes="insight-card", visible=False) as h2h_plot_card:
                         h2h_heading = gr.HTML(visible=False, padding=False)
                         h2h_note = gr.Markdown(visible=False)
-                        h2h_plot = gr.Plot(visible=False)
+                        # PROTOTYPE #335: today's chart and the two variants.
+                        h2h_plot = gr.Plot(visible=False, elem_classes="p335-plot-today")
+                        h2h_plot_a = gr.Plot(visible=False, elem_classes="p335-plot-a")
+                        h2h_plot_b = gr.Plot(visible=False, elem_classes="p335-plot-b")
 
             def draw_pilot_overview(p: str):
                 # One pick fans out to all the page's parts: two subgraph queries, a
@@ -5146,7 +5171,8 @@ def build_app(artifact: Path) -> gr.Blocks:
             _draw_with_progress(
                 h2h_go, draw_head_to_head_view, inputs=[pilot, h2h_pilot_b],
                 outputs=[h2h_subject, h2h_results, h2h_nb_out,
-                         h2h_heading, h2h_plot, h2h_note, h2h_plot_card],
+                         h2h_heading, h2h_plot, h2h_plot_a, h2h_plot_b,  # PROTOTYPE #335
+                         h2h_note, h2h_plot_card],
             ).then(fn=None, js=theme.into_view_js("pilot-head-to-head"))
 
         # The race sits after Pilots and asks the question that tab cannot: not how one
