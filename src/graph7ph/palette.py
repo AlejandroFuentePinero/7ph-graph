@@ -44,13 +44,18 @@ FIRST_PLAYED: tuple[str, ...] = ("#9c3a12", CATEGORICAL[1], "#ee8f5f", "#f6c3a3"
 
 
 def first_played(years: int) -> list[str]:
-    """``years`` colours along :data:`FIRST_PLAYED`, oldest first, its two ends
-    included. Four take the four stops as they are; any other number is read off
-    the line through them."""
-    stops = [[int(stop[i:i + 2], 16) for i in (1, 3, 5)] for stop in FIRST_PLAYED]
-    colours = []
-    for step in range(years):
-        at = step * (len(stops) - 1) / max(years - 1, 1)
+    """``years`` colours along :data:`FIRST_PLAYED`, oldest first. The oldest takes
+    the deep stop as it is, and the later years are spread from the pilot orange to
+    the pale end along the line through the stops, so four take the four stops
+    (and two, the deep stop and the orange).
+
+    No step is read off between the deep stop and the orange: a shade there is too
+    light for the page's light ink and too dark for its dark one (issue #363)."""
+    deep, *later = FIRST_PLAYED
+    stops = [[int(stop[i:i + 2], 16) for i in (1, 3, 5)] for stop in later]
+    colours = [deep]
+    for step in range(years - 1):
+        at = step * (len(stops) - 1) / max(years - 2, 1)
         low = min(int(at), len(stops) - 2)
         mix = [round(a + (b - a) * (at - low)) for a, b in zip(stops[low], stops[low + 1])]
         colours.append("#{:02x}{:02x}{:02x}".format(*mix))

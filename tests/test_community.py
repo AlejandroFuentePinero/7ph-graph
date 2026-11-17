@@ -5,7 +5,7 @@ import html
 import json
 import re
 
-from graph7ph import community
+from graph7ph import community, theme
 
 # A record of six events over three years, one of them a major, in the shape a
 # build writes it (``figures._community``). The counts are not one corpus's: the
@@ -172,16 +172,34 @@ def test_a_share_is_written_as_every_share_in_the_app_is():
     assert "first played in 2024 · 12.5% of 2025" in html.unescape(community.page(record))
 
 
-def _part_hues(record: dict) -> list[str]:
-    """The hue of each part of the newest year's bar, oldest first-played year first."""
+def _parts(record: dict) -> list[tuple[str, str]]:
+    """Each part of the newest year's bar, oldest first-played year first: the hue
+    it is filled with and the ink its count is set in, as the page names them."""
     newest = community.page(record).rsplit("class='cm-row'", 1)[1]
-    return re.findall(r"class='cm-seg'[^>]*--k:(#[0-9a-f]{6})", newest)
+    return re.findall(r"class='cm-seg'[^>]*--k:(#[0-9a-f]{6});color:var\(--(\w+)\)", newest)
+
+
+def _part_hues(record: dict) -> list[str]:
+    return [hue for hue, _ in _parts(record)]
+
+
+def _years_on_record(count: int) -> dict:
+    """``RECORD`` with ``count`` years on record up to its newest, and one bar: the
+    newest year's, holding a part for each of them."""
+    newest = RECORD["years"][-1]
+    years = list(range(newest - count + 1, newest + 1))
+    return RECORD | {
+        "years": years,
+        "pilots_by_year": [{"year": newest, "pilots": 10 * count,
+                            "first_played": {str(year): 10 for year in years}}],
+    }
 
 
 def test_the_parts_of_a_bar_step_from_deep_to_pale_oldest_first():
     # The first-played ramp (the design doc's "The Community page"): four years on
-    # record take its four stops as they are, the pilot orange second. Any other
-    # number of years keeps the two ends and steps evenly between.
+    # record take its four stops as they are, the pilot orange second. For any
+    # other number the oldest year keeps the deep stop and the later years are
+    # spread from the orange to the pale end, through the third stop (issue #363).
     four = RECORD | {
         "years": [2023, 2024, 2025, 2026],
         "pilots_by_year": [{"year": 2026, "pilots": 10, "first_played": {
@@ -189,8 +207,29 @@ def test_the_parts_of_a_bar_step_from_deep_to_pale_oldest_first():
     }
 
     assert _part_hues(four) == ["#9c3a12", "#d95926", "#ee8f5f", "#f6c3a3"]
-    three = _part_hues(RECORD)
-    assert (three[0], three[-1]) == ("#9c3a12", "#f6c3a3") and len(three) == 3
+    assert _part_hues(RECORD) == ["#9c3a12", "#d95926", "#f6c3a3"]
+    # Six years: five from orange to pale, so the third of them is the third stop.
+    six = _part_hues(_years_on_record(6))
+    assert (six[0], six[1], six[3], six[5]) == ("#9c3a12", "#d95926", "#ee8f5f", "#f6c3a3")
+    # Two years: the one later year starts the spread, so it is the orange.
+    assert _part_hues(_years_on_record(2)) == ["#9c3a12", "#d95926"]
+
+
+def test_the_count_on_every_part_is_legible_however_many_years_are_on_record():
+    # WCAG AA for text the size of a part's count is 4.5 to 1. Both colours are
+    # read off the page: the hue the part is filled with and the ink its count is
+    # set in. With five to eight years the ramp used to hold one step between the
+    # deep stop and the pilot orange, too light for the light ink and too dark for
+    # the dark one (issue #363).
+    floor = 4.5
+    below = []
+    for count in range(2, 9):
+        parts = _parts(_years_on_record(count))
+        assert len(parts) == count
+        below += [(count, hue, ink) for hue, ink in parts
+                  if theme.contrast_ratio(theme.TOKENS[ink], hue) < floor]
+
+    assert below == []
 
 
 def _whole_words(names, text: str) -> list[str]:
