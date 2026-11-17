@@ -22,14 +22,16 @@ import re
 from contextlib import contextmanager
 from pathlib import Path
 
+import gradio as gr
 import pytest
 
-from graph7ph.app import build_app, launch_kwargs
+from graph7ph.app import _LANDSCAPE_NAMES_JS, _landscape_figure, build_app, launch_kwargs
 from graph7ph.build import build_graph
 from graph7ph.db import artifact_path, database_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
 from graph7ph.theme import FONTS, HEADER_ONE_ROW_PX, TOKENS, contrast_ratio
+from graph7ph.trends import LandscapeCell
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -2410,3 +2412,311 @@ def test_an_archetype_in_a_pilots_record_opens_its_page_on_the_real_record(
             "#archetype-page .page-descriptor").locator("visible=true").inner_text()
     finally:
         page.close()
+
+
+# The landscape's names (#337). Plotly prints a name beside every dot and has no way
+# to keep two of them apart, so the page decides which are drawn. What a reader gets
+# is a matter of pixels (how wide a name is set, where its dot lands at this width),
+# so it is read off the rendered chart: each name's box, each dot's, and the chart's
+# own frame.
+_LANDSCAPE_NAMES = """() => {
+  const chart = document.querySelector('#landscape-result .js-plotly-plot');
+  const main = selector => [...chart.querySelectorAll(selector)]
+    .filter(el => !el.closest('.rangeslider-container'));
+  const box = el => { const b = el.getBoundingClientRect();
+    return {left: b.left, right: b.right, top: b.top, bottom: b.bottom}; };
+  const shown = el => { const style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden'; };
+  const frame = box(chart);
+  frame.right = Math.min(frame.right, document.documentElement.clientWidth);
+  return {
+    frame,
+    names: main('.scatterlayer .textpoint text').map(text => (
+      {name: text.textContent, drawn: shown(text) && shown(text.parentElement),
+       box: box(text)})),
+    dots: main('.scatterlayer .points path.point').filter(shown).map(box),
+  };
+}"""
+
+
+def _crowd(*rows: tuple) -> list[LandscapeCell]:
+    """Landscape cells from ``(name, decks of a thousand, finish[, events])``, with a
+    bar a tenth either side. A dot is sized by its events, eight unless a row says."""
+    return [
+        LandscapeCell(tag=name.lower(), archetype=name, year=2026, n=decks,
+                      share=decks / 1000, year_total=1000, year_events=10,
+                      mean_norm=1 - finish, events=events[0] if events else 8,
+                      scored=decks, mean_low=1 - finish - 0.1,
+                      mean_high=1 - finish + 0.1)
+        for name, decks, finish, *events in rows
+    ]
+
+
+@contextmanager
+def _landscape_of(chromium, cells: list[LandscapeCell], width: str = "desktop"):
+    """A page holding the landscape of ``cells`` in the card the app draws it in,
+    with the page script the app loads, at one of the three widths."""
+    with gr.Blocks() as demo:
+        with gr.Group(elem_classes="insight-card", elem_id="landscape-result"):
+            gr.Plot(value=_landscape_figure(cells))
+        demo.load(fn=None, js=_LANDSCAPE_NAMES_JS)
+    _, url, _ = demo.launch(prevent_thread_lock=True, **launch_kwargs())
+    tab = chromium.new_page(**shots.VIEWPORTS[width])
+    try:
+        tab.goto(url, wait_until="networkidle")
+        tab.locator("#landscape-result .scatterlayer .textpoint").first.wait_for(
+            state="attached", timeout=30_000)
+        tab.wait_for_timeout(1000)
+        yield tab
+    finally:
+        tab.close()
+        demo.close()
+
+
+def _overlap(a: dict, b: dict) -> bool:
+    return (a["left"] < b["right"] and b["left"] < a["right"]
+            and a["top"] < b["bottom"] and b["top"] < a["bottom"])
+
+
+def _drawn(read: dict) -> list[str]:
+    return [name["name"] for name in read["names"] if name["drawn"]]
+
+
+def _assert_every_drawn_name_is_legible(read: dict, where: str = "") -> None:
+    """No drawn name runs past the chart, into another name, or over a dot that is
+    not its own. A name sits beside its own dot, so no dot's box reaches it."""
+    drawn = [name for name in read["names"] if name["drawn"]]
+    frame = read["frame"]
+    cut = [name["name"] for name in drawn
+           if name["box"]["left"] < frame["left"] or name["box"]["right"] > frame["right"]
+           or name["box"]["top"] < frame["top"] or name["box"]["bottom"] > frame["bottom"]]
+    assert not cut, f"{where}: cut off at the chart's edge: {cut}"
+    stacked = [(a["name"], b["name"]) for i, a in enumerate(drawn) for b in drawn[i + 1:]
+               if _overlap(a["box"], b["box"])]
+    assert not stacked, f"{where}: printed over each other: {stacked}"
+    on_a_dot = [name["name"] for name in drawn
+                if any(_overlap(name["box"], dot) for dot in read["dots"])]
+    assert not on_a_dot, f"{where}: printed over another archetype's dot: {on_a_dot}"
+
+
+def test_a_name_that_would_run_off_the_plot_is_set_on_the_other_side_of_its_dot(chromium):
+    # Issue #337: at 390px the most played archetype of 2026 sits against the right
+    # edge and its name, set to the right of its dot, was cut off there. The dot at
+    # the edge is the most played one by construction, so it is the last name a
+    # reader should lose: it moves to the left of its dot.
+    cells = _crowd(("Grixis Control", 300, 0.55), ("Lands", 100, 0.45), ("Storm", 50, 0.6))
+    with _landscape_of(chromium, cells, "phone") as page:
+        read = page.evaluate(_LANDSCAPE_NAMES)
+
+    assert _drawn(read) == ["Grixis Control", "Lands", "Storm"]
+    _assert_every_drawn_name_is_legible(read)
+
+
+def test_two_names_wanting_one_spot_leave_it_to_the_more_played_archetype(chromium):
+    # Two archetypes a hundredth of a finish and a tenth of a point of share apart,
+    # against the left edge of a phone: neither name fits to the left of its dot,
+    # and to the right the two land on one spot, 12px apart. One name is drawn
+    # there, the more played archetype's, whichever the chart was handed first.
+    cells = _crowd(("Rakdos Eclipse", 19, 0.5), ("Grixis", 300, 0.6),
+                   ("Selesnya Lands", 20, 0.511))
+    with _landscape_of(chromium, cells, "phone") as page:
+        read = page.evaluate(_LANDSCAPE_NAMES)
+
+    assert _drawn(read) == ["Grixis", "Selesnya Lands"]
+    _assert_every_drawn_name_is_legible(read)
+
+
+def _hovered(page, index: int, *, tap: bool = False) -> str:
+    """What the chart says with the pointer on the middle of its dot number
+    ``index``, counted as the chart was handed them, or with a finger put there."""
+    point = page.locator(
+        "#landscape-result .cartesianlayer .scatterlayer path.point").nth(index)
+    point.scroll_into_view_if_needed()
+    dot = point.bounding_box()
+    x, y = dot["x"] + dot["width"] / 2, dot["y"] + dot["height"] / 2
+    if tap:
+        page.touchscreen.tap(x, y)
+    else:
+        # Moved onto the dot rather than placed on it: the library answers movement.
+        page.mouse.move(x - 40, y - 40)
+        page.mouse.move(x, y, steps=5)
+    said = page.locator("#landscape-result .hoverlayer .hovertext")
+    said.wait_for()
+    # The library answers a few times a second, and on the way in the pointer
+    # crosses whatever lies round the dot: the answer read is the one it rests on.
+    page.wait_for_timeout(300)
+    return said.text_content()
+
+
+# Three archetypes in a row on one finish, a point of share apart, and a fourth far
+# to the right that sets the axis. The middle one's name fits on neither side of
+# its dot: each side is another archetype's dot.
+_ROW = _crowd(("Grixis", 400, 0.6), ("Oracle", 200, 0.5), ("Blue Moon", 190, 0.5),
+              ("Walks", 180, 0.5))
+
+
+def test_a_name_with_another_dot_on_both_sides_is_left_to_the_hover(chromium):
+    # A name printed across a neighbour's ring reads as neither archetype's. It is
+    # not drawn, and its dot still says whose it is under the pointer.
+    with _landscape_of(chromium, _ROW) as page:
+        read = page.evaluate(_LANDSCAPE_NAMES)
+        said = _hovered(page, 2)
+
+    assert _drawn(read) == ["Grixis", "Oracle", "Walks"]
+    _assert_every_drawn_name_is_legible(read)
+    assert said.startswith("Blue Moon · share 19%")
+
+
+def _drag_the_filter(page, handle: str, to: float) -> None:
+    """Drag one handle of the share range filter, ``min`` or ``max``, to a point
+    along its band, 0 its left end and 1 its right."""
+    spot = page.evaluate(
+        """(handle) => { const card = document.querySelector('#landscape-result');
+             const grab = card.querySelector(`.rangeslider-grabarea-${handle}`)
+               .getBoundingClientRect();
+             const band = card.querySelector('.rangeslider-bg').getBoundingClientRect();
+             return {x: grab.left + grab.width / 2, y: grab.top + grab.height / 2,
+                     left: band.left, width: band.width}; }""", handle)
+    page.mouse.move(spot["x"], spot["y"])
+    page.mouse.down()
+    page.mouse.move(spot["left"] + spot["width"] * to, spot["y"], steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(800)
+
+
+def test_opening_the_crowded_end_with_the_range_filter_brings_its_names_back(chromium):
+    # The filter is how a reader opens a crowd (ADR 0013). A name left out for want
+    # of room is drawn once the drag has made the room.
+    cells = [*_ROW, *_crowd(("Jund", 390, 0.6))]
+    with _landscape_of(chromium, cells) as page:
+        before = _drawn(page.evaluate(_LANDSCAPE_NAMES))
+        _drag_the_filter(page, "max", 0.6)
+        _drag_the_filter(page, "min", 0.3)
+        read = page.evaluate(_LANDSCAPE_NAMES)
+        stood_in_for = page.evaluate(
+            """() => document.querySelector('#landscape-result .js-plotly-plot')
+                 .data[0].customdata.map(row => row[row.length - 1])""")
+
+    assert "Blue Moon" not in before
+    # Grixis and Jund are off the right of the filtered range, where the chart
+    # draws nothing.
+    assert _drawn(read) == ["Oracle", "Blue Moon", "Walks"]
+    _assert_every_drawn_name_is_legible(read)
+    # Two dots the chart no longer draws are not on one spot, and no dot's hover
+    # says they are.
+    assert stood_in_for == [""] * 5
+
+
+def _landscape_years(page) -> list[str]:
+    """The years the landscape's selector offers, as it lists them."""
+    return page.evaluate(
+        """() => [...[...document.querySelectorAll('fieldset')]
+             .find(group => group.querySelector('[data-testid=block-info]')
+                                 .textContent.trim() === 'Year')
+             .querySelectorAll('label')].map(label => label.textContent.trim())""")
+
+
+def _landscape_read(page, year: str) -> dict:
+    """The landscape's names once it has drawn ``year``, and the most played
+    archetype of the ones it draws, off the chart's own data."""
+    page.wait_for_function(
+        """(year) => { const card = document.querySelector('#landscape-result');
+             return card.querySelector('.t-fieldstat')?.textContent.includes(year)
+                 && card.querySelector('.scatterlayer .textpoint'); }""",
+        arg=year, timeout=30_000)
+    page.wait_for_timeout(1500)
+    read = page.evaluate(_LANDSCAPE_NAMES)
+    read["most_played"] = page.evaluate(
+        """() => { const dots = document.querySelector(
+               '#landscape-result .js-plotly-plot').data[0];
+             return dots.text[dots.x.indexOf(Math.max(...dots.x))]; }""")
+    return read
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_every_name_the_landscape_draws_is_legible_on_the_real_record(
+    chromium, record, width
+):
+    # Issue #337, measured on 2026-11-17 over the real record: the landscape printed
+    # 8 to 21 pairs of names over each other at 390px and 2 to 11 at 1440 and 1920,
+    # year by year, and at 390 cut the most played archetype's name off at the right
+    # edge in three of the four years. Every year the selector offers, each drawn by
+    # picking it, which is how a reader reaches all but the first.
+    page = _loaded(chromium, record, width)
+    try:
+        _card_titled(page, "Metagame landscape").wait_for(timeout=30_000)
+        years = _landscape_years(page)
+        reads = {years[0]: _landscape_read(page, years[0])}
+        for year in years[1:]:
+            shots.chip(page, "Year", year)
+            reads[year] = _landscape_read(page, year)
+    finally:
+        page.close()
+
+    assert len(reads) >= 4
+    for year, read in reads.items():
+        _assert_every_drawn_name_is_legible(read, f"{year} at {width}")
+        # The most played archetypes are the ones that keep their names, and the
+        # first of them stands clear of the rest by a point of share or more.
+        assert read["most_played"] in _drawn(read), f"{year} at {width}"
+        # Hiding names that fit would pass the lines above. A loose floor, not the
+        # measured counts (7 to 15 of 24 or 25 at 390, 18 to 24 at 1440 and 1920):
+        # a quarter of the dots keep a name on a phone and half on a desktop.
+        floor = len(read["names"]) / (4 if width == "phone" else 2)
+        assert len(_drawn(read)) >= floor, f"{year} at {width}"
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_an_archetype_whose_name_is_not_drawn_gives_it_on_hover_on_the_real_record(
+    chromium, record, width
+):
+    # The names left out are not lost: the pointer on the middle of a dot gets a
+    # box with its archetype's name in it, and so does a finger on a phone, where
+    # most of the names are left out (59 over the four years, against 18 at 1440).
+    # Every year, at the three widths. In 2024 the dots of Grixis and of Boros
+    # Moonshine are 1px apart and the box over the middle of Grixis is Boros
+    # Moonshine's, so the one box names both.
+    page = _loaded(chromium, record, width)
+    said = {}
+    try:
+        _card_titled(page, "Metagame landscape").wait_for(timeout=30_000)
+        assert page.evaluate("() => matchMedia('(hover: none)').matches") == (width == "phone")
+        years = _landscape_years(page)
+        for year in years:
+            if year != years[0]:
+                shots.chip(page, "Year", year)
+            read = _landscape_read(page, year)
+            said[year] = {name["name"]: _hovered(page, index, tap=width == "phone")
+                          for index, name in enumerate(read["names"]) if not name["drawn"]}
+    finally:
+        page.close()
+
+    assert sum(len(left_out) for left_out in said.values()) >= 10
+    for year, left_out in said.items():
+        for name, box in left_out.items():
+            assert box.startswith(f"{name} · share ") or re.search(
+                rf" · also on this spot: (.+, )?{re.escape(name)}(,|$)", box
+            ), f"{name} in {year} at {width}: {box}"
+
+
+def test_a_dot_that_answers_the_pointer_in_anothers_place_names_both(chromium):
+    # Where two dots overlap, the chart library answers for the smaller one. In 2024
+    # Grixis and Boros Moonshine have the same share and finishes 0.0007 apart, and
+    # Grixis was scored at two more events: its ring is half a pixel wider all
+    # round, so the pointer finds Boros Moonshine on all of it but that rim. Here a
+    # like pair stands against the left edge of a phone, where one name fits, and the
+    # archetype left without one is the one the pointer cannot find. The box that
+    # comes up over its dot names it.
+    cells = _crowd(("Boros Moonshine", 20, 0.5, 8), ("Grixis Control", 20, 0.5, 9),
+                   ("Oracle", 300, 0.6))
+    with _landscape_of(chromium, cells, "phone") as page:
+        read = page.evaluate(_LANDSCAPE_NAMES)
+        over_the_covered_dot = _hovered(page, 1)
+        over_a_dot_alone = _hovered(page, 2)
+
+    assert _drawn(read) == ["Boros Moonshine", "Oracle"]
+    assert over_the_covered_dot == (
+        "Boros Moonshine · share 2% (20 / 1,000 decks) · finish 0.50 "
+        "(20 scored at 8 events) · also on this spot: Grixis Control")
+    assert over_a_dot_alone == (
+        "Oracle · share 30% (300 / 1,000 decks) · finish 0.60 (300 scored at 8 events)")

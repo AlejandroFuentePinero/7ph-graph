@@ -1363,3 +1363,126 @@ def into_view_js(*ids: str) -> str:
   requestAnimationFrame(look);
 }}
 """
+
+
+def chart_names_js(card: str, also: str) -> str:
+    """The page script that decides which names a chart of named dots draws, and
+    makes its hover reach every dot (issue #337).
+
+    ``card`` is the element id of the card holding the chart, and ``also`` the words
+    that open the list of archetypes a dot stands in for, in the hover's own voice
+    (the figure writes the rest of that line). Plotly prints a name
+    beside every dot and cannot keep two apart, and the landscape's printed over each
+    other at every width: 8 to 21 pairs a year at 390px and 2 to 11 at 1440, with the
+    most played archetype's name cut off at the right edge of a phone. What fits is a
+    matter of pixels, so it is settled here, on the drawn chart, each time the chart
+    library draws it: on load, on a new year, on a resize, and on a drag of the range
+    filter, which is how a reader opens a crowd and gets its names back.
+
+    The names are taken most played first, by the dot's place on the share axis. Each
+    is set to the right of its dot, or to the left where the right is not free, and
+    is not drawn where neither is. A spot is free when the name stays inside the
+    plot, clear of every name already set and of every other archetype's dot: a name
+    across a neighbour's ring reads as neither's. A name not drawn is hidden, not
+    removed, so the next drawing starts from all of them.
+
+    A name left out is on the hover, so the hover has to reach every dot. The chart
+    library answers for one dot, the smallest the pointer is inside, and of equal
+    ones the later, so a dot whose middle is inside a smaller one may never answer
+    for itself. Each dot that answers at another's middle is told so: the last field
+    of its hover row, which the figure sends empty, is filled with ``also`` and the
+    names of the archetypes it stands in for, and its box names them after its own.
+    A dot outside a filtered range is not drawn and stands in for nothing. Which dot
+    answers is worked out as the library works it out (plotly.js 3.8.2, scatter
+    hover): each dot is as far from the pointer as the pointer is outside it, and
+    never nearer than one less three over its radius, which is what lets a smaller
+    dot win inside a larger and a fraction of a pixel outside its own edge; the
+    nearest answers, and the later of two as near.
+
+    The chart is found again whenever the page changes, since a hidden chart is not
+    in the page and is built afresh when shown, and the names are set once more when
+    the fonts have loaded, which changes how wide they are.
+    """
+    return f"""
+() => {{
+  const card = {json.dumps(card)};
+  const also = {json.dumps(also)};
+  const GAP = 2;
+  const drawn = (chart, selector) => [...chart.querySelectorAll(selector)]
+    .filter(mark => !mark.closest('.rangeslider-container')
+      && getComputedStyle(mark.closest('.textpoint') || mark).display !== 'none');
+  const tellStandIns = (chart, dots) => {{
+    const trace = chart.data[0];
+    const hidden = new Map();
+    for (const own of dots) {{
+      const far = dot => Math.max(
+        Math.hypot(own.x - dot.x, own.y - dot.y) - dot.r, 1 - 3 / dot.r);
+      const answers = dots.reduce((best, dot) => far(dot) <= far(best) ? dot : best);
+      if (answers !== own) {{
+        hidden.set(answers.index,
+          [...(hidden.get(answers.index) || []), trace.text[own.index]]);
+      }}
+    }}
+    trace.customdata.forEach((row, index) => {{
+      row[row.length - 1] = hidden.has(index) ? also + hidden.get(index).join(', ') : '';
+    }});
+  }};
+  const placeNames = (chart, dots, plot) => {{
+    const hit = (a, b) => a.left < b.right + GAP && b.left < a.right + GAP
+                       && a.top < b.bottom + GAP && b.top < a.bottom + GAP;
+    const placed = [];
+    const names = drawn(chart, '.scatterlayer .textpoint text')
+      .sort((a, b) => b.__data__.x - a.__data__.x || a.__data__.i - b.__data__.i);
+    for (const name of names) {{
+      const group = name.parentElement;
+      const offset = group.transform.baseVal.getItem(0).matrix;
+      const box = name.getBoundingClientRect();
+      const onRight = name.getAttribute('text-anchor') === 'start';
+      const reach = Math.abs(offset.e);
+      const across = (onRight ? -1 : 1) * (2 * reach + box.width);
+      const spots = [true, false].map(toRight => {{
+        const by = toRight === onRight ? 0 : across;
+        return {{toRight, left: box.left + by, right: box.right + by,
+                top: box.top, bottom: box.bottom}};
+      }});
+      const spot = spots.find(spot =>
+        spot.left >= plot.left && spot.right <= plot.right
+        && spot.top >= plot.top && spot.bottom <= plot.bottom
+        && !placed.some(other => hit(spot, other))
+        && !dots.some(dot => dot.index !== name.__data__.i && hit(spot, dot.box)));
+      name.style.visibility = spot ? '' : 'hidden';
+      if (!spot) continue;
+      placed.push(spot);
+      if (spot.toRight !== onRight) {{
+        group.setAttribute('transform',
+          `translate(${{spot.toRight ? reach : -reach}},${{offset.f}})`);
+        name.setAttribute('text-anchor', spot.toRight ? 'start' : 'end');
+      }}
+    }}
+  }};
+  const find = () => document.querySelector(`#${{card}} .js-plotly-plot`);
+  const draw = () => {{
+    const chart = find();
+    const plot = chart?.querySelector('.nsewdrag')?.getBoundingClientRect();
+    if (!plot?.width) return;
+    const dots = drawn(chart, '.scatterlayer .points path.point').map(dot => {{
+      const box = dot.getBoundingClientRect();
+      return {{index: dot.__data__.i, box, r: dot.__data__.mrc,
+              x: box.left + box.width / 2, y: box.top + box.height / 2}};
+    }});
+    tellStandIns(chart, dots);
+    placeNames(chart, dots, plot);
+  }};
+  let tended = null;
+  const tend = () => {{
+    const chart = find();
+    if (!chart || !chart.on || chart === tended) return;
+    tended = chart;
+    chart.on('plotly_afterplot', draw);
+    draw();
+  }};
+  tend();
+  new MutationObserver(tend).observe(document.body, {{childList: true, subtree: true}});
+  document.fonts.ready.then(draw);
+}}
+"""

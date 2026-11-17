@@ -1008,7 +1008,7 @@ def test_every_archetypes_tiles_agree_with_the_landscape_and_its_timeline(live_g
         mean = sum(point.mean_norm_a * point.decks_a for point in points) / scored
         assert finish.value == f"{1 - mean:.2f}", tag
         if tag in printed:
-            (_, hover_share, hover_decks, hover_finish, hover_scored, hover_events), \
+            (_, hover_share, hover_decks, hover_finish, hover_scored, hover_events, _), \
                 best, worst = printed[tag]
             assert (share.value, share.note, finish.value, events.value) == (
                 hover_share, hover_decks, hover_finish, str(hover_events)), tag
