@@ -242,10 +242,16 @@ class Shot:
 
 def recipes() -> list[Shot]:
     """Every tab and state, in the order the matrix reads."""
+    def community(page):
+        # The tab the site opens on (#346): its charts are drawn by its own script.
+        page.locator("circle.cm-event").first.wait_for()
+
     def meta_default(page):
-        pass
+        tab(page, "Metagame")
+        wait(page, 3500)
 
     def meta_focus(page):
+        tab(page, "Metagame")
         pick(page, "Or focus on specific archetypes", ARCHETYPE)
         pick(page, "Or focus on specific archetypes", ARCHETYPE_B)
         wait(page, 2500)
@@ -352,7 +358,8 @@ def recipes() -> list[Shot]:
         wait(page, 600)
 
     return [
-        Shot("meta-default", "Metagame, cold start: the share chart and the landscape, drawn", meta_default),
+        Shot("community", "Community, cold start: the figures, the three charts and the doorways", community),
+        Shot("meta-default", "Metagame, on open: the share chart and the landscape, drawn", meta_default),
         Shot("meta-focus", "Metagame with two archetypes focused", meta_focus),
         Shot("archetypes-nothing-picked", "Archetypes, nothing picked: the picker", archetypes_nothing_picked),
         Shot("archetypes-timeline", "Archetypes, one archetype's page: tiles, share and finishes over time", archetypes_timeline),
@@ -618,8 +625,8 @@ def main() -> None:
             for shot in shots:
                 throttle(page, 0)  # release any latency the state before emulated
                 page.goto(url, wait_until="networkidle")
-                # The Metagame charts are drawn at build time and lay out on their own frame.
-                page.wait_for_timeout(3500)
+                # The opening page's charts are drawn by its script once it has its width.
+                page.wait_for_timeout(1500)
                 shot.steps(page)
                 image = directory / f"{shot.name}.png"
                 page.screenshot(path=image, full_page=True)

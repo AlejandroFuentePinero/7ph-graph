@@ -18,16 +18,20 @@ Skipped where playwright or its browser is missing, as ``tests/test_page_style.p
 """
 
 import importlib.util
+import json
 import re
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
 import gradio as gr
 import pytest
 
+from graph7ph import community
 from graph7ph.app import _LANDSCAPE_NAMES_JS, _landscape_figure, build_app, launch_kwargs
 from graph7ph.build import build_graph
 from graph7ph.db import artifact_path, database_path
+from graph7ph.figures import figures_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
 from graph7ph.theme import FONTS, HEADER_ONE_ROW_PX, TOKENS, contrast_ratio
@@ -83,20 +87,35 @@ def _explorer_over(artifact: Path):
         demo.close()
 
 
-def _loaded(chromium, url: str, width: str = "desktop"):
-    """The explorer freshly loaded at one of the acceptance script's three widths."""
+def _loaded(chromium, url: str, width: str = "desktop", on: str | None = "Metagame"):
+    """The explorer freshly loaded at one of the acceptance script's three widths,
+    with the tab ``on`` opened.
+
+    A visit opens on Community (issue #346). Almost every test here is about a tab
+    behind it and was written when a visit opened on Metagame, so that is the tab
+    opened unless a test asks for another, or for the page as a visit finds it
+    (``on=None``).
+    """
     tab = chromium.new_page(**shots.VIEWPORTS[width])
     tab.goto(url, wait_until="networkidle")
     tab.get_by_role("tab", name="Metagame", exact=True).wait_for()
+    if on:
+        shots.tab(tab, on)
     return tab
 
 
 @pytest.fixture(scope="module")
-def explorer(tmp_path_factory, snapshot_dir):
-    """The explorer over the suite's snapshot."""
+def suite_bundle(tmp_path_factory, snapshot_dir) -> Path:
+    """The suite's snapshot, built: the bundle the explorer below is over."""
     artifact = tmp_path_factory.mktemp("explorer") / "graph"
     build_graph(load_snapshot(snapshot_dir), artifact)
-    with _explorer_over(artifact) as url:
+    return artifact
+
+
+@pytest.fixture(scope="module")
+def explorer(suite_bundle):
+    """The explorer over the suite's snapshot."""
+    with _explorer_over(suite_bundle) as url:
         yield url
 
 
@@ -118,8 +137,17 @@ def record():
 
 @pytest.fixture
 def page(chromium, explorer):
-    """A fresh load for each test, so none inherits a Draw."""
+    """A fresh load for each test, so none inherits a Draw, with Metagame open."""
     tab = _loaded(chromium, explorer)
+    yield tab
+    tab.close()
+
+
+@pytest.fixture
+def landing(chromium, explorer):
+    """A fresh load left as a visit finds it: on the Community page, drawn."""
+    tab = _loaded(chromium, explorer, on=None)
+    tab.locator("circle.cm-event").first.wait_for()
     yield tab
     tab.close()
 
@@ -641,9 +669,10 @@ def test_one_slim_row_carries_the_mark_the_name_the_tabs_and_the_freshness(page)
     assert page.locator(".brand-name").inner_text() == "7PH Graph"
     assert re.fullmatch(r"\d+ events(, updated \d{1,2} [A-Z][a-z]{2} \d{4})?",
                         page.locator(".freshness").inner_text())
-    # Every tab is on the strip, with none scrolled out of it at this width.
+    # Every tab is on the strip, with none scrolled out of it at this width: eight
+    # since #346 put Community first.
     strip = page.locator("[role=tablist]")
-    assert strip.get_by_role("tab").count() == 7
+    assert strip.get_by_role("tab").count() == 8
     assert strip.evaluate("strip => strip.scrollWidth <= strip.clientWidth")
 
 
@@ -653,7 +682,8 @@ def test_the_narrowest_one_row_header_holds_every_tab(chromium, record):
     # was clipped by up to 5px beside the freshness line, with nothing saying it
     # scrolled. At the narrowest window whose header is one row, every tab is on the
     # strip. On the real record, whose freshness line is the width the row is
-    # measured against.
+    # measured against. An eighth tab (#346) moved that window from 1140 to 1240px:
+    # at 1140 the eight were clipped by 69px.
     page = chromium.new_page(viewport={"width": HEADER_ONE_ROW_PX, "height": 900})
     try:
         page.goto(record, wait_until="networkidle")
@@ -749,7 +779,7 @@ def test_a_phone_gets_tabs_a_finger_can_hit_and_a_chart_with_room(chromium, expl
     finally:
         page.close()
 
-    assert len(tabs) == 7 and min(tabs) >= 44
+    assert len(tabs) == 8 and min(tabs) >= 44
     # No room for one row here: the name and the freshness share a line, clear of
     # each other, and the strip has the full width of the line below.
     assert parts["name"]["right"] < parts["freshness"]["left"]
@@ -2720,3 +2750,295 @@ def test_a_dot_that_answers_the_pointer_in_anothers_place_names_both(chromium):
         "(20 scored at 8 events) · also on this spot: Grixis Control")
     assert over_a_dot_alone == (
         "Oracle · share 30% (300 / 1,000 decks) · finish 0.60 (300 scored at 8 events)")
+
+
+# The Community page (issue #346): the first tab, and the one the site opens on. Its
+# charts are drawn by its own script to the width they are given, so what a reader
+# gets is only known on a drawn page.
+
+@contextmanager
+def _community_page(chromium, url: str, width: str):
+    """The page a visit opens on, at ``width``, once its charts are drawn."""
+    page = _loaded(chromium, url, width, on=None)
+    try:
+        page.locator("circle.cm-event").first.wait_for()
+        yield page
+    finally:
+        page.close()
+
+
+_COMMUNITY = """() => {
+  const page = document.querySelector('#community .community');
+  const texts = (selector) => [...page.querySelectorAll(selector)]
+    .map(node => node.textContent.replace(/\\s+/g, ' ').trim());
+  return {
+    open: document.querySelector('[role=tab][aria-selected=true]').textContent.trim(),
+    shown: page.getBoundingClientRect().height > 0,
+    values: texts('.cm-value'), beneath: texts('.cm-beneath'), key: texts('.cm-key span'),
+    dots: page.querySelectorAll('circle.cm-event').length,
+    majors: page.querySelectorAll('circle.cm-major').length,
+    onDots: texts('[data-chart=events] text.cm-on'),
+    ends: texts('[data-chart=pilots] text.cm-ink'),
+    months: page.querySelectorAll('path.cm-month').length,
+    busiest: texts('[data-chart=months] text.cm-ink'),
+    rows: [...page.querySelectorAll('.cm-row')].map(row => ({
+      year: row.querySelector('.cm-year').firstChild.textContent,
+      parts: [...row.querySelectorAll('.cm-seg')].map(seg => seg.textContent.trim()),
+      total: row.querySelector('.cm-total').textContent,
+    })),
+    note: texts('.cm-note')[0],
+  };
+}"""
+
+
+def _community_of(bundle: Path) -> dict:
+    return json.loads(figures_path(bundle).read_text())["community"]
+
+
+def _assert_the_page_shows_the_file(read: dict, held: dict) -> None:
+    """``read`` off the drawn page against ``held``, the bundle's own figures."""
+    latest = held["years"][-1]
+    totals, this_year, largest = held["totals"], held["this_year"], held["largest_field"]
+    kinds = ("pilots", "events", "decks", "cards", "archetypes")
+    assert read["values"] == [f"{totals[k]:,}" for k in kinds] + [f"{largest['players']:,}"]
+    assert read["beneath"][:5] == [f"{this_year[k]:,} in {latest}" for k in kinds]
+    assert read["beneath"][5] == (
+        f"{largest['major']}, {largest['year']}" if largest["major"] else str(largest["year"]))
+    assert read["key"][0].endswith(f"({held['majors']:,})")
+    assert read["key"][1] == f"Other events ({held['other_events']:,})"
+    # One dot an event, the majors solid, and the busiest month's count on its bar.
+    assert read["dots"] == len(held["events"]) == totals["events"]
+    assert read["majors"] == held["majors"]
+    # A number on a dot is that event's players.
+    assert not Counter(read["onDots"]) - Counter(str(e["players"]) for e in held["events"])
+    assert read["ends"] == [f"{totals['pilots']:,}"]
+    assert read["months"] == len(held["events_by_month"])
+    assert read["busiest"] == [str(max(n for _, n in held["events_by_month"]))]
+    assert read["rows"] == [
+        {"year": str(row["year"]),
+         "parts": [f"{n:,}" for n in row["first_played"].values()],
+         "total": f"{row['pilots']:,}"}
+        for row in held["pilots_by_year"]
+    ]
+    assert read["note"] == (
+        f"{this_year['played_before']:,} of {latest}'s {this_year['pilots']:,} pilots had "
+        f"played before. {held['played_every_year']:,} have played every year since "
+        f"{held['years'][0]}.")
+
+
+def test_the_site_opens_on_the_community_page_showing_what_its_figures_file_holds(
+    landing, suite_bundle
+):
+    # AC (#346): Community is the tab a visit opens on, and every number and chart
+    # on it is the figures file's, read here off the drawn page.
+    read = landing.evaluate(_COMMUNITY)
+
+    assert read["open"] == "Community" and read["shown"]
+    _assert_the_page_shows_the_file(read, _community_of(suite_bundle))
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_the_community_page_shows_what_the_real_records_file_holds(chromium, record, width):
+    # The same over the real record, at each width: the charts are drawn again for
+    # the room they have, and must draw the same record in it.
+    with _community_page(chromium, record, width) as page:
+        read = page.evaluate(_COMMUNITY)
+
+    held = _community_of(artifact_path())
+    assert read["open"] == "Community" and read["shown"]
+    _assert_the_page_shows_the_file(read, held)
+    # A dot large enough to hold its number shows it, and on a phone none is.
+    assert (str(held["largest_field"]["players"]) in read["onDots"]) == (width != "phone")
+
+
+@pytest.fixture(params=["explorer", "record"])
+def served(request) -> tuple[str, dict]:
+    """The explorer over the suite's snapshot and over the real record, each with
+    the Community figures of the bundle it is over."""
+    url = request.getfixturevalue(request.param)
+    bundle = (request.getfixturevalue("suite_bundle") if request.param == "explorer"
+              else artifact_path())
+    return url, _community_of(bundle)
+
+
+def test_each_doorway_opens_its_tab_at_the_top(landing):
+    # AC (#346): a click on a doorway opens the tab it names, from the top, and
+    # there is one for each content tab.
+    page = landing
+    doors = page.locator("#community a.cm-door")
+    tabs = doors.evaluate_all("doors => doors.map(door => door.dataset.tab)")
+    assert tabs == [tab for tab, _ in community.DOORS]
+
+    for tab in tabs:
+        page.get_by_role("tab", name="Community", exact=True).click()
+        page.locator(f"#community a.cm-door[data-tab='{tab}']").click()
+        page.wait_for_function(
+            "tab => document.querySelector('[role=tab][aria-selected=true]')"
+            ".textContent.trim() === tab", arg=tab)
+        assert page.evaluate("window.scrollY") == 0, tab
+        assert page.evaluate(
+            "document.querySelector('#community .community')"
+            ".getBoundingClientRect().height") == 0, tab
+
+
+_YEAR_LINES = """() => ['events', 'pilots', 'months'].map(chart =>
+  [...document.querySelectorAll(`#community [data-chart=${chart}] line.cm-yearline`)]
+    .map(line => [Number(line.dataset.year),
+                  Math.round(line.getBoundingClientRect().left * 10) / 10]))"""
+
+
+@pytest.mark.parametrize("width", ["phone", "desktop"])
+def test_the_three_charts_draw_their_year_lines_at_the_same_positions(
+    chromium, served, width
+):
+    # AC (#346): the dots, the running count and the months are on one time axis,
+    # so a year starts at the same place down the page in all three, at 1440 and at
+    # 390. One line for each year on record and one where the last year ends.
+    url, held = served
+    with _community_page(chromium, url, width) as page:
+        events, pilots, months = page.evaluate(_YEAR_LINES)
+
+    assert [year for year, _ in events] == [*held["years"], held["years"][-1] + 1]
+    assert events == pilots == months
+    assert [x for _, x in events] == sorted({x for _, x in events})
+
+
+_OVERFLOWING = """() => {
+  const page = document.querySelector('#community .community');
+  const wide = document.documentElement.clientWidth;
+  const out = [];
+  for (const node of page.querySelectorAll('*')) {
+    if (node.closest('.cm-tip')) continue;
+    const box = node.getBoundingClientRect();
+    if (!box.width || !box.height) continue;
+    if (getComputedStyle(node).visibility === 'hidden') continue;
+    if (box.left < -0.5 || box.right > wide + 0.5) {
+      out.push(`${node.tagName}.${node.getAttribute('class')} ${box.left}..${box.right}`);
+    }
+  }
+  // A number on a year's bar stays inside its own part of the bar.
+  for (const part of page.querySelectorAll('.cm-seg:not(.cm-tight)')) {
+    const own = part.getBoundingClientRect();
+    const number = part.firstElementChild.getBoundingClientRect();
+    if (number.right > own.right + 0.5) out.push(`number past its part: ${part.textContent}`);
+  }
+  return {out, sideways: document.documentElement.scrollWidth - wide};
+}"""
+
+
+def test_on_a_phone_nothing_on_the_community_page_is_cut_off_or_scrolls_sideways(
+    chromium, served
+):
+    # AC (#346): the page is the first thing a phone visitor sees. At 390px every
+    # mark and every word of it is inside the window, a dot at the edge of the
+    # record included, and the page does not scroll sideways.
+    url, _ = served
+    with _community_page(chromium, url, "phone") as page:
+        read = page.evaluate(_OVERFLOWING)
+
+    assert read["out"] == []
+    assert read["sideways"] <= 0
+
+
+_TIP = """() => {
+  const tip = document.querySelector('#community .cm-tip');
+  if (getComputedStyle(tip).display === 'none') return null;
+  return [tip.querySelector('b').textContent, tip.lastChild.textContent];
+}"""
+
+_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
+                "Nov", "Dec"]
+
+
+def _settled_in_view(page, selector: str):
+    """The first ``selector``, scrolled to and left a moment: the page takes a
+    mark's box down when it scrolls, and a scroll is reported a frame late."""
+    mark = page.locator(selector).first
+    mark.scroll_into_view_if_needed()
+    page.wait_for_timeout(200)
+    return mark
+
+
+def test_a_dot_a_month_and_a_part_of_a_bar_each_say_their_value_under_the_pointer(
+    chromium, served
+):
+    # AC (#346): hovering each kind of mark shows its value. An event says its
+    # players and its year, and its name only if it is a major: never a date. The
+    # running count says where the line is, and the month under it how many events
+    # it holds. A part of a year's bar says its pilots and what share they are.
+    url, held = served
+    with _community_page(chromium, url, "desktop") as page:
+        # The dots are drawn in the record's order, so the first is the first event.
+        page.locator("circle.cm-event").first.hover()
+        dot = page.evaluate(_TIP)
+
+        # Past the last date on record the line stays at its last count.
+        pair = _settled_in_view(page, "#community .cm-pair [data-chart=months]")
+        box = pair.bounding_box()
+        page.mouse.move(box["x"] + box["width"] - 2, box["y"] + box["height"] / 2)
+        month = page.evaluate(_TIP)
+
+        _settled_in_view(page, "#community .cm-seg").hover()
+        part = page.evaluate(_TIP)
+
+        page.mouse.move(2, 2)
+        gone = page.evaluate(_TIP)
+
+    first = held["events"][0]
+    year = first["date"][:4]
+    assert dot == [f"{first['players']:,} players",
+                   f"{first['major']} · {year}" if first["major"] else year]
+    last_month, events = held["events_by_month"][-1]
+    assert last_month == held["through"][:7]
+    assert month == [
+        f"{held['totals']['pilots']:,} pilots on record",
+        f"{events} {'event' if events == 1 else 'events'} in "
+        f"{_MONTH_NAMES[int(last_month[5:]) - 1]} {last_month[:4]}"]
+    row = held["pilots_by_year"][0]
+    first_played, pilots = next(iter(row["first_played"].items()))
+    assert part[0] == f"{pilots:,} pilots"
+    assert part[1].startswith(f"first played in {first_played} · ")
+    assert part[1].endswith(f"% of {row['year']}")
+    assert gone is None
+
+
+def test_a_part_of_a_bar_says_its_value_on_keyboard_focus(landing):
+    # AC (#346): what the pointer reaches the keyboard reaches too, where the mark
+    # can take focus. The parts of a year's bar can, and are in the tab order.
+    page = landing
+    part = page.locator("#community .cm-seg").first
+    assert part.evaluate("part => part.tabIndex") == 0
+
+    # The bars are below the fold, so focus scrolls the page to the part. A scroll
+    # takes a pointer's box down, and is reported a frame late: the box has to be
+    # there once the page has settled, or a reader tabbing down never sees it.
+    assert part.evaluate("part => part.getBoundingClientRect().top > innerHeight")
+    part.focus()
+    page.wait_for_timeout(300)
+    focused = page.evaluate(_TIP)
+    in_view = part.evaluate(
+        "part => part.getBoundingClientRect().bottom <= innerHeight")
+    part.evaluate("part => part.blur()")
+    blurred = page.evaluate(_TIP)
+
+    assert in_view
+
+    assert focused[0] == f"{part.inner_text()} pilots"
+    assert focused[1].startswith("first played in ")
+    assert blurred is None
+
+
+def test_on_a_phone_a_tapped_dot_keeps_its_value_up_until_the_next_tap(chromium, explorer):
+    # A finger has no hover: a tap on a dot shows its value, the box stays up when
+    # the finger lifts, and a tap elsewhere on the page takes it down.
+    with _community_page(chromium, explorer, "phone") as page:
+        dot = _settled_in_view(page, "circle.cm-event")
+        box = dot.bounding_box()
+        page.touchscreen.tap(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        tapped = page.evaluate(_TIP)
+        title = page.locator("#community .page-name").bounding_box()
+        page.touchscreen.tap(title["x"] + 5, title["y"] + 5)
+        after = page.evaluate(_TIP)
+
+    assert tapped is not None and tapped[0].endswith(" players")
+    assert after is None

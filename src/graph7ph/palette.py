@@ -42,6 +42,28 @@ CATEGORICAL: tuple[str, ...] = (
 )
 
 
+# The first-played ramp (issue #346, the design doc's "The Community page"): one hue
+# stepped from deep to pale, for a quantity with an order, the year a pilot first
+# played, oldest first. The pilot orange (slot 2) is its second stop, so the ramp
+# reads as the pilots' own colour. Not a ninth categorical hue: these are steps of
+# one, and are only ever drawn touching each other in a bar.
+FIRST_PLAYED: tuple[str, ...] = ("#9c3a12", CATEGORICAL[1], "#ee8f5f", "#f6c3a3")
+
+
+def first_played(years: int) -> list[str]:
+    """``years`` colours along :data:`FIRST_PLAYED`, oldest first, its two ends
+    included. Four take the four stops as they are; any other number is read off
+    the line through them."""
+    stops = [[int(stop[i:i + 2], 16) for i in (1, 3, 5)] for stop in FIRST_PLAYED]
+    colours = []
+    for step in range(years):
+        at = step * (len(stops) - 1) / max(years - 1, 1)
+        low = min(int(at), len(stops) - 2)
+        mix = [round(a + (b - a) * (at - low)) for a, b in zip(stops[low], stops[low + 1])]
+        colours.append("#{:02x}{:02x}{:02x}".format(*mix))
+    return colours
+
+
 # §5–6: colour tops out at eight distinguishable series; past this the caller
 # switches to emphasis (§6), never a ninth hue and never a cycle back to slot 1.
 MAX_SLOTS = len(CATEGORICAL)

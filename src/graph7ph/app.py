@@ -34,7 +34,7 @@ import plotly.graph_objects as pgo
 # Importing it fully at module load closes that window before launch, so the Trends
 # charts cannot lose the race on a cold start.
 
-from graph7ph import numfmt, palette, parts, theme
+from graph7ph import community, numfmt, palette, parts, theme
 from graph7ph.db import open_database
 from graph7ph.explore import RenderPlan, assess, dominant_kind
 from graph7ph.figures import figures_path
@@ -187,6 +187,9 @@ _PAGE_TABS = {"pilot": "Pilots", "card": "Cards", "archetype": "Archetypes"}
 # open leaves the window where it is, and the draw brings its result into view as
 # any pick's does.
 #
+# A doorway on the Community page names a tab by its label (`community.DOORS`,
+# issue #346). The click opens that tab at its top, and sets nothing.
+#
 # A link to an FAQ entry names the entry's box by its id (`#faq-...`): a chart's
 # "How this is measured" and the privacy line's "How to ask". The click opens the
 # FAQ and brings that box into view. The frame lets the tab be shown before the box
@@ -202,12 +205,14 @@ const show = (label) => {{
   return !already;
 }};
 document.addEventListener('click', (event) => {{
-  const link = event.target.closest('a[data-opens], a[href^="#faq-"]');
+  const link = event.target.closest('a[data-opens], a[data-tab], a[href^="#faq-"]');
   if (!link) return;
   event.preventDefault();
   if (link.dataset.opens) {{
     trigger('click', {{kind: link.dataset.opens, key: link.dataset.key}});
     if (show(tabs[link.dataset.opens])) window.scrollTo(0, 0);
+  }} else if (link.dataset.tab) {{
+    if (show(link.dataset.tab)) window.scrollTo(0, 0);
   }} else {{
     show('FAQ');
     const entry = link.getAttribute('href').slice(1);
@@ -4667,11 +4672,23 @@ def build_app(artifact: Path) -> gr.Blocks:
         # pipelines stay separate under the hood (ADR 0013); only the presentation is
         # combined.
 
+        # The site opens on Community (#346): what the format and the app are in one
+        # line, then the community's own numbers, which no other tab shows, and a
+        # doorway to each content tab. Everything on it is read from the
+        # figures file sealed beside this graph, the FAQ's source too (#264), so the
+        # page shows what the bundle holds and the app counts none of it. Its charts
+        # are drawn by its own script, and the chart library is not asked for until
+        # a tab that needs it is opened.
+        figures = json.loads(figures_path(artifact).read_text())
+        with gr.Tab("Community"):
+            gr.HTML(community.page(figures["community"]), js_on_load=community.SCRIPT,
+                    elem_id="community", padding=False)
+
         # Metagame is the whole field (#332): meta share over time, then the metagame
         # landscape. It was "Meta" and held the share chart alone, with the landscape
         # on Archetypes (#145: who is played, against who wins); the two tabs are cut
         # by level now, the field here and one archetype there. No subject entity and
-        # no view picker, and both charts are drawn at build time, so the app opens
+        # no view picker, and both charts are drawn at build time, so the tab opens
         # on a drawn answer.
         with gr.Tab("Metagame"):
             gr.Markdown(
@@ -5317,7 +5334,6 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "How the numbers here are worked out.",
                 elem_classes="t-lede",
             )
-            figures = json.loads(figures_path(artifact).read_text())
             for _eid, _cat, _q, _a in faq_entries(figures):
                 with gr.Group(elem_classes="insight-card faq-card", elem_id=_eid):
                     gr.HTML(

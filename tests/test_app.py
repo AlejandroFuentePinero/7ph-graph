@@ -136,33 +136,63 @@ def test_hidden_gems_is_its_own_tab(tmp_path, snapshot_dir):
     demo = build_app(artifact)
 
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    # Cold start lands on the drawn Meta view (#114): Meta leads and Pilots trails, with
-    # no default pilot. Meta draws its cut chart at build time, so the opening tab shows a
-    # real result rather than an empty canvas, and no single pilot is anointed a default.
-    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Player leaderboard", "FAQ"]
+    # Cold start lands on a drawn page (#114): Community leads since #346, then
+    # Metagame, and Pilots trails, with no default pilot. Each of the first two is
+    # drawn at build time, so the opening tab shows a real result rather than an
+    # empty canvas, and no single pilot is anointed a default.
+    assert tabs == ["Community", "Metagame", "Archetypes", "Cards", "Hidden gems",
+                    "Pilots", "Player leaderboard", "FAQ"]
     # Gems still has its own tab. The gems query keeps
     # its plot heading (test_every_underlying_query_still_has_a_plot_heading) and its
     # _spec dispatch on `meta_gems`, so promoting the tab does not drop the view.
 
 
-def test_cold_start_opens_on_the_drawn_meta_view(tmp_path, snapshot_dir):
+def test_the_app_opens_on_the_community_page_filled_from_the_figures_file(
+    tmp_path, snapshot_dir
+):
+    # AC (#346): Community is the first tab, so the one the site opens on, and its
+    # page is the builder's reading of the figures file sealed beside the graph:
+    # nothing on it is counted by the app. Each doorway carries the label of a tab
+    # the app has, which is what its click looks for, and there is one for every
+    # tab but the page itself and the FAQ.
+    import json
+
+    import gradio as gr
+    from graph7ph import community
+    from graph7ph.figures import figures_path
+
+    demo = _built_demo(tmp_path, snapshot_dir)
+    tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
+    page = next(b for b in demo.blocks.values()
+                if isinstance(b, gr.HTML) and b.elem_id == "community")
+    figures = json.loads(figures_path(tmp_path / "graph").read_text())
+
+    assert tabs[0] == "Community"
+    assert page.value == community.page(figures["community"])
+    assert [tab for tab, _ in community.DOORS] == tabs[1:-1]
+
+
+def test_cold_start_opens_on_a_drawn_page_and_metagame_is_drawn_behind_it(
+    tmp_path, snapshot_dir
+):
     # AC (#114): cold start shows a real drawn result, never an empty canvas, and with no
-    # default pilot. The Meta view draws its cut chart at build time (a subject-free query),
-    # so making it the opening tab lands the app on a drawn answer with zero pilot
-    # defaulting. Asserted at the build seam: the first tab is Meta, and its opening cut
-    # plot carries a value (a figure), so a regression that reorders Pilots back to the
-    # front (opening on an empty canvas) trips here.
+    # default pilot. Since #346 the opening tab is Community, a page drawn from the
+    # figures file with no pilot on it; until then it was Metagame, which still draws
+    # its cut chart at build time (a subject-free query), so the tab behind the landing
+    # page is a drawn answer too. Asserted at the build seam, so a regression that
+    # reorders Pilots to the front (opening on an empty canvas) trips here.
     import gradio as gr
 
     demo = _built_demo(tmp_path, snapshot_dir)
-    first_tab = next(b for b in demo.blocks.values() if isinstance(b, gr.Tab))
-    assert first_tab.label == "Metagame"
+    first_tab, second_tab = [b for b in demo.blocks.values() if isinstance(b, gr.Tab)][:2]
+    assert first_tab.label == "Community"
+    assert [b for b in _tab_blocks(demo, "Community") if isinstance(b, gr.HTML) and b.value]
+    assert second_tab.label == "Metagame"
     # The Meta cut chart is drawn on open (not hidden behind a Draw), so it carries a
-    # figure value at build time: cold start is a drawn result.
-    cut_plots = [b for b in demo.blocks.values()
+    # figure value at build time.
+    cut_plots = [b for b in _tab_blocks(demo, "Metagame")
                  if isinstance(b, gr.Plot) and b.value is not None]
-    assert cut_plots, "the opening Meta view draws a chart at build time"
+    assert cut_plots, "the Metagame view draws a chart at build time"
 
 
 def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, snapshot_dir):
@@ -175,8 +205,8 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
 
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Player leaderboard", "FAQ"]
+    assert tabs == ["Community", "Metagame", "Archetypes", "Cards", "Hidden gems",
+                    "Pilots", "Player leaderboard", "FAQ"]
 
     box_ids = {b.elem_id for b in demo.blocks.values()
                if isinstance(b, gr.Group) and (b.elem_id or "").startswith("faq-")}
@@ -235,8 +265,8 @@ def test_no_tab_opens_with_a_heading_that_repeats_its_label(tmp_path, snapshot_d
     headings = {value.splitlines()[0].lstrip("# ").strip()
                 for value in _markdown_values(demo) if value.lstrip().startswith("#")}
 
-    assert labels == {"Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                      "Player leaderboard", "FAQ"}
+    assert labels == {"Community", "Metagame", "Archetypes", "Cards", "Hidden gems",
+                      "Pilots", "Player leaderboard", "FAQ"}
     assert headings.isdisjoint(labels)
 
 
@@ -390,8 +420,8 @@ def test_only_the_head_to_head_keeps_a_draw_and_it_opens_shut(tmp_path, snapshot
                          if isinstance(b, gr.Button) and b.value == DRAW_LABEL]
              for tab in demo.blocks.values() if isinstance(tab, gr.Tab)}
     assert {tab: len(buttons) for tab, buttons in draws.items()} == {
-        "Metagame": 0, "Archetypes": 0, "Cards": 0, "Hidden gems": 0, "Pilots": 1,
-        "Player leaderboard": 0, "FAQ": 0,
+        "Community": 0, "Metagame": 0, "Archetypes": 0, "Cards": 0, "Hidden gems": 0,
+        "Pilots": 1, "Player leaderboard": 0, "FAQ": 0,
     }
     (button,) = draws["Pilots"]
     assert button.interactive is False
@@ -2854,8 +2884,8 @@ def test_metagame_shows_the_field_and_archetypes_opens_on_a_picker(tmp_path, sna
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Player leaderboard", "FAQ"]
+    assert tabs == ["Community", "Metagame", "Archetypes", "Cards", "Hidden gems",
+                    "Pilots", "Player leaderboard", "FAQ"]
 
     field = _tab_blocks(demo, "Metagame")
     titles = re.findall(r"<div class='t-result-title'>(.*?)</div>", "".join(
@@ -4009,8 +4039,8 @@ def test_the_race_is_its_own_tab_after_pilots_drawn_on_open(tmp_path, snapshot_d
 
     demo = _built_demo(tmp_path, snapshot_dir)
     tabs = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert tabs == ["Metagame", "Archetypes", "Cards", "Hidden gems", "Pilots",
-                    "Player leaderboard", "FAQ"]
+    assert tabs == ["Community", "Metagame", "Archetypes", "Cards", "Hidden gems",
+                    "Pilots", "Player leaderboard", "FAQ"]
 
     # The fixture graph holds three decks at one small event, so nobody is a contender
     # and the tab draws the refusal rather than an empty chart or a crash. Refused with

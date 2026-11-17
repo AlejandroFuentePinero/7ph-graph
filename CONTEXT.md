@@ -11,6 +11,8 @@ A player who registered a deck at an event. Keyed in the graph by a canonical up
 _Avoid_: Player, user, competitor
 _Exception_: the field-wide board says **player**. The "Player leaderboard" tab, its heading, and the FAQ entries about it are a public ranking of named people, read by the community those people are in, where "player" is the word they use for themselves and "pilot" is only the schema's; the plain-English rule that governs user-facing copy (issue #156) wins on that surface (issue #200). The line is the scope of the claim, not the surface: one deck or one entrant is a **pilot** ("every pilot here is measured on the same kind of event", "the standings rank 137 pilots"), while the field-wide board as a whole is a **player** leaderboard. No other surface takes the exception.
 
+A second, narrower exception (issue #346): the Community page says an event's **players** for the people its Field Size counts ("sized by its players", "311 players"). A field counts everyone who entered, whether or not a deck of theirs is on record, so they are not all Pilots, and at a Teams event, where the field counts teams, the page counts the pilots on record and still calls them players so that every dot is in one unit. A count of people with a deck on record stays **pilots** there as everywhere ("pilots on record").
+
 The surface was called the "Best player race" until it was renamed: **best** asserted precisely what ADR 0017 measured and refused, that the board identifies the best pilots (only 4.9 of the top 8 survive a resample, and rank 7's honest interval runs 1 to 40). The code keeps its race vocabulary (`RaceCell`, `RACE_*`, `_race_*`) as the internal name for the running-score trajectory the tab's chart draws; only `player_leaderboard`/`PlayerLeaderboard` took the new name, because those carried the word the rename was for.
 
 **Display Name**:
@@ -31,6 +33,14 @@ _Avoid_: Meet, comp
 **Record**:
 Every Deck on file for one Pilot, one per Event they entered, newest first: what a pilot's page lists as a table (issue #329). Each line is a Deck with its Event, its primary Archetype and its Placement over the Field Size. Ordered and dated by the event's first deck registration, the proxy ADR 0013 places an event by on a timeline, since the source records no date for an Event.
 _Avoid_: Results, history, career
+
+**Major**:
+An Event with a Field Size over 64 that published its field and not just a top cut. The events the player leaderboard scores, and the only events the Community page names. One function says which they are (`trends.major_events`), so the two pages count the same ones (issue #346).
+_Avoid_: Big event, premier event (a size alone does not make one: a published bracket of 80 is not a major)
+
+**On record**:
+What the graph holds because a result naming it was reported: a pilot, an event, a deck, a card. The Community page (issue #346) counts only that and says so in these words ("pilots on record", "every event on record"). The record is what was reported, so a count is of decks on file and nothing more: no sentence there says the community grew, and a pilot absent from a year is in no count of it and is never said to have left. The page names its source once, word for word: "Built from results the community reports on Moxfield." The upstream stats site is not mentioned on it.
+_Avoid_: Grew, growth, new players, joined, left, churn, retention, active (each claims something about people that a reported deck does not show)
 
 **Year**:
 The calendar year an Event took place, derived from the earliest deck creation among its decks. The graph's temporal dimension: the axis for slicing the metagame over time. A proxy, since the source carries no event date, and the finest granularity that proxy honestly supports (ADR 0006).
@@ -116,7 +126,7 @@ A ruling about one of the source's own records, applied to every snapshot as it 
 _Avoid_: Fix, patch, snapshot edit, override
 
 **Figure**:
-A corpus number the FAQ quotes (settled fields, teams events, the bracket-against-field finish averages, the head-to-head pairs drawn, bounded and broken, the numbered and paired names, the leaderboard size and its rank gap from the performance headline, multi-archetype decks, the Golgari example, the coin-close archetypes, the gem list and its luck share). Derived by the build from the promoted graph, by the chart functions' own definitions, into `figures.json` beside the database, so the figures promote and roll back with the bundle and a deploy carries them (issue #264). The build is where they live because the slow ones (the archetype-pair sweep, the per-pilot rank gap) take minutes. A figure is a measurement of the bundle it sits beside, never a number typed into prose. The FAQ answers are templates the app fills from the file when it starts (issue #265), so a figure reaches a reader only through it.
+A corpus number the FAQ quotes or the Community page shows (settled fields, teams events, the bracket-against-field finish averages, the head-to-head pairs drawn, bounded and broken, the numbered and paired names, the leaderboard size and its rank gap from the performance headline, multi-archetype decks, the Golgari example, the coin-close archetypes, the gem list and its luck share; and, as one `community` block, every number and all chart data of the Community page, issue #346). Derived by the build from the promoted graph, by the chart functions' own definitions, into `figures.json` beside the database, so the figures promote and roll back with the bundle and a deploy carries them (issue #264). The build is where they live because the slow ones (the archetype-pair sweep, the per-pilot rank gap) take minutes. A figure is a measurement of the bundle it sits beside, never a number typed into prose. The FAQ answers are templates the app fills from the file when it starts (issue #265), so a figure reaches a reader only through it. The Community page is built from the same file the same way.
 _Avoid_: Constant (a rule constant is design, not data), hand count, prose number
 
 ---

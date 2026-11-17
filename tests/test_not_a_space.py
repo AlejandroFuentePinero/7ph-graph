@@ -67,7 +67,9 @@ def test_a_page_served_from_a_space_asks_no_other_host_for_anything(
             # two stylesheets from Google Fonts with it, for type the page never drew
             # (issue #321). With it gone the page asks no host but the app's own.
             assert elsewhere == []
-            # Drawn is not enough: the page still gets an answer from the app.
+            # Drawn is not enough: the page still gets an answer from the app. A chip
+            # of Metagame's asks for one; the page opens on Community (#346).
+            page.get_by_role("tab", name="Metagame", exact=True).click()
             with page.expect_response(lambda response: "/queue/join" in response.url) as asked:
                 # The chip, as a reader takes it: its radio mark is not drawn (#328).
                 page.get_by_text("Top 75%", exact=True).click()

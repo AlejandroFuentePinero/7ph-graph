@@ -1680,6 +1680,31 @@ def _race_sample_dates(anchor: datetime) -> list[datetime]:
     ]
 
 
+def major_events(conn: ladybug.Connection) -> set[str]:
+    """The majors: the events the player leaderboard scores, and the ones the
+    Community page names (issue #346), read here by both so the two agree.
+
+    A field over :data:`MAJOR_FIELD_SIZE` that published its field and not just its
+    bracket. A null field is no major, which is what the leaderboard's own query
+    already does with it (a NULL fails ``fieldSize > $major``), so the two halves
+    have to agree: comparing a null here raises, and nothing above catches it, so it
+    would take the whole app down rather than one tab. The build fills a missing
+    size only for a ``Tournament`` (``corrected_field``'s Rule C), so a
+    non-Tournament event the source ships without one reaches the graph with a null.
+
+    The second test is the published field: a score is a claim about a pilot's
+    level, and a bracket only records the pilots who did well
+    (:func:`_cut_only_events`). It costs the current graph 2 of 27 events with a
+    field that size.
+    """
+    skip = set(_cut_only_events(conn))
+    return {
+        event
+        for event, field in rows(conn.execute("MATCH (e:Event) RETURN e.event, e.fieldSize"))
+        if field is not None and field > MAJOR_FIELD_SIZE and event not in skip
+    }
+
+
 def _major_finishes(
     conn: ladybug.Connection,
 ) -> tuple[dict[str, list[tuple[datetime, float]]], int, datetime | None]:
@@ -1701,28 +1726,8 @@ def _major_finishes(
     field), so an event sits wholly inside a window or wholly outside it. ``None`` for a
     graph holding no event at all, which still has to build.
     """
-    events = {
-        event: (date, field)
-        for event, date, field in rows(conn.execute(
-            "MATCH (f:Deck)-[:PLAYED_AT]->(e:Event) RETURN e.event, min(f.createdAt), e.fieldSize"
-        ))
-    }
-    # A null field is no major, which is what the query below already does with it (a
-    # NULL fails `fieldSize > $major`), so the two halves have to agree: comparing a
-    # null here raises, and nothing above catches it, so it would take the whole app
-    # down rather than this one tab. The build fills a missing size only for a
-    # ``Tournament`` (``corrected_field``'s Rule C), so a non-Tournament event the
-    # source ships without one reaches the graph with a null.
-    #
-    # A major also has to have published its field and not just its bracket, which is
-    # what the second test is: a score is a claim about a pilot's level, and a bracket
-    # only records the pilots who did well (:func:`_cut_only_events`). It costs the
-    # current graph 2 of 21 majors.
-    skip = set(_cut_only_events(conn))
-    majors = {
-        e for e, (_, field) in events.items()
-        if field is not None and field > MAJOR_FIELD_SIZE and e not in skip
-    }
+    dates = _event_dates(conn)
+    majors = major_events(conn)
     finishes: dict[str, list[tuple[datetime, float]]] = {}
     for pilot, event, norm in rows(conn.execute(
         """MATCH (p:Pilot)<-[:PILOTED_BY]-(d:Deck)-[:PLAYED_AT]->(e:Event)
@@ -1731,8 +1736,8 @@ def _major_finishes(
         {"major": MAJOR_FIELD_SIZE},
     )):
         if event in majors:
-            finishes.setdefault(pilot, []).append((events[event][0], 1 - norm))
-    anchor = max((date for date, _ in events.values()), default=None)
+            finishes.setdefault(pilot, []).append((dates[event], 1 - norm))
+    anchor = max(dates.values(), default=None)
     # Each record in date order, which the query's own row order does not give. Two calls
     # on one graph can hand these rows back in different orders, and every consumer here
     # sums a record (the shrinkage, the score, each running point), so an unsorted record

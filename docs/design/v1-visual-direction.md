@@ -222,6 +222,11 @@ title can sit against a field the source counted. The rule name stays off the
 screen; a reader needs to know the number is ours, and "Rule B" answers a question
 only the record can hold.
 
+_Exception, 2026-11-17 (#346): the Community page marks nothing. A field the build
+settled is shown there as the number it is, on a dot's hover and as the largest
+field, with no `*`. The maintainer ruled the reader does not need it on that page.
+The rule above stands on every other surface. See "The Community page" below._
+
 ## 5. Categorical palette (charts and graph share it)
 
 One eight-hue set serves **both** chart series and the graph's node kinds — a
@@ -362,6 +367,16 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   above the chart; the in-figure "◀ drag ▶" annotation is dropped.
 - Single-series charts (pilot performance) carry no legend box — the title names
   the one line.
+
+_Added 2026-11-17 (#346): the Community page draws its three charts on a time axis
+(the dots, the running count, the months) as SVG by its own script
+(`community.SCRIPT`), not with the chart library, and its yearly bars as markup. This is a second way
+of drawing a chart in the app, accepted for that page and no other: it is the first
+page a visitor loads, a dot per event packed so none overlap is not a figure the
+library draws, and a page without a library chart does not ask for the library. The
+rules above that are about the chart library's figures do not reach it. The ones
+about what a chart looks like do: hairline gridlines, muted tabular ticks, the
+shared palette, the app's body face. See "The Community page" below._
 
 ## 7. Graph
 
@@ -551,6 +566,15 @@ _Amended 2026-11-16 (#332): the first tab is "Metagame", 33px wider than "Meta".
 header is one row from 1140px up, and a phone's tabs keep the 16px a side they have
 elsewhere, the edge at 390px cutting the fourth tab's label. See "The field and the
 archetype (#332)"._
+
+_Amended 2026-11-17 (#346): eight tabs, with "Community" first: the tab the site
+opens on. It is 104px of strip, so the eight need 763px and the header is one row
+from 1240px up. On a phone a tab takes 9px a side, not its own 16: with eight tabs
+at 16px the strip's edge at 390px fell exactly where "Cards" ends, with nothing of
+the fifth tab on screen and so nothing to say the strip scrolls (#172). At 9px the
+edge cuts "Hidden gems" with 31px of it showing at 390, 16px at 375, 53px at 412
+and 71px at 430; at 360 it falls in the gap before that label. The narrowest tab,
+"FAQ", is 44px wide. See "The Community page (#346)"._
 
 ---
 
@@ -757,7 +781,8 @@ carries a dated note pointing here.
   repeating the open tab took three. The first result card on Meta starts at 363px at
   1440 (it was 454px) and at 477px at 390 (it was 593px). Below 1100px the strip takes
   its own row under the name and the freshness (§11). _Amended 2026-11-16 (#332):
-  below 1140px, for a first tab 33px wider._
+  below 1140px, for a first tab 33px wider._ _Amended 2026-11-17 (#346): below
+  1240px, for an eighth tab._
 - **The privacy note is one line.** Pilots and the player leaderboard carried the note
   in full above what they draw, 384px tall at 390px wide, which put the pilot picker
   at 697px of an 844px screen. It is one line there now (three on a phone, 72px, the
@@ -1354,3 +1379,78 @@ before and after. The reasoning is ADR 0013's amendment of the same date.
   bytes, from 236,989): the page script. The chart library is 1,275.4 KB, unchanged.
   No text sits on a new ground, so the contrast audit was not rerun: the names are
   the same ink on the same plot, fewer of them.
+
+## The Community page (#346)
+
+Decided 2026-11-17. A new first tab, "Community", which is the tab the site opens
+on: one line on what the format and the app are, then the community's own numbers,
+which no other tab shows. The maintainer picked its look from a rendered prototype
+on 2026-11-15 (#339, branch `prototype/community-landing-339`, variant A), and this
+is that page rebuilt on the build's figures. Measured on the running app over the
+real record at 390, 1440 and 1920px. The date argument is ADR 0013's amendment of
+the same date, and the wording rule is `CONTEXT.md`'s "On record".
+
+- **Seven parts, top to bottom.** The format's name and the one line. Six figures
+  in a row, each with the newest year's beneath: pilots, events, decks, cards,
+  archetypes and the largest field, each label with the dot of its kind in the
+  graph's own colour (§5). The source line, once. Every event on record as a dot.
+  Pilots on record over the events of each month. Each year's pilots by the year
+  they first played. Six doorways, one per content tab.
+- **Nothing on it is typed in.** Every number and all chart data are written by the
+  build into `figures.json` (its `community` block) and the page is filled from the
+  file, as the FAQ is.
+- **Hand-drawn SVG, on this page only** (§6's note). The dots are packed so no two
+  overlap, the largest set first so they keep the line, and a dot wide enough to
+  hold its number shows it: seven do at 1440 and none at 390, where the hover has
+  them. Drawn to the width given and drawn again when it changes.
+- **One time axis for three charts.** The dots, the running count and the months
+  share one scale, so a year starts at the same position down the page in all
+  three, at 390 and at 1440. The running count and the months are two panels with
+  one hover line through both, not one plot with two y axes.
+- **A major is the leaderboard's.** Solid where a major, a ring where not, and only
+  a major is named. 27 events have a field over 64 and 25 are majors: the two that
+  published a bracket are rings. So the key gives the leaderboard's own rule, "a
+  field over 64 that published its standings", where the prototype said "a field
+  over 64". At a teams event the field counts teams, so its players are the pilots
+  on record.
+- **No `*`** on a field the build settled (§4's note), and no locations.
+- **What a mark says.** A dot: its players and its year, and its name only if it is
+  a major. Never a day or a month. The running count: where the line is, with the
+  events of the month under it. A part of a year's bar: its pilots and their share
+  of the year. Under the pointer, under a finger (the box stays up after a tap,
+  until the next tap or a scroll), and on keyboard focus for the parts of a bar,
+  which are the marks that can take it.
+- **Nobody is counted as having left.** A pilot absent from a year is in no bar of
+  it. The yearly bars show it only as a band narrowing.
+- **A doorway carries its tab's own label**, so the sixth reads "Player
+  leaderboard" where the prototype's read "Leaderboard": the click opens the tab of
+  that name, and `CONTEXT.md` keeps "player" on that surface on purpose.
+- **Where it is the app's part and not the prototype's.** The three cards are the
+  app's insight cards (§12: a 12px radius and the app's inset, where the prototype
+  drew 10px and a wider one), and the line under a card's title follows the caption
+  rule (#329: 14px in the text colour, where the prototype set it 13px and muted).
+  The phone layout turns at 640px, the app's own step, not at 600. The two
+  captions say "decks" where the prototype said "lists" (`CONTEXT.md`, Deck), and a
+  part's share is written as every share is (§4: "8.5% of 2026", where the
+  prototype rounded to "8%").
+- **Three sizes and one ramp are this page's own.** The format's name is the
+  page-name role at 34px (28px on a phone, where a subject's page name is 30 and
+  24): it is the site's landing title. A figure is 38px (32px), in the body face
+  and proportional figures (§3), where a tile's figure is 26px in the display
+  face: six of them are the page's subject, not a head over it. The first-played
+  ramp is one hue in four stops from deep to pale, `#9c3a12`, the pilot orange
+  `#d95926`, `#ee8f5f`, `#f6c3a3` (`palette.FIRST_PLAYED`), a step per year on
+  record and oldest first: an ordered quantity, so steps of one hue and not four
+  categorical hues (§5). A part's number is set in the main ink or the ground,
+  whichever reads better on its step: 4.85 to 1 at the least over the four.
+- **The header is one row from 1240px up**, and a phone's tabs sit closer. The
+  eighth tab is 104px of strip (§11's note has both measurements).
+- **What it costs.** The page as transferred is 248.2 KB, from 238.6 KB (248,219
+  bytes, from 238,600). The chart library, 1,275.4 KB, is no longer part of a first
+  visit: the opening page draws no library chart, and the library is asked for when
+  a tab that has one is first opened. A first visit transferred 607 to 664 KB in
+  all, against 1,930 KB (the spread is a font fetched on some visits). The contrast
+  audit read 331 text nodes on the page over the three widths, none below AA. A
+  number on a dot is white on the event green, 4.95 to 1, worked out by hand: the
+  audit reads a drawn circle's ground as the card's. It is white because the main
+  ink is 4.25 to 1 there.
