@@ -899,6 +899,44 @@ def _pair_tiles(together: Series, cards: list[tuple[str, Series]]) -> list[parts
     return tiles
 
 
+def _pair_years_card(together: Series, cards: list[tuple[str, Series]]) -> str:
+    """Two cards' co-occurrence year by year, as a table under their adoption chart
+    (issue #351).
+
+    The head's last two tiles, once for each year on record: of the decks running
+    one card that year, the share that also run the other, with both counts. The
+    chart over it draws the decks running both as a share of all decks, which moves
+    when either card is played more or less, whatever the two have to do with each
+    other. This is the share of each card's own decks: the co-occurrence itself,
+    once from each side.
+
+    ``together`` and ``cards`` are what :func:`_pair_tiles` takes, the three lines
+    of the chart, so a card's counts here sum to its tile. A share of a count is a
+    direct observation (ADR 0013): every year is stated, however few decks it
+    rests on, with the counts beside it. Only a year the card has no deck in has no
+    share to state. The caption names the columns and no direction: nothing here
+    tests a trend.
+    """
+    rows = []
+    for at, both in enumerate(together.cells):
+        row = [str(both.year)]
+        for _, adoption in cards:
+            decks = adoption.cells[at].count
+            row.append(parts.with_base(numfmt.share(both.count / decks),
+                                       numfmt.count_of(both.count, decks))
+                       if decks else "No decks")
+        rows.append(row)
+    return parts.card_head(
+        "Co-occurrence by year",
+        parts.caption("Each figure is the share of that card's decks in the year that "
+                      "also run the other."),
+    ) + parts.table(
+        [parts.Column("Year"),
+         *(parts.Column(f"Of {name}'s decks", numeric=True) for name, _ in cards)],
+        rows,
+    )
+
+
 def _archetype_tiles(tag: str, shares: Series, landscape: Series | None) -> list[parts.Tile]:
     """An archetype's four tiles: its dot on the metagame landscape for the record's
     latest year, stated in numbers (issue #332).
@@ -4963,6 +5001,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                         cooc_adopt_heading = gr.HTML(visible=False, padding=False)
                         cooc_adopt_note = gr.Markdown(visible=False)
                         cooc_adopt_plot = gr.Plot(visible=False)
+                    # The co-occurrence itself, year by year (#351). Two cards only:
+                    # one card has no pair to state, so its card is taken down.
+                    with gr.Group(elem_classes="insight-card", visible=False) as cooc_years_card:
+                        cooc_years_out = gr.HTML(padding=False)
 
             def card_head(c: str, descriptor: str, usage: Subgraph, adoption: Series):
                 # The top of a card's page (#329): its name, a descriptor, and the four
@@ -5006,7 +5048,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # the panel beside it (#330).
                 if not c:
                     hide = gr.update(visible=False)
-                    return (hide, hide, gr.update(), *draw_adoption([], None))
+                    return (hide, hide, gr.update(), *draw_adoption([], None),
+                            hide, gr.update())
                 values = {
                     "card": c, "cooccur_card2": c2,
                     "cooccur_top_n": n, "cooccur_drop_lands": dl,
@@ -5026,23 +5069,28 @@ def build_app(artifact: Path) -> gr.Blocks:
                             _pair_tiles(together, series)),
                         visible=True,
                     )
+                    years = (gr.update(visible=True),
+                             gr.update(value=_pair_years_card(together, series)))
                     series = [*series, (_TOGETHER, together)]
                 else:
                     head = card_head(
                         c, "Card, and the cards it is most often played with.",
                         run_query(conn, CardUsage(c)), series[0][1])
+                    years = (gr.update(visible=False), gr.update())
                 return (
                     head,
                     gr.update(visible=True),
                     gr.update(value=graph_card("card_cooccurrence", values, cooccurrence)),
                     *draw_adoption(series, None),
+                    *years,
                 )
 
             cov_outputs = [cov_head, cov_results, cov_usage_out,
                            cov_adopt_heading, cov_adopt_plot, cov_adopt_note,
                            cov_archetypes_out]
             cooc_outputs = [cooc_head, cooc_results, cooc_graph_out,
-                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note]
+                            cooc_adopt_heading, cooc_adopt_plot, cooc_adopt_note,
+                            cooc_years_card, cooc_years_out]
 
             def cards_drawing(c):
                 # The step ahead of every draw: the running line where the results

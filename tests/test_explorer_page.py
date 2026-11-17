@@ -39,10 +39,11 @@ from graph7ph.app import (
     launch_kwargs,
 )
 from graph7ph.build import build_graph
-from graph7ph.db import artifact_path, database_path
+from graph7ph.db import artifact_path, database_path, open_for_reading, rows
 from graph7ph.figures import figures_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
+from graph7ph.query import card_deck_counts
 from graph7ph.theme import FONTS, HEADER_ONE_ROW_PX, TOKENS, contrast_ratio
 from graph7ph.trends import ArchetypeTimelinePoint, LandscapeCell, Series
 
@@ -1796,6 +1797,55 @@ def test_no_table_runs_past_its_card_on_any_tab_of_the_real_record(chromium, rec
         shots.chip(page, "View", "Co-occurrence")
         _card_titled(page, "Co-occurrence").wait_for(timeout=30_000)
         _assert_tables_fit_and_are_plain(page, "Cards, co-occurrence")
+    finally:
+        page.close()
+
+
+def _two_cards_drawn(page, first: str, second: str):
+    """The Co-occurrence view drawn for two cards, down to its last card."""
+    shots.tab(page, "Cards")
+    shots.chip(page, "View", "Co-occurrence")
+    shots.pick(page, "Card", first)
+    shots.pick(page, "Second card (optional)", second)
+    _card_titled(page, "Co-occurrence by year").wait_for(timeout=30_000)
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_two_cards_year_by_year_table_is_under_the_chart_and_fits_its_card(
+    chromium, explorer, width
+):
+    # Issue #351: each card's share of its own decks that also run the other, a row
+    # per year, as the last card of the two-card page. A cell is a share with its two
+    # counts, which a number's cell never breaks, in three columns.
+    page = _loaded(chromium, explorer, width)
+    try:
+        _two_cards_drawn(page, CARD, "Daze")
+        read = page.evaluate(_PAGE_FROM_THE_TOP)
+        assert read["order"] == [*_HEAD, "Co-occurrence", "Adoption over time",
+                                 "Co-occurrence by year"]
+        # The played-with list beside the graph, then the one year on record.
+        assert read["rows"][-1] == 1
+        _assert_tables_fit_and_are_plain(page, f"two cards, {width}")
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("width", list(shots.VIEWPORTS))
+def test_two_cards_year_by_year_table_fits_its_card_on_the_real_record(
+    chromium, record, width
+):
+    # The same table where it is widest: the two cards in the most decks, whose
+    # counts run to four digits on both sides of the slash in the record's fuller
+    # years. Measured at 390px on the record of November 2026, the table needs 305px
+    # of the 332 its card has.
+    conn = open_for_reading(artifact_path())
+    names = dict(rows(conn.execute("MATCH (c:Card) RETURN c.canon, c.name")))
+    first, second = (names[canon] for canon, _ in sorted(
+        card_deck_counts(conn).items(), key=lambda kv: (-kv[1], kv[0]))[:2])
+    page = _loaded(chromium, record, width)
+    try:
+        _two_cards_drawn(page, first, second)
+        _assert_tables_fit_and_are_plain(page, f"two cards of the record, {width}")
     finally:
         page.close()
 

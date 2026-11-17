@@ -105,6 +105,12 @@ def folded(text: str, sub: str) -> Markup:
     return Markup(f"{html.escape(text)}<span class='sub'>{html.escape(sub)}</span>")
 
 
+def with_base(figure: str, base: str) -> Markup:
+    """A figure with what it rests on in parentheses after it, set back: a share
+    and its counts as ``70.53% (146 / 207)``."""
+    return Markup(f"{html.escape(figure)} <span class='base'>({html.escape(base)})</span>")
+
+
 @dataclass(frozen=True)
 class Column:
     """One column of a table: its header, text or :class:`Markup`, and how its

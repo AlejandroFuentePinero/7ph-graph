@@ -671,6 +671,9 @@ a[data-opens]:hover {{ text-decoration: underline; }}
 }}
 /* A cell's second line, and a column left out, both for a narrow screen (below). */
 .data-table .sub {{ display: none; }}
+/* What a figure rests on, after it in its cell (`parts.with_base`): set back as a
+   quiet column is. */
+.data-table .base {{ color: var(--text-mute); }}
 @media (max-width: 640px) {{
   .page-name {{ font-size: 24px; }}
   .tiles {{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }}

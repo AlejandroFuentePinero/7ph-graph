@@ -933,6 +933,17 @@ head's caption (§12) and "subject once" (§14).
   own. Its last point is the head's first tile, so that figure has its picture and
   its trend. A deck runs both on either board, as the two-card graph's hub counts
   it. One query feeds the line and the tiles (`trends.pair_adoption_over_time`).
+- **And the co-occurrence by year.** _Added 2026-11-18 (issue #351)._ The "Together"
+  line falls when either card is played less, whatever the two have to do with each
+  other, and the co-occurrence itself was stated for the whole record only. A table
+  under the chart states it for each year on record: of the decks running one card
+  that year, the share that also run the other, with both counts ("70.53% (146 /
+  207)"), once from each side. Every year is stated however few decks it rests on,
+  since a share of a count is a direct observation (ADR 0013); a year a card has no
+  deck in reads "No decks". A table and not more lines on the chart, whose axis is
+  a share of all decks. Its caption names the columns and no direction. It says
+  that a share moved, not why: the app holds no points history. Computed from the
+  three series the chart draws, so a card's rows sum to its tile.
 - **A tile is read off the picture under it.** A pilot's events, archetypes and
   most-played archetype are counted off the neighbourhood and affinity graphs' own
   nodes, from the one query result the page also draws. The best finish is read off
