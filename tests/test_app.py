@@ -23,8 +23,6 @@ from graph7ph.app import (
     _LANDSCAPE_HEIGHT,
     _LEADERBOARD_ROWS,
     _LEGEND_BELOW_HEIGHT,
-    _SLIDER_BAND,
-    _TICK_LABEL_ROOM,
     _RACE_LINES,
     _PLOT_LABELS,
     _draw_with_progress,
@@ -930,20 +928,22 @@ def test_a_leading_refused_year_does_not_stretch_the_axis():
     assert thin.x == 2024
 
 
-def test_a_timelines_range_control_is_a_plain_strip_with_no_instruction_and_no_tint():
+def test_every_range_control_is_one_plain_strip_with_no_instruction_and_no_tint():
     # AC (#335): under each timeline sat a 44px slab in the app's accent reading "Time
     # range filter (drag to slice)". It is a neutral strip that says nothing: about
     # half as tall, since the prototype's 12px was ruled too easy to miss and the slab
-    # too much. Read off all three timelines. The landscape's share filter is another
-    # ticket's and keeps its tint and its label.
+    # too much. AC (#366): the landscape kept the slab and now carries the same strip,
+    # so this reads all four charts that have a range control, the three timelines and
+    # the landscape, and holds them to each other as well as to the ruling: a second
+    # look for one of them fails here.
     series = Series(cells=[
         _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
                         placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
         _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
                         placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
     ])
-    accent = _rgba(theme.TOKENS["accent-bright"], 1).removesuffix(", 1)")
-    for fig in (
+    neutral = _rgba(theme.TOKENS["text-dim"], 1).removesuffix(", 1)")
+    timelines = (
         _head_to_head_figure("Ada L", "Bob C", series),
         _archetype_timeline_figure(
             "Storm", "Lands", _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4)),
@@ -951,13 +951,22 @@ def test_a_timelines_range_control_is_a_plain_strip_with_no_instruction_and_no_t
         _archetype_timeline_figure(
             "Storm", None, _timeline_points((1, 0.2, 3), (2, 0.6, 1)),
         ),
-    ):
+    )
+    landscape = _landscape_figure(_landscape_cells(
+        ("grixis", 30, 0.45), ("storm", 20, 0.4), ("lands", 10, 0.55),
+    ))
+    looks = set()
+    for fig in (*timelines, landscape):
         assert "245,158,11" not in fig.to_json()  # the amber retired in #85, at any opacity
         slider = fig.layout.xaxis.rangeslider
         assert slider.visible
         assert not [a.text for a in fig.layout.annotations
                     if "filter" in a.text or "drag" in a.text]
-        assert accent not in slider.bgcolor and accent not in slider.bordercolor
+        # The neutral ink a reference line is drawn in, at whatever strength: never the
+        # accent the slab wore.
+        assert slider.bgcolor.startswith(neutral)
+        assert slider.bordercolor.startswith(neutral)
+        looks.add((slider.bgcolor, slider.bordercolor, slider.borderwidth))
         # Plotly's own rule for the band: `thickness` of the plot the margins leave.
         margin = fig.layout.margin
         band = slider.thickness * ((fig.layout.height or 450) - margin.t - margin.b)
@@ -965,12 +974,19 @@ def test_a_timelines_range_control_is_a_plain_strip_with_no_instruction_and_no_t
         # The preview is parked off the 0-1 score band, or the strip draws a second
         # copy of the points and reads as a broken plot rather than as a control.
         assert tuple(slider.yaxis.range) == (10, 11)
-        # The legend takes the room above the plot and the shared styler's tight bottom
-        # survives underneath, from two separate calls: a layout update that replaced
-        # rather than merged would cramp the chart without changing a colour this test
-        # reads. Nothing reserves room for the strip by hand; Plotly's autoexpand sizes
-        # the bottom to the strip, the ticks and the axis title exactly.
-        assert (fig.layout.margin.b, fig.layout.margin.t) == (8, 48)
+        # Nothing reserves room for the strip by hand; Plotly's autoexpand sizes the
+        # bottom to the strip, the ticks and the axis title exactly. A hand-set floor
+        # is added to rather than absorbed, and the one the landscape carried left
+        # 55px of empty card under the axis title.
+        assert fig.layout.margin.b == 8
+    # One fill, one edge, one edge width between the four.
+    assert len(looks) == 1
+    for fig in timelines:
+        # The legend takes the room above the plot while the shared styler's tight
+        # bottom, read above, survives underneath, from two separate calls: a layout
+        # update that replaced rather than merged would cramp the chart without
+        # changing a colour this test reads.
+        assert fig.layout.margin.t == 48
 
 
 def test_head_to_head_gives_each_pilot_a_colour_of_their_own():
@@ -1690,32 +1706,20 @@ def test_every_chart_that_reads_finishes_against_the_middle_draws_one_neutral_li
             assert not colour.startswith(_rgba(hue, 1).rsplit(",", 1)[0])
 
 
-def test_the_landscape_carries_a_share_range_filter_to_pull_the_crowded_end_apart():
+def test_the_landscape_carries_a_range_control_on_share_to_pull_the_crowded_end_apart():
     # A real year puts twenty of its twenty-five archetypes between 1% and 3% of share,
     # which is four or five names deep in one band, and no rule that only moves names
     # about survives that (since #337 the page leaves most of that band's names to the
-    # hover). The reader gets the axis as well, as a range filter on share. The
-    # timelines carried the same control until #335 and now take a plain strip.
+    # hover). The reader gets the axis as well, as a range control on share: the
+    # plain strip every range control is since #366 (its look is held over all four
+    # charts above).
     fig = _landscape_figure(_landscape_cells(
         ("grixis", 30, 0.45), ("storm", 20, 0.4), ("lands", 10, 0.55),
     ))
-    slider = fig.layout.xaxis.rangeslider
-    accent = theme.TOKENS["accent-bright"]
 
-    assert slider.visible
-    # Tinted as a control, in the app's one accent.
-    assert slider.bgcolor == _rgba(accent, 0.12)
-    assert slider.bordercolor == _rgba(accent, 0.55)
-    # The preview is parked off the 0-1 score band, or the slider draws a second copy
-    # of the dots and reads as a broken plot rather than as a control.
-    assert tuple(slider.yaxis.range) == (10, 11)
-    label = next(a for a in fig.layout.annotations if "range filter" in a.text)
-    assert "Share" in label.text  # its own axis named
-    assert label.font.color == _rgba(accent, 0.95)
-    # The band, its label and the axis title are sized by Plotly's own autoexpand, not
-    # reserved by hand: a hand-set floor is added to rather than absorbed, and the one
-    # this carried left 55px of empty card under the axis title.
-    assert fig.layout.margin.b == 8
+    assert fig.layout.xaxis.rangeslider.visible
+    # On the share axis, which is the one the names crowd along.
+    assert fig.layout.xaxis.title.text == "Share of the year's decks"
 
 
 def test_the_landscape_draws_tall_enough_that_its_furniture_does_not_own_the_frame():
@@ -1734,11 +1738,9 @@ def test_the_landscape_draws_tall_enough_that_its_furniture_does_not_own_the_fra
 def test_a_range_control_keeps_its_own_depth_whatever_the_height_of_its_chart():
     # The control is furniture, so it does not grow with the chart it sits under: Plotly
     # takes its thickness as a fraction of the plot, and the flat 0.12 this passed drew
-    # 44px under a 450px figure but 75 under the landscape's 640. Its label rode a paper
-    # fraction tuned at the same 450, which at 640 dropped it onto the bottom edge of
-    # the band it names. Read off two charts that draw at different heights, so a band
-    # that ignores height cannot pass twice. Each keeps its own depth since #335: the
-    # landscape's labelled filter 44px, a timeline's plain strip 24.
+    # 44px under a 450px figure but 75 under the landscape's 640. Read off two charts
+    # that draw at different heights, so a band that ignores height cannot pass twice.
+    # Both are the 24px strip since #366.
     landscape = _landscape_figure(
         _landscape_cells(("grixis", 30, 0.45), ("storm", 20, 0.4)))
     timeline = _head_to_head_figure("Ada L", "Bob C", Series(cells=[
@@ -1754,17 +1756,11 @@ def test_a_range_control_keeps_its_own_depth_whatever_the_height_of_its_chart():
         return fig.layout.xaxis.rangeslider.thickness * (
             (fig.layout.height or 450) - margin.t - margin.b)
 
-    assert band(landscape) == pytest.approx(_SLIDER_BAND)
+    assert band(landscape) == pytest.approx(24)
     assert band(timeline) == pytest.approx(24)
     # And the two charts really do draw at different heights, or one band proves nothing
     # about the other.
     assert landscape.layout.height != (timeline.layout.height or 450)
-    label = next(a for a in landscape.layout.annotations if "range filter" in a.text)
-    # Anchored to the bottom of the plot and offset in pixels, since that is the
-    # coordinate the band's own geometry is in, and centred in it: a label against
-    # either edge reads as a stray caption beside the control rather than its label.
-    assert (label.yref, label.y) == ("paper", 0)
-    assert label.yshift == pytest.approx(-(_TICK_LABEL_ROOM + _SLIDER_BAND / 2))
 
 
 def test_the_landscape_hands_the_page_every_name_and_names_no_region():
@@ -1789,10 +1785,9 @@ def test_the_landscape_hands_the_page_every_name_and_names_no_region():
     assert trace.hovertemplate.endswith("%{customdata[6]}<extra></extra>")
     # No corner of the plot is named ("popular and winning" and so on): the caption
     # says almost no archetype is reliably above or below the middle, so a corner
-    # called "winning" would claim more than the record does. The one line of text
-    # the figure adds is its filter's label.
-    assert [note.text for note in fig.layout.annotations] == [
-        "◀ Share range filter (drag to zoom) ▶"]
+    # called "winning" would claim more than the record does. The figure adds no
+    # line of text of its own: its range control lost its label in #366.
+    assert [note.text for note in fig.layout.annotations] == []
 
 
 def test_the_landscape_caption_states_the_cut_the_season_and_the_reference_line():

@@ -2762,6 +2762,38 @@ def test_opening_the_crowded_end_with_the_range_filter_brings_its_names_back(chr
     assert stood_in_for == [""] * 5
 
 
+def _assert_a_plain_strip(strip: dict, words: list[str]) -> None:
+    """A range control as the running page draws it is the one strip every chart
+    carries (#335, #366): 24px deep, in the neutral ink a reference line is drawn in
+    (the design doc's `text-dim`) at whatever strength, never the accent the slab
+    wore, and the chart sets no word about filtering or dragging."""
+    assert strip["height"] == pytest.approx(24, abs=1)
+    neutral = [int(TOKENS["text-dim"][at:at + 2], 16) for at in (1, 3, 5)]
+    for colour in (strip["fill"], strip["edge"]):
+        assert [int(part) for part in re.findall(r"\d+", colour)[:3]] == neutral
+    assert not [word for word in words
+                if re.search(r"filter|drag|zoom|slice", word, re.I)]
+
+
+def test_the_landscapes_range_control_is_drawn_as_the_strip_the_timelines_carry(chromium):
+    # AC (#366): one control, one look. The landscape kept a 44px bar in the app's
+    # accent with "◀ Share range filter (drag to zoom) ▶" written across it after
+    # #335 gave the timelines a plain strip. On the running page it is that strip, held
+    # to the same reading the timelines' is.
+    with _landscape_of(chromium, _ROW) as page:
+        read = page.evaluate(
+            """() => { const chart = document.querySelector(
+                   '#landscape-result .js-plotly-plot');
+                 const strip = chart.querySelector('.rangeslider-bg');
+                 return {strip: {height: strip.getBoundingClientRect().height,
+                                 fill: getComputedStyle(strip).fill,
+                                 edge: getComputedStyle(strip).stroke},
+                         words: [...chart.querySelectorAll('text')]
+                           .map(text => text.textContent)}; }""")
+
+    _assert_a_plain_strip(read["strip"], read["words"])
+
+
 def _landscape_years(page) -> list[str]:
     """The years the landscape's selector offers, as it lists them."""
     return page.evaluate(
@@ -3253,22 +3285,14 @@ def test_a_long_pair_opens_on_as_many_of_its_latest_events_as_the_plot_has_room_
 
 @pytest.mark.parametrize("second", [True, False], ids=["pair", "solo"])
 def test_a_timelines_range_control_is_drawn_as_a_plain_strip(chromium, second):
-    # AC (#335): the range control carries no instruction text and no accent tint. On
-    # the running page: a strip 24px deep in the neutral ink, and no word in the chart
-    # about filtering or dragging.
+    # AC (#335): the range control carries no instruction text and no accent tint, on
+    # the running page.
     figure = _archetype_timeline_figure(
         "Storm", "Lands" if second else None, _timeline(6, second))
     with _timeline_of(chromium, figure) as page:
         read = page.evaluate(_TIMELINE_AS_DRAWN)
 
-    assert read["strip"]["height"] == pytest.approx(24, abs=1)
-    # The neutral ink a reference line is drawn in (the design doc's `text-dim`), at
-    # whatever strength: never the accent the slab wore.
-    neutral = [int(TOKENS["text-dim"][at:at + 2], 16) for at in (1, 3, 5)]
-    for colour in (read["strip"]["fill"], read["strip"]["edge"]):
-        assert [int(part) for part in re.findall(r"\d+", colour)[:3]] == neutral
-    assert not [word for word in read["words"]
-                if re.search(r"filter|drag|slice", word, re.I)]
+    _assert_a_plain_strip(read["strip"], read["words"])
 
 
 @pytest.mark.parametrize("width", ["phone", "desktop"])

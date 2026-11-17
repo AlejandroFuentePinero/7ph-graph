@@ -1301,7 +1301,8 @@ def dark_theme():
         # failure and the only one either candidate produced, where `--accent-bright`
         # gives 7.27 on the ground and 5.64 on the chip. It is also how this codebase
         # already splits the two: `--accent` is a fill or an edge, `--accent-bright` is
-        # ink on a surface (#163 made the same call for the range slider).
+        # ink on a surface (#163 made the same call for the range slider, which wore the
+        # accent until #366).
         color_accent="var(--accent-bright)",
         # The radio/checkbox chip, redesigned in the same change because the accent is
         # what was holding it up. Gradio chains `..._fill_selected` straight back to
