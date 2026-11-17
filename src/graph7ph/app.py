@@ -1811,9 +1811,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Only the 25 most-played archetypes of the year are drawn, and the caption "
         "says how many the year held in all. A name is printed beside a dot where it "
         "fits without covering another name or another dot, the most played first. "
-        "Every dot gives its name when you point at it or tap it, and dragging the "
-        "share range filter under the chart opens a crowd up and brings its names "
-        "back.",
+        "Every dot gives its name when you point at it or tap it, and dragging "
+        "either end of the strip under the chart opens a crowd up and brings its "
+        "names back.",
     ),
     (
         "faq-landscape-certainty",
@@ -2334,11 +2334,14 @@ _LANDSCAPE_TOP_N = 25
 
 # The landscape draws taller than Plotly's 450px default, because it is the one chart
 # whose furniture crowds out its own plot: 25 named dots and their intervals, over an
-# axis carrying the share range filter. At 450 the filter's band, the tick labels and
-# the axis title took 166 of it and left the dots 276px, 61 percent of the frame, which
-# squeezed a year's finishes (0.43 to 0.62 in 2026) into a strip with 25 names over it.
-# 640 leaves them 492. The same height the legend-below charts take, so the cards keep
-# one rhythm down the page rather than each picking its own number.
+# axis carrying the share range control. At 450 the control's band (44px then), the tick
+# labels and the axis title took 166 of it and left the dots 276px, 61 percent of the
+# frame, which squeezed a year's finishes (0.43 to 0.62 in 2026) into a strip with 25
+# names over it. 640 left them 492 when it was set. Measured on the running page for
+# #366, it left them 515 to 523 under that band and leaves them 535 to 543 now the
+# control is the 24px strip, whose 20px went to the plot. The same height the
+# legend-below charts take, so the cards keep one rhythm down the page rather than each
+# picking its own number.
 _LANDSCAPE_HEIGHT = 640
 
 
@@ -2423,13 +2426,6 @@ _SURFACE = theme.TOKENS["surface"]
 # neutral on purpose and not by omission: §5-6 spends colour on entities, and the
 # palette refuses a ninth hue, so chrome that names no entity stays off the wheel.
 _REFERENCE = theme.TOKENS["text-dim"]
-# The colour the landscape's range filter and its label take, so they read as a
-# control against the neutral chart rather than as more plot. §2 commits the
-# app to one accent, and this used to be a Tailwind amber left over from the
-# light-theme era, which made the one orange thing inside a chart a different orange
-# from every orange outside it.
-_CONTROL_ACCENT = theme.TOKENS["accent-bright"]
-
 # The colour and opacity of the race's band, which stands for the contenders the cut
 # left out.
 #
@@ -2632,80 +2628,51 @@ def _midpoint_line(fig: pgo.Figure) -> None:
     )
 
 
-# The height of the landscape's slider band on the page (a timeline's strip is
-# :data:`_TIMELINE_BAND`). Plotly takes its `thickness` as a fraction of
-# the plot, which fattens the control as a chart grows: at the landscape's 640px the
-# 0.12 this used to pass drew a 75px band, half again the 44 the same fraction gave at
-# Plotly's 450 default. A control is furniture, and furniture does not scale with the
-# data it sits under, so the fraction is derived from this per chart instead.
-_SLIDER_BAND = 44
-
-# The gap Plotly leaves between the x axis and the slider band, for the tick labels.
-# It is a function of the tick font, not of the figure, so it holds at every height the
-# app draws (measured 34px at 450, 620, 640 and 760).
-_TICK_LABEL_ROOM = 34
-
 # Plotly's own figure height, for the charts that state none.
 _PLOTLY_DEFAULT_HEIGHT = 450
 
 
-# The strip under a timeline (issue #335). About half the landscape's band: the
-# maintainer ruled a 12px strip too easy to miss and the 44px slab more than a control
-# needs.
-_TIMELINE_BAND = 24
+# How deep the range strip is drawn, on every chart that carries one: the landscape
+# and the three finish timelines. The maintainer picked it at the #335 prototype,
+# where a 12px strip was too easy to miss and the 44px slab the control used to be
+# was more than a control needs.
+_RANGE_STRIP_DEPTH = 24
 
 
-def _range_band(fig: pgo.Figure, band: int, *, bgcolor: str, bordercolor: str) -> None:
-    """A range slider ``band`` pixels tall under the x axis, its preview parked.
+def _range_strip(fig: pgo.Figure) -> None:
+    """The range control under the x axis: a plain neutral strip, the same everywhere.
 
-    `thickness` is a fraction of the plot the margins leave, so ``band`` pixels is that
-    many over this chart's own plot height. Read off the figure, which is why the
-    callers state their height and top margin before calling.
+    One control, one look (issue #366). The strip says nothing and takes no hue: its
+    handles and its place under the axis say it is a control. It was a 44px slab in
+    the app's accent with an instruction written across it, on the timelines until
+    #335 and on the landscape until #366. Its depth and its ink are stated here and
+    nowhere else, so two charts cannot drift apart again.
+
+    The depth is in pixels because a control is furniture, and furniture does not
+    scale with the data it sits under. Plotly takes `thickness` as a fraction of the
+    plot the margins leave, which fattens the strip as a chart grows (one fraction
+    drew 44px at Plotly's 450 default and 75 at the landscape's 640), so the fraction
+    is derived from this chart's own plot height. Read off the figure, which is why
+    the callers state their height and top margin before calling.
 
     The slider's mini-axis is fixed to an off-data band (every chart carrying this plots
     a 0-1 score, so 10-11 is empty), which parks the trace preview out of view: the
     slider stays a plain control instead of a second copy of the data that reads as a
     bug.
+
+    The bottom margin is left to Plotly's own autoexpand, which sizes it to the strip,
+    the tick labels and the axis title exactly. Do not reserve room by hand: a request
+    of 90px (which the landscape held until it was resized) is a floor autoexpand then
+    adds its own content to, and the 55px of empty card it left under the axis title read
+    as a broken card rather than as breathing room.
     """
     margin = fig.layout.margin
     plot = (fig.layout.height or _PLOTLY_DEFAULT_HEIGHT) - margin.t - margin.b
     fig.update_xaxes(rangeslider=dict(
-        visible=True, thickness=band / plot, bgcolor=bgcolor, bordercolor=bordercolor,
+        visible=True, thickness=_RANGE_STRIP_DEPTH / plot,
+        bgcolor=_rgba(_REFERENCE, 0.14), bordercolor=_rgba(_REFERENCE, 0.6),
         borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
     ))
-
-
-def _range_filter(fig: pgo.Figure, label: str) -> None:
-    """A drag-to-slice range control under the x axis, tinted as a control and labelled.
-
-    The landscape's, where a year's drawn archetypes bunch into the low-share end (in
-    2026, twenty of the twenty-five sit between 1% and 3%). The timelines carried it
-    too until issue #335 and now take the same slider plain (:func:`_style_timeline`).
-
-    The tint marks it as a control against the neutral chart, and the label centred
-    under it says so. ``label`` names the axis being filtered.
-
-    The bottom margin is left to Plotly's own autoexpand, which sizes it to the band,
-    the tick labels and the axis title exactly. Do not reserve room by hand: a request
-    of 90px (which this held until the landscape was resized) is a floor autoexpand then
-    adds its own content to, and the 55px of empty card it left under the axis title read
-    as a broken card rather than as breathing room.
-    """
-    _range_band(fig, _SLIDER_BAND, bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
-                bordercolor=_rgba(_CONTROL_ACCENT, 0.55))
-    # Centred in the band, as a pixel offset from the bottom of the plot rather than a
-    # fraction of it: the band is a fixed gap below the axis plus a fixed height, so its
-    # centre is a constant number of pixels down whatever the figure's height, while the
-    # equivalent fraction is not (it was -0.20 at 450px and would be -0.09 at 640). A
-    # fraction has to be retuned every time a chart is resized, and a stale one drifts
-    # the label to the edge of the band it names. The app's accent, matching the slider
-    # tint it labels.
-    fig.add_annotation(
-        x=0.5, y=0, xref="paper", yref="paper", xanchor="center", yanchor="middle",
-        yshift=-(_TICK_LABEL_ROOM + _SLIDER_BAND / 2),
-        showarrow=False, text=label,
-        font=dict(color=_rgba(_CONTROL_ACCENT, 0.95), size=11),
-    )
 
 
 def _confidence_size(events: int) -> float:
@@ -3599,7 +3566,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     in a field the page fills: the archetypes whose dots this one answers the
     pointer for. It is sent empty.
 
-    The share axis is a control as well: this chart takes :func:`_range_filter`, and
+    The share axis is a control as well: this chart takes :func:`_range_strip`, and
     a reader who pulls the crowded end open is given the names the room now allows. The ring's
     size carries the archetype's distinct events, not its decks: within a year share is
     monotone in decks, so sizing by decks would say the same thing the x axis already
@@ -3656,11 +3623,11 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
         tickformat=numfmt.SHARE_TICKFORMAT, rangemode="tozero",
     )
     # The one chart that states its own height (:data:`_LANDSCAPE_HEIGHT`), and it does
-    # so before the filter, whose label is placed off the plot's height.
+    # so before the strip, whose depth is a share of the plot's own height.
     fig.update_layout(height=_LANDSCAPE_HEIGHT)
     # The names crowd the low-share end and most of them are not drawn there, so the
-    # reader gets the axis: drag to open that end up. Named for its own axis.
-    _range_filter(fig, "◀ Share range filter (drag to zoom) ▶")
+    # reader gets the axis: the strip under it opens that end up.
+    _range_strip(fig)
     # The 0-1 score, but ranged to the dots rather than pinned to the full scale the
     # single-pilot charts use: a year's finishes span as little as 0.43 to 0.62, which
     # a 0-to-1 axis would squash into a fifth of the height with 25 labels on top of
@@ -3683,7 +3650,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     # half-width near 0.48). So the squashing this range was written to avoid is partly
     # reintroduced here, knowingly, and the labels sit closer together for it. The
     # trade is taken because a clipped interval misstates the evidence while a crowded
-    # one only reads worse, and because the share filter above gives the reader a way
+    # one only reads worse, and because the strip under the share axis gives the reader a way
     # out of the crowding that no axis rule can give them out of a wrong bar.
     bounds = [b for cell in cells for b in (cell.mean_low, cell.mean_high)
               if b is not None]
@@ -3860,14 +3827,9 @@ def _style_timeline(fig: pgo.Figure, legend_title: str) -> None:
     # Set before the strip, not after: its depth is a share of the plot's own height,
     # which this margin takes from.
     fig.update_layout(margin=dict(t=48))
-    # The range control, as a plain neutral strip (issue #335). It was the landscape's:
-    # a 44px slab in the app's accent with "Time range filter (drag to slice)" written
-    # across it, the heaviest thing on a chart that should be light. The strip says
-    # nothing and takes no hue: its handles and its place under the axis say it is a
-    # control. The axis title stays under it, where the chart library draws it, with
-    # no way offered to swap the two.
-    _range_band(fig, _TIMELINE_BAND, bgcolor=_rgba(_REFERENCE, 0.14),
-                bordercolor=_rgba(_REFERENCE, 0.6))
+    # The range control (:func:`_range_strip`). The axis title stays under it, where
+    # the chart library draws it, with no way offered to swap the two.
+    _range_strip(fig)
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
     _midpoint_line(fig)
     fig.update_layout(legend=dict(

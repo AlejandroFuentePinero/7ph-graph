@@ -379,7 +379,7 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   above the chart; the in-figure "◀ drag ▶" annotation is dropped. _Amended
   2026-11-17 (#335): it never left the figure. Under a timeline it is a plain neutral
   strip with no words ("The finish timelines" below); the landscape keeps the tinted,
-  labelled one._
+  labelled one. Since 2026-11-17 (#366) the landscape's is that strip too._
 - Single-series charts (pilot performance) carry no legend box — the title names
   the one line.
 
@@ -1377,7 +1377,8 @@ before and after. The reasoning is ADR 0013's amendment of the same date.
   drawn where it fits inside the plot without touching a name already placed or
   another archetype's dot, to the right of its own dot, or to the left where the
   right is taken. At 390 that is 9, 7, 9 and 15 names for 2026 to 2023; at 1440 and
-  1920 it is 18, 18, 21 and 24, of 25 dots (24 in 2023).
+  1920 it is 18, 18, 21 and 24, of 25 dots (24 in 2023). _Since 2026-11-17 (#366)
+  the plot is 20px taller and 2024 draws 10 at 390; the other counts stand._
 - **A name never sits on another archetype's dot.** The name is in the muted ink
   and the ring in the series colour, and a name with a ring through it reads as
   neither's. At 1440 the rule costs nothing: allowing a name over a dot draws 20, 20,
@@ -1586,6 +1587,15 @@ the same date.
   it 95px below: the chart library draws a range slider straight under the tick labels
   and the title below that. The landscape's share filter is not this ticket's and
   keeps its tint and its label, so the two controls differ until that one is ruled.
+  _Since 2026-11-17 (#366) it is ruled and they match: the landscape's control is
+  this strip, drawn from the one place the timelines draw theirs, with no tint and no
+  label. The 20px it gave up went to the plot. Measured on the running app over the
+  real record at 390, 1440 and 1920px, before (main at `2d65bb5`) and after: the
+  plot is 543px tall for 2026, from 523px, and 535px for 2023 to 2025, from 515px,
+  at all three widths; the card is as tall as it was, 727px at 1440 and 1920 and
+  781px at 390, and nothing in it is clipped. The names drawn are the same in
+  eleven of the twelve year-and-width readings, and one more is drawn for 2024 at
+  390px (10, from 9)._
 - **A finish the source never scored keeps its mark** (ADR 0024): the triangle at its
   bound, the line carried through it, and "no finish published" in the hover. The
   triangle never draws under 9px, whatever the rings beside it shrink to: at 6px the
