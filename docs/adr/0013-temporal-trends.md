@@ -359,3 +359,21 @@ The Metagame tab's lead card answered "who is played" with the meta share chart:
 **The dashed join stays where it is honest.** An archetype's own page still draws its share as one or two dashed lines through hollow yearly points (#332), the form this ADR fixed for a few yearly values. The list joins nothing: a column per year.
 
 **What is lost.** Laying three or more archetypes' share histories over one another. The manual panel was also "the escape hatch for an archetype that was large only in an early year"; that is the archetype's own page now. Six of the 143 archetypes have no page (fewer than two scored events) and none of them has a deck in 2026: their share, five decks between them over the whole record, is drawn nowhere.
+
+## Amended 2026-11-17 (#335): a pair's events are spaced evenly, a solo timeline is points, and the range control is a plain strip
+
+Both pair charts (two archetypes, two pilots) placed each shared event at its registration date, and the archetype timeline drew one archetype as a dashed line filled down to zero. Where the format was busiest the events packed together: Grixis and Walks share 84, 42 of them in the ten months of 2026 on record, and that half of the chart was unreadable. Two forms of the pair chart were prototyped side by side on the real record, at 390 and 1440px, and the maintainer chose between them (issue #335; the prototype is on the branch `prototype/335-finish-timelines`).
+
+**The two lines stay, over evenly spaced events.** The other form was one bar per shared event for the gap between the two finishes. The maintainer's reason for refusing it: a gap makes only the difference obvious. Two finishes near a win and two near last place draw the same short bar, and a tournament both nearly won matters to the comparison at least as much as one that split them. So the pair keeps both finishes on the 0-to-1 score, the band between them and the 0.5 line.
+
+**The registration date orders the events and no longer places them.** "Head-to-head dates the registration, not the event" stands for what the date is. What changed is its use on the two pair charts: events run oldest first at equal spacing, each year is named at the middle of its run with a rule where one gives way to the next, and the date itself is in the hover. The real time between two events is no longer drawn. The solo timeline keeps the date axis.
+
+**A solo timeline is its events as points.** Nothing joins them and nothing is filled under them. Zero was never what a finish is read against; the 0.5 line is, and the caption over the chart counts against it. No smoothed or trend line replaces the join, on this ADR's own measurement that such movement cannot be told from shuffled data.
+
+**The range control is a neutral strip, 24px deep, with no words.** It was a 44px slab in the app's accent reading "Time range filter (drag to slice)". The maintainer ruled the prototype's 12px strip too easy to miss and the slab more than it needs. The axis title stays under it, where the chart library puts it. The landscape's share filter is untouched.
+
+**A plot too narrow for its events opens on the latest that fit.** Evenly spaced, 84 events still have under 4px each on a phone. A pair chart whose plot gives an event less than 10px opens on as many of the latest as fit (26 on a 390px screen, measured), and the strip reaches the rest; a desktop shows them all. The rings are sized from the same figure, 12px for a handful of meetings down to 6px for twenty-six or more, on both pair charts.
+
+**The tools are untouched.** `archetype_timeline` and `head_to_head_timeline` return what they returned, the captions count what they counted, and a finish the source never scored is still drawn at its bound with its own mark (ADR 0024). That mark keeps 9px where a long pair's rings shrink to 6, so the triangle still reads apart from them.
+
+**The dashed join on the pair chart is an open question.** #334's amendment kept the dash "where it is honest", for a few yearly values. A pair chart joins up to 84 per-event values with it. Whether that join still earns its place is the maintainer's to rule, and is not decided here.

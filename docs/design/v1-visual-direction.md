@@ -338,6 +338,11 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   beneath.** That is why the player leaderboard chart keeps the opaque fill (32 of its 36
   markers overlap, and nothing is drawn under them) and the rivalry charts do not (0 of
   8 markers overlap on the pilot chart, so the fill was buying nothing there).
+  _Amended 2026-11-17 (#335): the solo archetype timeline paints nothing under its
+  points any more, so by the scope rule it is back on the opaque fill. And a ring
+  under 8px across is drawn with a 1.5px outline, since 2px all but fills it: the solo
+  timeline's (7px) and a pair chart's once it holds enough events ("The finish
+  timelines" below)._
   _Amended 2026-11-16 (#336): a band is painted under that chart now, beneath 12 of
   its 37 markers. It keeps the opaque fill: 35 of the 37 overlap another, and the
   band is faint enough (the accent at 0.10) that the fill is within 22 of 255 of it
@@ -371,7 +376,10 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   `"Open Sans", verdana, arial`. `gr.Plot` draws into the page's own DOM, so the
   injected `@font-face` covers the SVG and naming the stack on the figure is enough.
 - **Range slider** (head-to-head): moves out of the figure into a control row
-  above the chart; the in-figure "◀ drag ▶" annotation is dropped.
+  above the chart; the in-figure "◀ drag ▶" annotation is dropped. _Amended
+  2026-11-17 (#335): it never left the figure. Under a timeline it is a plain neutral
+  strip with no words ("The finish timelines" below); the landscape keeps the tinted,
+  labelled one._
 - Single-series charts (pilot performance) carry no legend box — the title names
   the one line.
 
@@ -1544,3 +1552,44 @@ of the same date.
   the chart library 1,275.4 KB, unchanged. The contrast audit of the tab reads 870
   text nodes over the three widths with none below AA; on main it read 381 with 36
   below, the chart's dimmed legend entries at 2.10, which left with the chart.
+
+## The finish timelines (#335)
+
+Decided 2026-11-17. The charts of finishes over time were heavy where they should be
+light and unreadable where events are dense: two archetypes' 84 shared events as two
+interleaved dashed lines on a date axis, one archetype's 112 as a dashed line filled
+down to zero, and under each a 44px accent slab reading "Time range filter (drag to
+slice)". The maintainer picked the pair chart's form from a rendered prototype on the
+real record (branch `prototype/335-finish-timelines`: the chart as it was, a bar per
+event for the gap between the two finishes, and the two lines over evenly spaced
+events), and this is that form built fresh, on the archetype comparison and the pilot
+head-to-head alike. Measured on the running app over the real record at 390, 1440 and
+1920px, before (main at `b919d7b`) and after. The reasoning is ADR 0013's amendment of
+the same date.
+
+- **A pair keeps its two lines and the band, over evenly spaced events.** Oldest
+  first, each year named at the middle of its run, a hairline rule where one year
+  gives way to the next, and the date in the hover. A year whose run is too short for
+  its name at phone width keeps the rule alone. The maintainer refused the bar per
+  event because a gap shows only the difference: two finishes near a win and two near
+  last place draw the same short bar.
+- **A plot too narrow for its events opens on the latest that fit**, at 10px an event:
+  26 of Grixis and Walks' 84 at 390px, all 84 at 1440 and 1920. The strip under the
+  axis reaches the rest, and from the first range a reader sets the slice is theirs.
+- **The rings are sized to the events**, on both pair charts: the shared 12px ring for
+  a handful of meetings, down to 6px for twenty-six or more.
+- **One archetype is its events as points against the 0.5 line.** No fill, no join and
+  no smoothed line; the date axis stays. 7px rings on the bare surface.
+- **The range control is a plain strip**: 24px deep, in the neutral ink, with no words.
+  The prototype's 12px was ruled too easy to miss and the slab more than a control
+  needs. The axis title sits under the strip, 75px below the axis where the slab put
+  it 95px below: the chart library draws a range slider straight under the tick labels
+  and the title below that. The landscape's share filter is not this ticket's and
+  keeps its tint and its label, so the two controls differ until that one is ruled.
+- **A finish the source never scored keeps its mark** (ADR 0024): the triangle at its
+  bound, the line carried through it, and "no finish published" in the hover. The
+  triangle never draws under 9px, whatever the rings beside it shrink to: at 6px the
+  two shapes stop reading apart, and 11 of the 232 pairs of the 25 most played
+  archetypes that share 26 or more events carry one.
+- **What is lost.** The real time between two events on a pair chart, and on a phone
+  the older events until the strip is dragged.

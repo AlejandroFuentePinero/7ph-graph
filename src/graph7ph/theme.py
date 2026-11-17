@@ -1561,6 +1561,46 @@ def into_view_js(*ids: str) -> str:
 """
 
 
+def fit_events_js(room: int) -> str:
+    """The page script that opens a pair chart on as many events as its plot can show.
+
+    A pair chart spaces its shared events evenly (issue #335), and a long rivalry
+    still does not fit a phone: at 84 events each has under 4px there. A figure is one
+    layout for every width and the server never learns the width, so the page decides.
+    A chart that states how many events it holds (``layout.meta.events``) and whose
+    plot gives each less than ``room`` pixels is opened on the latest that fit; the
+    range control under it, which spans them all, reaches the rest.
+
+    It follows the plot's width, so a chart first drawn at a width it does not keep
+    is fitted again at the one it does. It stops at the first range it did not set:
+    from then on the slice is the reader's.
+
+    The chart is found again whenever the page changes, since a hidden chart is not
+    in the page and is built afresh when shown.
+    """
+    return f"""
+() => {{
+  const ROOM = {room};
+  const opened = new WeakMap();
+  const same = (a, b) => Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
+  const fit = () => document.querySelectorAll('.js-plotly-plot').forEach(chart => {{
+    const events = chart.layout?.meta?.events;
+    const whole = chart.layout?.xaxis?.rangeslider?.range;
+    const range = chart._fullLayout?.xaxis?.range;
+    const width = chart._fullLayout?._size?.w;
+    if (!events || !whole || !range || !width || !window.Plotly) return;
+    const shown = Math.floor(width / ROOM);
+    const want = shown < events ? [whole[1] - shown, whole[1]] : whole;
+    if (!same(range, opened.get(chart.layout) || whole) || same(range, want)) return;
+    opened.set(chart.layout, want);
+    window.Plotly.relayout(chart, {{'xaxis.range': want}});
+  }});
+  fit();
+  new MutationObserver(fit).observe(document.body, {{childList: true, subtree: true}});
+}}
+"""
+
+
 def chart_names_js(card: str, also: str) -> str:
     """The page script that decides which names a chart of named dots draws, and
     makes its hover reach every dot (issue #337).
