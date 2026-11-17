@@ -340,6 +340,57 @@ def build_css() -> str:
    The privacy line on Pilots and the player leaderboard is outside the measure too,
    for its own reason: it is one line (#327), and the measure would break it in three. */
 .faq-card p, .faq-card li, .privacy-line .t-body {{ max-width: none; }}
+
+/* The way to a question (#338): the tab opens on its questions as a list of links,
+   over the boxes, which are left as they are above. The list is set in as many
+   columns as the tab has room for, three on a desktop and one on a phone, and a tag's
+   questions are kept together in one of them, so it is a short block and not a
+   screen of its own before the first answer. The same list held beside boxes as wide
+   as the measure was built first and turned down on 2026-11-18, the third attempt to
+   bring the answers onto the measure and the third reverted.
+
+   A question in it is a link and nothing else: in the accent, as what can be clicked
+   is, a step under the body size, with no bullet and no measure of its own.
+
+   Brought back by the button below, the list comes with what stands over it, the
+   header and the tab's opening line, so the tab is as it opened: the list starts 118px
+   down the page on a desktop and 158px on a phone, under a header of two rows, and
+   the margin over it is wider than either, so the page goes back to its top. */
+.faq-index {{ scroll-margin-top: 14rem; }}
+/* A box brought into view by a link to it stops a step short of the window's edge.
+   Flush with the edge it could sit a fraction of a pixel past it: the list puts the
+   boxes at fractional offsets, and the window scrolls in whole pixels. */
+.faq-card {{ scroll-margin-top: 1rem; }}
+.faq-index nav {{ columns: 22rem; column-gap: 2.5rem; }}
+/* The space under a group is the group's own padding: Gradio takes the bottom margin
+   off the last element in a box, and a margin is dropped at the foot of a column. */
+.faq-index section {{ break-inside: avoid; padding-bottom: 1.1rem; }}
+.faq-index .faq-tag {{ margin-bottom: 0.45rem; }}
+.faq-index ul {{ list-style: none; margin: 0; padding: 0; }}
+.faq-index li {{
+  list-style: none; margin: 0; padding: 0.22rem 0; max-width: none;
+  font-size: 14px; line-height: 1.4;
+}}
+.faq-index a {{ color: var(--accent-bright); text-decoration: none; }}
+.faq-index a:hover {{ text-decoration: underline; }}
+/* The way back to the list, for as long as the list is out of view (`app._FAQ_UP_JS`
+   marks it shown): a button held in the bottom right corner of the page's column, at
+   the height a finger can hit. Under the list there are several screens of answers,
+   and without it the next question is a long scroll away. Its edge is the boxes' edge:
+   the page's padding in from the window, and on a window wider than the column, the
+   column's margin as well. */
+.faq-index a.faq-up {{
+  display: none; position: fixed; z-index: 10; bottom: 1.25rem;
+  right: calc(max(0px, 50vw - {COLUMN_PX // 2}px) + 32px);
+  align-items: center; height: {TAB_PX}px; padding: 0 1.1rem;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 13px; font-weight: 600;
+}}
+.faq-index a.faq-up.shown {{ display: inline-flex; }}
+@media (max-width: 640px) {{
+  .faq-index a.faq-up {{ right: 16px; }}
+}}
 /* The question is the box's own heading and the reader's entry point into it, so it
    takes the accent: eight boxes at a glance are scanned by their questions. */
 .faq h3 {{ color: var(--accent-bright); }}

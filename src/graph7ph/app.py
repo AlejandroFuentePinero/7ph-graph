@@ -193,8 +193,9 @@ _PAGE_TABS = {"pilot": "Pilots", "card": "Cards", "archetype": "Archetypes"}
 # issue #346). The click opens that tab at its top, and sets nothing.
 #
 # A link to an FAQ entry names the entry's box by its id (`#faq-...`): a chart's
-# "How this is measured" and the privacy line's "How to ask". The click opens the
-# FAQ and brings that box into view. The frame lets the tab be shown before the box
+# "How this is measured", the privacy line's "How to ask", and each question in the
+# FAQ's own list (#338). The click opens the FAQ and brings that box into view. The
+# button back to that list is one more, naming the list's block. The frame lets the tab be shown before the box
 # is looked up and scrolled to: a tab's content is put in the page when the tab is
 # first shown, so before that there is no box to find.
 _JUMPS_JS = f"""
@@ -2276,6 +2277,54 @@ def faq_entries(figures: dict) -> list[tuple[str, str, str, str]]:
     """
     fills = _faq_fills(figures)
     return [(eid, cat, q, a.format_map(fills)) for eid, cat, q, a in _FAQ_ENTRIES]
+
+
+# The id of the block that holds the FAQ's list of questions: what the button back
+# to the list links to. It starts `faq-` because that is what makes a link to it one
+# the page answers (``_JUMPS_JS``), and it is no entry's id.
+_FAQ_QUESTIONS = "faq-questions"
+
+# The button back to the list is on show while the list is not (issue #338). It is
+# a link to the list's block, so the click is one the page already answers
+# (``_JUMPS_JS``), and this only says when there is somewhere to go back to.
+#
+# The list counts as out of view once nothing but its foot is left, the 16px of
+# space under its last question. A jump to the first box stops with the list's
+# foot on the window's edge, to within a fraction of a pixel either way, and
+# measured against the edge itself the list was still on screen at some widths
+# and the button never showed.
+_FAQ_UP_JS = """
+const up = element.querySelector('.faq-up');
+new IntersectionObserver(
+  ([list]) => up.classList.toggle('shown', !list.isIntersecting),
+  {rootMargin: '-16px 0px 0px 0px'},
+).observe(element.querySelector('nav'));
+"""
+
+
+def _faq_index(entries: list[tuple[str, str, str, str]]) -> str:
+    """The FAQ's questions as a list of links, each to its own box, grouped under
+    the tag its box wears, and the button that goes back to the list (issue #338).
+
+    The entries are held in category order, so a group is a run of them, and the
+    list reads down in the order the boxes do. A link names its box by id, which is
+    the click the page already answers for a chart's "How this is measured"
+    (``_JUMPS_JS``).
+    """
+    groups = []
+    for cat, run in groupby(entries, key=lambda entry: entry[1]):
+        links = "".join(
+            f"<li><a href='#{eid}'>{html.escape(q)}</a></li>" for eid, _, q, _ in run
+        )
+        groups.append(
+            f"<section><span class='faq-tag faq-tag-{cat.lower()}'>{cat}</span>"
+            f"<ul>{links}</ul></section>"
+        )
+    return (
+        f"<nav aria-label='Questions'>{''.join(groups)}</nav>"
+        f"<a class='faq-up' href='#{_FAQ_QUESTIONS}'>&uarr; All questions</a>"
+    )
+
 
 # The board filter, shared by the card views: the label the dropdown shows, the
 # empty string standing for "either board" the query reads as no filter. Kept in
@@ -5317,18 +5366,27 @@ def build_app(artifact: Path) -> gr.Blocks:
         # width of its box: an FAQ answer is four or five sentences, so held to the
         # reading measure inside a wide box it broke into a narrow ragged column against
         # empty space, and in two columns it did the same in half the width. The category
-        # tag on each box replaces the table of contents the tab used to lead with: the
-        # tagged boxes are a scannable list already, so a contents list linking to what
-        # the reader can see was a page of indirection. The boxes keep their ``faq-``
+        # tag on each box replaced the table of contents the tab first led with: the
+        # tagged boxes were a scannable list themselves then, so a contents list linking
+        # to what the reader could see was a page of indirection. The boxes keep their ``faq-``
         # ids, the anchors a deep link uses. The answers are rendered from the
         # figures file sealed beside this graph (issue #265), so what they quote is
         # what the bundle holds.
+        #
+        # The tab opens on its questions as a list, each a link to its box (#338), with
+        # a button back to the list once it has scrolled out of view. That is the
+        # contents list come back, on the maintainer's call of 2026-11-18: at 21 boxes
+        # and several screens the reader can no longer see what it links to. The
+        # boxes under it are unchanged.
         with gr.Tab("FAQ"):
             gr.Markdown(
                 "How the numbers here are worked out.",
                 elem_classes="t-lede",
             )
-            for _eid, _cat, _q, _a in faq_entries(figures):
+            _entries = faq_entries(figures)
+            gr.HTML(_faq_index(_entries), elem_id=_FAQ_QUESTIONS, elem_classes="faq-index",
+                    padding=False, js_on_load=_FAQ_UP_JS)
+            for _eid, _cat, _q, _a in _entries:
                 with gr.Group(elem_classes="insight-card faq-card", elem_id=_eid):
                     gr.HTML(
                         f"<span class='faq-tag faq-tag-{_cat.lower()}'>{_cat}</span>",
