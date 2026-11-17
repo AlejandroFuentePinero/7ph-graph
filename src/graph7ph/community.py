@@ -39,7 +39,7 @@ DOORS: tuple[tuple[str, str], ...] = (
     ("Cards", "Where a card is played, and what it is played beside."),
     ("Hidden gems", "Cards that finish better than their archetype usually does."),
     ("Pilots", "One pilot's events, decks and finishes."),
-    ("Player leaderboard", "Standings across the largest events."),
+    ("Player leaderboard", "Standings across the major events."),
 )
 
 
