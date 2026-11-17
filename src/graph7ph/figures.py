@@ -2,7 +2,8 @@
 
 import json
 import statistics
-from itertools import combinations
+from collections import Counter
+from itertools import accumulate, combinations
 from pathlib import Path
 
 import ladybug
@@ -10,14 +11,17 @@ import ladybug
 from graph7ph.db import rows
 from graph7ph.query import hidden_gems_subgraph
 from graph7ph.trends import (
+    MAJOR_FIELD_SIZE,
     MIN_SHARED_EVENTS,
     NotEnoughHistory,
     _cut_only_events,
+    _event_dates,
     _tail_bounds,
     archetype_timeline,
     archetypes_with_history,
     beats_a_coin,
     comparable_points,
+    major_events,
     pilot_performance_over_time,
     player_leaderboard,
 )
@@ -81,7 +85,110 @@ def derive(conn: ladybug.Connection, reconciliation: dict, cut_floor: int) -> di
             for pilot in entry["pilots"]
         }),
     } | _finishes(conn) | _archetypes(conn) | _leaderboard(conn) | _gems(conn) \
-        | _head_to_head_pairs(conn)
+        | _head_to_head_pairs(conn) | {"community": _community(conn)}
+
+
+def _community(conn: ladybug.Connection) -> dict:
+    """What the Community page shows of the record (issue #346).
+
+    Counts of what is on record, each beside the newest year's. A pilot is on
+    record in a year they registered a deck at an event of. A card is one a deck
+    holds on either board, and an archetype one some deck has as its primary
+    (ADR 0023).
+
+    An event is placed at the earliest registration among its decks, the date the
+    leaderboard places it by, and to the day: the page dates when decks were
+    registered, not the event (ADR 0013). Its players are its field, except at a
+    Teams event, whose field counts teams: there it is the pilots on record. A
+    major is the leaderboard's own (:func:`trends.major_events`), and only a major's
+    name is written, so no other event's can reach the page.
+
+    A pilot is first recorded at the date of their first event, and first played
+    in that event's year. A pilot absent from a year is in no count of it: nothing
+    here counts anyone as having left.
+    """
+    year_of = dict(rows(conn.execute(
+        "MATCH (e:Event)-[:IN_YEAR]->(y:Year) RETURN e.event, y.year")))
+    years = sorted(set(year_of.values()))
+    latest = years[-1]
+    decks = dict(rows(conn.execute(
+        "MATCH (d:Deck)-[:PLAYED_AT]->(e:Event) RETURN e.event, count(d)")))
+    majors = major_events(conn)
+    dates = _event_dates(conn)
+    played: dict[str, set[int]] = {}
+    first_seen: dict[str, str] = {}
+    for pilot, event in rows(conn.execute(
+        "MATCH (p:Pilot)<-[:PILOTED_BY]-(:Deck)-[:PLAYED_AT]->(e:Event) "
+        "RETURN DISTINCT p.pilot, e.event"
+    )):
+        played.setdefault(pilot, set()).add(year_of[event])
+        day = dates[event].date().isoformat()
+        first_seen[pilot] = min(day, first_seen.get(pilot, day))
+    this_year = [pilot for pilot, seen in played.items() if latest in seen]
+    new_by_day = sorted(Counter(first_seen.values()).items())
+    by_year = [
+        (year, Counter(min(seen) for seen in played.values() if year in seen))
+        for year in years
+    ]
+    events = sorted(
+        ({"date": dates[event].date().isoformat(),
+          "players": pilots if kind == "Teams" else field,
+          "major": event if event in majors else None}
+         for event, kind, field, pilots in rows(conn.execute(
+             "MATCH (p:Pilot)<-[:PILOTED_BY]-(:Deck)-[:PLAYED_AT]->(e:Event) "
+             "RETURN e.event, e.eventType, e.fieldSize, count(DISTINCT p)"))),
+        key=lambda event: (event["date"], event["players"], event["major"] or ""),
+    )
+    largest = max(events, key=lambda event: event["players"])
+    in_latest = "MATCH (:Year {year: $year})<-[:IN_YEAR]-(:Event)<-[:PLAYED_AT]-(d:Deck) "
+    return {
+        "years": years,
+        "totals": {
+            "pilots": len(played),
+            "events": len(year_of),
+            "decks": sum(decks.values()),
+            "cards": _scalar(
+                conn, "MATCH (:Deck)-[:CONTAINS]->(c:Card) RETURN count(DISTINCT c)"),
+            "archetypes": _scalar(
+                conn, "MATCH (:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype) "
+                      "RETURN count(DISTINCT a)"),
+        },
+        "this_year": {
+            "pilots": len(this_year),
+            "events": sum(1 for year in year_of.values() if year == latest),
+            "decks": sum(n for event, n in decks.items() if year_of[event] == latest),
+            "cards": _scalar(
+                conn, in_latest + "MATCH (d)-[:CONTAINS]->(c:Card) RETURN count(DISTINCT c)",
+                {"year": latest}),
+            "archetypes": _scalar(
+                conn, in_latest + "MATCH (d)-[:HAS_ARCHETYPE {isPrimary: true}]->"
+                                  "(a:Archetype) RETURN count(DISTINCT a)",
+                {"year": latest}),
+            "played_before": sum(1 for pilot in this_year if min(played[pilot]) < latest),
+        },
+        "events": events,
+        "through": max(dates.values()).date().isoformat(),
+        "majors": len(majors),
+        "other_events": len(events) - len(majors),
+        "major_field_over": MAJOR_FIELD_SIZE,
+        "largest_field": {"players": largest["players"], "year": int(largest["date"][:4]),
+                          "major": largest["major"]},
+        "pilots_on_record": [
+            [day, total] for (day, _), total
+            in zip(new_by_day, accumulate(new for _, new in new_by_day))
+        ],
+        "events_by_month": [
+            [month, n] for month, n
+            in sorted(Counter(event["date"][:7] for event in events).items())
+        ],
+        "pilots_by_year": [
+            {"year": year, "pilots": sum(first.values()),
+             "first_played": {str(first_year): first[first_year]
+                              for first_year in sorted(first)}}
+            for year, first in by_year
+        ],
+        "played_every_year": sum(1 for seen in played.values() if len(seen) == len(years)),
+    }
 
 
 def _leaderboard(conn: ladybug.Connection) -> dict:
@@ -246,8 +353,8 @@ def _head_to_head_pairs(conn: ladybug.Connection) -> dict:
     }
 
 
-def _scalar(conn: ladybug.Connection, query: str):
-    return next(rows(conn.execute(query)))[0]
+def _scalar(conn: ladybug.Connection, query: str, parameters: dict | None = None):
+    return next(rows(conn.execute(query, parameters or {})))[0]
 
 
 def write_figures(

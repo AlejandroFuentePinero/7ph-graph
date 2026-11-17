@@ -69,8 +69,10 @@ TAB_PX = 44
 # page's padding is added. Rounded up, so a longer tab label has a little room
 # before the strip starts to scroll. It was 1100 while the first tab was "Meta" and
 # the seven needed 626px: "Metagame" (#332) is 33px wider, and from 1100 to 1105px
-# the row clipped the last tab by up to 5px.
-HEADER_ONE_ROW_PX = 1140
+# the row clipped the last tab by up to 5px. An eighth tab, "Community" (#346), is
+# 104px more: the eight need 763px, which is 1,145px of column and a 1,209px window,
+# and from 1140 to 1209px the row clipped the last tab by up to 69px.
+HEADER_ONE_ROW_PX = 1240
 
 # The page's column, padding included (#327). Gradio caps the page by the window it
 # is in, in steps, and from 1536px up the step is the window itself. This is the
@@ -254,7 +256,7 @@ def build_css() -> str:
   grid-area: 1 / 3; font-size: 13px; line-height: 1.5; color: var(--text-mute);
   white-space: nowrap;
 }}
-/* Below the width where seven tabs fit beside the rest, the strip takes a row of its
+/* Below the width where the tabs fit beside the rest, the strip takes a row of its
    own under the name and the freshness, and scrolls sideways there (#172, below). */
 @media (max-width: {HEADER_ONE_ROW_PX - 1}px) {{
   .column:has(> .masthead) {{ grid-template-columns: auto minmax(0, 1fr); }}
@@ -953,8 +955,13 @@ a[data-opens]:hover {{ text-decoration: underline; }}
     align-self: stretch;
   }}
   /* The strip scrolls sideways here, and a tab cut at its edge is what says so
-     (#172): at 390px the edge falls through the fourth tab's label at a tab's own
-     padding, so a tab takes no padding of its own here. */
+     (#172). With eight tabs at a tab's own 16px a side (#346), the edge at 390px
+     fell exactly where the fourth tab's label ends, with nothing of the fifth on
+     screen. At 9px a side it falls through the fifth's label, 31px in, and through
+     a label at 375, 412 and 430px too; a tab is still 44px wide at its narrowest. */
+  .gradio-container .tabs > .tab-wrapper > .tab-container[role="tablist"] > button {{
+    padding-left: 9px; padding-right: 9px;
+  }}
 }}
 
 /* Quiet quality floor (§ quality): a visible keyboard focus ring on the accent, and
@@ -1049,6 +1056,156 @@ footer {{ display: none !important; }}
 }}
 .provenance .coverage b {{ color: var(--text); font-weight: 650; }}
 .provenance .t-caption {{ color: var(--text-mute); }}
+
+/* The Community page (#346, `graph7ph.community`): the landing page. The title and
+   the one line, six figures in a row, three cards of hand-drawn charts, and a
+   doorway to each content tab. The cards, their titles and their captions are the
+   app's own (§12, the caption rule); what is set here is what only this page has.
+
+   Every element states its own colour: Gradio colours everything inside an HTML
+   block (`.prose *`), so one left to inherit takes the main ink. A paragraph is
+   named with the page as well, or the body rule (`.prose p`) outranks it and gives
+   it the body's ink and measure. A hue arrives on the element as `--k`, since
+   which hue is the graph's to say (`render`). */
+.community {{ padding-top: 1.5rem; }}
+.cm-intro .page-name {{ font-size: 34px; text-wrap: balance; }}
+.community .t-lede {{ font-size: 17px; line-height: 1.5; color: var(--text-dim); margin: 0.85rem 0 0; }}
+/* Six figures on one hairline, each parted from the next by another: a row of
+   readings, not six cards (the tiles of a subject's page are cards). */
+.cm-figures {{
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 2.5rem 0 0.85rem; border-top: 1px solid var(--border);
+}}
+.cm-fig {{ padding: 1.25rem 1.25rem 0.4rem 0; min-width: 0; }}
+.cm-fig + .cm-fig {{ padding-left: 1.25rem; border-left: 1px solid var(--border); }}
+/* A figure's label and a panel's are in the control-label role (§3), set above. */
+.cm-label {{ display: flex; align-items: center; gap: 8px; line-height: 1; }}
+.cm-dot {{ flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--k); }}
+.cm-value {{
+  font-size: 38px; font-weight: 600; line-height: 1.1; letter-spacing: -0.02em;
+  color: var(--text); margin: 0.75rem 0 0.1rem;
+}}
+.cm-beneath, .community .cm-source {{ font-size: 13px; line-height: 1.5; color: var(--text-mute); }}
+.community .cm-source {{ margin: 0 0 1.75rem; max-width: none; }}
+
+.cm-card .caption {{ margin-top: 0.15rem; }}
+.cm-plot {{ margin-top: 1.1rem; }}
+.cm-plot svg {{ display: block; overflow: visible; }}
+.cm-plot text {{
+  font-family: {FONT_STACK}; font-size: 12px; fill: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}}
+.cm-plot text.cm-ink {{ fill: var(--text); font-weight: 600; font-size: 13px; }}
+/* A dot's own number, on the dot. White and not the main ink, which is 4.25 to 1
+   on the event green at a size that needs 4.5: white is 4.95. */
+.cm-plot text.cm-on {{ fill: #fff; font-weight: 600; font-size: 11px; pointer-events: none; }}
+.cm-grid {{ stroke: var(--border); stroke-width: 1; }}
+/* A dot: solid where the event is a major, a ring where it is not, and edged in
+   the main ink while it is the one speaking. */
+.cm-event {{ fill: var(--k); }}
+.cm-event:not(.cm-major) {{ fill-opacity: 0.28; stroke: var(--k); stroke-width: 1.2; }}
+.cm-event.cm-hot {{ stroke: var(--text); stroke-width: 1.5; }}
+.cm-hair {{ stroke: var(--text-mute); stroke-width: 1; }}
+.cm-month.cm-hot {{ filter: brightness(1.4); }}
+.cm-sub {{ line-height: 1; margin: 1.4rem 0 0.5rem; }}
+.cm-pair .cm-plot {{ margin-top: 0; }}
+
+.cm-key {{
+  display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 0.9rem;
+  font-size: 13px; line-height: 1.5; color: var(--text-dim);
+}}
+.cm-key span {{ color: var(--text-dim); }}
+.cm-key i {{
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  margin-right: 7px; vertical-align: -1px; background: var(--k);
+}}
+.cm-key i.cm-square {{ border-radius: 2px; }}
+/* An event that is no major: a ring, as its dot is. */
+.cm-key i.cm-ring {{
+  background: color-mix(in srgb, var(--k) 28%, transparent);
+  box-shadow: inset 0 0 0 1.2px var(--k);
+}}
+
+/* A bar per year. Its length is the year's share of the fullest year's, less the
+   room the total takes at its end, and each part's is its pilots'. */
+.cm-years {{ display: grid; gap: 12px; margin-top: 1.25rem; }}
+.cm-row {{ display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 12px; }}
+.cm-year {{ font-size: 14px; font-weight: 600; line-height: 1.2; color: var(--text); }}
+.cm-year small {{ display: block; font-size: 12px; font-weight: 400; color: var(--text-mute); }}
+.cm-track {{ display: flex; align-items: center; gap: 10px; min-width: 0; }}
+.cm-bar {{
+  display: flex; gap: 2px; height: 28px; min-width: 0;
+  flex: 0 1 calc((100% - 56px) * var(--share));
+}}
+.cm-seg {{
+  min-width: 3px; border-radius: 4px; background: var(--k); padding-left: 8px;
+  font-size: 13px; font-weight: 600; line-height: 28px; white-space: nowrap;
+}}
+.cm-seg span {{ color: inherit; }}
+/* A part too short for its number keeps the number for the hover. */
+.cm-seg.cm-tight span {{ visibility: hidden; }}
+.cm-seg:hover, .cm-seg:focus-visible {{ filter: brightness(1.12); }}
+.cm-seg:focus-visible {{ outline: 2px solid var(--accent-bright); outline-offset: 2px; }}
+.cm-total {{ font-size: 14px; font-weight: 600; line-height: 1; color: var(--text); }}
+.community .cm-note {{
+  font-size: 15px; line-height: 1.6; color: var(--text-dim); margin: 1.25rem 0 0; max-width: none;
+}}
+.community .cm-note b {{ color: var(--text); font-weight: 600; }}
+
+/* The doorways: a tab's name and what it answers, the whole box the link. */
+.cm-doors {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 0.5rem; }}
+.cm-doors a.cm-door {{
+  position: relative; display: block; padding: 1.2rem 1.4rem; text-decoration: none;
+  text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}}
+.cm-doors a.cm-door:hover {{ border-color: var(--accent); background: var(--surface-2); }}
+.cm-door h3 {{
+  font-family: {DISPLAY_STACK}; font-size: 20px; font-weight: 600; line-height: 1.25;
+  color: var(--text); margin: 0 0 0.35rem; padding: 0 1.5rem 0 0;
+}}
+.community .cm-door p {{
+  font-size: 14px; line-height: 1.5; color: var(--text-dim); margin: 0; max-width: none;
+}}
+.cm-arrow {{
+  position: absolute; top: 1.1rem; right: 1.25rem; color: var(--text-mute);
+  transition: color 0.15s, transform 0.15s;
+}}
+.cm-door:hover .cm-arrow {{ color: var(--accent-bright); transform: translateX(3px); }}
+
+/* What a mark says under the pointer, a finger or the keyboard's focus. */
+.cm-tip {{
+  position: fixed; z-index: 20; display: none; pointer-events: none; max-width: 240px;
+  padding: 8px 11px; border-radius: 8px; background: var(--surface-2);
+  border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 13px; line-height: 1.4; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}}
+.cm-tip b {{ display: block; font-size: 14px; font-weight: 600; color: var(--text); }}
+
+@media (min-width: 641px) and (max-width: 1000px) {{
+  .cm-figures {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+  .cm-fig:nth-child(3n + 1) {{ border-left: 0; padding-left: 0; }}
+  .cm-fig:nth-child(n + 4) {{ border-top: 1px solid var(--border); }}
+}}
+@media (max-width: 900px) {{
+  .cm-doors {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+}}
+@media (max-width: 640px) {{
+  .community {{ padding-top: 0.75rem; }}
+  .cm-intro .page-name {{ font-size: 28px; }}
+  .cm-figures {{ grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 1.75rem; }}
+  .cm-fig {{ padding: 1rem 0.75rem 0.75rem 0; }}
+  .cm-fig + .cm-fig {{ padding-left: 1rem; }}
+  .cm-fig:nth-child(odd) {{ border-left: 0; padding-left: 0; }}
+  .cm-fig:nth-child(n + 3) {{ border-top: 1px solid var(--border); }}
+  .cm-value {{ font-size: 32px; }}
+  .cm-row {{ grid-template-columns: 52px minmax(0, 1fr); gap: 8px; }}
+  .cm-doors {{ gap: 0.6rem; }}
+  .cm-doors a.cm-door {{ padding: 1rem; }}
+  .cm-door h3 {{ font-size: 18px; }}
+}}
 
 }}
 """

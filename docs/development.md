@@ -82,7 +82,9 @@ The build also derives every corpus figure the FAQ quotes into
 own definitions, and the app renders the answers from that file when it starts
 (issue #265), so there is nothing to copy into the prose after a round: the
 2026-09-01 round found four figures stale after a routine refresh missed them,
-which is the failure the file retires. The derivation is the slow half of a
+which is the failure the file retires. The Community page is filled from the same
+file (its `community` block, issue #346), so the landing page's numbers and
+charts follow a round with nothing to copy either. The derivation is the slow half of a
 build (the archetype-pair sweep and the per-pilot rank gap): measured on
 2026-11-05 over the 2026-11-04 bundle (159 events, 6,065 decks), the build took
 3 min 0 s against about a minute before; the derivation alone, run standalone
