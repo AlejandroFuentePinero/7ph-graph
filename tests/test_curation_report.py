@@ -263,8 +263,8 @@ def test_the_multi_name_queue_splits_into_new_and_carried_above_the_held_tail():
 
 
 def test_a_round_with_nothing_to_work_says_so_instead_of_printing_empty_sections():
-    # A brief filed after every ingestion is only read if it means something when
-    # it arrives. With nothing settled, no state changed, nothing overridden or
+    # A brief printed after every ingestion is only read if a quiet round looks
+    # different. With nothing settled, no state changed, nothing overridden or
     # refused and no id new, there is one sentence to write.
     report = curation_report(_recon(), {}, SNAPSHOT)
 
@@ -275,13 +275,9 @@ def test_a_round_with_nothing_to_work_says_so_instead_of_printing_empty_sections
     ]
 
 
-def test_the_opening_words_are_what_the_runbook_files_on():
-    # The ingestion runbook in docs/development.md decides whether to open an
-    # issue by matching the brief's first line against "Curation review", so those
-    # two words are an interface and not a caption. Renaming them without touching
-    # the runbook is silent in the direction that loses work: every round would
-    # print its brief and file nothing, and nobody finds out by reading a report
-    # that never arrives.
+def test_the_opening_words_tell_a_round_with_changes_from_a_quiet_one():
+    # The brief's first line is how a reader tells the two apart without reading
+    # on, and docs/development.md names both openings.
     loud = _recon(ruled_pairs=[_pair("A", "B", ("Ann B", "Annie B"), "watching")])
 
     assert curation_report(loud, {}, SNAPSHOT).startswith("Curation review")

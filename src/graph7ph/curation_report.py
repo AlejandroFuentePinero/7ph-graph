@@ -53,8 +53,8 @@ def latest_snapshot(snapshots_root: Path) -> str | None:
     Newest by name, which is how the build orders the sequence too: the name is
     the fetch time, so name order is time order. Only directories a fetch could
     have written are considered, since this stamp is read as a time below and a
-    hand-made directory alongside them would otherwise raise into a pipe whose
-    other end files whatever it is given as the review issue.
+    hand-made directory alongside them would otherwise raise where the command
+    owes a sentence.
     """
     stamps = [p.name for p in Path(snapshots_root).glob("*")
               if p.is_dir() and _fetched_at(p.name) is not None]
@@ -68,9 +68,9 @@ def unreportable(artifact: Path, snapshot: str) -> str | None:
     reason: the caller frames it. Two ways to be wrong rather than one. A bundle
     built from other sources describes a graph today's code would not produce
     (issue #55). A bundle older than the newest snapshot describes the corpus
-    before the one it would be filed against, which is the fetch-without-build
-    case: the brief becomes an issue a human curates from, so reporting on
-    superseded data costs a round of curation rather than a re-run.
+    before the one the brief would name, which is the fetch-without-build
+    case: the brief would report superseded data under the newest snapshot's
+    name.
     """
     if (complaint := staleness(artifact)) is not None:
         return complaint
@@ -126,8 +126,8 @@ def curation_report(
     unchanged = {ids: hold for ids, hold in sorted(holds.items(), key=lambda kv: sorted(kv[0]))
                  if ids not in listed}
 
-    # A brief filed after every ingestion is read only if its arrival means
-    # something, so a round with no work says that in a sentence rather than in
+    # A brief printed after every ingestion is read only if a quiet round looks
+    # different, so a round with no work says that in a sentence rather than in
     # a page of empty headings. The held tail is not work and does not make a
     # round loud, but it is still listed: a hold nobody lists is one nobody
     # retires. With no tail either there is nothing to print but the sentence.
