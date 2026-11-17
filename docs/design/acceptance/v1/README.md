@@ -36,8 +36,7 @@ contrast pass and the findings further down are from the two-width run of #118.
 
 | State | What it shows |
 |---|---|
-| `meta-default` | Metagame, cold start: the app opens on the share chart and, under it, the metagame landscape for the latest year (the landscape was `archetypes-landscape` until #332) |
-| `meta-focus` | Metagame with two archetypes focused in the second card |
+| `meta-default` | Metagame on open: the list of the most played and, under it, the metagame landscape for the latest year (the landscape was `archetypes-landscape` until #332; the list was a share chart until #334, and `meta-focus`, two archetypes focused in a second card, went with it) |
 | `archetypes-nothing-picked` | Archetypes before a pick: the picker (added by #332) |
 | `archetypes-timeline` | One archetype's page: four tiles, its share over time and its finishes over time |
 | `archetypes-head-to-head` | Two archetypes compared on both charts |

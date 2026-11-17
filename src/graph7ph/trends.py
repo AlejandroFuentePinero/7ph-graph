@@ -2068,40 +2068,34 @@ def latest_deck_year(series: Series) -> int | None:
     whose decks all reached the graph without a primary archetype still holds a cell
     per archetype, every one of them zero. That year has nothing to rank or title a
     chart with, so the year the chart speaks for is the latest one with a deck behind
-    it. Shared by the cut and the app's chart title so the two name the same year.
+    it. Shared by the most-played list and the app's own headings, so they name the
+    same year.
     """
     years = [cell.year for cell in series.cells if cell.n]
     return max(years) if years else None
 
 
-def latest_year_share_cut(series: Series, cut: float = 0.50) -> list[str]:
-    """The archetype tags to draw for a cumulative-share ``cut`` (default 50%).
+# The least share of the latest year's decks an archetype holds to be listed among the
+# most played (issue #334). The maintainer's ruling, on what a reader of the list is
+# after: who the field is, without its long tail of one and two deck archetypes.
+MIN_LISTED_SHARE = 0.01
 
-    A display cut, not a data cut: the tool returns every archetype, but drawing
-    all ~125 as lines is a hairball. The archetypes are ranked by their deck count
-    in the **latest year the series holds a deck in** (whichever that is, read from
-    the data rather than pinned to a year), and the strongest are kept until their
-    cumulative share of that year's decks reaches ``cut``. The question the chart
-    answers is "what is the meta now, and how did it get here", so today's top
-    archetypes are the ones worth tracing back; a pooled all-year ranking instead lets
-    a dead archetype with a fat past crowd out a live one. The set is still computed
-    once, so the same lines span the whole x-axis rather than entering and leaving per
-    year; the trend tab's manual panel is the escape hatch for an archetype large
-    only earlier. Returned in rank order, strongest first, with archetypes on the
-    same deck count ranked by ascending tag: when the cut lands inside a band of
-    equal counts, that tie-break alone decides which of the equals is drawn.
+
+def most_played(series: Series) -> list[str]:
+    """The archetype tags Metagame lists: each one holding at least
+    :data:`MIN_LISTED_SHARE` of the latest year's decks, most played first.
+
+    A display rule, not a data one: the tool returns every archetype, and this picks
+    the rows a reader is shown. It is read off the **latest year the series holds a
+    deck in** (read from the data, not pinned to a year), because the question the
+    list answers is who is played now; an archetype large only in an earlier year is
+    on its own page. The share is the cell's own, of every deck that year, so a row is
+    listed exactly when the share it states is that much or more. Archetypes on as
+    many decks are in ascending tag order.
     """
     latest = latest_deck_year(series)
     if latest is None:
         return []
-    counts = {cell.tag: cell.n for cell in series.cells if cell.year == latest}
-    total = sum(counts.values())
-    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    kept: list[str] = []
-    cumulative = 0
-    for tag, n in ranked:
-        kept.append(tag)
-        cumulative += n
-        if cumulative / total >= cut:
-            break
-    return kept
+    listed = [cell for cell in series.cells
+              if cell.year == latest and cell.share >= MIN_LISTED_SHARE]
+    return [cell.tag for cell in sorted(listed, key=lambda cell: (-cell.n, cell.tag))]

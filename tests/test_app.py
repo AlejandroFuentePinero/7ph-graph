@@ -7,7 +7,6 @@ from dataclasses import replace
 from datetime import datetime
 from typing import NamedTuple
 
-import plotly.colors as pc
 import pytest
 
 from graph7ph import numfmt, palette, parts, theme
@@ -18,7 +17,6 @@ from graph7ph.app import (
     DRAWING_LABEL,
     DRAW_LABEL,
     _CARDS_TAB,
-    _CUTS,
     _FAQ_ENTRIES,
     faq_entries,
     LEADERBOARD_SCORE_PLACES,
@@ -178,9 +176,10 @@ def test_cold_start_opens_on_a_drawn_page_and_metagame_is_drawn_behind_it(
     # AC (#114): cold start shows a real drawn result, never an empty canvas, and with no
     # default pilot. Since #346 the opening tab is Community, a page drawn from the
     # figures file with no pilot on it; until then it was Metagame, which still draws
-    # its cut chart at build time (a subject-free query), so the tab behind the landing
-    # page is a drawn answer too. Asserted at the build seam, so a regression that
-    # reorders Pilots to the front (opening on an empty canvas) trips here.
+    # its list of the most played at build time (a subject-free query), so the tab
+    # behind the landing page is a drawn answer too. Asserted at the build seam, so a
+    # regression that reorders Pilots to the front (opening on an empty canvas) trips
+    # here.
     import gradio as gr
 
     demo = _built_demo(tmp_path, snapshot_dir)
@@ -188,11 +187,10 @@ def test_cold_start_opens_on_a_drawn_page_and_metagame_is_drawn_behind_it(
     assert first_tab.label == "Community"
     assert [b for b in _tab_blocks(demo, "Community") if isinstance(b, gr.HTML) and b.value]
     assert second_tab.label == "Metagame"
-    # The Meta cut chart is drawn on open (not hidden behind a Draw), so it carries a
-    # figure value at build time.
-    cut_plots = [b for b in _tab_blocks(demo, "Metagame")
-                 if isinstance(b, gr.Plot) and b.value is not None]
-    assert cut_plots, "the Metagame view draws a chart at build time"
+    # The list of the most played is drawn on open (not hidden behind a Draw), so
+    # its card carries its rows at build time.
+    assert _share_lists(_tab_blocks(demo, "Metagame")), (
+        "the Metagame view draws its list at build time")
 
 
 def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, snapshot_dir):
@@ -228,7 +226,7 @@ def test_faq_tab_is_last_with_linked_boxes_for_each_headline_metric(tmp_path, sn
     # The three graph views joined the list in #142's review pass: each prints a rate
     # whose denominator appeared on no surface at all. The archetype timeline was already
     # covered at that point; it is listed here because nothing else pinned its name.
-    for metric in ("Meta share over time", "Metagame landscape", "Performance over time",
+    for metric in ("Meta share", "Metagame landscape", "Performance over time",
                    "Head-to-head", "Adoption over time", "Hidden gem",
                    "Player leaderboard", "Finishes over time", "Usage", "Co-occurrence",
                    "Archetype affinity"):
@@ -312,33 +310,6 @@ def test_tab_intros_are_a_single_sentence(tmp_path, snapshot_dir):
     for intro in intros:
         assert intro.rstrip().endswith("."), intro
         assert ". " not in intro, intro  # no second sentence
-
-
-def test_meta_focus_control_sits_above_its_plot_not_below(tmp_path, snapshot_dir):
-    # AC (#132): no plot-affecting control is placed below its plot. The Meta
-    # archetype-focus multiselect used to sit under the cut chart; it moves up with
-    # the cut control. Asserted at the build seam by insertion order: the focus
-    # dropdown is created before the cut plot that its sibling control drives, so a
-    # regression that strands it below the plot again trips here.
-    import gradio as gr
-
-    blocks = list(_built_demo(tmp_path, snapshot_dir).blocks.values())
-
-    def index_where(pred):
-        return next(i for i, b in enumerate(blocks) if pred(b))
-
-    cut_radio_i = index_where(
-        lambda b: isinstance(b, gr.Radio) and "Archetypes to show" in (b.label or "")
-    )
-    focus_i = index_where(
-        lambda b: isinstance(b, gr.Dropdown)
-        and (b.label or "") == "Or focus on specific archetypes"
-    )
-    # The cut plot is the first Plot created after the cut radio (the Meta cut chart).
-    cut_plot_i = min(i for i, b in enumerate(blocks)
-                     if isinstance(b, gr.Plot) and i > cut_radio_i)
-
-    assert focus_i < cut_plot_i
 
 
 def test_a_view_opens_with_no_prompt_cards_and_no_pick_and_draw_help_text(tmp_path, snapshot_dir):
@@ -1104,264 +1075,6 @@ def test_adoption_colours_each_card_by_entity_from_the_shared_palette():
     assert by_name["Mana Crypt"].marker.line.color == palette.CATEGORICAL[1]
 
 
-def test_a_narrower_cut_does_not_repaint_the_archetypes_it_shares_with_a_wider_one():
-    # AC (§5): colour follows the entity, never its rank, so a filter that changes the
-    # series count must not repaint the survivors. The cut returns tags strongest-first,
-    # so a narrower cut is a prefix of a wider one; both draw the shared archetypes in
-    # the same shared-palette colours. This is the reversal of ADR-0013's colour-by-
-    # position, tested at the seam that used to repaint on every re-cut.
-    series = _meta_series(
-        ("aggro", 2024, 0.4), ("control", 2024, 0.3), ("combo", 2024, 0.2),
-    )
-
-    def colour_by_archetype(tags):
-        fig = _trend_figure(series, tags)
-        return {t.name: t.marker.line.color for t in fig.data}
-
-    wider = colour_by_archetype(["aggro", "control", "combo"])
-    narrower = colour_by_archetype(["aggro", "control"])
-
-    # The two survivors keep the exact hue they had in the wider cut.
-    assert narrower["Aggro"] == wider["Aggro"] == palette.CATEGORICAL[0]
-    assert narrower["Control"] == wider["Control"] == palette.CATEGORICAL[1]
-
-
-def test_dropping_a_pick_from_the_middle_does_not_repaint_the_picks_after_it():
-    # AC (§5): the manual panel hands its picks back in pick order, which does not nest
-    # the way the cut's rank order does, so dropping a chip from the middle slid every
-    # later pick up a hue and re-adding it did not undo the swap. Drawn over the stable
-    # universe the hue follows the archetype: the survivor holds its colour, and the
-    # re-added pick returns the whole mapping to what it was before the removal.
-    series = _meta_series(
-        ("aggro", 2024, 0.4), ("control", 2024, 0.3), ("combo", 2024, 0.2),
-    )
-    universe = ["aggro", "control", "combo"]
-
-    def colour_by_archetype(tags):
-        fig = _trend_figure(series, tags, universe=universe)
-        return {t.name: t.marker.line.color for t in fig.data}
-
-    picked = colour_by_archetype(["aggro", "control", "combo"])
-    without_middle = colour_by_archetype(["aggro", "combo"])
-    re_added = colour_by_archetype(["aggro", "combo", "control"])
-
-    assert without_middle["Combo"] == picked["Combo"] == palette.CATEGORICAL[2]
-    assert re_added == picked
-
-
-def test_two_picks_that_share_a_universe_hue_are_still_drawn_apart():
-    # AC (§5): stability never costs distinctness. The tracing scale is 32 hues and the
-    # universe is longer, so archetypes exactly a scale-length apart in it take the same
-    # hue: drawn straight off the filtered map, the first trio tried on the running app
-    # put two of its three lines in one colour. The colliding line moves to the first
-    # free hue instead, and only the colliding one moves.
-    series = _meta_series(("aggro", 2024, 0.4), ("control", 2024, 0.3),
-                          ("combo", 2024, 0.2))
-    # "control" and "combo" sit a full scale apart, so `extended` hands them one hue.
-    universe = ["aggro", "control", *[f"filler{i}" for i in range(len(palette.EXTENDED) - 1)],
-                "combo"]
-    assert palette.extended(universe)["combo"] == palette.extended(universe)["control"]
-
-    def colour_by_archetype(tags):
-        fig = _trend_figure(series, tags, universe=universe)
-        return {t.name: t.marker.line.color for t in fig.data}
-
-    both = colour_by_archetype(["aggro", "control", "combo"])
-    assert len(set(both.values())) == 3, both
-    # The one that holds the shared hue is the one the universe reaches first, so which
-    # of the pair moves does not depend on the order the reader picked them in.
-    assert both["Control"] == palette.EXTENDED[1]
-    assert colour_by_archetype(["aggro", "combo"])["Combo"] == palette.EXTENDED[1]
-
-
-def test_adding_a_pick_does_not_repaint_a_line_already_on_the_chart():
-    # AC (§5): the fix above must not smuggle the failure back in. A displaced line takes
-    # "the first free hue", and in a single walk a hue is free only until the universe
-    # reaches the archetype that owns it, so resolving as we go handed a new chip a hue
-    # belonging to a line already drawn and repainted it. Every line that can hold its own
-    # hue is placed first, and the displaced one takes what is genuinely left over.
-    series = _meta_series(("aggro", 2024, 0.4), ("control", 2024, 0.3),
-                          ("combo", 2024, 0.2))
-    # "combo" collides with "aggro" a scale later; "control" follows it holding EXTENDED[1]
-    # outright, which is the hue a one-pass walk would have given away to "combo".
-    universe = ["aggro", *[f"filler{i}" for i in range(len(palette.EXTENDED) - 1)],
-                "combo", "control"]
-
-    def colour_by_archetype(tags):
-        fig = _trend_figure(series, tags, universe=universe)
-        return {t.name: t.marker.line.color for t in fig.data}
-
-    before = colour_by_archetype(["aggro", "control"])
-    after = colour_by_archetype(["aggro", "control", "combo"])
-
-    assert after["Control"] == before["Control"] == palette.EXTENDED[1]
-    assert len(set(after.values())) == 3, after
-
-
-def _emphasis_layers(fig):
-    """A figure's (context, raised) traces, split on which carries a legend entry."""
-    return (
-        [t for t in fig.data if t.showlegend is False],
-        [t for t in fig.data if t.showlegend is not False],
-    )
-
-
-def _wide_meta(n):
-    """A meta-share chart of ``n`` equal archetypes, and the tags it was drawn from."""
-    triples = [(f"arch{i}", 2024, 0.05) for i in range(n)]
-    tags = [t for t, _, _ in triples]
-    return _trend_figure(_meta_series(*triples), tags), tags
-
-
-def test_every_line_is_drawn_faded_and_paired_with_a_full_strength_twin():
-    # AC (#117, ADR-0013's #116 amendment as revised by user review): past eight series
-    # the chart switches to emphasis. Every archetype is drawn twice: a faded context
-    # line on screen from the first paint, and a full-strength twin in the same hue
-    # that carries the legend entry and starts hidden. Faded *in its own colour*, not
-    # in one grey: at fourteen lines a single grey shape is untraceable, so hue stays
-    # as the cue that lets the eye follow one line across the years, while the raise
-    # is what names it.
-    fig, tags = _wide_meta(9)
-    context, raised = _emphasis_layers(fig)
-
-    assert len(context) == len(raised) == 9
-    # Each pair is one hue at two strengths: the context line is the raised line's own
-    # colour, faded, so raising a line cannot change which line it is. The exact opacity
-    # is a design dial settled by eye, so what is pinned here is that the hue survives
-    # the fade and that the fade is deep enough to read as context.
-    for faded, full in zip(context, raised):
-        r, g, b = pc.hex_to_rgb(full.line.color)
-        assert faded.line.color.startswith(f"rgba({r}, {g}, {b},")
-        assert float(faded.line.color.rsplit(",", 1)[1].rstrip(" )")) <= 0.5
-        assert faded.marker.line.color == faded.line.color
-    # Every archetype has its own hue, and the first eight are the signed set, so a
-    # re-cut to eight or fewer lines does not repaint the survivors.
-    assert len({t.line.color for t in raised}) == 9
-    assert [t.line.color for t in raised][:8] == list(palette.CATEGORICAL)
-    # The faded layer is on screen from the first paint whatever the raise does, so no
-    # click can leave the reader with a line missing rather than a line receded.
-    assert all(t.visible is None or t.visible is True for t in context)
-    # It draws as line only. The observation marker's fill is the *opaque* surface, so
-    # at this width thirty-one archetypes' worth of them would tile over each other and
-    # chop every faded line into segments, which is the tracing the fade exists to keep.
-    # The raised line, which is the one being read closely, keeps its observations.
-    assert all(t.mode == "lines" for t in context)
-    assert all(t.mode == "lines+markers" for t in raised)
-    assert [t.name for t in raised] == [t.title() for t in tags]
-
-
-def test_a_small_cut_fades_and_raises_on_the_signed_hues_too():
-    # AC (#117, user review): emphasis is how this chart reads at every width, not a
-    # mode that switches on past eight lines. The narrow cut (five archetypes) fades
-    # and raises exactly as the wide one does, so moving the cut changes how many lines
-    # are drawn and nothing else. Its hues are the signed eight in slot order, which is
-    # also the extended scale's opening, so a line keeps its colour across every cut.
-    fig, _ = _wide_meta(5)
-    context, raised = _emphasis_layers(fig)
-
-    assert len(context) == len(raised) == 5
-    assert [t.line.color for t in raised] == list(palette.CATEGORICAL[:5])
-    assert [t.visible is True for t in raised] == [True, True, True, False, False]
-    assert fig.layout.legend.itemclick == "toggle"
-
-
-def test_the_cut_opens_on_its_leading_archetypes_not_on_a_blank_field():
-    # AC (#117, user review): a cold start must show the reader something. The cut
-    # passes its tags strongest-first, so the leading few open raised and the rest of
-    # the field sits faded behind them. Without this the first thing a reader ever sees
-    # is a chart of nothing but context, which reads as broken rather than as an
-    # invitation to click.
-    fig, tags = _wide_meta(9)
-    _, raised = _emphasis_layers(fig)
-    open_on = [t.name for t in raised if t.visible is True]
-
-    assert open_on == [t.title() for t in tags[:3]]  # the strongest three, in rank order
-    assert all(t.visible == "legendonly" for t in raised[3:])  # the field stays behind
-
-
-def test_a_wider_cut_opens_more_lines_raised_than_a_narrower_one():
-    # AC (user review): the three cuts differed only in how many faded lines sat behind
-    # the same three raised ones, so at a glance they read as one chart. The raise now
-    # scales with the field it has to be read against: a cut drawing 31 lines cannot
-    # open on the same three as one drawing 5. The nesting is the other half of it, and
-    # is what keeps a hue on its archetype (§5): widening the cut may only add raised
-    # lines, never reshuffle the ones already up.
-    triples = [(f"arch{i}", 2024, 0.05) for i in range(35)]
-    tags = [t for t, _, _ in triples]
-    series = _meta_series(*triples)
-
-    opens = []
-    for _share, raised in _CUTS.values():
-        _, layer = _emphasis_layers(_trend_figure(series, tags, start_raised=raised))
-        opens.append([t.name for t in layer if t.visible is True])
-
-    assert [len(o) for o in opens] == [3, 5, 7]
-    for narrower, wider in zip(opens, opens[1:]):
-        assert wider[:len(narrower)] == narrower
-
-
-def test_hand_picked_archetypes_all_open_raised():
-    # AC (#117, user review): the manual panel is not a cut. Every line in it was named
-    # by the reader, so all of them open raised and the click fades: opening a
-    # hand-picked set behind a leading-three rule would ask the reader to choose the
-    # same archetypes twice.
-    series = _meta_series(("aggro", 2024, 0.4), ("control", 2024, 0.3),
-                          ("combo", 2024, 0.2), ("burn", 2024, 0.1))
-    tags = ["aggro", "control", "combo", "burn"]
-    context, raised = _emphasis_layers(
-        _trend_figure(series, tags, start_raised=len(tags))
-    )
-
-    assert len(context) == len(raised) == 4
-    assert all(t.visible is True for t in raised)
-
-
-def test_the_raise_is_a_legend_click_not_a_point_hover():
-    # AC (#117): the raise is Plotly-native legend interaction, because gr.Plot gives
-    # no point-level hover callback (#78). The legend says it is clickable, since a
-    # column of identical accent swatches over a hidden layer is otherwise not
-    # obviously a control.
-    #
-    # Both handlers are pinned away from `toggleothers`, which reads like the isolate
-    # this chart wants but does the opposite from a hidden start: its handler branches
-    # on the *clicked* trace's own visibility, and a `legendonly` one takes
-    # `case"legendonly": q(He,!0)` (plotly.min.js), turning every trace in the legend
-    # on. Every raise starts hidden, so that is the reader's first click, and it would
-    # draw all fifteen accent lines at once. `itemdoubleclick` defaults to
-    # `toggleothers`, so it has to be switched off for the same reason.
-    fig, _ = _wide_meta(9)
-    title = fig.layout.legend.title.text
-
-    assert fig.layout.legend.itemclick == "toggle"
-    assert fig.layout.legend.itemdoubleclick is False
-    # The hint sits on its own line under the legend's name and in the palette's blue,
-    # so it reads as an invitation to act rather than as part of the label.
-    name, _, hint = title.partition("<br>")
-    assert name == "Archetype"
-    assert "click" in hint.lower()
-    assert palette.CATEGORICAL[0] in hint
-
-
-def test_the_widest_cut_draws_no_look_alike_pair_and_no_borrowed_wheel():
-    # AC (#117): what the cut used to do was recycle a 32-entry qualitative wheel
-    # borrowed from Plotly, at full strength, so two archetypes could land on the same
-    # hue and none of the fifteen was traceable. The widest cut the app offers is 31
-    # lines, and across it every archetype must hold a hue of its own, all of them from
-    # this repo's own scale. Read off the serialised figure, so a borrowed hue that
-    # sneaks into a marker or a legend swatch trips this too. The claim is cut-scoped:
-    # since the meta hues are assigned over the whole 126-archetype universe, a
-    # hand-picked set that reaches past its thirty-second slot can share a hue.
-    fig, _ = _wide_meta(31)
-    _, raised = _emphasis_layers(fig)
-
-    assert len({t.line.color for t in raised}) == 31  # no two archetypes share a hue
-    assert set(t.line.color for t in raised) <= set(palette.EXTENDED)
-    drawn = fig.to_json().lower()
-    assert not [c for c in pc.qualitative.Dark24 + pc.qualitative.Light24
-                if c.lower() in drawn and c.lower() not in
-                {h.lower() for h in palette.EXTENDED}]
-
-
 def test_share_chart_ticks_and_hovers_speak_the_one_numeric_convention():
     # AC (§4): every share axis tick and every hovered share is the one convention,
     # produced by numfmt, not a second ad-hoc format. Read the tick format off the
@@ -1575,10 +1288,10 @@ def test_the_markers_that_sit_on_a_tinted_fill_drop_their_opaque_ring():
 
 def test_the_app_builds_end_to_end_over_a_real_artifact(tmp_path, snapshot_dir):
     # A smoke test over the whole wiring: build_app opens a real artifact and
-    # constructs every tab, which runs draw_cut at build time (the meta chart, its
-    # page heading, palette and marker chrome, all end to end). A broken heading
-    # thread or a figure that no longer builds trips here rather than only in the
-    # browser.
+    # constructs every tab, which draws Metagame at build time (the list of the most
+    # played and the landscape, each under its page heading, all end to end). A
+    # broken heading thread or a figure that no longer builds trips here rather than
+    # only in the browser.
     from graph7ph.app import build_app
     from graph7ph.build import build_graph
     from graph7ph.models import load_snapshot
@@ -2769,6 +2482,14 @@ def _tab_blocks(demo, label):
     return blocks[start:ends[0]] if ends else blocks[start:]
 
 
+def _share_lists(blocks) -> list:
+    """The blocks among ``blocks`` that hold Metagame's list of the most played."""
+    import gradio as gr
+
+    return [b for b in blocks
+            if isinstance(b, gr.HTML) and b.value and "share-list" in b.value]
+
+
 def _cover_fields(decks: list[dict]) -> list[dict]:
     """Fill every event's declared field with finishes, so none of them reads as a cut.
 
@@ -2876,10 +2597,11 @@ def _landscape_demo(tmp_path, snapshot_dir):
 
 def test_metagame_shows_the_field_and_archetypes_opens_on_a_picker(tmp_path, snapshot_dir):
     # AC (#332): the two tabs are cut by level. Metagame (the Meta tab until now) is
-    # the whole field: the share chart, then the metagame landscape, each drawn on
-    # open. The year governs the landscape alone, so it sits beside it: after the
-    # share charts and directly over the landscape's card, not in the panel at the
-    # top of the tab. Archetypes is one archetype's page, and opens on its picker.
+    # the whole field: the most played archetypes, then the metagame landscape, each
+    # drawn on open. The first is a list since #334, where it was a chart under a cut
+    # control and a focus picker: the landscape's is the tab's one plot, and its year
+    # the tab's one control, directly over the landscape's card. Archetypes is one
+    # archetype's page, and opens on its picker.
     import gradio as gr
 
     demo = _landscape_demo(tmp_path, snapshot_dir)
@@ -2890,14 +2612,16 @@ def test_metagame_shows_the_field_and_archetypes_opens_on_a_picker(tmp_path, sna
     field = _tab_blocks(demo, "Metagame")
     titles = re.findall(r"<div class='t-result-title'>(.*?)</div>", "".join(
         b.value for b in field if isinstance(b, gr.HTML) and b.value))
-    assert titles == ["Meta share over time", "Metagame landscape"]
-    share_plot, focus_plot, landscape_plot = [b for b in field if isinstance(b, gr.Plot)]
-    assert share_plot.value is not None and landscape_plot.value is not None
-    assert focus_plot.value is None
+    assert titles == ["Meta share", "Metagame landscape"]
+    (share_list,) = _share_lists(field)
+    assert "data-opens='archetype'" in share_list.value
+    (landscape_plot,) = [b for b in field if isinstance(b, gr.Plot)]
+    assert landscape_plot.value is not None
 
-    (cut, year) = [b for b in field if isinstance(b, gr.Radio)]
+    (year,) = [b for b in field if isinstance(b, gr.Radio)]
     assert year.label == "Year"
-    assert field.index(focus_plot) < field.index(year) < field.index(landscape_plot)
+    assert not [b for b in field if isinstance(b, gr.Dropdown)]
+    assert field.index(share_list) < field.index(year) < field.index(landscape_plot)
     # Nothing but the landscape's own card stands between the year and its plot.
     between = field[field.index(year) + 1:field.index(landscape_plot)]
     assert not [b for b in between if isinstance(b, (gr.Plot, gr.Radio, gr.Dropdown))]
@@ -2935,14 +2659,15 @@ def test_a_year_too_thin_for_a_landscape_refuses_on_the_surface(tmp_path, snapsh
     # AC (#145): a year too thin refuses with a readable state rather than a
     # misleading plot. The shared fixture holds two archetypes in its only year, one
     # short of a field, so the landscape opens on the refusal: a note, no figure. The
-    # share chart over it on the same tab (#332) draws regardless.
+    # list of the most played over it on the same tab (#334) draws regardless.
     import gradio as gr
 
     demo = _built_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Metagame")
 
-    share, _focus, landscape = [b for b in inside if isinstance(b, gr.Plot)]
-    assert share.value is not None and landscape.value is None
+    (landscape,) = [b for b in inside if isinstance(b, gr.Plot)]
+    assert landscape.value is None
+    assert _share_lists(inside)
     (note,) = [b for b in inside
                if isinstance(b, gr.Markdown) and b.visible and b.value
                and "t-lede" not in (b.elem_classes or [])
@@ -2959,15 +2684,16 @@ def test_changing_the_year_redraws_the_scatter(tmp_path, snapshot_dir):
     demo = _landscape_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Metagame")
     (year,) = [b for b in inside if isinstance(b, gr.Radio) and b.label == "Year"]
-    # The scatter is the last of the tab's three plots (#332). The two share charts
-    # over it span every year and are deliberately not wired to the year.
-    share, focus, plot = [b for b in inside if isinstance(b, gr.Plot)]
+    # The scatter is the tab's one plot. The list of the most played over it (#334)
+    # spans every year and is deliberately not wired to the year.
+    (plot,) = [b for b in inside if isinstance(b, gr.Plot)]
+    (share,) = _share_lists(inside)
 
     redraws = [fn for fn in demo.fns.values()
                if year in fn.inputs and plot in fn.outputs]
     assert len(redraws) == 1
     assert not [fn for fn in demo.fns.values()
-                if year in fn.inputs and {share, focus} & set(fn.outputs)]
+                if year in fn.inputs and share in fn.outputs]
 
     # AC (#85, criterion 9): "every query-running action shows progress while it runs".
     # Changing the year runs a query and this view has no Draw button, so a step ahead
@@ -3024,10 +2750,10 @@ def test_the_subject_controls_ship_their_choices_without_the_api_schema(tmp_path
 
     # The opt-out is the narrow one it claims to be: the data pickers, not every
     # control with choices. Since #328 the data pickers are the only dropdowns left
-    # (the seven searches), and the small options are chip selectors, which keep
+    # (the six searches), and the small options are chip selectors, which keep
     # their schema. Were the opt-out silently off, or a switch on more than the
     # dropdowns, one of the two halves below would fail.
-    assert len(quiet) == 7 and all(b.skip_api for b in quiet)
+    assert len(quiet) == 6 and all(b.skip_api for b in quiet)
     assert documented and not any(b.skip_api for b in documented)
 
     for b in quiet:
@@ -3333,7 +3059,7 @@ def test_a_graph_with_no_archetype_still_builds_the_landscape(tmp_path, snapshot
     # empty for a graph holding no Archetype node at all (a snapshot whose decks carry
     # no engine tag builds into exactly that). It has no year to open on, so it
     # opens on a refusal rather than taking the whole app down at construction, the way
-    # `latest_deck_year` already returns None for the Meta cut on the same series.
+    # `latest_deck_year` already returns None for the list on the same series.
     import gradio as gr
     import json
     import shutil
@@ -4322,20 +4048,6 @@ def test_the_archetype_pickers_list_the_most_played_first_and_a_held_name_ahead(
         assert _picker_choices(demo, "Archetypes", label) == offered
 
 
-def test_the_meta_focus_list_is_most_played_first_and_a_held_name_ahead(
-    tmp_path, snapshot_dir
-):
-    # The Meta chart is a share of decks, so its list is by decks over the whole
-    # record: Blue Tron and Lands (3), Grixis, Jund and Tron (2), Storm (1), by name
-    # within a count. Tron is then listed just ahead of Blue Tron, which holds its name.
-    demo = _timeline_demo(tmp_path, snapshot_dir, more=_TRON_AND_BLUE_TRON)
-
-    assert _picker_choices(demo, "Metagame", "Or focus on specific archetypes") == [
-        ("Tron", "tron"), ("Blue Tron", "blue_tron"), ("Lands", "lands"),
-        ("Grixis", "grixis"), ("Jund", "jund"), ("Storm", "storm"),
-    ]
-
-
 def test_a_name_is_held_in_a_longer_one_whatever_its_case():
     # The dropdown ignores case when it matches, so the order has to as well.
     assert _own_name_first([("Snapper", "s"), ("NAP", "n")]) == [("NAP", "n"), ("Snapper", "s")]
@@ -4356,7 +4068,7 @@ class _Entry(NamedTuple):
 
 @pytest.fixture(scope="module")
 def real_pickers(live_graph):
-    """Each of the real record's four picker lists, as :class:`_Entry` rows.
+    """Each of the real record's three picker lists, as :class:`_Entry` rows.
 
     Nothing here comes from the functions that order the lists. An archetype's name
     and its decks, and a card's decks, are read off the graph's raw rows. A card's or
@@ -4374,20 +4086,12 @@ def real_pickers(live_graph):
 
     demo = build_app(artifact_path())
     archetype_names = dict(read("MATCH (a:Archetype) RETURN a.tag, a.name"))
-    # A Counter, so an archetype that is no deck's primary one reads as zero decks:
-    # the Meta list offers a few of those, each only ever a deck's second archetype.
-    archetype_decks = Counter(dict(read(
-        "MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype) "
-        "RETURN a.tag, count(d)"
-    )))
     card_decks = Counter(canon for canon, _ in set(map(tuple, read(
         "MATCH (d:Deck)-[:CONTAINS]->(c:Card) RETURN c.canon, d.deckId"
     ))))
 
     pickers = {}
     for tab, label, name_of, count_of in (
-        ("Metagame", "Or focus on specific archetypes",
-         lambda label, tag: archetype_names[tag], lambda label, tag: archetype_decks[tag]),
         # The count the label itself shows the reader is the one the list is read by.
         ("Archetypes", "Archetype",
          lambda label, tag: archetype_names[tag],
@@ -4408,7 +4112,7 @@ def real_pickers(live_graph):
 
 
 # The first picker of each list, by its label: the second on a tab offers the same list.
-_REAL_PICKERS = ["Or focus on specific archetypes", "Archetype", "Card", "Pilot"]
+_REAL_PICKERS = ["Archetype", "Card", "Pilot"]
 
 
 def _listed_before_the_names_were_moved(entries):
@@ -4538,11 +4242,10 @@ def test_a_click_naming_no_page_sets_nothing(kind, key):
 def test_each_chart_is_headed_with_the_way_to_how_it_is_measured():
     # Issue #333: the FAQ says how each chart is worked out, a tab away from the
     # chart. Each chart's heading carries a small link to its own entry, by the id
-    # the entry's box already has. The nine charts by their titles, each against the
-    # entry whose question is about it; the three share charts are one calculation.
+    # the entry's box already has. The charts by their titles, each against the
+    # entry whose question is about it; the two share cards are one calculation.
     charts = {
-        "Meta share over time": "faq-meta",
-        "Selected archetypes": "faq-meta",
+        "Meta share": "faq-meta",
         "Share over time": "faq-meta",
         "Metagame landscape": "faq-landscape",
         "Finishes over time": "faq-archetype-timeline",

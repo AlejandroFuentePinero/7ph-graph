@@ -20,10 +20,11 @@ Skipped rather than failed where playwright or its browser is missing, the same 
 import gradio as gr
 import pytest
 
-from graph7ph.app import _masthead, launch_kwargs
+from graph7ph.app import Pages, _masthead, _share_list, launch_kwargs
 from graph7ph.parts import Column, Group, table
 from graph7ph.query import Coverage
 from graph7ph.theme import TOKENS
+from graph7ph.trends import Series, SeriesCell
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -38,6 +39,27 @@ PHONE = {"width": 390, "height": 844}
 TABLE = table(
     [Column("Pilot"), Column("Score", numeric=True)],
     [Group("Majors"), ["one", "0.512"], ["two", "0.498"]],
+)
+
+
+# Metagame's list of the most played (#334), over a record worked up to be as wide as
+# a row gets: two years, so the change column is drawn, names long enough to wrap,
+# every name a link, and shares and changes at their full five and six characters.
+# The suite's small snapshot lists two short names over one year.
+_SHARES = {
+    "Gluten Free Storm": ((2025, 238), (2026, 351)),
+    "Selesnya Lands": ((2025, 16), (2026, 372)),
+    "Tabernacle Stax Prison": ((2025, 262), (2026, 61)),
+    "Esper Midrange": ((2025, 0), (2026, 40)),
+}
+_DECKS = {2025: 2096, 2026: 3368}
+SHARE_LIST = _share_list(
+    Series(cells=[
+        SeriesCell(tag=name, archetype=name, year=year, n=n, share=n / _DECKS[year],
+                   year_total=_DECKS[year])
+        for name, years in _SHARES.items() for year, n in years
+    ]),
+    Pages(archetypes={name: name for name in _SHARES}),
 )
 
 
@@ -74,6 +96,8 @@ def page():
                 gr.HTML(TABLE, padding=False)
             with gr.Group(elem_classes="insight-card"):
                 gr.HTML(TABLE, padding=True)
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML(SHARE_LIST, padding=False)
         for name in TABS[1:]:
             with gr.Tab(name):
                 gr.Markdown(name)
@@ -184,7 +208,8 @@ def test_a_table_draws_only_the_hairline_between_its_rows(page):
         # Under the header and between rows, and not under the last row.
         "under": [hairline, hairline, "0px"],
     }
-    assert tables == [as_designed, as_designed]
+    # The two stand-in tables, and the list of the most played, which is one too.
+    assert tables == [as_designed] * 3
 
 
 def test_a_link_in_an_html_block_is_text_in_its_line(page):
@@ -237,3 +262,56 @@ def test_every_tab_stays_on_the_strip_at_phone_width(page):
         assert last.get_attribute("aria-selected") == "true"
     finally:
         phone.close()
+
+
+def test_the_list_of_the_most_played_fits_a_phone(page):
+    # Issue #334: at 390px nothing in the list is cut off. The chart it replaced ran
+    # its legend out of its figure there (#314). A row at its widest: a name that
+    # wraps, a share and a change at full length, the share the change started from
+    # under it, and the two years the header names, which ran into each other at
+    # four digits and so are written without their century on a narrow screen.
+    phone = page.context.browser.new_page(viewport=PHONE)
+    try:
+        phone.goto(page.url, wait_until="networkidle")
+        phone.wait_for_selector(".share-list tbody tr")
+        read = phone.evaluate(
+            """() => { const list = document.querySelector('.share-list');
+                 const card = list.closest('.insight-card');
+                 const style = getComputedStyle(card), frame = card.getBoundingClientRect();
+                 const inside = {left: frame.left + parseFloat(style.paddingLeft),
+                                 right: frame.right - parseFloat(style.paddingRight)};
+                 const box = el => el.getBoundingClientRect();
+                 // What is drawn: every element of the list that takes room, and the
+                 // text of every cell, which can run past the cell that holds it.
+                 const boxes = [...list.querySelectorAll('*')].map(box);
+                 for (const cell of list.querySelectorAll('th, td')) {
+                   const text = document.createRange(); text.selectNodeContents(cell);
+                   boxes.push(text.getBoundingClientRect());
+                 }
+                 // A column left out on a narrow screen takes no room and has no place.
+                 const drawn = boxes.filter(b => b.width > 0 && b.height > 0);
+                 const years = [...list.querySelector('thead .share-years').children];
+                 return {
+                   past: Math.max(...drawn.map(b => Math.max(b.right - inside.right,
+                                                             inside.left - b.left))),
+                   sideways: document.documentElement.scrollWidth
+                     - document.documentElement.clientWidth,
+                   headers: [...list.querySelectorAll('thead th')].map(th => th.innerText),
+                   years: years.map(year => year.innerText),
+                   apart: box(years[1]).left - box(years[0]).right,
+                   from: [...list.querySelectorAll('.share-from')].map(el => el.innerText),
+                   name_lines: [...list.querySelectorAll('tbody td:nth-child(2) a')].map(
+                     name => name.getClientRects().length),
+                 }; }"""
+        )
+    finally:
+        phone.close()
+
+    assert read["past"] <= 0.5 and read["sideways"] <= 0
+    assert "CHANGE FROM 2025" in [header.upper() for header in read["headers"]]
+    assert read["years"] == ["25", "26"] and read["apart"] > 0
+    # Most played in 2026 first (372, 351, 61 and 40 decks), each beside its share of
+    # 2025's 2,096: 16, 238, 262 and none.
+    assert read["from"] == ["from 0.76%", "from 11.35%", "from 12.5%", "from 0%"]
+    # The fixture does what it is for: at least one name is on two lines.
+    assert max(read["name_lines"]) >= 2
