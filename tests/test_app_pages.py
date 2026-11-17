@@ -29,6 +29,8 @@ from graph7ph.app import (
     _pilot_tiles,
     _record_card,
     _record_table,
+    _share_list,
+    _trend_figure,
     build_app,
 )
 from graph7ph.build import build_graph
@@ -59,6 +61,7 @@ from graph7ph.trends import (
     card_adoption_over_time,
     latest_deck_year,
     meta_share_over_time,
+    most_played,
     pair_adoption_over_time,
 )
 
@@ -1416,3 +1419,132 @@ def test_the_built_page_answers_a_clicked_name_on_the_controls_that_draw_its_pag
         same, same, "brainstorm", "card_overview", same, same]
     # Neither archetype of the snapshot has a page, so a click naming one sets nothing.
     assert answer.fn(gr.EventData(source, {"kind": "archetype", "key": "grixis"})) == [same] * 6
+
+
+# --- Metagame's list of the most played (issue #334) ---
+
+
+def _listed(markup: str) -> list[dict]:
+    """Each row of the most-played list as what it states, read off its markup."""
+    def text(cell: str) -> str:
+        return html.unescape(re.sub(r"<[^>]+>", "", cell))
+
+    rows = []
+    for row in re.findall(r"<tr>(.*?)</tr>", markup.split("<tbody>")[1]):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row)
+        rank, name, share, decks = cells[:4]
+        rows.append({
+            "rank": text(rank), "name": text(name),
+            "opens": re.findall(r"data-key='(.*?)'", name),
+            "share": text(re.search(r"<span class='share-now'>(.*?)</span>", share)[1]),
+            "decks": text(decks),
+            "change": text(cells[4].split("<span")[0]) if len(cells) == 6 else None,
+            "from": (text(re.search(r"<span class='share-from'>(.*?)</span>", cells[4])[1])
+                     if len(cells) == 6 else None),
+            "years": re.findall(r"title='(.*?)'", cells[-1]),
+        })
+    return rows
+
+
+def test_the_list_states_each_archetypes_share_its_change_and_its_years():
+    # Worked by hand off the rows above. 2024 is the latest year, of 200 decks: Storm
+    # 30 (15%), Grixis and Lands 12 each (6%), Zoo 3 (1.5%), Jund none. In 2023, of 50
+    # decks, Grixis had 5 (10%) and the other three listed had none. So Storm is up 15
+    # from nothing and Grixis is down 4 from 10. Jund is not listed: it has no deck
+    # in 2024, whatever it had before. Grixis and Lands are level on 12 decks, so both
+    # are 2nd, in tag order, and Zoo after them is 4th: the rank an archetype's own
+    # page states (#332), which never places one of several equals ahead.
+    markup = _share_list(_shares(*_SHARES), Pages(archetypes={"grixis": "Grixis"}))
+
+    assert [(row["rank"], row["name"], row["share"], row["decks"], row["change"],
+             row["from"]) for row in _listed(markup)] == [
+        ("1", "Storm", "15%", "30 / 200", "+15%", "from 0%"),
+        ("2", "Grixis", "6%", "12 / 200", "\u22124%", "from 10%"),
+        ("2", "Lands", "6%", "12 / 200", "+6%", "from 0%"),
+        ("4", "Zoo", "1.5%", "3 / 200", "+1.5%", "from 0%"),
+    ]
+    # Every year on record, each with the decks it rests on.
+    assert _listed(markup)[1]["years"] == ["2023: 10%, 5 / 50 decks",
+                                           "2024: 6%, 12 / 200 decks"]
+    # A name is the way to its page where the archetype has one (#333).
+    assert [row["opens"] for row in _listed(markup)] == [[], ["grixis"], [], []]
+    # The columns say which years they compare, and the caption how many are listed
+    # and by what rule.
+    assert "Share of 2024 decks" in markup and "Change from 2023" in markup
+    assert ("<div class='caption'>The <span class='figure'>4</span> archetypes with at "
+            "least 1% of 2024's decks, most played first.") in markup
+
+
+def test_an_archetype_under_one_percent_of_the_latest_year_is_not_listed():
+    # 1 of 200 decks is half a percent; 2 of 200 is 1% exactly, and is listed.
+    shares = _shares(("grixis", 2024, 197, 200), ("zoo", 2024, 2, 200),
+                     ("jund", 2024, 1, 200))
+
+    assert [row["name"] for row in _listed(_share_list(shares, Pages()))] == [
+        "Grixis", "Zoo"]
+
+
+def test_a_record_of_one_year_lists_shares_with_no_change_to_state():
+    # A change is against the year before, and a record of one year has none: the
+    # column is left out, where a dash in every row would be a column of nothing.
+    markup = _share_list(_shares(("grixis", 2024, 6, 10), ("zoo", 2024, 4, 10)), Pages())
+
+    assert "Change" not in markup
+    assert [(row["name"], row["share"], row["change"]) for row in _listed(markup)] == [
+        ("Grixis", "60%", None), ("Zoo", "40%", None)]
+
+
+def test_a_record_with_no_archetype_deck_says_so_where_the_list_would_be():
+    markup = _share_list(Series(cells=[]), Pages())
+
+    assert "<table" not in markup
+    assert "No archetypes to list yet." in markup
+
+
+def test_every_listed_share_and_change_is_the_one_the_share_chart_draws(live_graph):
+    # AC (#334): every share and change in the list agrees with the yearly shares
+    # the share chart draws. The second reading is the chart on each archetype's own
+    # page, point by point: what it prints over a year's point is what the list's
+    # column for that year states, the latest year's is the row's share, and the
+    # change is the gap between the last two as written (design doc, section 4). And
+    # a row's rank is the one the rank tile of that archetype's page states.
+    shares = meta_share_over_time(live_graph)
+    listed = _listed(_share_list(shares, Pages()))
+    tags = most_played(shares)
+    # Who is listed, counted a second way: straight off the graph.
+    year = latest_deck_year(shares)
+    ((total,),) = rows(live_graph.execute(
+        "MATCH (d:Deck)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year {year: $year}) "
+        "RETURN count(DISTINCT d)", {"year": year}))
+    counted = [tag for tag, decks in rows(live_graph.execute(
+        "MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype), "
+        "(d)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year {year: $year}) "
+        "RETURN a.tag, count(DISTINCT d)", {"year": year})) if decks * 100 >= total]
+    assert sorted(tags) == sorted(counted) and len(listed) == len(tags) > 1
+
+    for row, tag in zip(listed, tags, strict=True):
+        (line,) = _trend_figure(shares, [tag]).data
+        printed = [f"{at}: {share}, {decks}" for at, (share, decks)
+                   in zip(line.x, line.customdata)]
+        assert row["years"] == printed, tag
+        assert line.name == row["name"], tag
+        _, rank, _, _ = _archetype_tiles(tag, shares, None)
+        assert re.match(r"\d+", rank.value).group() == row["rank"], tag
+        now, before = line.customdata[-1][0], line.customdata[-2][0]
+        assert row["share"] == now and row["from"] == f"from {before}", tag
+        moved = round(float(now.rstrip("%")) - float(before.rstrip("%")), 2)
+        sign = "+" if moved > 0 else "\u2212" if moved < 0 else ""
+        assert row["change"] == f"{sign}{abs(moved):.2f}".rstrip("0").rstrip(".") + "%", tag
+
+
+def test_the_change_is_against_the_year_before_not_the_first_on_record():
+    # Three years: 40%, then 10%, then 25%. The row is up 15 from 10, not down 15
+    # from 40, and each year keeps its own column.
+    shares = _shares(("grixis", 2022, 40, 100), ("grixis", 2023, 10, 100),
+                     ("grixis", 2024, 25, 100))
+
+    (row,) = _listed(_share_list(shares, Pages()))
+
+    assert (row["share"], row["change"], row["from"]) == ("25%", "+15%", "from 10%")
+    assert row["years"] == ["2022: 40%, 40 / 100 decks", "2023: 10%, 10 / 100 decks",
+                            "2024: 25%, 25 / 100 decks"]

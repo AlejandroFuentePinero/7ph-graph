@@ -104,24 +104,18 @@ def throttle(page: Page, latency_ms: int) -> None:
 def field(page: Page, label: str):
     """The visible dropdown carrying ``label``.
 
-    Gradio puts the label on a single-select's ``aria-label`` but not on a
-    multiselect's, so the fallback goes through the field's own label span. Every
-    tab's controls stay in the DOM, so the visible filter is what keeps a selector
-    from matching the same-named control on a hidden tab.
+    Gradio puts the label on the input's ``aria-label``. Every tab's controls stay
+    in the DOM, so the visible filter is what keeps a selector from matching the
+    same-named control on a hidden tab.
 
     Raises on a label the app no longer carries rather than handing back a locator
     that matches nothing: #156's copy sweep renamed three of the labels driven here,
     and the symptom was a 30s Playwright timeout on the click that came next, which
     names the selector but never the state that was being captured."""
     by_aria = page.locator(f'input[aria-label="{label}"]').locator("visible=true")
-    if by_aria.count():
-        return by_aria.first
-    by_span = page.locator("div.container, label.container").filter(
-        has=page.locator(f'span[data-testid="block-info"]:text-is("{label}")')
-    ).locator("input").locator("visible=true")
-    if not by_span.count():
+    if not by_aria.count():
         raise SystemExit(f"No visible control labelled {label!r}")
-    return by_span.first
+    return by_aria.first
 
 
 def pick(page: Page, label: str, text: str) -> None:
@@ -154,9 +148,8 @@ def pick(page: Page, label: str, text: str) -> None:
 def chip(page: Page, label: str, text: str) -> None:
     """Take one chip of the visible chip selector carrying ``label``.
 
-    The small options (View, Board, Year, Cards to show) are chips since #328, as
-    the Meta cut always was: a group of radio marks, each inside the label a reader
-    clicks."""
+    The small options (View, Board, Year, Cards to show) are chips since #328: a
+    group of radio marks, each inside the label a reader clicks."""
     group = page.locator("fieldset").filter(
         has=page.locator(f'span[data-testid="block-info"]:text-is("{label}")')
     ).locator("visible=true")
@@ -249,12 +242,6 @@ def recipes() -> list[Shot]:
     def meta_default(page):
         tab(page, "Metagame")
         wait(page, 3500)
-
-    def meta_focus(page):
-        tab(page, "Metagame")
-        pick(page, "Or focus on specific archetypes", ARCHETYPE)
-        pick(page, "Or focus on specific archetypes", ARCHETYPE_B)
-        wait(page, 2500)
 
     def archetypes_nothing_picked(page):
         tab(page, "Archetypes")
@@ -359,8 +346,7 @@ def recipes() -> list[Shot]:
 
     return [
         Shot("community", "Community, cold start: the figures, the three charts and the doorways", community),
-        Shot("meta-default", "Metagame, on open: the share chart and the landscape, drawn", meta_default),
-        Shot("meta-focus", "Metagame with two archetypes focused", meta_focus),
+        Shot("meta-default", "Metagame, on open: the most played and the landscape, drawn", meta_default),
         Shot("archetypes-nothing-picked", "Archetypes, nothing picked: the picker", archetypes_nothing_picked),
         Shot("archetypes-timeline", "Archetypes, one archetype's page: tiles, share and finishes over time", archetypes_timeline),
         Shot("archetypes-head-to-head", "Archetypes, two archetypes compared on both charts", archetypes_head_to_head),

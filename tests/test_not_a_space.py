@@ -68,11 +68,11 @@ def test_a_page_served_from_a_space_asks_no_other_host_for_anything(
             # (issue #321). With it gone the page asks no host but the app's own.
             assert elsewhere == []
             # Drawn is not enough: the page still gets an answer from the app. A chip
-            # of Metagame's asks for one; the page opens on Community (#346).
-            page.get_by_role("tab", name="Metagame", exact=True).click()
+            # of Pilots' asks for one; the page opens on Community (#346).
+            page.get_by_role("tab", name="Pilots", exact=True).click()
             with page.expect_response(lambda response: "/queue/join" in response.url) as asked:
                 # The chip, as a reader takes it: its radio mark is not drawn (#328).
-                page.get_by_text("Top 75%", exact=True).click()
+                page.get_by_text("Head-to-head", exact=True).click()
             assert asked.value.ok
             assert thrown == []
             engine.close()

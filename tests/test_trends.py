@@ -39,7 +39,7 @@ from graph7ph.trends import (
     card_adoption_over_time,
     head_to_head_timeline,
     latest_deck_year,
-    latest_year_share_cut,
+    most_played,
     meta_share_over_time,
     pilot_performance_over_time,
     pilots_with_history,
@@ -73,7 +73,7 @@ def _shared_win(field_size: int) -> str:
 
 
 def _cell(tag, year, n):
-    """A cell with an arbitrary but consistent share/year_total, for cut tests."""
+    """A cell that is the whole of its year, for tests of the order alone."""
     return SeriesCell(tag=tag, archetype=tag.title(), year=year, n=n,
                       share=1.0, year_total=n)
 
@@ -227,29 +227,28 @@ def test_an_archetype_absent_in_a_year_is_a_zero_not_a_missing_row(tmp_path, bui
     assert grixis_2025.share == pytest.approx(6 / 10)
 
 
-def test_cut_keeps_the_strongest_archetypes_until_the_share_is_reached():
-    # Latest-year (2025) counts: A=60, B=30, C=10 (total 100). The earlier years are
-    # loaded the other way round so a cut that pooled them would rank differently.
+def test_the_most_played_are_every_archetype_at_one_percent_of_the_latest_year():
+    # Latest-year (2025) counts over 200 decks: A=100, B=2, C=1. B is 1% exactly and
+    # is listed; C is half a percent and is not, whatever it was in 2024, where it is
+    # loaded heavily so a rule that pooled the years would list it.
     series = Series(cells=[
-        _cell("a", 2024, 5), _cell("a", 2025, 60),
-        _cell("b", 2025, 30),
-        _cell("c", 2024, 500), _cell("c", 2025, 10),
+        SeriesCell("a", "A", 2024, 5, 5 / 505, 505),
+        SeriesCell("c", "C", 2024, 500, 500 / 505, 505),
+        SeriesCell("a", "A", 2025, 100, 100 / 200, 200),
+        SeriesCell("b", "B", 2025, 2, 2 / 200, 200),
+        SeriesCell("c", "C", 2025, 1, 1 / 200, 200),
     ])
-    # 50%: A alone is 60% >= 50%. 75%: A+B is 90% >= 75%. 25%: A alone suffices.
-    assert latest_year_share_cut(series, 0.50) == ["a"]
-    assert latest_year_share_cut(series, 0.75) == ["a", "b"]
-    assert latest_year_share_cut(series, 0.25) == ["a"]
-    # Returned strongest-first, and C's fat 2024 never lifts it above A or B.
-    assert latest_year_share_cut(series, 1.0) == ["a", "b", "c"]
+    # Most played first.
+    assert most_played(series) == ["a", "b"]
 
 
-def test_cut_follows_the_latest_year_in_the_data():
+def test_the_most_played_follow_the_latest_year_in_the_data():
     # The latest year is read from the series, not pinned: add a newer year and the
-    # ranking moves to it, so the cut tracks the meta as the graph grows.
+    # order moves to it, so the list tracks the meta as the graph grows.
     older = [_cell("a", 2025, 60), _cell("b", 2025, 30)]
-    assert latest_year_share_cut(Series(cells=older), 0.5) == ["a"]
+    assert most_played(Series(cells=older)) == ["a", "b"]
     newer = older + [_cell("a", 2026, 10), _cell("b", 2026, 40)]
-    assert latest_year_share_cut(Series(cells=newer), 0.5) == ["b"]
+    assert most_played(Series(cells=newer)) == ["b", "a"]
 
 
 def test_a_one_deck_archetype_draws_a_full_line_of_real_values(tmp_path, built_graph):
@@ -271,54 +270,31 @@ def test_a_one_deck_archetype_draws_a_full_line_of_real_values(tmp_path, built_g
     ]
 
 
-def test_cut_ranks_on_the_latest_year_with_decks_not_an_all_zero_year():
-    # The rectangular matrix can hand the cut a latest year of all zeros (a newest
-    # year whose decks all reached the graph without a primary archetype). The cut
-    # ranks on the latest year that actually has decks, so it draws the meta rather
-    # than blanking the chart.
+def test_the_most_played_are_read_off_the_latest_year_with_decks_not_an_all_zero_year():
+    # The rectangular matrix can end on a year of all zeros (a newest year whose decks
+    # all reached the graph without a primary archetype). The list is read off the
+    # latest year that has decks, so it shows the meta rather than nothing.
     series = Series(cells=[
         _cell("a", 2025, 60), _cell("b", 2025, 30),
         SeriesCell("a", "A", 2026, 0, 0.0, 40),
         SeriesCell("b", "B", 2026, 0, 0.0, 40),
     ])
-    assert latest_year_share_cut(series, 0.5) == ["a"]
+    assert most_played(series) == ["a", "b"]
     assert latest_deck_year(series) == 2025
 
 
-def test_cut_counts_thin_cells():
-    # A handful of decks is still decks, so a thin cell is part of the population
-    # the cut ranks on rather than being invisible to it.
+def test_archetypes_on_as_many_decks_are_listed_in_tag_order():
+    # Pinned to the order the rule applies, ascending tag, rather than accepting
+    # either: two rows that swap between two loads of the page read as a change.
     series = Series(cells=[
-        SeriesCell("a", "A", 2025, 4, 4 / 8, 8),
         SeriesCell("b", "B", 2025, 4, 4 / 8, 8),
+        SeriesCell("a", "A", 2025, 4, 4 / 8, 8),
     ])
-    # Pinned to the tie-break the cut actually applies, ascending tag, rather than
-    # accepting either equal: `in (["a"], ["b"])` passed whichever way the policy
-    # went, so flipping it left the suite green while changing which line a future
-    # chart draws.
-    assert latest_year_share_cut(series, 0.5) == ["a"]
-    assert set(latest_year_share_cut(series, 1.0)) == {"a", "b"}
+    assert most_played(series) == ["a", "b"]
 
 
-def test_cut_landing_inside_a_band_of_equals_splits_it_on_the_tie_break():
-    # The cut's only genuinely undetermined case: 2026 holds a=6 and three equals
-    # at 3 each, 15 decks in all. `a` alone is 6/15, short of the 50% cut, and any
-    # one of b, c and d lifts it to 9/15, so the tie-break alone decides which of
-    # the three is drawn and which two are dropped. Asserting the whole kept list
-    # rather than the survivor holds both halves of that split.
-    #
-    # Inert on the current snapshot, but not inert historically: the mechanism
-    # decided the drawn set on 11 of 41 of this year's own graph states at the
-    # default cut, most recently 2026-06-28 (issue #103).
-    series = Series(cells=[
-        _cell("a", 2026, 6), _cell("b", 2026, 3),
-        _cell("c", 2026, 3), _cell("d", 2026, 3),
-    ])
-    assert latest_year_share_cut(series, 0.5) == ["a", "b"]
-
-
-def test_cut_of_an_empty_series_is_empty():
-    assert latest_year_share_cut(Series(cells=[]), 0.5) == []
+def test_an_empty_series_has_no_most_played():
+    assert most_played(Series(cells=[])) == []
 
 
 def test_run_series_routes_meta_share_through_its_own_seam(tmp_path, built_graph):

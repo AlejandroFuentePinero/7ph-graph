@@ -563,6 +563,61 @@ a[data-opens]:hover {{ text-decoration: underline; }}
   .standings .rank-ends {{ display: flex; margin: 0 0 4px auto; letter-spacing: 0; }}
   .standings .rank-numbers {{ min-width: 0; }}
 }}
+/* Metagame's list of the most played (#334). A row draws its share twice: as a bar
+   on a track, and as the last of a column per year on record. Both are placed by
+   what the markup states (`--share` on each bar and column), on two scales set
+   once on the element the table sits in, so every row is on the same ones:
+   `--leader`, the first row's share, is a full track, and `--tallest`, the largest
+   share any listed archetype took in any year, is a full column. The latest year is
+   in the blue the charts draw with, in the bar and in its column, and the years
+   before it are set back. The columns stand on a hairline, so a year with no deck
+   reads as an empty place and not as a missing one; it is a shadow and not a
+   border, so the frame's height is the columns' own scale. The header names the
+   first and last year over the columns' two ends (`.share-years`, as wide as the
+   columns), in its own ink (see `.rank-ends` above). */
+.share-list {{ --track: clamp(4rem, 26vw, 24rem); margin-top: 0.6rem; }}
+.share-list td {{ vertical-align: middle; }}
+.share-list .share-track {{
+  display: inline-block; vertical-align: middle; position: relative;
+  width: var(--track); height: 8px; margin-right: 0.7rem;
+  border-radius: 2px; background: var(--border);
+}}
+.share-list .share-bar {{
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px;
+  width: calc(var(--share) / var(--leader) * 100%); background: {FIGURE_BLUE};
+}}
+/* The share takes a set width, or the tracks would end at a different point in each
+   row. So does the share a change started from, set back beside it. */
+.share-list .share-now {{ display: inline-block; min-width: 3.4rem; }}
+.share-list .share-from {{
+  display: inline-block; min-width: 6.2rem; margin-left: 0.6rem; text-align: left;
+  color: var(--text-mute);
+}}
+.share-list .share-history, .share-list .share-years {{ display: inline-flex; width: 6rem; }}
+.share-list .share-years {{ justify-content: space-between; letter-spacing: 0; }}
+.share-list .share-years, .share-list .share-years span {{ color: inherit; }}
+.share-list .share-history {{
+  height: 28px; align-items: flex-end; gap: 4px; vertical-align: middle;
+  box-shadow: 0 1px 0 var(--border);
+}}
+.share-list .share-year {{
+  flex: 1 1 0; border-radius: 1px 1px 0 0; background: var(--text-mute);
+  height: calc(var(--share) / var(--tallest) * 100%);
+}}
+.share-list .share-year.now {{ background: {FIGURE_BLUE}; }}
+/* On a narrow screen the track sits over its share, as wide as the cell, and the
+   share a change started from goes under the change. The header's two years lose
+   their century: at four digits each they ran into one another over the columns. */
+@media (max-width: 640px) {{
+  .share-list .share-track {{ display: block; width: 100%; margin: 0 0 4px; }}
+  .share-list .share-now {{ min-width: 0; }}
+  .share-list .share-from {{
+    display: block; min-width: 0; margin: 0; text-align: right; font-size: 12px;
+  }}
+  .share-list .share-history, .share-list .share-years {{ width: 2.75rem; }}
+  .share-list .share-history {{ height: 22px; gap: 2px; }}
+  .share-list .century {{ display: none; }}
+}}
 /* A cell's second line, and a column left out, both for a narrow screen (below). */
 .data-table .sub {{ display: none; }}
 @media (max-width: 640px) {{
@@ -734,9 +789,7 @@ a[data-opens]:hover {{ text-decoration: underline; }}
      bottom edge. It is the height Gradio builds a dropdown's input at. */
   --control-size: 38px;
 }}
-/* Lined up on their tops, so every label is on one line whatever is under it: the
-   focus search grows a line of picks at a time, and a row lined up on its bottoms
-   lifted that search's label above the chips' beside it. */
+/* Lined up on their tops, so every label is on one line whatever is under it. */
 .control-panel .styler {{
   display: flex; flex-flow: row wrap; align-items: flex-start; gap: 0.6rem 1.25rem;
   background: transparent;
@@ -821,20 +874,11 @@ a[data-opens]:hover {{ text-decoration: underline; }}
 .control-panel .row.clearable .container > .wrap {{
   background: var(--surface); box-shadow: inset 0 0 0 1px var(--border);
 }}
-/* A search is the row's height whether it holds nothing, a name or a line of picks.
-   Gradio builds the several-pick field 39.6px tall empty and 47px with a pick in
-   it (a 35px token inside 6px of padding), against 38px for a single pick, so that
-   search stood 1.6px proud of the chips beside it and the panel grew 7px under the
-   reader on a first pick. A token here is 31px and the field's padding 3px, which
-   is 37px, and the field's floor is the row's height. The clear button beside it
-   stays the row's height with it, where it stepped up to the taller field. */
+/* A search is the row's height whether it holds a name or nothing: the field's
+   floor is the row's height. */
 .control-panel .row.clearable .wrap-inner {{
   box-sizing: border-box; min-height: var(--control-size);
   padding-top: 3px; padding-bottom: 3px;
-}}
-.control-panel .row.clearable .token {{ padding: 4px 10px; }}
-.gradio-container .control-panel .row.clearable:has(.token) {{
-  --clear-size: var(--control-size);
 }}
 /* The clear button's tint is over the panel's well too, where its resting ink is
    4.29. It takes the bright accent, 5.5 there: the step up the picked chip already
@@ -880,14 +924,9 @@ a[data-opens]:hover {{ text-decoration: underline; }}
   background: var(--surface); border-radius: 8px;
   /* The button is square and exactly as tall as the input beside it, so the two share a
      top and a bottom edge. Gradio builds that input as `--spacing-md` of padding above
-     and below a single line: 4px of input margin around ~17px of 14px text for a plain
-     dropdown, or a token chip (`--spacing-md` around a 21px line) when a multiselect
-     holds a pick. An empty multiselect is the plain height, so the size follows the
-     chips rather than the control's type. Past one row of chips the field grows and the
-     button stays on its last row, which is what bottom-anchoring is for. */
+     and below a single line: 4px of input margin around ~17px of 14px text. */
   --clear-size: 37px;
 }}
-.gradio-container .row.clearable:has(.token) {{ --clear-size: 45px; }}
 /* Descendant rather than child: Gradio wraps a dropdown in a `.form` div of its own and
    is free to wrap the button too, so a `>` here would depend on a nesting it does not
    promise. The field keeps its width; only the button shrinks. */

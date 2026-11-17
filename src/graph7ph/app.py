@@ -85,17 +85,19 @@ from graph7ph.trends import (
     NotEnoughHistory,
     PairAdoptionOverTime,
     MAJOR_FIELD_SIZE,
+    MIN_LISTED_SHARE,
     PerformanceCell,
     PilotPerformanceOverTime,
     PlayerLeaderboard,
     RACE_INTERVAL,
     RaceCell,
     Series,
+    SeriesCell,
     archetypes_with_history,
     beats_a_coin,
     comparable_points,
     latest_deck_year,
-    latest_year_share_cut,
+    most_played,
     run_series,
 )
 
@@ -339,12 +341,11 @@ def _clearable(*, visible: bool = True, **kwargs) -> tuple[gr.Dropdown, gr.Row]:
     long choice lists, and they opt out of the API schema the config would otherwise
     repeat three times over each list (see ``skip_api`` above).
     """
-    empty = [] if kwargs.get("multiselect") else None
     with gr.Row(elem_classes="clearable", equal_height=False, visible=visible) as row:
         dropdown = gr.Dropdown(**kwargs)
         dropdown._skip_api = True
         clear = gr.Button(CLEAR_LABEL, elem_classes="clear-btn")
-    clear.click(lambda: gr.update(value=empty), outputs=dropdown)
+    clear.click(lambda: gr.update(value=None), outputs=dropdown)
     return dropdown, row
 
 
@@ -617,8 +618,7 @@ def _gem_caption(subgraph: Subgraph) -> str:
 # The FAQ entry that says how each chart is measured, by the chart's title, which
 # is the plot type alone (§14). What a chart's head links to (issue #333).
 _HOW_MEASURED = {
-    "Meta share over time": "faq-meta",
-    "Selected archetypes": "faq-meta",
+    "Meta share": "faq-meta",
     "Metagame landscape": "faq-landscape",
     "Share over time": "faq-meta",
     "Finishes over time": "faq-archetype-timeline",
@@ -1688,29 +1688,6 @@ def _own_name_first(
     return ordered
 
 
-# What a chart opens raised when its caller has no reason to say: the narrowest cut's
-# raise, which is the fewest that still makes a cold start a chart with a reading in it
-# rather than a field of context nobody has clicked yet. The Meta cut scales past this
-# (`_CUTS`), and the manual panel raises every line it was handed.
-_OPEN_RAISED = 3
-
-# The latest-year cumulative-share cut, as labelled radio choices (ADR 0013). The
-# cut is display legibility only: the tool always returns the full matrix, and this
-# picks which of the 126 archetypes are drawn as lines, default 50%.
-#
-# Each cut carries how many of its leading lines open raised, because the two cannot be
-# set apart: a cut that draws 5 lines and one that draws 31 were both opening on the
-# same 3, so the widest cut opened as three raised lines against a field of twenty-eight
-# faded ones and read as the same chart as the narrowest. The raise scales with the
-# field it has to be read against. They live in one mapping rather than two keyed by the
-# same labels, so a cut cannot be added with a share and no raise.
-_CUTS: dict[str, tuple[float, int]] = {
-    "Top 25%": (0.25, 3),
-    "Top 50%": (0.50, 5),
-    "Top 75%": (0.75, 7),
-}
-_DEFAULT_CUT = "Top 50%"
-
 # The FAQ tab (#133): the how-it-is-calculated notes #132 strips off the plots, homed
 # one click away so the plot surfaces stay scannable, plus the qualifiers #156 took off
 # the captions. Each entry is (elem_id, category, question, answer); the id anchors the
@@ -1796,7 +1773,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "among its decks, and a year is the coarsest, safest slice of that: it is what "
         "the charts that cut up the metagame are grouped by, rather than anything "
         "finer.\n\n"
-        "Every year axis, the landscape's year selector and the cut's label on the "
+        "Every year axis, the list and the landscape's year selector on the "
         "Metagame tab, the tiles on an archetype's page, and the span in the "
         "footer read that one number. The newest year is still filling, so its figures "
         "move as events are added. The two timelines are the exception, and place each "
@@ -1805,17 +1782,18 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
     (
         "faq-meta",
         "Archetypes",
-        'How is "Meta share over time" calculated?',
+        'How is "Meta share" calculated?',
         "Each deck counts once, under its main archetype. An archetype's share in a "
         "year is its decks that year divided by every deck that year. Small numbers are "
         "kept rather than hidden: a thin share is a real sign of an archetype arriving "
         "or leaving, and a year with none is a real zero, not a gap.\n\n"
-        'The "Top 25 / 50 / 75%" control only changes how many lines are drawn. '
-        "Archetypes are ordered by their share of the most recent year, and the biggest "
-        "are kept until they add up to that percentage.\n\n"
-        "The chart opens with the three biggest archetypes at full strength and the "
-        "rest faded. A faded line is the same real data, not an estimate, and clicking "
-        "a name in the legend raises that line without hiding the others.",
+        "The Metagame tab lists the archetypes with at least "
+        f"{numfmt.share(MIN_LISTED_SHARE)} of the most recent year's decks, most played "
+        "first. The change beside a share is against the year before. The small "
+        "columns at the end of a row are that archetype's share in every year on "
+        "record, all drawn on one scale, so a column in one row can be compared with "
+        "a column in another. An archetype below the line is not listed, and its share "
+        "over the years is on its own page, on the Archetypes tab.",
     ),
     (
         "faq-landscape",
@@ -2340,13 +2318,13 @@ def _adoption_cards(subject: str, second: str | None) -> list[str]:
 
 
 # How many archetypes the landscape draws, the display cut the tool never sees (the
-# same division of labour as `_CUTS`: `archetype_landscape` returns the year's whole
-# field and this picks what is drawn). Twenty-five, because that is 78 / 73 / 69 / 68
-# percent of the field for 2023 / 2024 / 2025 / 2026, landing near the Meta tab's own
-# "top 75%" cut vocabulary. Every one of the 25 carried its name on the chart until
-# #337, on the argument that labelling a subset would read as arbitrary (issue #145);
-# the names printed over each other, so the page now draws the ones that fit, the most
-# played first, and every dot keeps its name on hover.
+# same division of labour as `trends.most_played`: `archetype_landscape` returns the
+# year's whole field and this picks what is drawn). Twenty-five, because that is
+# 78 / 73 / 69 / 68 percent of the field for 2023 / 2024 / 2025 / 2026. Every one of
+# the 25 carried its name on the chart until #337, on the argument that labelling a
+# subset would read as arbitrary (issue #145); the names printed over each other, so
+# the page now draws the ones that fit, the most played first, and every dot keeps
+# its name on hover.
 _LANDSCAPE_TOP_N = 25
 
 # The landscape draws taller than Plotly's 450px default, because it is the one chart
@@ -2363,10 +2341,8 @@ def _landscape_top(series: Series, top_n: int) -> list[LandscapeCell]:
     """The ``top_n`` archetypes of a landscape by share, strongest first.
 
     The cut is recomputed for whichever year is drawn, so the chart follows the meta
-    rather than being pinned to one year's ranking (the opposite of
-    ``latest_year_share_cut``, which deliberately fixes one set so its lines span the
-    whole x axis, and so cannot be reused here). Ties are broken on the tag, so a year
-    always draws the same set rather than leaving it to the row order.
+    rather than being pinned to one year's ranking. Ties are broken on the tag, so a
+    year always draws the same set rather than leaving it to the row order.
 
     The cut runs over every archetype the year held and an archetype the year never
     scored is dropped **after** it, so it leaves a gap rather than pulling a deeper
@@ -2462,32 +2438,13 @@ _CONTROL_ACCENT = theme.TOKENS["accent-bright"]
 # drawn line at full and this at a tenth of it.
 _RACE_BAND_COLOUR = theme.TOKENS["accent-bright"]
 
-# Half of `_CONTEXT_ALPHA` beside it, because this is a fill and not a line (issue #336):
+# A tenth, because this is a fill and not a line (issue #336):
 # the band covers most of the plot, and it has to stay ground under the eight lines
 # drawn over it. Settled by eye on the real record against 0.07 and 0.16. It also sets
 # how much a point's own fill shows where the point sits on the band: the points keep
 # the opaque fill that lets one cover another, since most of them overlap, and at
 # this value that fill is within 22 of the band on every channel.
 _RACE_BAND_ALPHA = 0.10
-
-# The opacity the emphasis model (§6) fades its context lines to: far enough back that
-# a raised line reads as raised even against the widest cut, while each faded line keeps
-# enough of its hue to be traced across the years. Settled by eye on the real cuts.
-_CONTEXT_ALPHA = 0.20
-
-
-def _legend_title(hint: str) -> str:
-    """The emphasis legend's title: its name, then how to work it.
-
-    The hint sits on its own line and in the palette's blue, so it reads as an
-    invitation rather than as part of the label. Plotly draws the legend as SVG, so the
-    colour is one of its own inline spans (a class the stylesheet reaches would not
-    survive) and the break is Plotly's ``<br>``, not markup the app's CSS lays out.
-    """
-    return (
-        f'Archetype<br><span style="color:{palette.CATEGORICAL[0]}">{hint}</span>'
-    )
-
 
 # The glyph a bounded point takes, and the line under the plot that says what it means.
 # Not `numfmt.IMPUTED_MARK`: the asterisk means "a number this project worked out in
@@ -2582,9 +2539,7 @@ def _observation_marker(colour: str, *, over_fill: bool = False) -> dict:
     by construction since the band's boundary is the line they sit on). Those callers
     get a fully transparent fill, so the ring reads against what it covers; they lose
     nothing to the occlusion the opaque fill buys, which is worth zero there (0 of 8
-    markers overlap on the pilot chart at 1440 and at 390). The trade is the same one
-    the faded meta lines make, where the markers are dropped outright because the
-    opaque fill would chop the lines into segments.
+    markers overlap on the pilot chart at 1440 and at 390).
 
     The leaderboard's chart paints a band under some of its points and does not ask
     for this (issue #336): there the occlusion is worth a great deal, since nearly
@@ -2741,14 +2696,13 @@ def _confidence_size(events: int) -> float:
 #
 # It is not optional. A figure merely *told* to put its legend below, without the height
 # for it, lays that legend out past its own bottom edge and Plotly clips the overflow --
-# measured as the last two of fourteen archetypes missing at phone width. On the meta
-# chart the legend is the control (click to raise), so a clipped entry is an archetype
-# the reader cannot reach at all.
+# measured as the last two of fourteen archetypes missing at phone width, on the meta
+# share chart Metagame drew until #334.
 _LEGEND_BELOW_HEIGHT = 640
 
 # The legend's title sits a step above its entries, which take the figure's 12px: it
-# names what the whole box is (and on the meta chart says how to work it), so at the
-# entries' own size it read as one more entry rather than as their heading.
+# names what the whole box is, so at the entries' own size it read as one more entry
+# rather than as their heading.
 _LEGEND_TITLE_SIZE = 14
 
 # Every finish axis says which end is winning. The score is flipped from the raw
@@ -2774,9 +2728,8 @@ def _legend_below_plot(fig: pgo.Figure, title: str, **extra) -> None:
     because their range slider already owns the space underneath.
 
     The title sits on ``top`` rather than Plotly's ``left`` default for a horizontal
-    legend: the meta chart's title is two lines (its name, then how to work it), and
-    two stacked lines to the left of a wrapping row of entries reads as a stray label
-    beside the strip rather than as its heading. ``y`` clears the x-axis title, which
+    legend: to the left of a wrapping row of entries it reads as a stray label beside
+    the strip rather than as its heading. ``y`` clears the x-axis title, which
     the legend otherwise overlaps at the default offset.
     """
     fig.update_layout(legend=dict(
@@ -2791,8 +2744,7 @@ def _legend_below_plot(fig: pgo.Figure, title: str, **extra) -> None:
     # Only reserve the room when a legend will actually be drawn. Plotly draws one for
     # two or more legend-carrying traces and suppresses it for one, so a single-card
     # adoption chart would otherwise hold 190px open under the plot for a legend that
-    # never arrives. Counted over the traces that carry an entry, not every trace: the
-    # meta chart's faded context lines are all `showlegend=False`.
+    # never arrives. Counted over the traces that carry an entry, not every trace.
     if sum(1 for t in fig.data if t.showlegend is not False) > 1:
         fig.update_layout(height=_LEGEND_BELOW_HEIGHT)
 
@@ -2853,10 +2805,7 @@ def _style_trend_chart(fig: pgo.Figure, y_title: str) -> None:
     )
 
 
-def _trend_figure(
-    series: Series, tags: list[str], *, start_raised: int = _OPEN_RAISED,
-    universe: list[str] | None = None, emphasis: bool = True,
-) -> pgo.Figure:
+def _trend_figure(series: Series, tags: list[str]) -> pgo.Figure:
     """A line chart of the chosen archetypes' meta share over time.
 
     One trace per archetype, with the data foregrounded: the points are the
@@ -2868,59 +2817,13 @@ def _trend_figure(
     its own. Each point's hover carries its year, share, and deck count N, the
     sample size the reader reasons with.
 
-    The chart draws on **emphasis** (§6, ADR-0013's #116 amendment as revised in issue
-    #117), at every width. Every archetype is drawn twice, in one hue at two strengths:
-    a faded line, and a full-strength twin that carries the legend entry and starts at
-    ``legendonly``. So the chart opens as the whole field at low contrast, and the
-    reader raises one line out of it from the legend. Emphasis is not a mode that
-    switches on past some line count: moving the cut changes how many lines are drawn
-    and nothing else, where a threshold would have made the same archetype read two
-    different ways either side of it.
+    Each line is drawn once, at full strength, under a plain legend: an archetype's
+    own page draws the one or two lines its reader picked (issue #332). The field of
+    thirty faded lines this also drew, on Metagame, is a list now (issue #334).
 
-    The hue is per archetype, from the extended scale, because a field faded to a
-    single grey is untraceable: at fourteen lines the eye cannot follow one line across
-    the years, which is most of what a reader wants the meta chart for. Hue traces
-    here, it does not name: the legend and the hover carry identity, and the extended
-    scale claims none of the distinguishability the signed eight do. That
-    scale opens on the signed eight in slot order.
-
-    ``universe`` is the stable entity set the hues are assigned over, which the drawn
-    tags then only filter: colour follows the archetype, never its rank in this
-    particular draw (§5, the reversal of ADR-0013's colour-by-position). Assigning over
-    the drawn tags instead holds only while the caller's orders nest, which the cut's
-    do (a narrower cut is a prefix of a wider one) and the manual panel's do not: it
-    hands its picks back in pick order, so removing a middle chip slid every later pick
-    up a hue (measured live: dropping Lands from Grixis/Lands/Blue Moon repainted Blue
-    Moon #199e70 -> #d95926, and re-adding Lands did not put it back). One universe
-    across both callers also settles the disagreement between the two charts on the
-    tab, which used to draw the same archetype in two hues on one scroll.
-
-    The cost: a hand-picked pair no longer draws slots 1 and 2, it draws the hues those
-    archetypes carry everywhere else. What the universe must not cost is distinctness,
-    and unfiltered it would: the scale is 32 hues over a 126-archetype universe, so four
-    archetypes share each one, and the first hand-picked trio tried on the running app
-    drew Artifact and Breakfast (universe 82 and 114, 32 apart) in the same
-    ``#25d0d0``. :func:`palette.disambiguate` is what closes that, moving a line only
-    where its hue is already taken on this chart. Left ``None``, the drawn tags are
-    their own universe.
-
-    ``tags`` is drawn in the order given, which is the caller's meaningful order: the
-    cut passes them strongest-first, the manual panel in pick order.
-
-    ``start_raised`` is how many of the leading lines open raised. A cut opens on its
-    strongest few, scaled to how many it draws (:data:`_CUTS`), so a cold start is a
-    chart with a reading in it and the rest of the field behind them. A hand-picked set opens with every line
-    raised, since each was named by the reader and a leading-few rule would make them
-    choose the same archetypes twice. Either way the click goes both directions, on the
-    same two layers, and a faded line stays on the canvas rather than leaving it.
-
-    A second click raises a second line rather than swapping, since Plotly's own
-    isolate handler cannot be used here (see the legend comment below). Two raised
-    lines still hold their own hues, so the reader who wants a pair gets one.
-
-    ``emphasis=False`` draws each line once, at full strength, under a plain legend
-    (issue #332). An archetype's own page draws the one or two lines its reader
-    picked, and raising a line out of a field of them is nothing to do to those.
+    ``tags`` is drawn in the order given, and hued in it: the palette's first for the
+    page's archetype and its second for the one it is compared with, which is how
+    the finishes chart under it draws the same two.
 
     Traces are keyed by tag, not by display name, because two tags can share a name
     (as ``SeriesCell`` says) and the rectangular matrix gives each of them a cell in
@@ -2936,68 +2839,134 @@ def _trend_figure(
     fig = pgo.Figure()
     # Drawn in the caller's order, keeping only tags that have cells.
     drawn = [t for t in tags if t in by_tag]
-
-    def trace(tag: str, colour: str, *, markers: bool = True, **overrides) -> pgo.Scatter:
+    hues = palette.assign(drawn)
+    for tag in drawn:
         cells = by_tag[tag]
         archetype = cells[0].archetype
-        return pgo.Scatter(
+        fig.add_trace(pgo.Scatter(
             x=[str(c.year) for c in cells],
             y=[c.share for c in cells],
             customdata=[[numfmt.share(c.share), numfmt.count_of(c.n, c.year_total, "decks")]
                         for c in cells],
             name=archetype,
-            mode="lines+markers" if markers else "lines",
-            line=dict(width=1, dash="dash", color=colour),
-            marker=_observation_marker(colour),
+            mode="lines+markers",
+            line=dict(width=1, dash="dash", color=hues[tag]),
+            marker=_observation_marker(hues[tag]),
             hovertemplate=(
                 f"%{{x}} · {archetype} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
-            **overrides,
-        )
-
-    hues = palette.disambiguate(palette.extended(universe or drawn), drawn)
-    if not emphasis:
-        for tag in drawn:
-            fig.add_trace(trace(tag, hues[tag]))
-        _style_trend_chart(fig, "Share of meta")
-        _legend_below_plot(fig, "Archetype")
-        return fig
-
-    # Emphasis (§6): every archetype is drawn twice in one hue at two strengths. The
-    # faded line is on screen from the first paint and carries no legend entry of its
-    # own; its full-strength twin holds the legend entry and starts hidden, so a click
-    # raises exactly one line out of the field. The two layers are added in passes, not
-    # per archetype, so every raised line draws above every faded one rather than only
-    # above the ones that happen to follow it.
-    for tag in drawn:
-        # Line only. The observation marker's fill is the *opaque* surface, so a wide
-        # cut would tile thirty-one archetypes' worth of discs over each other and chop
-        # every faded line into segments, destroying the tracing the fade is for. The
-        # marker's own rationale (an opaque fill so two rings do not cross into mud)
-        # was written for a handful of full-strength lines, where the ring is visible;
-        # at this opacity the ring is not, so all it leaves is the occlusion.
-        fig.add_trace(
-            trace(tag, _rgba(hues[tag], _CONTEXT_ALPHA), markers=False, showlegend=False)
-        )
-    for i, tag in enumerate(drawn):
-        fig.add_trace(trace(tag, hues[tag],
-                            visible=True if i < start_raised else "legendonly"))
+        ))
     _style_trend_chart(fig, "Share of meta")
-    # Under emphasis the legend is the control, so it says so, and both its click
-    # handlers are pinned. `toggle` raises the clicked archetype alone; Plotly's
-    # `toggleothers`, the one that sounds like the isolate this model asks for, is
-    # unusable from a hidden start: its handler switches on the *clicked* trace's
-    # visibility, and a `legendonly` one takes the branch that turns every trace in
-    # the legend on (`case"legendonly": q(He,!0)` in plotly.min.js). Since every
-    # raise starts hidden, that is the first click, and it would draw all fifteen
-    # accent lines at once, the rainbow emphasis exists to retire. Double click is
-    # switched off for the same reason: it defaults to `toggleothers`.
-    _legend_below_plot(
-        fig, _legend_title("click to raise or fade"),
-        itemclick="toggle", itemdoubleclick=False,
-    )
+    _legend_below_plot(fig, "Archetype")
     return fig
+
+
+def _share_list(series: Series, pages: Pages) -> str:
+    """Metagame's lead card: the most played archetypes of the latest year, as a list.
+
+    One row per archetype (:func:`trends.most_played`): its rank by decks, its share
+    of that year's decks as a bar and a number over the count pair, the change from
+    the year before beside the share it started from (§4), and its share in every
+    year on record as a column each. Archetypes on as many decks share a rank, as
+    they do on the tile of each one's own page (:func:`_archetype_tiles`), so the
+    list never places one of several equals ahead of the others. It answers "who is
+    played" by reading a row. It was a chart of up to thirty-five dashed lines over
+    four yearly points, and the reader traced a colour to a legend to learn who led
+    (issue #334).
+
+    Two scales, each one for the whole list, so any two rows compare. A bar's track
+    is the leader's share, so the first row's bar fills it. A year's column is as
+    tall as the largest share any listed archetype took in any year. The latest
+    year is in the charts' blue in both, and the years before it are set back.
+
+    A column carries its year, its share and the decks behind it on hover, and the
+    history states its shares to a reader who cannot see it. On a narrow screen the
+    count pair's column is left out and the decks fold in under the share.
+
+    A record of one year has no year before, so no change is stated; one with no
+    archetype deck says so where the list would be.
+    """
+    tags = most_played(series)
+    if not tags:
+        return _chart_heading("Meta share", caption_html=parts.caption(
+            "No archetypes to list yet."))
+    latest = latest_deck_year(series)
+    years = sorted({cell.year for cell in series.cells})
+    earlier = [year for year in years if year < latest]
+    before = earlier[-1] if earlier else None
+    by_tag: dict[str, dict[int, SeriesCell]] = {tag: {} for tag in tags}
+    for cell in series.cells:
+        if cell.tag in by_tag:
+            by_tag[cell.tag][cell.year] = cell
+    leader = by_tag[tags[0]][latest].share
+    decks = [by_tag[tag][latest].n for tag in tags]
+    tallest = max(cell.share for cells in by_tag.values() for cell in cells.values())
+
+    def history(cells: dict[int, SeriesCell]) -> parts.Markup:
+        said = ", ".join(f"{year} {numfmt.share(cells[year].share)}" for year in years)
+        columns = "".join(
+            f"<span class='share-year{' now' if year == latest else ''}' "
+            f"style='--share:{cells[year].share:.5f}' title='{year}: "
+            f"{numfmt.share(cells[year].share)}, "
+            f"{numfmt.count_of(cells[year].n, cells[year].year_total, 'decks')}'></span>"
+            for year in years
+        )
+        return parts.Markup(
+            f"<span class='share-history' role='img' aria-label='{said}'>{columns}</span>"
+        )
+
+    def row(tag: str) -> list[str]:
+        cells = by_tag[tag]
+        now = cells[latest]
+        change = [] if before is None else [parts.Markup(
+            f"{numfmt.share_change(now.share, cells[before].share)}"
+            f"<span class='share-from'>from {numfmt.share(cells[before].share)}</span>"
+        )]
+        return [
+            str(1 + sum(n > now.n for n in decks)),
+            pages.link("archetype", tag, now.archetype),
+            parts.Markup(
+                f"<span class='share-track' aria-hidden='true' "
+                f"style='--share:{now.share:.5f}'><span class='share-bar'></span></span>"
+                f"<span class='share-now'>{numfmt.share(now.share)}</span>"
+                f"<span class='sub'>{_counted(now.n, 'deck')}</span>"
+            ),
+            numfmt.count_of(now.n, now.year_total),
+            *change,
+            history(cells),
+        ]
+
+    # The two ends of the history, named over it. The century is left out on a
+    # narrow screen, where the two years did not fit side by side over four columns.
+    ends = "".join(
+        f"<span><span class='century'>{str(year)[:2]}</span>{str(year)[2:]}</span>"
+        for year in (years[0], years[-1])
+    )
+    table = parts.table(
+        [
+            parts.Column("#", numeric=True, quiet=True),
+            parts.Column("Archetype"),
+            parts.Column(f"Share of {latest} decks", numeric=True),
+            parts.Column("Decks", numeric=True, quiet=True, wide_only=True),
+            *([] if before is None
+              else [parts.Column(f"Change from {before}", numeric=True)]),
+            parts.Column(parts.Markup(f"<span class='share-years'>{ends}</span>"),
+                         numeric=True),
+        ],
+        [row(tag) for tag in tags],
+    )
+    caption = parts.caption(
+        f"The {{}} archetypes with at least {numfmt.share(MIN_LISTED_SHARE)} of "
+        f"{latest}'s decks, most played first. The columns at the end of a row are "
+        "its share in each year on record, on one scale.",
+        str(len(tags)),
+    )
+    return (
+        f"{_chart_heading('Meta share', caption_html=caption)}"
+        f"<div class='share-list' style='--leader:{leader:.5f};--tallest:{tallest:.5f}'>"
+        f"{table}</div>"
+    )
 
 
 def _adoption_figure(cards: list[tuple[str, Series]]) -> pgo.Figure:
@@ -4229,43 +4198,13 @@ def build_app(artifact: Path) -> gr.Blocks:
     pilot_labels = {key: label for label, key in pilots}
     card_names = {canon: label for label, canon in cards}
 
-    # The trend surface reads the full matrix once (a static, read-only graph), so
-    # the manual panel can list the archetypes and each draw just filters it. The
-    # tool never sees the cut; it returns everything (ADR 0013).
+    # The meta-share matrix, read once (a static, read-only graph): Metagame's list,
+    # an archetype's share chart and its tiles are each read off it. The tool returns
+    # every archetype and every year (ADR 0013); what is listed or drawn is the app's.
     trend_series = run_series(catalogue, MetaShareOverTime())
-    # Every archetype is offered: meta share carries no floor, so each one draws a
-    # line of real shares and real zeros with nothing withheld (ADR 0013). Unlike
-    # the gem view and the pilot trend, which offer only slices their floor can
-    # answer for, there is nothing here a pick can land on that cannot be drawn.
-    # Sorted on the whole pair, not the name alone: two archetypes can share a
-    # display name, and a name-only key would leave their order to the set's
-    # iteration order, so the dropdown would list them differently per process.
-    archetypes_by_name = sorted({(c.archetype, c.tag) for c in trend_series.cells})
-    # Listed most played first (#326): by decks over the whole record, since this
-    # chart is a share of decks. The sort is stable, so archetypes with as many decks
-    # stay in name order.
-    archetype_decks = Counter()
-    for c in trend_series.cells:
-        archetype_decks[c.tag] += c.n
-    trend_archetypes = _own_name_first(_distinguish(sorted(
-        archetypes_by_name, key=lambda archetype: -archetype_decks[archetype[1]]
-    )))
-    # The one entity universe both meta charts assign their hues over, so an archetype
-    # keeps its colour whatever else is drawn beside it (§5). In latest-year rank order,
-    # not name order: the extended scale stays distinct only for
-    # its first 32 slots (§5's #117 amendment) and the widest cut draws 31 lines, so
-    # rank order keeps exactly those 31 inside that prefix, where an alphabetical
-    # universe would scatter them across the cycling 126-entry map and collide hues on
-    # the chart that opens the tab. The 15 archetypes the full cut omits (cells in the
-    # matrix, but no deck in the latest year) follow in name order.
-    trend_universe = list(dict.fromkeys(
-        latest_year_share_cut(trend_series, 1.0) + [tag for _, tag in archetypes_by_name]
-    ))
 
-    # The year the cut ranks on, read from the data so it follows the graph forward
-    # rather than being pinned; named here only to say so in the chart title and the
-    # radio's label, since "top 50%" means nothing without the year it is 50% of. The
-    # same helper the cut ranks with, so the title cannot name a different year.
+    # The latest year the record holds a deck in, read from the data so it follows the
+    # graph forward rather than being pinned.
     latest_year = latest_deck_year(trend_series)
 
     # That year's landscape, read once: an archetype's page states its cell of it in
@@ -4277,38 +4216,21 @@ def build_app(artifact: Path) -> gr.Blocks:
     except NotEnoughHistory:
         latest_landscape = None
 
-    def draw_cut(cut_label: str):
-        # The title is a page heading above the plot now (§6), returned beside the
-        # figure. The cut's tags stay in rank order (strongest first) so a narrower
-        # cut is a prefix of a wider one and the survivors keep their colour (§5).
-        share, raised = _CUTS[cut_label]
-        tags = latest_year_share_cut(trend_series, share)
-        # Title is the plot type only (§14); the cut is a filter and rides the caption.
-        return (
-            _chart_heading("Meta share over time", f"{cut_label} of {latest_year} decks"),
-            # Measured a no-op at all three cuts, since a cut is already a prefix of the
-            # universe: passing it says so, rather than leaving that invariant to hold
-            # the colours up by accident.
-            _trend_figure(
-                trend_series, tags, start_raised=raised, universe=trend_universe,
-            ),
-        )
-
     # Every year the graph holds, newest first: the landscape's year selector's
     # choices and its default. Read off the meta-share matrix already in hand, which is
     # rectangular over every year with decks, so the selector costs no query of its own.
     # Empty only for a graph with no archetype at all, which still has to build (a
     # deckless artifact and one whose decks carry no engine tag both build today), so
-    # the default year is optional the way `latest_deck_year` is for the Meta cut.
+    # the default year is optional the way `latest_deck_year` is for the list.
     corpus_years = sorted({c.year for c in trend_series.cells}, reverse=True)
     latest_landscape_year = corpus_years[0] if corpus_years else None
 
     def _landscape_view(year: int):
         # The landscape's heading, figure, and refusal note for one year, as plain
         # values rather than `gr.update`s, so the card can be drawn at build time
-        # from the same code path the year selector re-draws through (the cut
-        # chart's precedent: a Plotly aggregate needs no Draw button). Exactly one of
-        # the figure and the note is ever set.
+        # from the same code path the year selector re-draws through (a Plotly
+        # aggregate needs no Draw button). Exactly one of the figure and the note is
+        # ever set.
         try:
             series = run_series(ladybug.Connection(db), ArchetypeLandscape(year))
         except NotEnoughHistory as e:
@@ -4441,33 +4363,11 @@ def build_app(artifact: Path) -> gr.Blocks:
             gr.update(value=_chart_heading(
                 "Share over time",
                 caption_html=parts.caption("Share of each year's decks."))),
-            # The meta-share chart, cut to this page's archetypes and drawn plainly.
-            # Their own universe, so the hues are the palette's first two in pick
-            # order: the ones the finishes chart under it draws the same archetypes in.
-            gr.update(value=_trend_figure(
-                trend_series, drawn, universe=drawn, emphasis=False)),
+            # The meta-share chart of this page's archetypes, in the palette's first
+            # two hues in pick order: the ones the finishes chart under it draws the
+            # same archetypes in.
+            gr.update(value=_trend_figure(trend_series, drawn)),
             *finishes_card,
-        )
-
-    def draw_manual(manual_tags: list[str]):
-        # A focused second chart, drawn only once specific archetypes are chosen, so
-        # the manual pick reads on its own rather than crowding the cut chart. Its whole
-        # insight card toggles with it, so no empty bordered card sits under the cut when
-        # nothing is focused (§12).
-        tags = list(dict.fromkeys(manual_tags or []))
-        if not tags:
-            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-        return (
-            gr.update(visible=True),
-            gr.update(value=_chart_heading("Selected archetypes"), visible=True),
-            # Hand-picked, so every pick opens raised rather than the cut's leading
-            # few: the reader has already said which lines they want, and opening any
-            # of them faded would ask them to choose the same archetypes twice. The
-            # picks arrive in pick order, so the universe is what keeps a survivor's
-            # colour still when a chip in the middle of the list is removed.
-            gr.update(value=_trend_figure(trend_series, tags, start_raised=len(tags),
-                                          universe=trend_universe),
-                      visible=True),
         )
 
     # Adoption is per-card, so it is run on demand (a fresh Connection like
@@ -4684,47 +4584,26 @@ def build_app(artifact: Path) -> gr.Blocks:
             gr.HTML(community.page(figures["community"]), js_on_load=community.SCRIPT,
                     elem_id="community", padding=False)
 
-        # Metagame is the whole field (#332): meta share over time, then the metagame
+        # Metagame is the whole field (#332): who is played, then the metagame
         # landscape. It was "Meta" and held the share chart alone, with the landscape
         # on Archetypes (#145: who is played, against who wins); the two tabs are cut
         # by level now, the field here and one archetype there. No subject entity and
-        # no view picker, and both charts are drawn at build time, so the tab opens
+        # no view picker, and both cards are drawn at build time, so the tab opens
         # on a drawn answer.
         with gr.Tab("Metagame"):
             gr.Markdown(
                 "What the field plays, how that has moved, and what wins.",
                 elem_classes="t-lede",
             )
-            # §13: both controls of the share charts sit in the panel above them. The
-            # archetype-focus multiselect used to sit *below* the cut chart (#132); it
-            # moves up here with the cut, so no control is stranded below its plot.
-            with gr.Group(elem_classes="control-panel"):
-                cut = gr.Radio(
-                    list(_CUTS), value=_DEFAULT_CUT,
-                    label=f"Archetypes to show (by share of {latest_year} decks)",
-                )
-                manual, _ = search(
-                    "meta-focus", "archetypes",
-                    choices=trend_archetypes, value=[], multiselect=True,
-                    label="Or focus on specific archetypes",
-                )
-            # The cut chart in its own insight card, open on the default cut.
-            _cut_heading, _cut_fig = draw_cut(_DEFAULT_CUT)
-            with gr.Group(elem_classes="insight-card", elem_id="meta-cut-result"):
-                cut_heading = gr.HTML(value=_cut_heading, padding=False)
-                cut_plot = gr.Plot(value=_cut_fig)
-            # The focused-archetypes chart in its own card, the whole card hidden until
-            # a pick is made so the view opens on the cut chart alone (no empty card).
-            with gr.Group(
-                elem_classes="insight-card", elem_id="meta-focus-result", visible=False,
-            ) as manual_card:
-                manual_heading = gr.HTML(visible=False, padding=False)
-                manual_plot = gr.Plot(visible=False)
+            # Who is played, as a list (#334). It was a chart of dashed lines under a
+            # cut control and a focus picker; a list is read without either, so the
+            # tab's one control is the landscape's year.
+            with gr.Group(elem_classes="insight-card"):
+                gr.HTML(value=_share_list(trend_series, pages), padding=False)
 
             # The year governs the landscape alone, so it sits beside it (#332): in a
-            # panel of its own directly over the landscape's card, under the share
-            # charts it has no say in. In the tab's top panel it would read as
-            # governing them too, which is what its old label had to deny.
+            # panel of its own directly over the landscape's card, under the list it
+            # has no say in.
             with gr.Group(elem_classes="control-panel"):
                 landscape_year = gr.Radio(
                     choices=[(str(y), y) for y in corpus_years],
@@ -4745,16 +4624,6 @@ def build_app(artifact: Path) -> gr.Blocks:
                 )
                 landscape_plot = gr.Plot(value=_ls_fig, visible=_ls_fig is not None)
 
-            # Each pick ends by bringing what it drew into view (#328): the focus
-            # chart lands under the cut chart, most of a screen below the control
-            # that asked for it.
-            cut.change(
-                draw_cut, inputs=cut, outputs=[cut_heading, cut_plot],
-            ).then(fn=None, js=theme.into_view_js("meta-cut-result"))
-            manual.change(
-                draw_manual, inputs=manual,
-                outputs=[manual_card, manual_heading, manual_plot],
-            ).then(fn=None, js=theme.into_view_js("meta-focus-result"))
             # The year's query shows the running state first and then fills (§8).
             # Chained with `.then`, which unlike `.success` runs whether the query
             # returned or raised, so a refusal cannot leave the card stuck reading

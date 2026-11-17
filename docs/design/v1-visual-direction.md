@@ -260,7 +260,9 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   more hues — switch to emphasis (§6). _Narrowed by ADR-0013's #117 amendment: past
   eight, hue may continue on `palette.EXTENDED` as a **tracing** cue on faded lines,
   never as direct colour and never as identity. `assign` still refuses a ninth direct
-  hue._
+  hue._ _Withdrawn 2026-11-17 (#334): the one chart that drew faded lines is a list,
+  so nothing draws past the eighth hue and `palette.EXTENDED` is removed. The rule
+  stands as first written. See "Meta share as a list (#334)"._
 - **The mechanism**, which is the part that was missing and is why the rule above kept
   being broken. _Decided 2026-07-29 (#172): hue is assigned once over a **stable entity
   universe** and that map is **filtered** for the series actually drawn. Assigning over
@@ -276,7 +278,9 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   pair no longer draws slots 1 and 2, it draws the hues those two archetypes carry
   everywhere else, which is the point of the change. It also ends the state where the
   cut chart and the manual chart painted one archetype two colours on a single scroll
-  (measured, Oracle `#d55181` against `#3987e5`)._
+  (measured, Oracle `#d55181` against `#3987e5`)._ _Retired 2026-11-17 (#334): both
+  of those charts are gone, and the universe with them. An archetype's own page
+  draws its one or two lines in the palette's first two hues (#332)._
 - **Stability never costs distinctness**, which is the rule that ranks the two when a
   universe is longer than the scale. _Decided 2026-07-29 (#172), after the first
   hand-picked trio tried on the running app drew two of its three lines in one hue: the
@@ -296,7 +300,8 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
   same day). The residue is narrow and is the smaller failure: a **displaced** line has
   no hue of its own to hold, so it moves as the leftovers change. The cut charts never
   reach it at all, their 31 lines rank into the distinct first 32 slots and nothing is
-  displaced at any of the three cuts._
+  displaced at any of the three cuts._ _Retired 2026-11-17 (#334) with the universe
+  it ranked: no chart draws more lines than it has direct hues._
 - **The exception**, decided rather than fixed. _Decided 2026-07-29 (#172): the two-line
   **head-to-head** and **archetype-timeline** charts colour by **position** (slots 1 and
   2), not by entity, and that is correct. The reason lived only in the code (the comment
@@ -350,7 +355,9 @@ node scripts/validate_palette.js "#3987e5,#d95926,#199e70,#c98500,#d55181,#00830
     cannot provide (#78). _Superseded by ADR-0013's #117 amendment: lines recede in
     their own hue faded, the raise is that hue at full strength, emphasis applies at
     every width, and the click raises rather than isolates (Plotly's `toggleothers`
-    turns the whole legend on from a hidden start)._
+    turns the whole legend on from a hidden start)._ _Retired 2026-11-17 (#334): the
+    meta share chart was the only one past eight series, and it is a list now. No
+    chart draws on emphasis. See "Meta share as a list (#334)"._
 - **Legend placement**: never in a column beside the plot. Plotly's default puts it
   to the right *inside the figure's width*, so it takes its space from the plot: at a
   phone's 390px the meta chart's fourteen names claimed about half of it. A figure has
@@ -671,6 +678,7 @@ click is carried by the surface, not by a label.
 - **No control below its plot.** Every plot-affecting control lives in the panel,
   above the plots. Meta's "focus on specific archetypes" multiselect, today
   stranded *under* the cut chart, moves up into the panel with the cut control.
+  _Both controls went with the chart on 2026-11-17 (#334); the rule stands._
 
 ## 14. Copy rules (#132)
 
@@ -1176,21 +1184,26 @@ the header's one-row width (§11), and the year's scope (§14).
 - **One colour down the page.** The page's two charts draw an archetype in the same
   hue, the palette's first for the subject and second for the one it is compared
   with. So the hue is the page's, not the one the archetype carries on Metagame's
-  share chart (§5).
+  share chart (§5). _Since 2026-11-17 (#334) Metagame draws no share chart, and an
+  archetype has no other hue to carry._
 - **The share chart is drawn plainly.** Each line once, at full strength, under a
   legend titled "Archetype". The field chart draws every line twice, faded and
   raised, with a legend that says to click: how a reader finds one line among
-  thirty, and nothing to do to the one or two they picked.
+  thirty, and nothing to do to the one or two they picked. _Since 2026-11-17 (#334)
+  the field is a list, and this is the only share chart._
 - **The caption rule reaches the page.** Both captions are sentences in the text
   colour with at most one figure set apart (§"The pages (#329)"). The finishes
   caption keeps its tally and its coin check word for word; the span, which was a
   clause behind a middle dot, is a sentence ("Counted over every year in the
   data."), and the caret's legend is a caption of its own. Metagame's two cards
-  keep the earlier roles until their own tickets (#334, #337).
+  keep the earlier roles until their own tickets (#334, #337). _The share card took
+  the caption rule on 2026-11-17 (#334)._
 - **The picker is unchanged.** It offers the archetypes that can draw a finishes
   line, with the event count in the label, as the timeline's picker did. The six
   archetypes scored at fewer than two events have no page; their share is on
-  Metagame's focus chart.
+  Metagame's focus chart. _Since 2026-11-17 (#334) there is no focus chart, and the
+  share of those six is drawn nowhere: five decks between them over the whole
+  record, none in 2026._
 - **Not taken: a tally on the pilot head-to-head.** ADR 0013 keeps that view as
   individual events, because two pilots usually share one or two a year, and a
   count there would be a scoreboard between two named people. A test now holds it.
@@ -1454,3 +1467,80 @@ the same date, and the wording rule is `CONTEXT.md`'s "On record".
   number on a dot is white on the event green, 4.95 to 1, worked out by hand: the
   audit reads a drawn circle's ground as the card's. It is white because the main
   ink is 4.25 to 1 there.
+
+## Meta share as a list (#334)
+
+Decided 2026-11-17. Metagame's lead card answered "who is played" with 17 archetypes
+drawn as dashed lines over four yearly points, under a "Top 25 / 50 / 75%" control
+and beside a "focus on specific archetypes" search. To learn who was most played a
+reader found the highest marker in the last column and traced its colour to a legend.
+The maintainer picked its replacement from a rendered prototype on the real record
+(branch `prototype/334-meta-share-ranked-list`: the chart as it was, a ranked list,
+and the chart restyled with its legend under it as chips), and this is the list
+built fresh. Measured on the running app over the real record at 390, 1440 and
+1920px, before (main at `93f2d3f`) and after. The reasoning is ADR 0013's amendment
+of the same date.
+
+- **One row per archetype, most played first.** Its rank, its name, its share of
+  the latest year's decks as a bar and a number, the count pair (§4), the change from
+  the year before, and its share in every year on record as a column each. Who leads
+  and who gained are each read off a row.
+- **Archetypes on as many decks share a rank**, as they do on the rank tile of each
+  one's own page (#332): Boros and Breach, on 74 decks each, are both 10th, and the
+  next row is 12th. Five pairs of the 32 are level today. A row's number and the
+  page it opens then say the same thing.
+- **The list holds every archetype at 1% or more of the latest year's decks.** The
+  maintainer's ruling at the prototype: a list has no crowd of lines to thin, so the
+  three cuts went with the chart, and one line is drawn under who the field is. 32
+  of the 131 archetypes played in 2026 are listed, 72.33% of its 3,368 decks. The
+  caption says the rule and how many it lists.
+- **The focus search is gone.** One archetype's share over the years is on its own
+  page since #332, and a name in the list opens it (#333). What is lost is laying
+  three or more archetypes' share lines over one another. Metagame's one control is
+  the landscape's year.
+- **A change is written beside the share it started from** (§4): "−3.9% from
+  11.35%". It is not coloured by its sign. A share that rose is not a good thing
+  and one that fell is not a bad one, and colour in this app names an entity or
+  marks a link.
+- **Blue is the latest year.** The bar and the last column are in the blue the
+  charts draw with, and the earlier years' columns are set back, so the eye ties
+  the bar to the column it repeats.
+- **Two scales, each one for the whole list.** A bar's track is the leader's share,
+  so the first row's bar fills it. A year's column is as tall as the largest share
+  any listed archetype took in any year (Grixis in 2025, 11.35%). So any two bars
+  compare, and any two columns, in different rows too. What it costs: an archetype
+  near 1% draws columns a pixel or two tall, which read as "small all along" and no
+  finer. A browser test reads every bar and every column back off the page as a
+  share, at the three widths.
+- **A column says what it rests on.** Its year, its share and its count pair, on
+  hover; the history states its shares to a reader who cannot see it. The columns
+  stand on a hairline, so a year with no deck is an empty place.
+- **The header names the history's two ends**, the first year over the first
+  column and the last over the last, as the standings' track names its ends (#336).
+- **On a phone** the bar sits over its share, the decks fold in under it as a second
+  line ("251 decks"), the share a change started from goes under the change, and
+  the two years in the header lose their century, where at four digits each they
+  ran into one another. Nothing is cut off and nothing scrolls sideways: the
+  chart's legend ran out of its figure there, 20 of its 35 entries at the widest
+  cut (#314).
+- **The card keeps "How this is measured".** It is a table, and the standings
+  carry none (#333), but it took the place of a chart that had one and the FAQ
+  entry is still the answer to how a share is counted. That entry now says what the
+  list holds.
+- **A record of one year states no change**, and the column is left out. A record
+  with no archetype deck says so where the list would be.
+- **No query changed.** The rows are read off the meta-share matrix the page
+  already held (`trends.most_played` picks them). `graph7ph baseline` grades clean;
+  its code digest moved, since `trends.py` is a build input.
+- **What went with the chart.** The cut, the focus search and its second card, the
+  faded twin of every line and the legend that raised one, the hue universe and the
+  extended scale past eight hues (§5, §6: both carry dated notes).
+- **What it costs.** The list is longer than the chart was. Its card is 1,460px
+  tall at 1440 and 1920, from 725px, and 2,065px at 390, from 735px, so the
+  landscape starts 1,733px down a desktop page, from 1,117px, and 2,400px down a
+  phone's, from 1,260px. The card itself starts higher, with no control panel over
+  it: 118px down at 1440 and 1920, from 236px, and 183px at 390, from 372px. The
+  page as transferred is 248.6 KB, from 248.4 KB (248,577 bytes, from 248,394), and
+  the chart library 1,275.4 KB, unchanged. The contrast audit of the tab reads 870
+  text nodes over the three widths with none below AA; on main it read 381 with 36
+  below, the chart's dimmed legend entries at 2.10, which left with the chart.
