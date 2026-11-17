@@ -4,7 +4,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import NamedTuple
 
 import pytest
@@ -930,39 +930,50 @@ def test_a_leading_refused_year_does_not_stretch_the_axis():
     assert thin.x == 2024
 
 
-def test_the_in_figure_range_control_takes_the_app_accent_not_a_stray_amber():
-    # AC (#85, criterion 1): the design direction exists and "every surface follows it".
-    # §2 commits the app to one accent, and the range slider plus the label centred under
-    # it were still wearing a Tailwind amber (`rgba(245,158,11,…)`) left from the
-    # light-theme era, so the one orange thing drawn inside a chart was a different orange
-    # from every orange outside it. Read off both charts that carry the control.
+def test_a_timelines_range_control_is_a_plain_strip_with_no_instruction_and_no_tint():
+    # AC (#335): under each timeline sat a 44px slab in the app's accent reading "Time
+    # range filter (drag to slice)". It is a neutral strip that says nothing: about
+    # half as tall, since the prototype's 12px was ruled too easy to miss and the slab
+    # too much. Read off all three timelines. The landscape's share filter is another
+    # ticket's and keeps its tint and its label.
     series = Series(cells=[
         _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
                         placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
         _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
                         placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
     ])
+    accent = _rgba(theme.TOKENS["accent-bright"], 1).removesuffix(", 1)")
     for fig in (
         _head_to_head_figure("Ada L", "Bob C", series),
+        _archetype_timeline_figure(
+            "Storm", "Lands", _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4)),
+        ),
         _archetype_timeline_figure(
             "Storm", None, _timeline_points((1, 0.2, 3), (2, 0.6, 1)),
         ),
     ):
-        assert "245,158,11" not in fig.to_json()  # the retired amber, in any opacity
-        accent = theme.TOKENS["accent-bright"]
+        assert "245,158,11" not in fig.to_json()  # the amber retired in #85, at any opacity
         slider = fig.layout.xaxis.rangeslider
-        assert slider.bgcolor == _rgba(accent, 0.12)
-        assert slider.bordercolor == _rgba(accent, 0.55)
-        # The label under the slider is drawn in the same accent as the band it names,
-        # or it reads as a stray caption rather than that control's own label.
-        label = next(a for a in fig.layout.annotations if "Time range filter" in a.text)
-        assert label.font.color == _rgba(accent, 0.95)
+        assert slider.visible
+        assert not [a.text for a in fig.layout.annotations
+                    if "filter" in a.text or "drag" in a.text]
+        assert accent not in slider.bgcolor and accent not in slider.bordercolor
+        # Plotly's own rule for the band: `thickness` of the plot the margins leave.
+        margin = fig.layout.margin
+        band = slider.thickness * ((fig.layout.height or 450) - margin.t - margin.b)
+        assert band == pytest.approx(24)
+        # The preview is parked off the 0-1 score band, or the strip draws a second
+        # copy of the points and reads as a broken plot rather than as a control.
+        assert tuple(slider.yaxis.range) == (10, 11)
         # The legend takes the room above the plot and the shared styler's tight bottom
         # survives underneath, from two separate calls: a layout update that replaced
         # rather than merged would cramp the chart without changing a colour this test
-        # reads. Nothing reserves room for the band by hand; Plotly's autoexpand sizes
-        # the bottom to the band, the ticks and the axis title exactly.
+        # reads. Nothing reserves room for the strip by hand; Plotly's autoexpand sizes
+        # the bottom to the strip, the ticks and the axis title exactly.
         assert (fig.layout.margin.b, fig.layout.margin.t) == (8, 48)
+
+
+def test_head_to_head_gives_each_pilot_a_colour_of_their_own():
     # AC (§5-6): head-to-head is two lines, ≤8, so each pilot takes a direct colour
     # from the shared eight-hue set (slot 1, slot 2), not a position in a long
     # recycled wheel. Colour follows the entity: the pilot named first is blue.
@@ -1250,9 +1261,9 @@ def test_observation_markers_carry_a_surface_ring_over_a_thin_dashed_join():
 
 def test_the_markers_that_sit_on_a_tinted_fill_drop_their_opaque_ring():
     # AC (#172): the surface fill only reads as hollow over bare surface. The two
-    # rivalry charts paint a tint under their points (the band between two lines, or
-    # one line filled to the axis), and there the fill punched a surface-coloured hole
-    # in it: 0 of 6 band-facing half-discs matched the band on the pilot chart, 1 of 67
+    # rivalry charts paint a tint under their points (the band between two lines), as
+    # the solo timeline did while it was filled to the axis, and there the fill
+    # punched a surface-coloured hole in it: 0 of 6 band-facing half-discs matched the band on the pilot chart, 1 of 67
     # on the archetype one, median channel delta 36. Those points go fully transparent
     # so the ring reads against what it covers. Every chart that paints nothing under
     # its points keeps the opaque fill and the occlusion it buys, and so does the
@@ -1268,12 +1279,13 @@ def test_the_markers_that_sit_on_a_tinted_fill_drop_their_opaque_ring():
     assert marker_fills(_archetype_timeline_figure(
         "Storm", "Lands", _timeline_points((1, 0.2, 3, 0.4, 2), (2, 0.6, 1, 0.3, 4)),
     )) == transparent
-    # Solo too: it fills its one line to the axis, so its points sit on a tint as well.
-    assert marker_fills(_archetype_timeline_figure(
-        "Storm", None, _timeline_points((1, 0.4, 1), (2, 0.6, 2)),
-    )) == transparent
 
     surface = {theme.TOKENS["surface"]}
+    # Solo paints nothing under its points since #335 (it filled its one line to the
+    # axis), so they are back on the bare surface and keep the opaque fill.
+    assert marker_fills(_archetype_timeline_figure(
+        "Storm", None, _timeline_points((1, 0.4, 1), (2, 0.6, 2)),
+    )) == surface
     assert marker_fills(_performance_figure("Ada L", Series(cells=[
         _performance_cell(2024, 0.4, 3),
     ]))) == surface
@@ -1682,9 +1694,8 @@ def test_the_landscape_carries_a_share_range_filter_to_pull_the_crowded_end_apar
     # A real year puts twenty of its twenty-five archetypes between 1% and 3% of share,
     # which is four or five names deep in one band, and no rule that only moves names
     # about survives that (since #337 the page leaves most of that band's names to the
-    # hover). The reader gets the axis as well, as a range filter on share, the same
-    # control the rivalry charts give the date axis. Landscape only: it is the one
-    # chart whose x crowds.
+    # hover). The reader gets the axis as well, as a range filter on share. The
+    # timelines carried the same control until #335 and now take a plain strip.
     fig = _landscape_figure(_landscape_cells(
         ("grixis", 30, 0.45), ("storm", 20, 0.4), ("lands", 10, 0.55),
     ))
@@ -1692,15 +1703,14 @@ def test_the_landscape_carries_a_share_range_filter_to_pull_the_crowded_end_apar
     accent = theme.TOKENS["accent-bright"]
 
     assert slider.visible
-    # Tinted as a control, matching the filter the rivalry charts already carry, so the
-    # two read as the same affordance rather than as two inventions.
+    # Tinted as a control, in the app's one accent.
     assert slider.bgcolor == _rgba(accent, 0.12)
     assert slider.bordercolor == _rgba(accent, 0.55)
     # The preview is parked off the 0-1 score band, or the slider draws a second copy
     # of the dots and reads as a broken plot rather than as a control.
     assert tuple(slider.yaxis.range) == (10, 11)
     label = next(a for a in fig.layout.annotations if "range filter" in a.text)
-    assert "Share" in label.text  # its own axis named, not the rivalry charts' time
+    assert "Share" in label.text  # its own axis named
     assert label.font.color == _rgba(accent, 0.95)
     # The band, its label and the axis title are sized by Plotly's own autoexpand, not
     # reserved by hand: a hand-set floor is added to rather than absorbed, and the one
@@ -1721,41 +1731,40 @@ def test_the_landscape_draws_tall_enough_that_its_furniture_does_not_own_the_fra
     assert _LANDSCAPE_HEIGHT > 450
 
 
-def test_the_range_filter_is_the_same_band_on_every_chart_whatever_its_height():
+def test_a_range_control_keeps_its_own_depth_whatever_the_height_of_its_chart():
     # The control is furniture, so it does not grow with the chart it sits under: Plotly
     # takes its thickness as a fraction of the plot, and the flat 0.12 this passed drew
-    # 44px under a 450px figure but 75 under the landscape's 640, a strip half again as
-    # deep as the one the rivalry charts carry. Its label rode a paper fraction tuned at
-    # the same 450, which at 640 dropped it onto the bottom edge of the band it names.
-    # Read off both charts, which draw at different heights, so a band or a label that
-    # ignores height cannot pass twice.
-    figures = (
-        _landscape_figure(_landscape_cells(("grixis", 30, 0.45), ("storm", 20, 0.4))),
-        _head_to_head_figure("Ada L", "Bob C", Series(cells=[
-            _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
-                            placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
-            _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
-                            placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
-        ])),
-    )
-    heights = set()
-    for fig in figures:
-        margin = fig.layout.margin
-        heights.add(fig.layout.height)
+    # 44px under a 450px figure but 75 under the landscape's 640. Its label rode a paper
+    # fraction tuned at the same 450, which at 640 dropped it onto the bottom edge of
+    # the band it names. Read off two charts that draw at different heights, so a band
+    # that ignores height cannot pass twice. Each keeps its own depth since #335: the
+    # landscape's labelled filter 44px, a timeline's plain strip 24.
+    landscape = _landscape_figure(
+        _landscape_cells(("grixis", 30, 0.45), ("storm", 20, 0.4)))
+    timeline = _head_to_head_figure("Ada L", "Bob C", Series(cells=[
+        _h2h_point(event="GP", date=datetime(2024, 3, 1), field_size=100,
+                        placement_a=1, norm_a=0.0, placement_b=50, norm_b=0.5),
+        _h2h_point(event="PT", date=datetime(2024, 6, 1), field_size=80,
+                        placement_a=40, norm_a=0.5, placement_b=1, norm_b=0.0),
+    ]))
+
+    def band(fig):
         # Plotly's own rule for the band: `thickness` of the plot the margins leave.
-        band = fig.layout.xaxis.rangeslider.thickness * (
-            (fig.layout.height or 450) - margin.t - margin.b
-        )
-        assert band == pytest.approx(_SLIDER_BAND)
-        label = next(a for a in fig.layout.annotations if "range filter" in a.text)
-        # Anchored to the bottom of the plot and offset in pixels, since that is the
-        # coordinate the band's own geometry is in, and centred in it: a label against
-        # either edge reads as a stray caption beside the control rather than its label.
-        assert (label.yref, label.y) == ("paper", 0)
-        assert label.yshift == pytest.approx(-(_TICK_LABEL_ROOM + _SLIDER_BAND / 2))
+        margin = fig.layout.margin
+        return fig.layout.xaxis.rangeslider.thickness * (
+            (fig.layout.height or 450) - margin.t - margin.b)
+
+    assert band(landscape) == pytest.approx(_SLIDER_BAND)
+    assert band(timeline) == pytest.approx(24)
     # And the two charts really do draw at different heights, or one band proves nothing
     # about the other.
-    assert len(heights) == 2
+    assert landscape.layout.height != (timeline.layout.height or 450)
+    label = next(a for a in landscape.layout.annotations if "range filter" in a.text)
+    # Anchored to the bottom of the plot and offset in pixels, since that is the
+    # coordinate the band's own geometry is in, and centred in it: a label against
+    # either edge reads as a stray caption beside the control rather than its label.
+    assert (label.yref, label.y) == ("paper", 0)
+    assert label.yshift == pytest.approx(-(_TICK_LABEL_ROOM + _SLIDER_BAND / 2))
 
 
 def test_the_landscape_hands_the_page_every_name_and_names_no_region():
@@ -1980,31 +1989,142 @@ def test_a_solo_timeline_states_its_span_and_nothing_else():
     assert "1 to 3" not in caption
 
 
-def test_a_solo_timeline_is_one_line_filled_down_to_the_axis():
-    # AC (#151): with one archetype the plot shows every event it attended, filled
-    # down to the axis. The finish is flipped for the eye as on every other chart, and
-    # an event the source scored none of its decks at breaks the line rather than
-    # dropping to a fabricated zero.
+def test_a_solo_timeline_is_its_events_as_points_against_the_middle_of_the_field():
+    # AC (#335): with one archetype the plot is every event it attended as a point, read
+    # against the 0.5 line. It was a dashed line filled down to zero (#151), and zero is
+    # not what a finish is read against, so the fill meant nothing; the join is gone
+    # with it, since each point is a mean of one to three decks and the line between
+    # two of them drew a movement ADR 0013 could not tell from shuffled data. No
+    # smoothed or trend line takes its place.
     fig = _archetype_timeline_figure(
         "Storm", None, _timeline_points((1, 0.2, 3), (2, 0.6, 1), (3, None, 0)),
     )
     (trace,) = fig.data
 
-    assert trace.fill == "tozeroy"
+    assert trace.mode == "markers"
+    assert trace.fill is None
+    # The finish is flipped for the eye as on every other chart, and an event the
+    # source scored none of its decks at draws no point rather than a fabricated zero.
     assert list(trace.y) == [pytest.approx(0.8), pytest.approx(0.4), None]
+    assert [(s.y0, s.y1) for s in fig.layout.shapes] == [(0.5, 0.5)]
     # A registration-date x, not the shared styler's category-Year axis: this plot
     # spans the whole corpus and two events in one year must not share an x.
     assert fig.layout.xaxis.type == "date"
     assert list(trace.x) == [datetime(2025, 3, d) for d in (1, 2, 3)]
 
     # The decks behind each point ride in the hover, not in the marker: this plot draws
-    # a point per event, so a size channel over hundreds of overlapping rings buried the
-    # lines. Uniform rings, one size for every point (#151's sized markers, reverted),
-    # and smaller than the shared ring, which overlaps into a band at this plot's density.
-    assert trace.marker.size == 9 < _observation_marker("#000")["size"]
+    # a point per event, so a size channel over a hundred overlapping rings would bury
+    # them. Uniform rings, smaller than the shared one, which crowds at this density.
+    assert trace.marker.size < _observation_marker("#000")["size"]
+    # On the bare surface now, so the ring keeps the opaque fill that lets one point
+    # cover another where they overlap.
+    assert trace.marker.color == theme.TOKENS["surface"]
     # The count rides customdata rather than the template, so a bounded point can say
     # what it is instead of printing "0 decks" (ADR 0024).
     assert list(trace.customdata[0]) == [numfmt.score(0.8), "3 decks"]
+
+
+def _pair_figures(dates):
+    """Both pair charts, two archetypes' and two pilots', over shared events on
+    ``dates``, handed over in the order given."""
+    return (
+        _archetype_timeline_figure("Storm", "Lands", Series(cells=[
+            ArchetypeTimelinePoint(event=f"E{at}", date=date, mean_norm_a=0.2,
+                                   decks_a=1, mean_norm_b=0.4, decks_b=1)
+            for at, date in enumerate(dates)
+        ])),
+        _head_to_head_figure("Ada L", "Bob C", Series(cells=[
+            _h2h_point(f"E{at}", date, 24) for at, date in enumerate(dates)
+        ])),
+    )
+
+
+def test_a_pairs_events_are_spaced_evenly_in_date_order_with_each_year_named():
+    # AC (#335): on a date axis the busy seasons pack their events together, and the
+    # 2026 half of a long rivalry was a scribble. Both pair charts space their events
+    # evenly, oldest first, so every meeting gets the same room: the date moves to
+    # the hover, and the axis names each year at the middle of its run with a rule
+    # where one year gives way to the next.
+    # Twelve shared events: one in 2023, five in 2024, six in 2025, a month or a week
+    # apart, handed over newest first.
+    dates = [datetime(2023, 6, 5),
+             *(datetime(2024, month, 1) for month in (2, 3, 4, 5, 6)),
+             *(datetime(2025, 9, day) for day in (1, 8, 15, 22, 27, 30))]
+    for fig in _pair_figures(dates[::-1]):
+        lines = [t for t in fig.data if t.fill != "toself" and t.x[0] is not None]
+        axis = fig.layout.xaxis
+        assert axis.type == "linear"
+        for line in lines:
+            assert list(line.x) == list(range(12))
+            assert line.text[0] == "05 Jun 2023" and line.text[-1] == "30 Sep 2025"
+            assert line.hovertemplate.startswith("%{text} · ")
+            # Clipped to the plot: a sliced run otherwise draws its joins out over the
+            # axis title, as the prototype did at phone width.
+            assert line.cliponaxis is not False
+        # 2024 runs over events 1 to 5 and 2025 over 6 to 11. The one event of 2023 is
+        # marked by its rule alone: with twelve events on a phone's 260px plot it has
+        # under 22px, and a year's name needs 34.
+        assert list(axis.tickvals) == [3, 8.5]
+        assert list(axis.ticktext) == ["2024", "2025"]
+        rules = sorted(s.x0 for s in fig.layout.shapes if s.x0 == s.x1)
+        assert rules == [0.5, 5.5]
+        assert axis.title.text == "Shared events, oldest to newest"
+        # The band is drawn over the same even spacing as the lines it sits between.
+        for band in (t for t in fig.data if t.fill == "toself"):
+            assert all(0 <= x <= 11 for x in band.x if x is not None)
+
+
+def test_a_pairs_rings_are_sized_to_how_many_events_it_draws():
+    # AC (#335): the pilot chart drew the shared 12px ring whatever the pair and the
+    # archetype chart a fixed 9, which at 84 events overlapped into a band over the
+    # lines. Both now take one size from the count. A phone gives 260px to at most 26
+    # events, and a ring takes six tenths of an event's room there: two events have
+    # 130px each and keep the shared 12px ring; forty show 26 at 10px each, so 6px.
+    def pair(events):
+        return _pair_figures(
+            [datetime(2025, 1, 1) + timedelta(days=at) for at in range(events)])
+
+    def rings(fig):
+        return {(t.marker.size, t.marker.line.width) for t in fig.data
+                if "markers" in (t.mode or "")}
+
+    for fig in pair(2):
+        assert rings(fig) == {(12, 2)}
+    # A 2px outline would all but fill a 6px ring, so the small ones are drawn finer.
+    for fig in pair(40):
+        assert rings(fig) == {(6, 1.5)}
+
+
+def test_a_bound_keeps_a_mark_large_enough_to_read_apart_in_a_long_pair():
+    # AC (#335): a finish the source never scored still reads apart from a scored one.
+    # Its mark is a triangle beside rings (ADR 0024), and at the 6px a long pair's rings
+    # shrink to, the two shapes stop reading apart. On the real record 11 of the 232
+    # pairs of the 25 most played archetypes that share 26 or more events carry one. So
+    # the triangle keeps 9px, the size it was drawn at on the archetype chart before,
+    # while the rings beside it take the pair's own size.
+    days = [datetime(2025, 1, 1) + timedelta(days=at) for at in range(40)]
+    timeline = Series(cells=[
+        ArchetypeTimelinePoint(
+            event=f"E{at}", date=day, mean_norm_a=None if at == 3 else 0.2,
+            decks_a=0 if at == 3 else 1, mean_norm_b=0.4, decks_b=1,
+            bound_a=0.7 if at == 3 else None)
+        for at, day in enumerate(days)
+    ])
+    h2h = Series(cells=[
+        _h2h_point(f"E{at}", day, 24) if at != 3 else
+        HeadToHeadPoint(event="E3", date=day, field_size=24, field_imputed=None,
+                        placement_a=None, norm_a=None, placement_b=5, norm_b=4 / 23,
+                        placement_imputed_a="none", norm_imputed_a="none",
+                        placement_imputed_b=None, norm_imputed_b=None,
+                        bound_a=16 / 23, bound_b=None)
+        for at, day in enumerate(days)
+    ])
+    for fig in (_archetype_timeline_figure("Storm", "Lands", timeline),
+                _head_to_head_figure("Ada L", "Bob C", h2h)):
+        bounded, scored = (t for t in fig.data if "markers" in (t.mode or ""))
+        assert bounded.marker.symbol[3] == _BOUND_SYMBOL
+        assert list(bounded.marker.size) == [6, 6, 6, 9, *[6] * 36]
+        assert scored.marker.size == 6
 
 
 def test_a_pair_draws_both_lines_with_the_band_shaded_toward_whoever_leads():
@@ -2036,7 +2156,7 @@ def test_a_pair_draws_both_lines_with_the_band_shaded_toward_whoever_leads():
     ]
     # ... and only in the hover: both lines draw uniform rings, so the eye follows the
     # lines and the band rather than a field of differently sized markers.
-    assert [t.marker.size for t in lines] == [9, 9]
+    assert len({t.marker.size for t in lines}) == 1
 
 
 def test_a_side_with_no_finish_draws_at_its_bound_so_the_line_and_band_carry_through():
@@ -2138,7 +2258,10 @@ def test_a_bounded_first_point_keeps_the_ring_on_the_legend_swatch():
         assert pin.showlegend is not False
         assert list(pin.x) == [None] and list(pin.y) == [None]
         # The swatch it draws must look like the line it stands for.
-        assert pin.marker.size == drawn.marker.size
+        # The line states a size per point where it carries a bound (#335), so the
+        # swatch is held to its ring, the second point here.
+        assert drawn.marker.symbol[1] == "circle"
+        assert pin.marker.size == drawn.marker.size[1]
         assert pin.line.color == drawn.line.color
         # One legend item, not two: clicking it toggles the pin and the line together.
         assert pin.legendgroup == drawn.legendgroup
@@ -2190,8 +2313,8 @@ def test_a_shared_event_neither_side_was_scored_at_bounds_neither():
 
 def test_a_solo_timeline_keeps_its_break_rather_than_bounding_the_gap():
     # Out of scope by decision (ADR 0024): the guarantee above is about a comparison,
-    # and a solo line has none to get wrong. The picker's count already states the
-    # evidence behind the line, so the attendance stays a break.
+    # and a solo timeline has none to get wrong. The picker's count already states the
+    # evidence behind it, so the attendance draws no point.
     series = _timeline_points((1, 0.2, 3), (2, None, 0), (3, 0.1, 2), bounds={2: 0.7})
     (trace,) = _archetype_timeline_figure("Storm", None, series).data
 
@@ -2199,7 +2322,7 @@ def test_a_solo_timeline_keeps_its_break_rather_than_bounding_the_gap():
     # The bound is carried on the a side here and simply has no counterpart to be drawn
     # against, so no caret reaches the plot and the caption owes no legend. It offered
     # one on 12 of the 121 real solo timelines while the phantom b side took a bound too.
-    assert not any(sym != "circle" for sym in trace.marker.symbol)
+    assert trace.marker.symbol == "circle"
     assert _BOUND_LEGEND not in _archetype_timeline_caption("Storm", None, series)
 
 

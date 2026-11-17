@@ -1776,8 +1776,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "Every year axis, the list and the landscape's year selector on the "
         "Metagame tab, the tiles on an archetype's page, and the span in the "
         "footer read that one number. The newest year is still filling, so its figures "
-        "move as events are added. The two timelines are the exception, and place each "
-        "event on its own registration date rather than in a year.",
+        "move as events are added. The timelines are the exception: they take each "
+        "event on its own registration date rather than in a year, to place it (one "
+        "archetype's) or to put the events in order (a pair's).",
     ),
     (
         "faq-meta",
@@ -1851,8 +1852,10 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "{archetypes_coin_close} of the {archetypes_offered} archetypes the picker offers "
         "are that close, so most of the time the "
         "headline says the count could be luck.\n\n"
-        "Picking a second archetype narrows the chart to the events both attended, and "
-        "the headline counts how many of those each finished ahead at, hedged the same "
+        "Picking a second archetype narrows the chart to the events both attended. "
+        "Those are spaced evenly, oldest first, so a busy season does not crowd them, "
+        "and the hover gives each one's date. "
+        "The headline counts how many of them each finished ahead at, hedged the same "
         "way. It counts every meeting the record settles, which is every point you can "
         "see: one event published just {bound_published} of its {bound_field} finishes, so "
         "an archetype can have "
@@ -1863,7 +1866,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "the {archetype_pairs_drawn} pairs "
         "the chart will draw carry one. Where neither archetype was scored there is "
         "nothing to compare, so that meeting is neither drawn nor counted and both "
-        "lines break over the date instead.\n\n"
+        "lines break over it instead.\n\n"
         "The chart spans every year in the data. The four figures over it are the "
         "latest year's alone: the ones that place the archetype on the metagame "
         "landscape. If two archetypes were scored together at fewer than two "
@@ -1937,8 +1940,10 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "faq-head-to-head",
         "Pilots",
         'How is the "Head-to-head" timeline built?',
-        "It plots the two pilots' finishes at the events they both entered, on the date "
-        "the event's first deck was registered (see the year question above). Each "
+        "It plots the two pilots' finishes at the events they both entered, oldest "
+        "first by the date each event's first deck was registered (see the year question "
+        "above) and evenly spaced, so a busy season does not crowd them. The hover gives "
+        "the date. Each "
         "point is one real placement, not an average, so the top-eight-only events the "
         "averaging charts drop (see the finish question above) are safe to keep here. "
         "Where only one of the two is on record at a meeting, what happens depends on "
@@ -2418,8 +2423,8 @@ _SURFACE = theme.TOKENS["surface"]
 # neutral on purpose and not by omission: §5-6 spends colour on entities, and the
 # palette refuses a ninth hue, so chrome that names no entity stays off the wheel.
 _REFERENCE = theme.TOKENS["text-dim"]
-# The colour a control drawn inside a figure takes, so the range slider and its label
-# read as a control against the neutral chart rather than as more plot. §2 commits the
+# The colour the landscape's range filter and its label take, so they read as a
+# control against the neutral chart rather than as more plot. §2 commits the
 # app to one accent, and this used to be a Tailwind amber left over from the
 # light-theme era, which made the one orange thing inside a chart a different orange
 # from every orange outside it.
@@ -2469,6 +2474,24 @@ _BOUND_LEGEND = (
 def _bound_symbols(values) -> list[str]:
     """One marker symbol per point: a ring for a finish, a caret for a bound."""
     return [_BOUND_SYMBOL if is_bound else "circle" for _, is_bound in values]
+
+
+# The least a bound's triangle is drawn at, the size it had on the archetype chart
+# before a pair's rings were sized to its events (issue #335).
+_BOUND_SIZE = 9
+
+
+def _bound_sizes(values, ring: int) -> int | list[int]:
+    """The marker size for a line drawn in ``ring``-pixel rings: one size, or one per
+    point where the line carries a bound.
+
+    A long pair draws its rings at 6px, and a triangle that small stops reading apart
+    from the rings beside it, which is the one thing the mark is for (ADR 0024). It
+    keeps :data:`_BOUND_SIZE` there; where the rings are larger it takes their size.
+    """
+    if not any(is_bound for _, is_bound in values):
+        return ring
+    return [max(ring, _BOUND_SIZE) if is_bound else ring for _, is_bound in values]
 
 
 def _swatch_pin(name: str, group: str, colour: str, marker: dict) -> pgo.Scatter:
@@ -2609,7 +2632,8 @@ def _midpoint_line(fig: pgo.Figure) -> None:
     )
 
 
-# The slider band's height on the page. Plotly takes its `thickness` as a fraction of
+# The height of the landscape's slider band on the page (a timeline's strip is
+# :data:`_TIMELINE_BAND`). Plotly takes its `thickness` as a fraction of
 # the plot, which fattens the control as a chart grows: at the landscape's 640px the
 # 0.12 this used to pass drew a 75px band, half again the 44 the same fraction gave at
 # Plotly's 450 default. A control is furniture, and furniture does not scale with the
@@ -2625,22 +2649,41 @@ _TICK_LABEL_ROOM = 34
 _PLOTLY_DEFAULT_HEIGHT = 450
 
 
-def _range_filter(fig: pgo.Figure, label: str) -> None:
-    """A drag-to-slice range control under the x axis, tinted as a control and labelled.
+# The strip under a timeline (issue #335). About half the landscape's band: the
+# maintainer ruled a 12px strip too easy to miss and the 44px slab more than a control
+# needs.
+_TIMELINE_BAND = 24
 
-    Shared by the charts whose x axis crowds: the two rivalry charts, where events pile
-    up in the seasons the format was busiest, and the landscape, where a year's drawn
-    archetypes bunch into the low-share end (in 2026, twenty of the twenty-five sit
-    between 1% and 3%). Holding it here is what keeps one affordance from becoming two
-    inventions, since a reader who learns the control on one chart should not have to
-    learn it again on the next.
+
+def _range_band(fig: pgo.Figure, band: int, *, bgcolor: str, bordercolor: str) -> None:
+    """A range slider ``band`` pixels tall under the x axis, its preview parked.
+
+    `thickness` is a fraction of the plot the margins leave, so ``band`` pixels is that
+    many over this chart's own plot height. Read off the figure, which is why the
+    callers state their height and top margin before calling.
 
     The slider's mini-axis is fixed to an off-data band (every chart carrying this plots
     a 0-1 score, so 10-11 is empty), which parks the trace preview out of view: the
-    slider stays a plain tinted control instead of a second copy of the data that reads
-    as a bug. The tint marks it as a control against the neutral chart, and the label
-    centred under it says so, since an unlabelled strip reads as a stray band. ``label``
-    names the axis being filtered, because the two differ in what a drag means.
+    slider stays a plain control instead of a second copy of the data that reads as a
+    bug.
+    """
+    margin = fig.layout.margin
+    plot = (fig.layout.height or _PLOTLY_DEFAULT_HEIGHT) - margin.t - margin.b
+    fig.update_xaxes(rangeslider=dict(
+        visible=True, thickness=band / plot, bgcolor=bgcolor, bordercolor=bordercolor,
+        borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
+    ))
+
+
+def _range_filter(fig: pgo.Figure, label: str) -> None:
+    """A drag-to-slice range control under the x axis, tinted as a control and labelled.
+
+    The landscape's, where a year's drawn archetypes bunch into the low-share end (in
+    2026, twenty of the twenty-five sit between 1% and 3%). The timelines carried it
+    too until issue #335 and now take the same slider plain (:func:`_style_timeline`).
+
+    The tint marks it as a control against the neutral chart, and the label centred
+    under it says so. ``label`` names the axis being filtered.
 
     The bottom margin is left to Plotly's own autoexpand, which sizes it to the band,
     the tick labels and the axis title exactly. Do not reserve room by hand: a request
@@ -2648,17 +2691,8 @@ def _range_filter(fig: pgo.Figure, label: str) -> None:
     adds its own content to, and the 55px of empty card it left under the axis title read
     as a broken card rather than as breathing room.
     """
-    # `thickness` is a fraction of the plot the margins leave, so :data:`_SLIDER_BAND`
-    # pixels is that many over this chart's own plot height. Read off the figure, which
-    # is why the callers state their height and top margin before calling.
-    margin = fig.layout.margin
-    plot = (fig.layout.height or _PLOTLY_DEFAULT_HEIGHT) - margin.t - margin.b
-    fig.update_xaxes(rangeslider=dict(
-        visible=True, thickness=_SLIDER_BAND / plot,
-        bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
-        bordercolor=_rgba(_CONTROL_ACCENT, 0.55),
-        borderwidth=1, yaxis=dict(rangemode="fixed", range=[10, 11]),
-    ))
+    _range_band(fig, _SLIDER_BAND, bgcolor=_rgba(_CONTROL_ACCENT, 0.12),
+                bordercolor=_rgba(_CONTROL_ACCENT, 0.55))
     # Centred in the band, as a pixel offset from the bottom of the plot rather than a
     # fraction of it: the band is a fixed gap below the axis plus a fixed height, so its
     # centre is a constant number of pixels down whatever the figure's height, while the
@@ -2725,7 +2759,7 @@ def _legend_below_plot(fig: pgo.Figure, title: str, **extra) -> None:
     wrapping legend above the plot pushes the plot itself down the page, away from
     the heading that names it. The rivalry charts anchor theirs above instead
     (:func:`_style_rivalry_chart`) because they carry two entries and one row, and
-    because their range slider already owns the space underneath.
+    because their range strip already owns the space underneath.
 
     The title sits on ``top`` rather than Plotly's ``left`` default for a horizontal
     legend: to the left of a wrapping row of entries it reads as a stray label beside
@@ -3565,9 +3599,8 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     in a field the page fills: the archetypes whose dots this one answers the
     pointer for. It is sent empty.
 
-    The share axis is a control as well: this chart takes :func:`_range_filter`, the
-    one the rivalry charts carry over time, and a reader who pulls the crowded end
-    open is given the names the room now allows. The ring's
+    The share axis is a control as well: this chart takes :func:`_range_filter`, and
+    a reader who pulls the crowded end open is given the names the room now allows. The ring's
     size carries the archetype's distinct events, not its decks: within a year share is
     monotone in decks, so sizing by decks would say the same thing the x axis already
     does, while the events are the independent trials the finish rests on. One colour
@@ -3626,8 +3659,7 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     # so before the filter, whose label is placed off the plot's height.
     fig.update_layout(height=_LANDSCAPE_HEIGHT)
     # The names crowd the low-share end and most of them are not drawn there, so the
-    # reader gets the axis: drag to open that end up. Named for its own axis, since
-    # a drag here slices share where the rivalry charts' slices time.
+    # reader gets the axis: drag to open that end up. Named for its own axis.
     _range_filter(fig, "◀ Share range filter (drag to zoom) ▶")
     # The 0-1 score, but ranged to the dots rather than pinned to the full scale the
     # single-pilot charts use: a year's finishes span as little as 0.43 to 0.62, which
@@ -3805,41 +3837,131 @@ def _band_traces(points, colour_a: str, colour_b: str) -> list[pgo.Scatter]:
     ]
 
 
-def _style_rivalry_chart(fig: pgo.Figure, legend_title: str) -> None:
-    """The chrome the two date-axis rivalry charts share (pilots, and archetypes).
+def _style_timeline(fig: pgo.Figure, legend_title: str) -> None:
+    """The chrome every finish timeline shares: the two pair charts and the solo one.
 
-    Both plot a finish against the event's registration date, so both need the same
-    four things, and holding them in one place is what keeps the archetype timeline
-    "matching the pilot head-to-head's styling exactly" (issue #151) as either is
-    edited. Only the legend's title differs, so it is passed in.
+    All three plot a finish per event, so all three need the same things, and holding
+    them in one place is what keeps the archetype timeline "matching the pilot
+    head-to-head's styling exactly" (issue #151) as either is edited. Only the legend's
+    title differs, so it is passed in; the x axis is the caller's, since a pair spaces
+    its events evenly (:func:`_event_axis`) and a solo timeline keeps the date.
 
-    A registration-date x-axis (ADR 0013), not the category-Year axis the shared
-    styler sets, with :func:`_range_filter` over it as the time-range filter, the same
-    control the landscape carries over share. Then the 0-1 score (1 a win at the top),
-    fixed to the full range so a small gap is not stretched, with the dotted 0.5 the
-    performance chart also carries. The legend is a horizontal strip above the plot,
-    not the shared styler's right-side default: an external right legend widens with
-    the names in it and eats into the plot area, which drifts the paper-centred slider
-    label off true centre.
+    The 0-1 score (1 a win at the top), fixed to the full range so a small gap is not
+    stretched, with the dotted 0.5 the performance chart also carries, and the range
+    strip under the x axis. The legend is a horizontal strip above
+    the plot, not the shared styler's right-side default: an external right legend
+    widens with the names in it and eats into the plot area.
     """
     # The axis states its own direction, as the performance and landscape charts do: a
     # bare "Finish" leaves a reader to guess whether the top of the plot is winning, and
     # this score is flipped from the raw placement so the guess is a coin toss.
     _style_trend_chart(fig, f"Finish ({_SCORE_DIRECTION})")
-    fig.update_xaxes(
-        title="Registration date", type="date", categoryorder=None, autorange=True,
-    )
-    # Room above the plot for the centred legend; the range filter seats itself below.
-    # Set before the filter, not after: the filter's label is placed off the plot's own
-    # height, which this margin takes from.
+    # Room above the plot for the centred legend; the range strip seats itself below.
+    # Set before the strip, not after: its depth is a share of the plot's own height,
+    # which this margin takes from.
     fig.update_layout(margin=dict(t=48))
-    _range_filter(fig, "◀ Time range filter (drag to slice) ▶")
+    # The range control, as a plain neutral strip (issue #335). It was the landscape's:
+    # a 44px slab in the app's accent with "Time range filter (drag to slice)" written
+    # across it, the heaviest thing on a chart that should be light. The strip says
+    # nothing and takes no hue: its handles and its place under the axis say it is a
+    # control. The axis title stays under it, where the chart library draws it, with
+    # no way offered to swap the two.
+    _range_band(fig, _TIMELINE_BAND, bgcolor=_rgba(_REFERENCE, 0.14),
+                bordercolor=_rgba(_REFERENCE, 0.6))
     fig.update_yaxes(tickformat=numfmt.SCORE_TICKFORMAT, range=[0, 1], autorange=False)
     _midpoint_line(fig)
     fig.update_layout(legend=dict(
         title=legend_title, orientation="h",
         xanchor="center", x=0.5, yanchor="bottom", y=1.02,
     ))
+
+
+# What a pair chart is sized against: the plot a phone leaves it (measured on the
+# running page at 390px: 262 to 265), and the room an event and a year's name each
+# need across it. A chart has one figure for every width, so what has to fit the
+# narrowest is decided there.
+_NARROW_PLOT = 260
+_EVENT_ROOM = 10
+_YEAR_NAME_ROOM = 34
+
+
+# The page script that opens a pair chart too long for its plot on its latest events.
+_FIT_EVENTS_JS = theme.fit_events_js(_EVENT_ROOM)
+
+
+def _events_on_a_phone(events: int) -> int:
+    """How many of a pair's events a phone shows at once: all of them, up to the
+    number that fit at :data:`_EVENT_ROOM` each. The page script opens a narrow plot
+    on that many of the latest (:func:`theme.fit_events_js`)."""
+    return min(events, _NARROW_PLOT // _EVENT_ROOM)
+
+
+def _pair_ring(colour: str, events: int) -> dict:
+    """The ring both pair charts draw a point in, sized to how many events they hold.
+
+    The pilot chart drew the shared 12px ring and the archetype chart a fixed 9, and a
+    long rivalry overlapped either into a band over the lines it sat on (issue #335).
+    A ring takes six tenths of the room an event has on a phone, and never more than
+    the shared ring: a handful of meetings keep it, and twenty-six or more draw at 6px.
+    Over the band, so the fill is transparent (:func:`_observation_marker`). The
+    outline thins with the ring, since 2px all but fills a small one.
+    """
+    ring = _observation_marker(colour, over_fill=True)
+    size = min(ring["size"], round(0.6 * _NARROW_PLOT / _events_on_a_phone(events)))
+    width = 2 if size >= 8 else 1.5
+    return {**ring, "size": size, "line": dict(width=width, color=colour)}
+
+
+def _event_axis(fig: pgo.Figure, cells: list) -> None:
+    """A pair chart's x axis: its shared events evenly spaced, oldest first (#335).
+
+    On a date axis the seasons the format was busiest pack their events together:
+    Grixis and Walks share 84, 42 of them in the ten months of 2026 on record, and
+    that half of the chart was a scribble. Evenly spaced, every meeting gets the same
+    room, and the date moves to the hover. What the axis still says about time is the
+    year: each is named at the middle of its run, with a rule where one gives way to
+    the next. A year whose run is too short for its name at phone width keeps the
+    rule alone, since the chart library turns every name on its side once two collide.
+
+    The figure states how many events it holds (``layout.meta``), which is what the
+    page script reads to open a narrow plot on the latest that fit.
+    """
+    room = _NARROW_PLOT / _events_on_a_phone(len(cells))
+    # Three quarters of an event's room past each end, so the first and last rings
+    # clear the axis.
+    whole = [-0.75, len(cells) - 0.25]
+    runs: dict[int, list[int]] = {}
+    for at, cell in enumerate(cells):
+        runs.setdefault(cell.date.year, []).append(at)
+    named = {year: run for year, run in runs.items()
+             if len(run) * room >= _YEAR_NAME_ROOM}
+    fig.update_xaxes(
+        title="Shared events, oldest to newest", type="linear", categoryorder=None,
+        autorange=False, range=whole,
+        # The strip spans every event whatever the plot opens on: stated, since it
+        # is also what the page script reads the whole run from.
+        rangeslider=dict(range=whole),
+        tickmode="array",
+        tickvals=[(run[0] + run[-1]) / 2 for run in named.values()],
+        ticktext=[str(year) for year in named],
+        showgrid=False,
+    )
+    for run in list(runs.values())[1:]:
+        fig.add_vline(x=run[0] - 0.5, line=dict(color=_GRID, width=1))
+    fig.update_layout(meta=dict(events=len(cells)))
+
+
+def _style_rivalry_chart(fig: pgo.Figure, legend_title: str, cells: list) -> None:
+    """The chrome the two pair charts share (pilots, and archetypes), over ``cells``.
+
+    :func:`_style_timeline`'s, on :func:`_event_axis`. The score axis runs a little
+    past each end: a pair's lines are clipped to the plot, since a sliced run would
+    otherwise draw its joins out over the axis title, and a win or a last place has to
+    keep its whole ring inside it.
+    """
+    _style_timeline(fig, legend_title)
+    _event_axis(fig, cells)
+    fig.update_yaxes(range=[-0.03, 1.03], tick0=0, dtick=0.2, zeroline=False)
 
 
 def _head_to_head_caption(series: Series) -> str | None:
@@ -3854,8 +3976,8 @@ def _head_to_head_caption(series: Series) -> str | None:
     Only drawn where a mark is, judged over the whole series. A point the line breaks
     over carries no label, so its provenance puts no asterisk on screen even where
     the graph records one (``normImputed = 'none'`` on a norm no rule recovered), and
-    a legend for a mark nobody can see is chrome. The range slider is the one gap in
-    that: it slices the dates client-side with no round-trip, so a reader who drags
+    a legend for a mark nobody can see is chrome. The range strip is the one gap in
+    that: it slices the events client-side with no round-trip, so a reader who drags
     past the only imputed point keeps a legend for marks now off screen. Accepted
     rather than fixed, because recomputing this per drag is the server round-trip the
     slider exists to avoid, and a legend standing over an unmarked plot overstates
@@ -3912,13 +4034,14 @@ def _has_bounded_point(cells) -> bool:
 
 
 def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure:
-    """Two pilots' rivalry over their shared events, on a registration-date x-axis.
+    """Two pilots' rivalry over their shared events, evenly spaced in date order.
 
     One line per pilot, coloured apart, the finish on the y-axis (the only quantity
     comparable across events of different field sizes). Unlike every other trend this
-    reads a per-deck date, not a Year node (ADR 0013): the x is the event's
-    registration date, so two events shared in one year sit apart rather than
-    collapsing onto the same year tick. The y-axis is the finish inverted to a
+    reads a per-deck date, not a Year node (ADR 0013): the events are ordered by
+    registration date, so two shared in one year sit apart rather than collapsing onto
+    the same year tick, and spaced evenly so a busy season does not pack them together
+    (:func:`_event_axis`, issue #335); the date itself rides the hover. The y-axis is the finish inverted to a
     higher-is-better score (1 a win, 0 last), the same scale as the pilot-performance
     chart so the two read alike, while the tool keeps the raw ``placementNorm`` (0 a
     win) the agent reads. Each point's hover carries the raw finish over the field
@@ -3935,10 +4058,14 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     finish at where the event published enough to bound it (:func:`drawn_finish`, ADR
     0024), and breaks where nothing bounds it, which at this chart's bracket meetings is
     most of them. A dotted line at 0.5 marks a random finisher's expected
-    score, as on the performance chart. A range slider aligned under the x-axis is the
-    time-range filter: its own trace preview is suppressed (it mirrored the lines and
-    read as a bug), leaving a plain tinted band, labelled, that drags to slice the
-    date range with no server round-trip.
+    score, as on the performance chart. A range strip aligned under the x-axis slices
+    the events with no server round-trip (:func:`_style_timeline`).
+
+    The two lines and the band were kept over a bar per event for the gap between the
+    two finishes, which the prototype for issue #335 showed beside this form. A gap
+    makes only the difference plain: two finishes near a win and two near last place
+    draw the same short bar, and a tournament both nearly won matters to the
+    comparison at least as much as one that split them.
     """
     cells = sorted(series.cells, key=lambda c: c.date)
     fig = pgo.Figure()
@@ -3962,8 +4089,8 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
     drawn_a = [c.drawn()[0] for c in cells]
     drawn_b = [c.drawn()[1] for c in cells]
     fig.add_traces(_band_traces(
-        [(c.date, flip(na), flip(nb))
-         for c, (na, _), (nb, _) in zip(cells, drawn_a, drawn_b)],
+        [(at, flip(na), flip(nb))
+         for at, ((na, _), (nb, _)) in enumerate(zip(drawn_a, drawn_b))],
         colour_a, colour_b,
     ))
 
@@ -4001,15 +4128,15 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
 
     for group, name, colour, side, drawn in (("a", name_a, colour_a, side_a, drawn_a),
                                              ("b", name_b, colour_b, side_b, drawn_b)):
-        # Over the band, so the fill goes transparent and the ring reads against
-        # the tint it sits on rather than cutting a surface-coloured hole in it.
-        ring = _observation_marker(colour, over_fill=True)
+        ring = _pair_ring(colour, len(cells))
         symbols = _bound_symbols(drawn)
         # A first-point bound would become the legend swatch; the pin below carries
         # the legend entry in that case (:func:`_swatch_pin`, issue #216).
         pinned = symbols[0] == _BOUND_SYMBOL
         fig.add_trace(pgo.Scatter(
-            x=[c.date for c in cells],
+            # Evenly spaced in date order (:func:`_event_axis`); the date is the hover's.
+            x=list(range(len(cells))),
+            text=[f"{c.date:%d %b %Y}" for c in cells],
             # The finish inverted to a score (1 a win), matching the performance
             # chart. A null norm the record cannot bound is a gap the line breaks
             # across rather than a fabricated point.
@@ -4020,20 +4147,71 @@ def _head_to_head_figure(name_a: str, name_b: str, series: Series) -> pgo.Figure
             showlegend=not pinned,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            marker={**ring, "symbol": symbols},
-            cliponaxis=False,
+            marker={**ring, "symbol": symbols,
+                    "size": _bound_sizes(drawn, ring["size"])},
             hovertemplate=(
-                f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
+                f"%{{text}} · {name} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
         ))
         if pinned:
             fig.add_trace(_swatch_pin(name, group, colour, ring))
-    # The date axis, its range slider and label, the 0-1 score and its 0.5 reference,
-    # and the legend strip: the chrome this shares with the archetype timeline. The
+    # The event axis, its range strip, the 0-1 score and its 0.5 reference, and the
+    # legend strip: the chrome this shares with the archetype timeline. The
     # finish's sense rides the readout (score() -> "0.62 (1 = 1st)"), stated once, so
     # the axis title names the quantity without restating which end is a win.
-    _style_rivalry_chart(fig, "Pilot")
+    _style_rivalry_chart(fig, "Pilot", cells)
+    return fig
+
+
+# The ring a solo timeline draws its points in: smaller and finer than the shared
+# observation ring, which overlaps into a band at a point per event.
+_SOLO_RING = 7
+
+
+def _solo_timeline_figure(name: str, series: Series) -> pgo.Figure:
+    """One archetype's events as points against the 0.5 line (issue #335).
+
+    A point per event the archetype attended, on the registration-date x and the
+    flipped 0-to-1 finish the pair chart reads. Nothing joins the points and nothing
+    is filled under them. It was a dashed line filled down to zero, and zero is not
+    what a finish is read against: the reference is the 0.5 line, the one the caption
+    over this chart counts against. The join went with the fill, since a point is a
+    mean of one to three decks and the line between two of them drew a movement ADR
+    0013 could not tell from shuffled data. For the same reason no smoothed or trend
+    line stands in for it.
+
+    An event that scored none of the archetype's decks draws no point (ADR 0013), and a
+    solo timeline draws no bound (ADR 0024 keeps it out of scope).
+    """
+    cells = sorted(series.cells, key=lambda c: c.date)
+    colour = palette.CATEGORICAL[0]
+    fig = pgo.Figure()
+    fig.add_trace(pgo.Scatter(
+        x=[c.date for c in cells],
+        y=[None if c.mean_norm_a is None else 1 - c.mean_norm_a for c in cells],
+        customdata=[_bounded_readout(c.mean_norm_a, False, f"{c.decks_a} decks")
+                    for c in cells],
+        name=name,
+        mode="markers",
+        # Smaller than the shared ring, which overlaps into a band at an event a
+        # point. On the bare surface, so it keeps the opaque fill that lets one
+        # point cover another.
+        marker={**_observation_marker(colour), "size": _SOLO_RING,
+                "line": dict(width=1.5, color=colour)},
+        cliponaxis=False,
+        hovertemplate=(
+            f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
+            "%{customdata[1]}<extra></extra>"
+        ),
+    ))
+    _style_timeline(fig, "Archetype")
+    # A registration-date x-axis (ADR 0013), not the category-Year axis the shared
+    # styler sets: this plot spans the whole record, and two events in one year must
+    # not share an x.
+    fig.update_xaxes(
+        title="Registration date", type="date", categoryorder=None, autorange=True,
+    )
     return fig
 
 
@@ -4042,17 +4220,17 @@ def _archetype_timeline_figure(
 ) -> pgo.Figure:
     """One archetype's finish over time, or two archetypes' over their shared events.
 
-    The head-to-head's form at archetype scale, on the same registration-date x and the
-    same flipped 0-to-1 finish (1 a win), so the two read alike: the points are the
-    data, the thin dashed line only joins them, a dotted 0.5 marks the middle of the
-    field, and a range slider under the axis slices the dates client-side. With two
-    archetypes the band between the lines is tinted toward whoever is ahead, built by
-    the same :func:`_between_line_polys` geometry. It carries through an event one side
-    was not scored at where the record bounds that side's finish, the bound being the
-    smallest gap the record allows (:func:`drawn_finish`, ADR 0024), and breaks where
-    nothing bounds it. With one archetype it is a single line filled to the axis, which
-    is the same read against the axis rather than against a rival, and it keeps ADR
-    0013's break outright.
+    Two archetypes draw the head-to-head's form at archetype scale, over the same
+    evenly spaced events (:func:`_event_axis`) and the same flipped 0-to-1 finish (1 a
+    win), so the two read alike: the points are the data, the thin dashed line only
+    joins them, a dotted 0.5 marks the middle of the field, and a range strip under
+    the axis slices the events client-side. The band between the lines is tinted
+    toward whoever is ahead, built by the same :func:`_between_line_polys` geometry.
+    It carries through an event one side was not scored at where the record bounds
+    that side's finish, the bound being the smallest gap the record allows
+    (:func:`drawn_finish`, ADR 0024), and breaks where nothing bounds it. One
+    archetype is :func:`_solo_timeline_figure`'s: its events as points, joined by
+    nothing.
 
     What differs from the pilot chart is what a point rests on. A pilot brings one deck
     to an event, so its point is one real result; an archetype brings several, so this
@@ -4064,6 +4242,8 @@ def _archetype_timeline_figure(
     charts keep :func:`_confidence_size`: a handful of points a year apart carry a size
     channel; sixty overlapping ones cannot.
     """
+    if name_b is None:
+        return _solo_timeline_figure(name_a, series)
     cells = sorted(series.cells, key=lambda c: c.date)
     colour_a, colour_b = palette.CATEGORICAL[0], palette.CATEGORICAL[1]
     fig = pgo.Figure()
@@ -4072,49 +4252,32 @@ def _archetype_timeline_figure(
         return None if norm is None else 1 - norm
 
     # Each side's plotted finish: its own mean, or the best it could have finished at an
-    # event that scored none of its decks (ADR 0024). Solo passes no second side, so
-    # `drawn_finish` never reaches for a bound and the line keeps ADR 0013's break.
+    # event that scored none of its decks (ADR 0024).
     drawn_a = [c.drawn()[0] for c in cells]
     drawn_b = [c.drawn()[1] for c in cells]
 
-    # The band first, so the markers and the dashed joins draw over it. Solo has no
-    # second line to fill against, and fills to the axis on its own trace below. Drawn
-    # off the bounded values, so the band spans a bounded point rather than breaking
-    # over it: at the bound the gap it shows is the smallest the record allows.
-    if name_b is not None:
-        fig.add_traces(_band_traces(
-            [(c.date, flip(na), flip(nb))
-             for c, (na, _), (nb, _) in zip(cells, drawn_a, drawn_b)],
-            colour_a, colour_b,
-        ))
+    # The band first, so the markers and the dashed joins draw over it. Drawn off the
+    # bounded values, so the band spans a bounded point rather than breaking over it:
+    # at the bound the gap it shows is the smallest the record allows.
+    fig.add_traces(_band_traces(
+        [(at, flip(na), flip(nb))
+         for at, ((na, _), (nb, _)) in enumerate(zip(drawn_a, drawn_b))],
+        colour_a, colour_b,
+    ))
 
-    sides = [("a", name_a, colour_a, drawn_a, [c.decks_a for c in cells])]
-    if name_b is not None:
-        sides.append(("b", name_b, colour_b, drawn_b, [c.decks_b for c in cells]))
+    sides = [("a", name_a, colour_a, drawn_a, [c.decks_a for c in cells]),
+             ("b", name_b, colour_b, drawn_b, [c.decks_b for c in cells])]
     for group, name, colour, values, deck_counts in sides:
-        # Smaller than the shared observation ring: two common archetypes share most
-        # of the corpus (Grixis and Lands, 59 of its 107 events), and at that spacing
-        # the default 12px rings overlap into a band that buries the lines they sit
-        # on. The pilot head-to-head is the same form through the same styler and
-        # keeps the shared ring: it is drawn over the events one *pair of pilots*
-        # both attended, and has not crowded. If it ever does, this size belongs in
-        # one constant both rivalry charts read, not in two places.
-        # Over a fill either way (the band with two archetypes, the tozeroy fill
-        # with one), so the marker's fill goes transparent: solo measured 58 of its
-        # 74 rings sitting on its own fill, none of them reading against it.
-        ring = {**_observation_marker(colour, over_fill=True), "size": 9}
+        ring = _pair_ring(colour, len(cells))
         symbols = _bound_symbols(values)
         # A first-point bound would become the legend swatch; the pin below carries
         # the legend entry in that case (:func:`_swatch_pin`, issue #216).
         pinned = symbols[0] == _BOUND_SYMBOL
         fig.add_trace(pgo.Scatter(
-            x=[c.date for c in cells],
+            # Evenly spaced in date order (:func:`_event_axis`); the date is the hover's.
+            x=list(range(len(cells))),
+            text=[f"{c.date:%d %b %Y}" for c in cells],
             y=[flip(norm) for norm, _ in values],
-            # Filled to the axis only when the archetype is alone: with two lines the
-            # filled region is the gap between them, and a second fill under each
-            # would bury it.
-            fill="tozeroy" if name_b is None else None,
-            fillcolor=_rgba(colour, 0.18),
             # The deck count rides the hover on a real mean; a bounded point has no
             # scored deck to count, so it says what it is instead of printing "0 decks".
             customdata=[_bounded_readout(norm, is_bound, f"{decks} decks",
@@ -4126,19 +4289,19 @@ def _archetype_timeline_figure(
             showlegend=not pinned,
             mode="lines+markers",
             line=dict(width=1, dash="dash", color=colour),
-            marker={**ring, "symbol": symbols},
-            cliponaxis=False,
+            marker={**ring, "symbol": symbols,
+                    "size": _bound_sizes(values, ring["size"])},
             hovertemplate=(
-                f"%{{x|%d %b %Y}} · {name} · %{{customdata[0]}} · "
+                f"%{{text}} · {name} · %{{customdata[0]}} · "
                 "%{customdata[1]}<extra></extra>"
             ),
         ))
         if pinned:
             fig.add_trace(_swatch_pin(name, group, colour, ring))
-    # The same date axis, range slider, 0-1 score, 0.5 reference and legend strip the
+    # The same event axis, range strip, 0-1 score, 0.5 reference and legend strip the
     # head-to-head carries, from the one place both read it, which is what holds the
     # two to matching styling as either is edited (issue #151).
-    _style_rivalry_chart(fig, "Archetype")
+    _style_rivalry_chart(fig, "Archetype", cells)
     return fig
 
 
@@ -4468,8 +4631,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 value=f"{pilot_labels[a]} and {pilot_labels[b]} {met}.",
                 visible=True,
             )
-        # The in-chart range slider does the time-range slice client-side, so the
-        # callback draws the whole rivalry and never re-filters by date here. The pair
+        # The in-chart range strip slices the events client-side, so the callback
+        # draws the whole rivalry and never re-filters by date here. The pair
         # (a vs b) is named in the subject line above the cards (§14), so the card title
         # is the plot type alone.
         fig = _head_to_head_figure(pilot_labels[a], pilot_labels[b], series)
@@ -5219,6 +5382,7 @@ def build_app(artifact: Path) -> gr.Blocks:
 
         demo.load(fn=None, js=theme.placeholders_js(placeholders))
         demo.load(fn=None, js=_LANDSCAPE_NAMES_JS)
+        demo.load(fn=None, js=_FIT_EVENTS_JS)
 
         # The one block that answers a click on a link to another tab (#333): a
         # name, or a link to an FAQ entry. Hidden, and in the page all the same,

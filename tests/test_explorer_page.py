@@ -22,20 +22,28 @@ import json
 import re
 from collections import Counter
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import gradio as gr
 import pytest
 
 from graph7ph import community, palette
-from graph7ph.app import _LANDSCAPE_NAMES_JS, _landscape_figure, build_app, launch_kwargs
+from graph7ph.app import (
+    _FIT_EVENTS_JS,
+    _LANDSCAPE_NAMES_JS,
+    _archetype_timeline_figure,
+    _landscape_figure,
+    build_app,
+    launch_kwargs,
+)
 from graph7ph.build import build_graph
 from graph7ph.db import artifact_path, database_path
 from graph7ph.figures import figures_path
 from graph7ph.models import load_snapshot
 from graph7ph.provenance import staleness
 from graph7ph.theme import FONTS, HEADER_ONE_ROW_PX, TOKENS, contrast_ratio
-from graph7ph.trends import LandscapeCell
+from graph7ph.trends import ArchetypeTimelinePoint, LandscapeCell, Series
 
 sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
@@ -3159,3 +3167,183 @@ def test_on_a_phone_a_tapped_dot_keeps_its_value_up_until_the_next_tap(chromium,
 
     assert tapped is not None and tapped[0].endswith(" players")
     assert after is None
+
+
+@contextmanager
+def _timeline_of(chromium, figure, width: str = "desktop"):
+    """A page holding one finish timeline in the card the app draws it in, with the
+    page script the app loads, at one of the three widths."""
+    with gr.Blocks() as demo:
+        with gr.Group(elem_classes="insight-card", elem_id="timeline"):
+            gr.Plot(value=figure)
+        demo.load(fn=None, js=_FIT_EVENTS_JS)
+    _, url, _ = demo.launch(prevent_thread_lock=True, **launch_kwargs())
+    tab = chromium.new_page(**shots.VIEWPORTS[width])
+    try:
+        tab.goto(url, wait_until="networkidle")
+        tab.locator("#timeline .scatterlayer .point").first.wait_for(
+            state="attached", timeout=30_000)
+        tab.wait_for_timeout(1000)
+        yield tab
+    finally:
+        tab.close()
+        demo.close()
+
+
+def _timeline(events: int, second: bool = True) -> Series:
+    """An archetype's finishes at ``events`` events a day apart, the last of them
+    today's, beside a second archetype's unless ``second`` is off."""
+    return Series(cells=[
+        ArchetypeTimelinePoint(
+            event=f"E{at}", date=datetime(2026, 1, 1) + timedelta(days=at),
+            mean_norm_a=0.2 + 0.6 * (at % 3) / 2, decks_a=1,
+            mean_norm_b=0.5 if second else None, decks_b=int(second),
+        )
+        for at in range(events)
+    ])
+
+
+# What a timeline draws, read off the running page: the stretch of its x axis on
+# show, how wide its plot is, the range control under it, every word it sets, and
+# the lines and fills it paints.
+_TIMELINE_AS_DRAWN = """() => {
+  const chart = document.querySelector('#timeline .js-plotly-plot');
+  const strip = chart.querySelector('.rangeslider-bg');
+  const painted = selector => [...chart.querySelectorAll('.cartesianlayer ' + selector)]
+    .filter(path => (path.getAttribute('d') || '').length > 1).length;
+  return {
+    range: chart._fullLayout.xaxis.range,
+    plot: chart._fullLayout._size.w,
+    strip: {height: strip.getBoundingClientRect().height,
+            fill: getComputedStyle(strip).fill, edge: getComputedStyle(strip).stroke},
+    words: [...chart.querySelectorAll('text')].map(text => text.textContent),
+    lines: painted('.js-line'), fills: painted('.js-fill'),
+    points: chart.querySelectorAll('.cartesianlayer .point').length,
+    sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+}"""
+
+
+@pytest.mark.parametrize("width", ["phone", "desktop", "wide"])
+def test_a_long_pair_opens_on_as_many_of_its_latest_events_as_the_plot_has_room_for(
+    chromium, width
+):
+    # AC (#335): evenly spaced, forty shared events still do not fit a phone, where the
+    # two lines were unreadable in the prototype with every event on screen. A plot
+    # too narrow to give each event 10px opens on the latest that fit, and the strip
+    # under it reaches the rest. A desktop has the room and opens on them all.
+    figure = _archetype_timeline_figure("Storm", "Lands", _timeline(40))
+    with _timeline_of(chromium, figure, width) as page:
+        read = page.evaluate(_TIMELINE_AS_DRAWN)
+
+    first, last = read["range"]
+    # Whatever it opens on ends at the latest event, three quarters of a slot past
+    # its ring: event 39.
+    assert last == pytest.approx(39.75)
+    if width == "phone":
+        # As many as fit: each event on show has its 10px, and one more would not.
+        on_show = last - first
+        assert on_show < 40
+        assert read["plot"] / on_show >= 10 > read["plot"] / (on_show + 1)
+    else:
+        assert read["plot"] > 400
+        assert first == pytest.approx(-0.75)
+    assert read["sideways"] == 0
+
+
+@pytest.mark.parametrize("second", [True, False], ids=["pair", "solo"])
+def test_a_timelines_range_control_is_drawn_as_a_plain_strip(chromium, second):
+    # AC (#335): the range control carries no instruction text and no accent tint. On
+    # the running page: a strip 24px deep in the neutral ink, and no word in the chart
+    # about filtering or dragging.
+    figure = _archetype_timeline_figure(
+        "Storm", "Lands" if second else None, _timeline(6, second))
+    with _timeline_of(chromium, figure) as page:
+        read = page.evaluate(_TIMELINE_AS_DRAWN)
+
+    assert read["strip"]["height"] == pytest.approx(24, abs=1)
+    # The neutral ink a reference line is drawn in (the design doc's `text-dim`), at
+    # whatever strength: never the accent the slab wore.
+    neutral = [int(TOKENS["text-dim"][at:at + 2], 16) for at in (1, 3, 5)]
+    for colour in (read["strip"]["fill"], read["strip"]["edge"]):
+        assert [int(part) for part in re.findall(r"\d+", colour)[:3]] == neutral
+    assert not [word for word in read["words"]
+                if re.search(r"filter|drag|slice", word, re.I)]
+
+
+@pytest.mark.parametrize("width", ["phone", "desktop"])
+def test_a_solo_timeline_paints_its_events_as_points_and_nothing_else(chromium, width):
+    # AC (#335): the single timeline shows points and the 0.5 line, with no fill and no
+    # smoothed line. On the running page: a point for every event, and no line and no
+    # filled area drawn for the series.
+    figure = _archetype_timeline_figure("Storm", None, _timeline(40, second=False))
+    with _timeline_of(chromium, figure, width) as page:
+        read = page.evaluate(_TIMELINE_AS_DRAWN)
+
+    assert read["points"] == 40
+    assert (read["lines"], read["fills"]) == (0, 0)
+    assert read["sideways"] == 0
+
+
+def test_a_long_rivalry_opens_on_its_latest_events_on_a_phone_on_the_real_record(
+    chromium, record
+):
+    # AC (#335): the explorer itself loads the script that fits a pair chart to its
+    # plot, which the pages above load by hand. The suite's snapshot has no pair to
+    # draw, so this is the real record's most played two, who share more events than
+    # a phone has room for: the chart opens on the latest of them, each with its 10px.
+    page = _loaded(chromium, record, "phone")
+    try:
+        shots.tab(page, "Archetypes")
+        shots.pick(page, "Archetype", shots.ARCHETYPE)
+        shots.pick(page, "Second archetype (optional)", shots.ARCHETYPE_B)
+        page.locator(".page-descriptor").locator("visible=true").filter(
+            has_text=f"compared with {shots.ARCHETYPE_B}").wait_for(timeout=30_000)
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        page.wait_for_timeout(2000)
+        read = page.evaluate(
+            "() => { const chart = [..." + _OPEN_TAB + """.querySelectorAll('.js-plotly-plot')]
+                 .filter(chart => chart.getBoundingClientRect().height > 0).pop();
+               const line = chart.data.find(trace => trace.name && trace.x.length > 1);
+               return {range: chart._fullLayout.xaxis.range, events: line.x.length,
+                       plot: chart._fullLayout._size.w,
+                       sideways: document.documentElement.scrollWidth
+                                 - document.documentElement.clientWidth}; }"""
+        )
+    finally:
+        page.close()
+
+    first, last = read["range"]
+    on_show = last - first
+    assert read["events"] > on_show
+    assert last == pytest.approx(read["events"] - 0.25)
+    assert read["plot"] / on_show >= 10 > read["plot"] / (on_show + 1)
+    assert read["sideways"] == 0
+
+
+def test_a_fitted_pair_follows_its_plots_width_until_a_reader_slices_it(chromium):
+    # AC (#335): what the page opens a long pair on is the page's guess, made from the
+    # plot's width, so it is made again when the width changes: a phone turned on its
+    # side, or a chart first drawn at a width it does not keep. From the first range a
+    # reader sets it is theirs, and no later change of width takes it from them.
+    figure = _archetype_timeline_figure("Storm", "Lands", _timeline(40))
+    shown = "() => document.querySelector('#timeline .js-plotly-plot')._fullLayout.xaxis.range"
+    wide, narrow = ({"width": 1440, "height": 900}, {"width": 390, "height": 844})
+    with _timeline_of(chromium, figure, "phone") as page:
+        def at(viewport):
+            page.set_viewport_size(viewport)
+            page.wait_for_timeout(1500)
+            return page.evaluate(shown)
+
+        opened = page.evaluate(shown)
+        widened = at(wide)
+        narrowed = at(narrow)
+        page.evaluate(
+            "() => Plotly.relayout(document.querySelector('#timeline .js-plotly-plot'),"
+            " {'xaxis.range': [5, 15]})")
+        sliced = at(wide)
+
+    assert opened[1] - opened[0] < 40
+    assert widened == pytest.approx([-0.75, 39.75])
+    assert narrowed == pytest.approx(opened)
+    assert sliced == pytest.approx([5, 15])
