@@ -25,6 +25,7 @@ from graph7ph.app import (
     _graph_list,
     _node_facts,
     _pair_tiles,
+    _pair_years_card,
     _pilot_descriptor,
     _pilot_tiles,
     _record_card,
@@ -1093,10 +1094,11 @@ def test_a_cards_played_with_list_is_on_the_view_that_draws_those_cards(demo):
     assert "Daze" in head
     assert re.search(tiles, head).group() == re.search(tiles, either).group()
     # The list is in the panel beside the graph that draws those cards (issue #330),
-    # and the card that held it under the plots is gone: the view's last output is
-    # its adoption chart's note.
+    # and the card that held it under the plots is gone: after the adoption chart's
+    # note the view has only the two cards' year by year card (#351), which one card
+    # does not draw.
     assert "class='graph-panel'" in graph and "Played with" in graph
-    assert len(outputs) == 13
+    assert len(outputs) == 15 and outputs[13:] == ["", ""]
     rows = _table_rows(graph)
     # Five asked for, five listed, each in both of Daze's two decks at most.
     assert len(rows) == 5
@@ -1177,6 +1179,70 @@ def test_two_cards_no_deck_runs_together_say_so_in_every_tile(demo):
     assert _tile_notes(head)[2:] == ["0 / 1 run both", "0 / 2 run both"]
 
 
+def _table_headers(markup: str) -> list[str]:
+    head = markup.split("<thead>")[1].split("</thead>")[0]
+    return [html.unescape(header) for header in re.findall(r"<th[^>]*>(.*?)</th>", head)]
+
+
+def test_two_cards_get_their_co_occurrence_year_by_year_under_the_chart(demo):
+    # Issue #351: the one figure the page stated by year was the decks running both
+    # as a share of all decks, which falls when either card is played less whatever
+    # the two have to do with each other. The co-occurrence itself, each card's share
+    # of its own decks that also run the other, was stated for the whole record only.
+    # It is a row per year, last on the page. Off the fixture: Brainstorm is in all
+    # three decks of 2025, the record's only year, and Daze in two of them.
+    outputs = _drawn(demo, "draw_cards", "card_cooccurrence", "brainstorm", "", "daze", 5, False)
+    by_year = outputs[-1]
+
+    assert len(outputs) == 15
+    assert "<div class='t-result-title'>Co-occurrence by year</div>" in by_year
+    # The caption says what a figure is and names no direction: nothing here tests
+    # a trend (ADR 0013), and the counts beside each share carry the evidence.
+    assert re.findall(r"<div class='caption'>(.*?)</div>", by_year) == [
+        "Each figure is the share of that card's decks in the year that also run the other."]
+    assert _table_headers(by_year) == ["Year", "Of Brainstorm's decks", "Of Daze's decks"]
+    assert _table_rows(by_year) == [[
+        "2025",
+        "66.67% <span class='base'>(2 / 3)</span>",
+        "100% <span class='base'>(2 / 2)</span>",
+    ]]
+
+
+def test_one_card_has_no_pair_so_the_year_by_year_card_is_taken_down(demo):
+    # The card is hidden itself, not left standing empty: one card, or the same card
+    # picked twice, has no second card for a share to be of.
+    draw = next(dep.fn for dep in demo.fns.values()
+                if getattr(dep.fn, "__name__", "") == "draw_cards")
+
+    def year_card(*picked):
+        return draw("card_cooccurrence", *picked)[-2]["visible"]
+
+    assert year_card("brainstorm", "", "daze", 5, False) is True
+    assert year_card("brainstorm", "", None, 5, False) is False
+    assert year_card("brainstorm", "", "brainstorm", 5, False) is False
+    assert year_card("", "", None, 5, False) is False
+
+
+def test_a_year_a_card_has_no_deck_in_states_no_share_and_says_so():
+    # Issue #351: a share of a count is stated whatever its size (ADR 0013), so the
+    # one deck of a thin year is a row like any other. Only a year the card has no
+    # deck in has nothing to be a share of. The newer card here was not played in
+    # 2023, and the older one's 40 decks that year ran none of it.
+    together = _adoption((2023, 0, 192), (2024, 48, 941), (2026, 146, 3368))
+    older = _adoption((2023, 40, 192), (2024, 248, 941), (2026, 207, 3368))
+    newer = _adoption((2023, 0, 192), (2024, 58, 941), (2026, 357, 3368))
+
+    table = _pair_years_card(together, [("Reanimate", older), ("Bitter Triumph", newer)])
+
+    assert _table_rows(table) == [
+        ["2023", "0% <span class='base'>(0 / 40)</span>", "No decks"],
+        ["2024", "19.35% <span class='base'>(48 / 248)</span>",
+         "82.76% <span class='base'>(48 / 58)</span>"],
+        ["2026", "70.53% <span class='base'>(146 / 207)</span>",
+         "40.9% <span class='base'>(146 / 357)</span>"],
+    ]
+
+
 def _real_pairs(conn) -> list[tuple[str, str]]:
     """Pairs of the real record's cards: each of the twelve in the most decks with
     the next, then a staple against a spread of the rest."""
@@ -1210,6 +1276,69 @@ def test_a_pairs_tiles_agree_with_its_graph_on_the_real_record(live_graph):
             if both:  # no hub is drawn for two cards no deck runs together
                 line = lines[f"card:{canon}"]
                 assert (line.decks, line.total_decks) == (len(both), own), (a, b)
+
+
+def _year_by_year(conn, a: str, b: str) -> tuple[list[list[str]], list]:
+    """A pair's year-by-year rows and its head's tiles, off one reading of the three
+    series, as the page builds both."""
+    cards = [(canon, card_adoption_over_time(conn, canon)) for canon in (a, b)]
+    together = pair_adoption_over_time(conn, a, b)
+    return _table_rows(_pair_years_card(together, cards)), _pair_tiles(together, cards)
+
+
+def test_a_pairs_year_by_year_shares_agree_with_the_raw_deck_lists_on_the_real_record(
+    live_graph
+):
+    # Issue #351: every cell against a reading it is not built from. Each card's
+    # decks off the raw rows, split by the year each deck's event falls in, and the
+    # two sets intersected here.
+    conn = live_graph
+    year_of = dict(rows(conn.execute(
+        "MATCH (d:Deck)-[:PLAYED_AT]->(:Event)-[:IN_YEAR]->(y:Year) RETURN d.deckId, y.year")))
+    years = sorted(set(year_of.values()))
+
+    def decks_running(canon: str) -> set[str]:
+        return {deck for (deck,) in rows(conn.execute(
+            "MATCH (d:Deck)-[:CONTAINS]->(:Card {canon: $canon}) RETURN DISTINCT d.deckId",
+            {"canon": canon}))}
+
+    def in_year(decks: set[str], year: int) -> int:
+        return sum(year_of[deck] == year for deck in decks)
+
+    pairs = _real_pairs(conn)
+    assert len(pairs) > 20 and len(years) >= 4
+    stated = unstated = 0
+    for a, b in pairs:
+        table, _ = _year_by_year(conn, a, b)
+        running = {canon: decks_running(canon) for canon in (a, b)}
+        both = running[a] & running[b]
+        assert [row[0] for row in table] == [str(year) for year in years], (a, b)
+        for row, year in zip(table, years):
+            for cell, canon in zip(row[1:], (a, b)):
+                own, shared = in_year(running[canon], year), in_year(both, year)
+                if own:
+                    stated += 1
+                    assert cell == (f"{numfmt.share(shared / own)} <span class='base'>"
+                                    f"({shared:,} / {own:,})</span>"), (a, b, year)
+                else:
+                    unstated += 1
+                    assert cell == "No decks", (a, b, year)
+    # Both kinds of cell were graded: a share, and a year a card sat out.
+    assert stated > 100 and unstated > 0
+
+
+def test_a_cards_year_by_year_counts_sum_to_its_tile_on_the_real_record(live_graph):
+    # Issue #351: the table is the head's last two tiles split by year, so a card's
+    # rows add up to its tile, both the decks running both and the decks running it.
+    conn = live_graph
+    for a, b in _real_pairs(conn):
+        table, tiles = _year_by_year(conn, a, b)
+        for column, tile in zip((1, 2), tiles[2:]):
+            counts = [re.search(r"\(([\d,]+) / ([\d,]+)\)", row[column]) for row in table]
+            shared, own = (
+                sum(int(found.group(part).replace(",", "")) for found in counts if found)
+                for part in (1, 2))
+            assert tile.note == f"{numfmt.count_of(shared, own)} run both", (a, b)
 
 
 def _captions(markup: str) -> list[str]:
