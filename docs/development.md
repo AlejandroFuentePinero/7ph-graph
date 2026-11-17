@@ -90,20 +90,18 @@ build (the archetype-pair sweep and the per-pilot rank gap): measured on
 3 min 0 s against about a minute before; the derivation alone, run standalone
 before it joined the build, took 1 min 54 s.
 
-Then file the curation review for the round, which is where the identity work
-starts (issue #227). `curation-report` is a pure read of the promoted bundle and
-`gh` stays out of the build, so filing is this line rather than a build side
-effect:
+What the round did to pilot identity is printed on demand by the curation brief
+(issue #227), a pure read of the promoted bundle:
 
 ```sh
-brief=$(uv run graph7ph curation-report) &&
-  case $brief in
-    "Curation review"*)
-      gh issue create --title "$(head -1 <<<"$brief")" \
-        --body "$brief" --label ready-for-human ;;
-    *) head -1 <<<"$brief" ;;
-  esac
+uv run graph7ph curation-report
 ```
+
+No issue is filed for a round (owner's ruling, 2026-11-18, ADR 0028): identity
+is decided by the rules at build and by upstream's own corrections, not by
+hand, and nothing reads a filed copy. A hold the data has settled and a
+dictionary entry the build refused are banners in the build's own output, so
+neither depends on the brief being read.
 
 The brief ranks on what changed since the previous round: holds the data has
 now settled (decide each and retire its `[[hold]]`), then every candidate pair
@@ -115,27 +113,18 @@ the previous round, the unchanged holds and the counts. Nothing in it is a queue
 to work: a watching pair is two nodes, the graph's default, and the dictionary
 holds only overrides (a `[[merge]]`, `[[reject]]` or `[[split]]` where a human
 disagrees with a rule). The previous round's state is read off the snapshot
-sequence, never off the issue it filed: the command re-resolves every snapshot
+sequence, never off a filed issue: the command re-resolves every snapshot
 older than the newest through the build's own path, so a pair whose state that
 sequence already derived is not listed again and an id it already raised is
 carried rather than new (issue #271). An id recurring across several pairs is
 one row listing its partners and each partner's overlap. A round with nothing
 settled, changed, overridden, refused, new or carried says so in one line, and
-there is nothing to file, which is what the `case` guards: the brief opens with
-`Curation review` only when one of those has something in it, and otherwise the
-line prints the reason rather than filing a round nobody has to work. Carried
-rows count, since the previous round's issue is closed when this one is filed
-and they would otherwise be open nowhere. The command refuses to report on a bundle that is
+the brief opens with `Curation review` only when one of those has something in
+it. The command refuses to report on a bundle that is
 missing, built from other sources, or older than the newest snapshot, so a brief
 always describes the corpus it names.
 
-Hold the brief before filing rather than piping it: a refusal is a sentence on
-stderr and an empty stdout, and a pipe would hand that empty stdout to `gh` and
-file it as the round's review. The title is the brief's own first line, which
-names the snapshot the body reports on, so the issue cannot be titled after a
-different one than it describes.
-
-A round is not done when the identity queue empties. One more thing reads the
+A round is not done at the build. One more thing reads the
 corpus and goes stale silently:
 
 - **The measured constants.** `scripts/gem_sweep.py` says it itself: re-run it
@@ -208,8 +197,8 @@ brief under "New this ingestion" (issues #227, #270), is held by
 `test_curation_report.py::test_the_live_brief_states_exactly_what_the_live_report_holds`,
 which skips on the same terms: it can only grade on the machine that ran the
 ingestion, and only if the suite runs after the rebuild. CI never builds, so it
-always skips there. Whether the queue is empty is not graded; the round's issue
-tracks that.
+always skips there. Whether the queue is empty is not graded, and since no
+round files an issue (owner's ruling, 2026-11-18, ADR 0028) nothing tracks it.
 
 `tests/test_graph_desktop.py` measures what the graph document actually paints at
 desktop width, on a real Chromium, and holds the three regressions ADR 0018 names.

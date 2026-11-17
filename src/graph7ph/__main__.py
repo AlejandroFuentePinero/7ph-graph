@@ -200,12 +200,10 @@ def _build(args: argparse.Namespace) -> None:
 
 
 def _curation_report(args: argparse.Namespace) -> None:
-    # The review brief for the promoted bundle, on stdout for a `gh issue create`
-    # to pipe (issue #233). A pure read: `gh` stays out of the build, which
-    # produces artifacts and stays offline and idempotent, so filing is a runbook
-    # line rather than a build side effect. Every refusal is a sentence naming
-    # the remedy rather than a traceback, since a traceback in this pipe is filed
-    # as the review brief.
+    # The review brief for the promoted bundle, on stdout (issue #233). A pure
+    # read, kept out of the build, which produces artifacts and stays offline
+    # and idempotent. Every refusal is a sentence naming the remedy rather than
+    # a traceback.
     if not database_path(args.db).exists():
         raise SystemExit(f"No graph at {args.db}: run `uv run graph7ph build` first.")
     snapshot = latest_snapshot(args.snapshots)

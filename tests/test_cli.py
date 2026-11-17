@@ -839,9 +839,7 @@ def test_the_curation_report_tells_this_round_s_changes_from_the_previous_round_
 
 
 def test_reporting_on_a_graph_that_was_never_built_aborts_cleanly(tmp_path):
-    # Nothing to report against is a sentence naming the remedy, not a traceback:
-    # the command is a pipe into `gh issue create`, where a crash would file the
-    # traceback as the review brief.
+    # Nothing to report against is a sentence naming the remedy, not a traceback.
     with pytest.raises(SystemExit) as exc:
         _curation_report(argparse.Namespace(
             snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
@@ -895,10 +893,9 @@ def test_reporting_against_a_snapshot_the_bundle_predates_aborts(
 def test_a_directory_no_fetch_wrote_is_not_read_as_a_snapshot(
     tmp_path, monkeypatch, capsys
 ):
-    # The corpus the brief names is read as a time, and this command's other end
-    # is a `gh issue create` that files whatever it is handed. So a directory
-    # sitting beside the snapshots (a scratch copy, a half-restored backup) must
-    # be ignored rather than parsed, or the review issue is a traceback. Shaped
+    # The corpus the brief names is read as a time. So a directory sitting beside
+    # the snapshots (a scratch copy, a half-restored backup) must be ignored
+    # rather than parsed, or the brief is a traceback. Shaped
     # like a stamp is not enough: a name can carry a date that never happened and
     # still sort above every real one.
     snapshots, db = tmp_path / "snapshots", tmp_path / "graph"
