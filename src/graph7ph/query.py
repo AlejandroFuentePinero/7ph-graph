@@ -1448,6 +1448,16 @@ def coverage(conn: ladybug.Connection) -> Coverage:
     )
 
 
+def archetypes_on_record(conn: ladybug.Connection) -> int:
+    """How many archetypes are the primary tag of at least one deck: the whole a
+    card's count of archetypes running it is a part of (issue #340), counted on the
+    primary tag as :func:`card_usage_subgraph` counts that part."""
+    return next(rows(conn.execute(
+        """MATCH (a:Archetype)<-[:HAS_ARCHETYPE {isPrimary: true}]-(:Deck)
+           RETURN count(DISTINCT a)"""
+    )))[0]
+
+
 def deck_points(conn: ladybug.Connection) -> dict[str, int]:
     """What each deck spends under the points list the graph was built from.
 

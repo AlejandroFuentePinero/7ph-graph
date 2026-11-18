@@ -100,8 +100,9 @@ def _community(conn: ladybug.Connection) -> dict:
     leaderboard places it by, and to the day: the page dates when decks were
     registered, not the event (ADR 0013). Its players are its field, except at a
     Teams event, whose field counts teams: there it is the pilots on record. A
-    major is the leaderboard's own (:func:`trends.major_events`), and only a major's
-    name is written, so no other event's can reach the page.
+    major is the leaderboard's own (:func:`trends.major_events`). Every event is
+    written with its name, which the page states under the pointer (issue #340;
+    until then only a major's name was written).
 
     A pilot is first recorded at the date of their first event, and first played
     in that event's year. A pilot absent from a year is in no count of it: nothing
@@ -133,11 +134,11 @@ def _community(conn: ladybug.Connection) -> dict:
     events = sorted(
         ({"date": dates[event].date().isoformat(),
           "players": pilots if kind == "Teams" else field,
-          "major": event if event in majors else None}
+          "name": event, "major": event in majors}
          for event, kind, field, pilots in rows(conn.execute(
              "MATCH (p:Pilot)<-[:PILOTED_BY]-(:Deck)-[:PLAYED_AT]->(e:Event) "
              "RETURN e.event, e.eventType, e.fieldSize, count(DISTINCT p)"))),
-        key=lambda event: (event["date"], event["players"], event["major"] or ""),
+        key=lambda event: (event["date"], event["players"], event["name"]),
     )
     largest = max(events, key=lambda event: event["players"])
     in_latest = "MATCH (:Year {year: $year})<-[:IN_YEAR]-(:Event)<-[:PLAYED_AT]-(d:Deck) "
@@ -172,7 +173,7 @@ def _community(conn: ladybug.Connection) -> dict:
         "other_events": len(events) - len(majors),
         "major_field_over": MAJOR_FIELD_SIZE,
         "largest_field": {"players": largest["players"], "year": int(largest["date"][:4]),
-                          "major": largest["major"]},
+                          "major": largest["name"] if largest["major"] else None},
         "pilots_on_record": [
             [day, total] for (day, _), total
             in zip(new_by_day, accumulate(new for _, new in new_by_day))

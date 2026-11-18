@@ -477,6 +477,9 @@ def build_css() -> str:
    it stands in. */
 a[data-opens] {{ color: var(--accent-bright); text-decoration: none; }}
 a[data-opens]:hover {{ text-decoration: underline; }}
+/* A name whose kind has pages but which has none of its own (a thin archetype, #340):
+   the muted ink, so it is told apart from a link and from a group's heading. */
+.no-page {{ color: var(--text-mute); }}
 
 /* The parts every page shares (#329, `graph7ph.parts`): the page head with its
    tiles, the caption, and the one table.
@@ -1162,7 +1165,6 @@ footer {{ display: none !important; }}
    which hue is the graph's to say (`render`). */
 .community {{ padding-top: 1.5rem; }}
 .cm-intro .page-name {{ font-size: 34px; text-wrap: balance; }}
-.community .t-lede {{ font-size: 17px; line-height: 1.5; color: var(--text-dim); margin: 0.85rem 0 0; }}
 /* Six figures on one hairline, each parted from the next by another: a row of
    readings, not six cards (the tiles of a subject's page are cards). */
 .cm-figures {{

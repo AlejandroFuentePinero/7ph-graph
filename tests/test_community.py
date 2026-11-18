@@ -16,12 +16,12 @@ RECORD = {
     "this_year": {"pilots": 10, "events": 2, "decks": 12, "cards": 5, "archetypes": 1,
                   "played_before": 3},
     "events": [
-        {"date": "2024-03-10", "players": 12, "major": None},
-        {"date": "2024-03-25", "players": 10, "major": None},
-        {"date": "2025-07-05", "players": 90, "major": "Major25"},
-        {"date": "2025-09-01", "players": 4, "major": None},
-        {"date": "2026-01-15", "players": 80, "major": None},
-        {"date": "2026-02-20", "players": 9, "major": None},
+        {"date": "2024-03-10", "players": 12, "name": "Open24", "major": False},
+        {"date": "2024-03-25", "players": 10, "name": "Cup24", "major": False},
+        {"date": "2025-07-05", "players": 90, "name": "Major25", "major": True},
+        {"date": "2025-09-01", "players": 4, "name": "Teams25", "major": False},
+        {"date": "2026-01-15", "players": 80, "name": "Bracket26", "major": False},
+        {"date": "2026-02-20", "players": 9, "name": "Open26", "major": False},
     ],
     "through": "2026-02-20",
     "majors": 1,
@@ -59,16 +59,16 @@ def _in_order(text: str, *phrases: str) -> bool:
 
 
 def test_the_page_runs_title_figures_source_three_charts_then_doorways():
-    # The seven parts, top to bottom, with the title, the one line and the source
-    # line word for word (issue #346).
+    # The parts, top to bottom, with the title and the source line word for word
+    # (issue #346). The title stands straight over the figures: the line on what
+    # the format and the app are was taken off the page (issue #340).
     text = _text(community.page(RECORD))
 
+    assert text.startswith("Australian 7 Point Highlander Pilots")
+    assert "singleton" not in text and "Spikes" not in text
     assert _in_order(
         text,
         "Australian 7 Point Highlander",
-        "7 Point Highlander is a singleton Magic format run by the people who play "
-        "it. This app maps the tournament results they report: events, pilots, decks "
-        "and cards, with some extra depth for the Spikes among us.",
         "Pilots", "Events", "Decks", "Cards", "Archetypes", "Largest field",
         "Built from results the community reports on Moxfield.",
         "Every event on record",
@@ -93,8 +93,8 @@ def test_the_six_figures_each_show_the_count_and_the_newest_years_beneath():
 
 
 def test_a_largest_field_that_is_no_major_shows_its_year_and_no_name():
-    # Only a major is named (issue #346), and the largest field on a small record
-    # need not be one.
+    # The figure names its event only where that is a major (issue #346), and the
+    # largest field on a small record need not be one.
     record = RECORD | {"largest_field": {"players": 80, "year": 2026, "major": None}}
 
     assert "Largest field 80 2026 Built from" in _text(community.page(record))
@@ -130,7 +130,8 @@ def _day(year: int, month: int, day: int) -> int:
 def test_the_charts_are_handed_every_event_the_running_count_and_the_months():
     # What the page script draws from, as numbers: a date is its day since 1970,
     # a month its place counted from the first January on record, and an event
-    # carries a name only if it is a major. Nothing else of the record is in it.
+    # carries its name and whether it is a major (every event is named under the
+    # pointer since issue #340). Nothing else of the record is in it.
     page = community.page(RECORD)
     handed = json.loads(html.unescape(re.search(r"data-record='([^']*)'", page).group(1)))
 
@@ -138,9 +139,9 @@ def test_the_charts_are_handed_every_event_the_running_count_and_the_months():
         "years": [2024, 2025, 2026],
         "through": _day(2026, 2, 20),
         "events": [
-            [_day(2024, 3, 10), 12, None], [_day(2024, 3, 25), 10, None],
-            [_day(2025, 7, 5), 90, "Major25"], [_day(2025, 9, 1), 4, None],
-            [_day(2026, 1, 15), 80, None], [_day(2026, 2, 20), 9, None],
+            [_day(2024, 3, 10), 12, "Open24", 0], [_day(2024, 3, 25), 10, "Cup24", 0],
+            [_day(2025, 7, 5), 90, "Major25", 1], [_day(2025, 9, 1), 4, "Teams25", 0],
+            [_day(2026, 1, 15), 80, "Bracket26", 0], [_day(2026, 2, 20), 9, "Open26", 0],
         ],
         "pilots": [
             [_day(2024, 3, 10), 3], [_day(2024, 3, 25), 4], [_day(2025, 7, 5), 48],
@@ -238,13 +239,15 @@ def _whole_words(names, text: str) -> list[str]:
                   if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text))
 
 
-def test_the_page_built_from_the_real_record_names_no_pilot_and_no_event_but_a_major(
+def test_the_page_built_from_the_real_record_names_no_pilot_and_an_event_only_on_its_dot(
     live_graph,
 ):
-    # AC (#346): no pilot is named anywhere on the page, and only a major among the
-    # events. Asked of the page as the app serves it over the real record, the
-    # numbers handed to its script included, against every pilot's name and id and
-    # every event's name in the graph. The majors are the leaderboard's own.
+    # No pilot is named anywhere on the page (issue #346), asked of the page as the
+    # app serves it over the real record, the numbers handed to its script
+    # included, against every pilot's name and id in the graph. Every event's name
+    # is handed to the script, which states it under the pointer on that event's
+    # dot (issue #340, where it was a major's alone). What the page prints without
+    # a pointer still names no event but a major, the leaderboard's own.
     from graph7ph.db import artifact_path, rows
     from graph7ph.figures import figures_path
     from graph7ph.trends import major_events
@@ -256,8 +259,11 @@ def test_the_page_built_from_the_real_record_names_no_pilot_and_no_event_but_a_m
     events = {event for event, in rows(live_graph.execute("MATCH (e:Event) RETURN e.event"))}
     majors = major_events(live_graph)
 
+    handed = json.loads(re.search(r"data-record='([^']*)'", page).group(1))
+    printed = re.sub(r"data-record='[^']*'", "", page)
+
     assert len(pilots) > 1000 and len(events) > 100
     assert _whole_words(pilots, page) == []
-    assert _whole_words(events - majors, page) == []
-    # And the majors are there, which is what makes the two lines above a finding.
-    assert _whole_words(majors, page) == sorted(majors)
+    assert sorted(name for _, _, name, _ in handed["events"]) == sorted(events)
+    assert {name for _, _, name, major in handed["events"] if major} == majors
+    assert _whole_words(events - majors, printed) == []

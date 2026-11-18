@@ -401,11 +401,13 @@ def test_a_search_says_what_it_holds_and_how_many():
     assert _search_placeholder(143, "archetypes") == "Search 143 archetypes"
 
 
-def test_cards_offers_its_most_run_spells_to_try_and_no_other_tab_offers_any(
+def test_cards_offers_its_most_run_spells_to_try_and_archetypes_its_most_played(
     tmp_path, snapshot_dir
 ):
     # AC (#328): Cards opens on two or three one-click examples, and Pilots on none,
-    # since an example there is a person put on show unasked. The examples are the
+    # since an example there is a person put on show unasked. Archetypes offers its
+    # most played (issue #340), and none on this snapshot, where no archetype has
+    # the events for a page and so the picker offers none. The examples are the
     # cards in the most decks, lands left out, read here off the snapshot's own lists
     # rather than the graph: every one of its three decks runs Badlands and
     # Bloodstained Mire, which lead that list by name and are not offered.
@@ -430,6 +432,12 @@ def test_cards_offers_its_most_run_spells_to_try_and_no_other_tab_offers_any(
     assert examples("Cards") == ["Baleful Strix", "Brainstorm", "Cori-Steel Cutter"]
     assert [examples(tab) for tab in ("Metagame", "Archetypes", "Hidden gems", "Pilots",
                                       "Player leaderboard", "FAQ")] == [[]] * 6
+    # With archetypes the picker offers, each is a chip: Grixis, Jund and Lands
+    # here, two decks each in 2025, so in tag order. No other tab gains one.
+    demo = _timeline_demo(tmp_path / "timeline", snapshot_dir)
+    assert examples("Archetypes") == ["Grixis", "Jund", "Lands"]
+    assert [examples(tab) for tab in ("Metagame", "Hidden gems", "Pilots",
+                                      "Player leaderboard", "FAQ")] == [[]] * 5
 
 
 def test_only_the_head_to_head_keeps_a_draw_and_it_opens_shut(tmp_path, snapshot_dir):
@@ -2892,7 +2900,10 @@ def test_each_archetype_picker_has_a_clear_button_that_names_itself(tmp_path, sn
     demo = _timeline_demo(tmp_path, snapshot_dir)
     inside = _tab_blocks(demo, "Archetypes")
     picks = [b for b in inside if isinstance(b, gr.Dropdown) and b.label != "Year"]
-    buttons = [b for b in inside if isinstance(b, gr.Button)]
+    # The archetypes to try are buttons too (issue #340), and set a picker rather
+    # than clear it.
+    buttons = [b for b in inside if isinstance(b, gr.Button)
+               and "example-chip" not in (b.elem_classes or [])]
 
     assert [b.value for b in buttons] == [CLEAR_LABEL] * len(picks)
     for pick in picks:
@@ -3046,6 +3057,9 @@ def test_picking_an_archetype_draws_its_page(tmp_path, snapshot_dir):
     # summed that is 0.03889 over three degrees of freedom, a spread of 0.1139, so
     # over two events the half-width is 1.645 * 0.1139 / sqrt(2) = 0.1324. The mean
     # runs 0.1620 to 0.4269 from the top, which flipped is 0.57 to 0.84.
+    #
+    # And it was played at two of 2025's four events (PogNov25 and CFWAT25, of
+    # those two and LandsCupA and LandsCupB): 50% (issue #340).
     demo = _timeline_demo(tmp_path, snapshot_dir)
     head, results, share_heading, share_plot, heading, plot, note = _archetype_page(
         demo, "grixis")
@@ -3056,11 +3070,11 @@ def test_picking_an_archetype_draws_its_page(tmp_path, snapshot_dir):
             < markup.index("Archetype, on record in 2025.") < markup.index("tile-label"))
     assert _tiles_of(markup) == [
         ("Share in 2025", "4.65%"), ("Rank in 2025", "1st"),
-        ("Mean finish in 2025", "0.71"), ("Events in 2025", "2"),
+        ("Mean finish in 2025", "0.71"), ("Events played in 2025", "2 (50%)"),
     ]
     assert re.findall(r"<div class='tile-note'>(.*?)</div>", markup) == [
         "2 / 43 decks", "of 4 archetypes by share, level with 2 others",
-        "90% range 0.57 to 0.84, 1 = first", "2 scored decks",
+        "90% range 0.57 to 0.84, 1 = first", "of 4 events",
     ]
 
     # Its share over time: one line, whose last point is the share tile. Drawn once
@@ -3085,23 +3099,40 @@ def _line_colours(figure) -> dict[str, str]:
             if trace.showlegend is not False and trace.name}
 
 
-def test_a_second_archetype_adds_the_comparison_to_both_charts(tmp_path, snapshot_dir):
-    # AC (#332): an optional second archetype compares. The page stays the first
-    # archetype's, tiles included, and says who it is compared with; both charts
-    # then draw both.
+def test_a_second_archetype_makes_the_page_the_comparison(tmp_path, snapshot_dir):
+    # AC (#332): an optional second archetype compares, and both charts then draw
+    # both. Since issue #340 the head is the comparison too, as two cards' is: it is
+    # named for the pair, and each tile states both archetypes' value, the first
+    # picked first. One archetype's head is its own, as it was.
     #
     # Grixis and Jund met twice: at PogNov25 Jund's 8th of 31 beat Grixis's 12th,
     # and at CFWAT25 Grixis's 5th of 19 beat Jund's 9th. One each. Grixis was at a
-    # third event without Jund, so its own tiles count three events where the
-    # comparison counts the two they shared.
+    # third event without Jund (GrixisCup, the year's fifth), so the year's events
+    # played read three against two, and each finished better at one of the two
+    # they shared: level. Each tile says only what it is (the maintainer's ruling).
     demo = _timeline_demo(
         tmp_path, snapshot_dir, more=[("x-g3", "grixis", "GrixisCup", 10, 2, 4)])
     solo_head = _archetype_page(demo, "grixis")[0]["value"]
+    jund_head = _archetype_page(demo, "jund")[0]["value"]
     head, _, _, share_plot, heading, plot, note = _archetype_page(demo, "grixis", "jund")
 
-    assert "Archetype, on record in 2025, compared with Jund." in head["value"]
-    assert _tiles_of(head["value"]) == _tiles_of(solo_head)
-    assert ("Events in 2025", "3") in _tiles_of(head["value"])
+    assert "<h2 class='page-name'>Grixis</h2>" in solo_head
+    assert "Archetype, on record in 2025." in solo_head
+    assert "<h2 class='page-name'>Grixis vs Jund</h2>" in head["value"]
+    assert ("Two archetypes, compared in 2025 and over the events both were placed "
+            "at.") in head["value"]
+    grixis, jund = dict(_tiles_of(solo_head)), dict(_tiles_of(jund_head))
+    assert grixis["Events played in 2025"] == "3 (60%)"
+    assert jund["Events played in 2025"] == "2 (40%)"
+    assert _tiles_of(head["value"]) == [
+        ("Share in 2025", f"{grixis['Share in 2025']} vs {jund['Share in 2025']}"),
+        ("Mean finish in 2025",
+         f"{grixis['Mean finish in 2025']} vs {jund['Mean finish in 2025']}"),
+        ("Events played in 2025", "3 vs 2"),
+        ("Finished better", "Level"),
+    ]
+    assert re.findall(r"<div class='tile-note'>(.*?)</div>", head["value"]) == [
+        "First place = 1", "Each ahead at 1 of 2 shared events"]
     assert _legend_names(share_plot["value"]) == ["Grixis", "Jund"]
     assert plot["visible"] and not note["visible"]
     # The title, its link to how the chart is measured (#333), then the caption.
@@ -3131,6 +3162,9 @@ def test_a_pair_that_never_met_refuses_in_the_finishes_card_alone(tmp_path, snap
         demo, "grixis", "lands")
 
     assert head["visible"] and results["visible"]
+    assert "<h2 class='page-name'>Grixis vs Lands</h2>" in head["value"]
+    assert ("Finished better", "n/a") in _tiles_of(head["value"])
+    assert "Never both placed at one event" in head["value"]
     assert _legend_names(share_plot["value"]) == ["Grixis", "Lands"]
     assert not heading["visible"] and not plot["visible"]
     assert note["visible"] and note["value"] == (
@@ -3186,11 +3220,15 @@ def test_an_archetype_pick_says_drawing_where_its_page_will_land(tmp_path, snaps
              if getattr(fn.fn, "__name__", "") == "draw_archetype_page"]
     assert {tuple(fn.inputs) for fn in draws} == {tuple(picks)}
 
-    running, head, results = busy[0].fn("grixis")
+    running, examples, head, results = busy[0].fn("grixis")
     assert running["visible"] and not head["visible"] and not results["visible"]
     assert DRAWING_LABEL in busy[0].outputs[0].value
-    # With nothing picked there is nothing to wait for.
-    assert not busy[0].fn(None)[0]["visible"]
+    # The archetypes to try are an invitation to a first pick (issue #340): they
+    # leave once there is one.
+    assert not examples["visible"]
+    # With nothing picked there is nothing to wait for, and the examples are back.
+    waiting, examples, *_ = busy[0].fn(None)
+    assert not waiting["visible"] and examples["visible"]
 
 
 def test_both_selectors_offer_the_archetypes_that_draw_with_their_event_count(
@@ -4357,8 +4395,9 @@ def test_a_gem_and_the_archetype_it_was_found_in_are_each_the_way_to_a_page():
         ("card", "leyline", "Leyline"),
         ("archetype", "lands", "Lands"), ("card", "rishadan port", "Rishadan Port"),
     ]
-    # An archetype with no page still heads its gems, as text.
-    assert "scope='rowgroup'>Bant</th>" in table
+    # An archetype with no page still heads its gems, as text in the muted ink that
+    # says it has none (#340).
+    assert "scope='rowgroup'><span class='no-page'>Bant</span></th>" in table
 
 
 def test_every_pilot_in_the_standings_is_the_way_to_their_page():

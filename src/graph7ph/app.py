@@ -56,6 +56,7 @@ from graph7ph.query import (
     QuerySpec,
     Subgraph,
     _ordinal,
+    archetypes_on_record,
     card_catalogue,
     card_deck_counts,
     coverage,
@@ -93,6 +94,7 @@ from graph7ph.trends import (
     RaceCell,
     Series,
     SeriesCell,
+    archetype_events_played,
     archetypes_with_history,
     beats_a_coin,
     comparable_points,
@@ -114,22 +116,34 @@ class Pages:
 
     def __init__(self, pilots: dict[str, str] | None = None,
                  cards: dict[str, str] | None = None,
-                 archetypes: dict[str, str] | None = None):
+                 archetypes: dict[str, str] | None = None,
+                 here: frozenset[tuple[str, str]] = frozenset()):
         self._labels = {"pilot": pilots or {}, "card": cards or {},
                         "archetype": archetypes or {}}
         # A picker's labels are distinct (`_distinguish`), so a label is one key's.
         self._keys = {kind: {label: key for key, label in labels.items()}
                       for kind, labels in self._labels.items()}
+        # The pages already open, each a kind and a key: a page does not link to
+        # itself (`apart_from`).
+        self._here = here
 
     def has(self, kind: str, key: str) -> bool:
-        """Whether ``key`` is one of ``kind``'s pages."""
-        return key in self._labels.get(kind, {})
+        """Whether ``key`` is one of ``kind``'s pages, other than one already open."""
+        return key in self._labels.get(kind, {}) and (kind, key) not in self._here
 
     def link(self, kind: str, key: str, text: str) -> parts.Markup:
         """``text`` as the link to the page ``key`` has, or as the text it is where
-        it has none. Markup either way, escaped here."""
+        it has none. Markup either way, escaped here.
+
+        Where its kind has pages and this one has none of its own (a thin archetype),
+        the text is set apart in the muted ink, so it reads as a name with no page
+        rather than as a heading or a link (#340). The subject of the page already
+        open does have one, and stays the plain text it was."""
         if self.has(kind, key):
             return parts.opens(kind, key, text)
+        labels = self._labels.get(kind)
+        if text and labels and key not in labels:
+            return parts.Markup(f"<span class='no-page'>{html.escape(text)}</span>")
         return parts.Markup(html.escape(text))
 
     def named(self, kind: str, name: str) -> parts.Markup:
@@ -141,10 +155,9 @@ class Pages:
     def apart_from(self, subjects) -> "Pages":
         """These pages without ``subjects``, each a kind and a key: what a page
         about those subjects links to, since a page does not link to itself."""
-        left = {kind: dict(labels) for kind, labels in self._labels.items()}
-        for kind, key in subjects:
-            left[kind].pop(key, None)
-        return Pages(left["pilot"], left["card"], left["archetype"])
+        labels = self._labels
+        return Pages(labels["pilot"], labels["card"], labels["archetype"],
+                     here=self._here | frozenset(subjects))
 
 
 _NO_PAGES = Pages()
@@ -360,6 +373,8 @@ def _search_placeholder(count: int, noun: str) -> str:
 
 # How many cards the Cards tab offers as examples before a first pick (#328).
 _EXAMPLE_CARDS = 3
+# And how many archetypes the Archetypes tab does (#340).
+_EXAMPLE_ARCHETYPES = 5
 
 
 # The reader-language name of each graph plot, keyed by its query id. A view now
@@ -681,12 +696,15 @@ _NOTHING = "None"
 
 def _pilot_tiles(
     neighbourhood: Subgraph, affinity: Subgraph, record: list[PilotDeck],
+    events_on_record: int,
 ) -> list[parts.Tile]:
     """A pilot's four tiles (issue #329).
 
     Neutral facts only: how many events, how many archetypes, the archetype played
     most, and the best finish. No tile averages a pilot's finishes; that reading
-    stays in the performance chart's caption, beside the sample it rests on.
+    stays in the performance chart's caption, beside the sample it rests on. The
+    events carry their share of every event on record, ``events_on_record``, so the
+    count has a whole to be read against (#340).
 
     The first three are counted off the nodes the neighbourhood and the affinity
     graph draw, so a tile cannot disagree with the picture under it. The affinity
@@ -725,7 +743,9 @@ def _pilot_tiles(
         best = parts.Tile("Best finish", _NOTHING, "No finish on record")
 
     return [
-        parts.Tile("Events played", f"{events:,}"),
+        parts.Tile("Events played",
+                   f"{events:,} ({numfmt.share(events / events_on_record)})",
+                   f"of {events_on_record:,} on record"),
         parts.Tile("Archetypes played", f"{len(archetypes):,}",
                    f"in {_counted(classes, 'broad class', 'broad classes')}"
                    if archetypes else None),
@@ -845,23 +865,31 @@ def _adoption_tiles(adoption: Series, this_year: str) -> list[parts.Tile]:
     ]
 
 
-def _card_tiles(usage: Subgraph, adoption: Series) -> list[parts.Tile]:
+def _card_tiles(
+    usage: Subgraph, adoption: Series, archetypes_on_record: int,
+) -> list[parts.Tile]:
     """A card's four tiles, read off its usage graph and its adoption chart (#329).
 
     The adoption in the record's latest year and its change from the year before
     are the chart's last two points. The decks running it and the archetypes that
     do are the usage graph's card node and its archetype nodes. So a tile cannot
     disagree with the picture, and a board filter scopes all four as it scopes both.
+    Each count carries its share of the whole on record (#340): the decks of every
+    deck, the archetypes of ``archetypes_on_record``.
     """
     card = usage.nodes[0]
     archetypes = sum(node.kind == "Archetype" for node in usage.nodes)
     classes = sum(node.kind == "Macro" for node in usage.nodes)
     return [
         *_adoption_tiles(adoption, "Adoption"),
-        parts.Tile("Decks", f"{card.decks:,}", f"of {card.total_decks:,} on record"),
-        parts.Tile("Archetypes running it", f"{archetypes:,}",
-                   f"in {_counted(classes, 'broad class', 'broad classes')}"
-                   if archetypes else None),
+        parts.Tile("Decks",
+                   f"{card.decks:,} ({numfmt.share(card.decks / card.total_decks)})",
+                   f"of {card.total_decks:,} on record"),
+        parts.Tile("Archetypes running it",
+                   f"{archetypes:,} ({numfmt.share(archetypes / archetypes_on_record)})",
+                   f"of {archetypes_on_record:,} on record"
+                   + (f", in {_counted(classes, 'broad class', 'broad classes')}"
+                      if archetypes else "")),
     ]
 
 
@@ -937,19 +965,27 @@ def _pair_years_card(together: Series, cards: list[tuple[str, Series]]) -> str:
     )
 
 
-def _archetype_tiles(tag: str, shares: Series, landscape: Series | None) -> list[parts.Tile]:
+def _archetype_tiles(
+    tag: str, shares: Series, landscape: Series | None, played_at: int, year_events: int,
+) -> list[parts.Tile]:
     """An archetype's four tiles: its dot on the metagame landscape for the record's
     latest year, stated in numbers (issue #332).
 
     Its share of that year's decks, where that ranks it among the archetypes played,
-    its mean finish, and the events that finish rests on. ``shares`` is the
+    its mean finish, and the events it was played at. ``shares`` is the
     meta-share matrix, so the share is the last point of the chart under the head.
     ``landscape`` is that year's landscape, and the finish is the archetype's cell of
     it: the mean with the 90% interval the landscape draws as its bar, since no mean
-    is stated without one (ADR 0013), the events it rests on and the scored decks
-    behind them. ``None`` where the year is too thin to place on a landscape. No query
-    of the tiles' own, and a test holds them to the landscape and to the archetype's
-    timeline.
+    is stated without one (ADR 0013). ``None`` where the year is too thin to place on
+    a landscape. A test holds them to the landscape and to the archetype's timeline.
+
+    ``played_at`` is the events a deck of it was at that year, placed or not, and
+    ``year_events`` every event of the year (:func:`trends.archetype_events_played`),
+    stated with the share of the year's events they are, so the count reads against
+    the season (issue #340). It was the events a finish was read from with the scored
+    decks behind them, the landscape's evidence for the mean: the maintainer asked
+    for the events it was registered at, and those differ (Grixis in 2026: played at
+    75 of 87, placed at 63).
 
     The rank is by decks, and archetypes on as many share a rank, so the tile says how
     many are level with it rather than placing one of several equals ahead.
@@ -981,19 +1017,128 @@ def _archetype_tiles(tag: str, shares: Series, landscape: Series | None) -> list
                    numfmt.count_of(own.n, own.year_total, "decks")),
         rank,
         finish,
-        parts.Tile(f"Events in {year}", f"{cell.events if cell else 0:,}",
-                   _counted(cell.scored if cell else 0, "scored deck")),
+        parts.Tile(f"Events played in {year}",
+                   f"{played_at:,} ({numfmt.share(played_at / year_events)})",
+                   f"of {_counted(year_events, 'event')}"),
     ]
 
 
-def _archetype_descriptor(tag: str, shares: Series, compared_with: str | None) -> str:
-    """The line under an archetype's name: what it is, the years it has a deck in,
-    and the archetype the charts under it compare it with, if one is picked."""
+def _archetype_descriptor(tag: str, shares: Series) -> str:
+    """The line under an archetype's name: what it is, and the years it has a deck
+    in."""
     years = sorted(cell.year for cell in shares.cells if cell.tag == tag and cell.n)
     span = (f"in {years[0]}" if len(years) == 1
             else f"from {years[0]} to {years[-1]}")
-    versus = f", compared with {compared_with}" if compared_with else ""
-    return f"Archetype, on record {span}{versus}."
+    return f"Archetype, on record {span}."
+
+
+def _example_archetypes(shares: Series, labels: dict[str, str]) -> list[tuple[str, str]]:
+    """The archetypes the Archetypes tab offers to try before a first pick, as
+    ``(label, tag)`` (issue #340).
+
+    The most played of the record's latest year, in the order Metagame lists them
+    (:func:`trends.most_played`), so the chips are read off the meta-share matrix
+    ``shares`` and follow the meta from one build to the next. ``labels`` is the
+    picker's own names by tag: only an archetype it offers is an example, since a
+    chip is a pick.
+    """
+    return [(labels[tag], tag) for tag in most_played(shares)
+            if tag in labels][:_EXAMPLE_ARCHETYPES]
+
+
+# Two mean finishes closer than this are level: the gap float arithmetic leaves
+# between equal means, and nothing a placement can produce.
+_LEVEL_FINISH = 1e-9
+
+
+def _shared_finishes(series: Series) -> tuple[int, int, int]:
+    """Two archetypes' meetings, counted as the pair chart draws them: the events
+    the first finished better at, the events the second did, and the events the two
+    are compared at (:func:`comparable_points`). The first two fall short of the
+    third by the meetings the two drew level at.
+
+    Compared at the values the chart plots, not at the raw means, so a bounded
+    meeting counts to the side that was scored there (ADR 0024). One count for the
+    chart's headline and for the pair's tile, so the two cannot disagree.
+
+    A side's value is a mean, so two that are level can differ in their last bit:
+    on the real record one deck at 38th of 77 and two at 37th and 39th came out
+    5e-17 apart, and the meeting was counted as a win (issue #340). Level is level
+    to within :data:`_LEVEL_FINISH`, far under the smallest gap two placements leave.
+    """
+    comparable = comparable_points(series.cells, paired=True)
+    apart = [(a_side[0], b_side[0])
+             for a_side, b_side in (c.drawn() for c in comparable)
+             if abs(a_side[0] - b_side[0]) > _LEVEL_FINISH]
+    return (sum(1 for norm_a, norm_b in apart if norm_a < norm_b),
+            sum(1 for norm_a, norm_b in apart if norm_b < norm_a),
+            len(comparable))
+
+
+def _archetype_pair_tiles(
+    sides: list[tuple[str, str]], shares: Series, landscape: Series | None,
+    played: dict[str, int], finishes: Series | None, met: int = 0,
+) -> list[parts.Tile]:
+    """Two archetypes' four tiles: the comparison, each side's value kept (#340).
+
+    ``sides`` is the two archetypes as ``(tag, name)``, in the order the head names
+    them, and every value reads in that order. Both values are stated and never
+    their gap, since two archetypes that finish alike is as much an answer as two
+    that do not. Each tile says only what its value is: the evidence each one
+    rests on is on the archetype's own page and in the charts under the head, by
+    the maintainer's ruling at his look at the whole app (2026-11-18).
+
+    The share of the record's latest year's decks, read off the meta-share matrix
+    ``shares``. The mean finish that year, the landscape's cell as on the
+    archetype's own page, stated without the 90% interval that page gives it (an
+    exception to ADR 0013, amended the same day). The events each was played at
+    that year, ``played`` by tag (:func:`trends.archetype_events_played`), which
+    count every event a deck of it was at, placed or not.
+
+    The fourth names the archetype that finished better more often over the events
+    both were placed at, over every year (:func:`_shared_finishes`, the count the
+    chart under the head opens on), and how often. A split a fair coin produces is
+    no lead (issue #175), so the note says so in the chart headline's words.
+    ``finishes`` is the pair's timeline, ``None`` where it was refused for too few
+    shared events, and ``met`` is then how many the two share.
+    """
+    year = latest_deck_year(shares)
+    own = [next(cell for cell in shares.cells if cell.tag == tag and cell.year == year)
+           for tag, _ in sides]
+    placed = [next((cell for cell in landscape.cells if cell.tag == tag), None)
+              if landscape else None for tag, _ in sides]
+    scored = [cell if cell and cell.mean_norm is not None else None for cell in placed]
+    if finishes is None:
+        meetings = parts.Tile(
+            "Finished better", "n/a",
+            f"Both placed at only {_counted(met, 'event')}" if met
+            else "Never both placed at one event")
+    else:
+        wins_a, wins_b, shared = _shared_finishes(finishes)
+        if wins_a == wins_b:
+            meetings = parts.Tile("Finished better", "Level",
+                                  f"Each ahead at {wins_a} of {shared} shared events")
+        else:
+            first, second = (name for _, name in sides)
+            leader, other, led = ((first, second, wins_a) if wins_a > wins_b
+                                  else (second, first, wins_b))
+            note = (f"Ahead of {other} at {numfmt.share(led / shared)} of shared events "
+                    f"({led} of {shared})")
+            if not beats_a_coin(led, shared):
+                note += ", a split a coin could produce"
+            meetings = parts.Tile("Finished better", leader, note)
+    return [
+        parts.Tile(f"Share in {year}",
+                   " vs ".join(numfmt.share(cell.share) for cell in own)),
+        parts.Tile(
+            f"Mean finish in {year}",
+            " vs ".join(numfmt.score(1 - cell.mean_norm, sense=False) if cell else "n/a"
+                        for cell in scored),
+            "First place = 1" if any(scored) else f"No scored deck in {year}"),
+        parts.Tile(f"Events played in {year}",
+                   " vs ".join(f"{played.get(tag, 0):,}" for tag, _ in sides)),
+        meetings,
+    ]
 
 
 def _edge_share(edge) -> str:
@@ -3804,10 +3949,7 @@ def _archetype_timeline_caption(name_a: str, name_b: str | None, series: Series)
         # record says (a bound is worse than every finish its event published, ADR
         # 0024), and it is what the reader is looking at. `comparable_points` admits a
         # point only where both sides draw, so neither value here is ever None.
-        drawn = [(a_side[0], b_side[0])
-                 for a_side, b_side in (c.drawn() for c in comparable)]
-        wins_a = sum(1 for norm_a, norm_b in drawn if norm_a < norm_b)
-        wins_b = sum(1 for norm_a, norm_b in drawn if norm_b < norm_a)
+        wins_a, wins_b, _ = _shared_finishes(series)
         leader, led = (name_a, wins_a) if wins_a >= wins_b else (name_b, wins_b)
         # A tie is a real answer, and naming one side the leader of a draw would not
         # be, so the two counts are stated instead. It asserts no leader, so there is
@@ -4428,6 +4570,11 @@ def build_app(artifact: Path) -> gr.Blocks:
     except NotEnoughHistory:
         latest_landscape = None
 
+    # The events each archetype was played at that year, read once: two archetypes'
+    # head states them side by side (#340).
+    events_played, year_events = (archetype_events_played(catalogue, latest_year)
+                                  if latest_year else ({}, 0))
+
     # Every year the graph holds, newest first: the landscape's year selector's
     # choices and its default. Read off the meta-share matrix already in hand, which is
     # rectangular over every year with decks, so the selector costs no query of its own.
@@ -4516,6 +4663,11 @@ def build_app(artifact: Path) -> gr.Blocks:
         [(name, tag) for name, tag, _ in drawable_archetypes]
     ))
 
+    # The archetypes the Archetypes tab offers as one-click examples (#340).
+    example_archetypes = _example_archetypes(trend_series, timeline_labels)
+    # The whole a card's count of archetypes running it is read against (#340).
+    archetype_total = archetypes_on_record(catalogue)
+
     # What has a page, by the key its picker draws it from: what a name on any page
     # links to (#333).
     pages = Pages(pilot_labels, card_names, timeline_labels)
@@ -4534,6 +4686,9 @@ def build_app(artifact: Path) -> gr.Blocks:
         second = b if b and b != a else None
         name = timeline_labels[a]
         name_b = timeline_labels[second] if second else None
+        # What the pair's head states of the meetings: the timeline where it drew,
+        # and where it was refused the events the two do share.
+        pair_finishes, events_met = None, 0
         try:
             # Alone this never refuses: the picker offers only archetypes it can
             # draw (`archetypes_with_history`). A pair can.
@@ -4551,7 +4706,9 @@ def build_app(artifact: Path) -> gr.Blocks:
             finishes_card = (hide, hide, gr.update(
                 value=f"{name} and {name_b} {met}, so there is no run to compare.",
                 visible=True))
+            events_met = e.found
         else:
+            pair_finishes = finishes
             finishes_card = (
                 gr.update(
                     value=_chart_heading(
@@ -4564,13 +4721,22 @@ def build_app(artifact: Path) -> gr.Blocks:
                 hide,
             )
         drawn = [a, second] if second else [a]
+        if second:
+            # Two archetypes: the page is the comparison, so its head is too (#340),
+            # as two cards' is. One archetype's head is its own, as it was.
+            head = parts.page_head(
+                f"{name} vs {name_b}",
+                f"Two archetypes, compared in {latest_year} and over the events both "
+                "were placed at.",
+                _archetype_pair_tiles([(a, name), (second, name_b)], trend_series,
+                                      latest_landscape, events_played, pair_finishes,
+                                      events_met))
+        else:
+            head = parts.page_head(name, _archetype_descriptor(a, trend_series),
+                                   _archetype_tiles(a, trend_series, latest_landscape,
+                                                    events_played.get(a, 0), year_events))
         return (
-            gr.update(
-                value=parts.page_head(
-                    name, _archetype_descriptor(a, trend_series, name_b),
-                    _archetype_tiles(a, trend_series, latest_landscape)),
-                visible=True,
-            ),
+            gr.update(value=head, visible=True),
             gr.update(visible=True),
             gr.update(value=_chart_heading(
                 "Share over time",
@@ -4784,9 +4950,8 @@ def build_app(artifact: Path) -> gr.Blocks:
         # pipelines stay separate under the hood (ADR 0013); only the presentation is
         # combined.
 
-        # The site opens on Community (#346): what the format and the app are in one
-        # line, then the community's own numbers, which no other tab shows, and a
-        # doorway to each content tab. Everything on it is read from the
+        # The site opens on Community (#346): the title, then the community's own
+        # numbers, which no other tab shows, and a doorway to each content tab. Everything on it is read from the
         # figures file sealed beside this graph, the FAQ's source too (#264), so the
         # page shows what the bundle holds and the app counts none of it. Its charts
         # are drawn by its own script, and the chart library is not asked for until
@@ -4868,6 +5033,17 @@ def build_app(artifact: Path) -> gr.Blocks:
                     label="Second archetype (optional)",
                 )
 
+            # Archetypes to try, while none is picked (#340), as Cards offers cards: a
+            # chip sets the archetype, which is a pick like any other and draws as one.
+            # A record with no archetype to offer has no row.
+            with gr.Row(elem_classes="examples",
+                        visible=bool(example_archetypes)) as archetype_examples:
+                gr.HTML("<span class='t-control-label'>Try</span>", padding=False)
+                for _label, _tag in example_archetypes:
+                    gr.Button(_label, size="sm", elem_classes="example-chip").click(
+                        lambda tag=_tag: tag, outputs=timeline_a,
+                    )
+
             # The running state of a pick, as on Cards.
             archetypes_running = gr.HTML(
                 _state_message(DRAWING_LABEL), visible=False, padding=False,
@@ -4890,9 +5066,10 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # The step ahead of every draw, as on Cards: the running line where
                 # the page will land, and the drawn page taken down, so a stale answer
                 # never sits under changed controls. With no archetype there is
-                # nothing to wait for.
+                # nothing to wait for: the line stays away and the examples come back.
                 hide = gr.update(visible=False)
-                return [gr.update(visible=bool(a)), hide, hide]
+                return [gr.update(visible=bool(a)),
+                        gr.update(visible=not a and bool(example_archetypes)), hide, hide]
 
             # Either selector redraws the page. The line comes down through `.then`,
             # which runs whether the query returned or raised.
@@ -4900,7 +5077,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 (
                     control.change(
                         archetypes_drawing, inputs=timeline_a,
-                        outputs=[archetypes_running, archetype_head, archetype_results],
+                        outputs=[archetypes_running, archetype_examples, archetype_head,
+                                 archetype_results],
                     )
                     .then(
                         draw_archetype_page, inputs=[timeline_a, timeline_b],
@@ -5011,7 +5189,8 @@ def build_app(artifact: Path) -> gr.Blocks:
                 # tiles, read off the usage graph and the adoption chart of this draw.
                 return gr.update(
                     value=parts.page_head(
-                        card_names[c], descriptor, _card_tiles(usage, adoption)),
+                        card_names[c], descriptor,
+                        _card_tiles(usage, adoption, archetype_total)),
                     visible=True,
                 )
 
@@ -5274,7 +5453,7 @@ def build_app(artifact: Path) -> gr.Blocks:
                     gr.update(
                         value=parts.page_head(
                             pilot_labels[p], _pilot_descriptor(record),
-                            _pilot_tiles(neighbourhood, affinity, record)),
+                            _pilot_tiles(neighbourhood, affinity, record, cov.events)),
                         visible=True,
                     ),
                     gr.update(visible=True),
