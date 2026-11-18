@@ -438,9 +438,9 @@ def resolve_pilots(
     # (ADR 0007). A same-name collision inside one event survives this and is
     # separated again by the event split below. A deck the dictionary moved off
     # an id keeps its owner apart from that id here (issue #378).
-    apart = _moves_kept_apart(decks, curation)
+    with_moves = _with_moves_as_splits(decks, curation)
     pilots, joined_names, name_splits = _join_identical_names(
-        real_pilots + null_pilots, deck_pilot, apart
+        real_pilots + null_pilots, deck_pilot, with_moves
     )
     real_joined = [p for p in pilots if not p.pilot.startswith("nan:")]
 
@@ -451,7 +451,7 @@ def resolve_pilots(
     # grammar, and this is the one place they are called.
     from graph7ph.identity_rules import fold_merges, rule_states
 
-    verdicts = rule_states(real_joined, decks, deck_pilot, decklists, apart)
+    verdicts = rule_states(real_joined, decks, deck_pilot, decklists, with_moves)
     folded = fold_merges(
         verdicts.pairs, {p.pilot: p.display_name for p in real_joined},
         Counter(deck_pilot.values()),
@@ -496,7 +496,7 @@ def resolve_pilots(
     )
 
 
-def _moves_kept_apart(decks, curation: Curation) -> Curation:
+def _with_moves_as_splits(decks, curation: Curation) -> Curation:
     """The dictionary with every deck it moved off an id read as a split too.
 
     A ``[[deck_pilot]]`` that moves a deck off an upstream id says the deck's
@@ -690,7 +690,7 @@ def _partition_by_split(
     declares two of its ids strangers (issue #35); a ``[[reject]]`` records the
     same "different people" judgement from the merge-candidate review (issue #74),
     and a deck the dictionary moved off an id is read as a split between its
-    owner and that id (issue #378, :func:`_moves_kept_apart`).
+    owner and that id (issue #378, :func:`_with_moves_as_splits`).
     Any of them keeps a pair apart: names are not stable identity, so a rejected pair
     one edit apart can converge on a later fetch, and the join must not then fuse
     ids a human recorded as distinct. The group is partitioned: every pair is
