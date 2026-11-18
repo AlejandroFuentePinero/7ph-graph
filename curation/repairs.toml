@@ -30,13 +30,16 @@
 #     field = 49
 #
 #   [[adopt]]      adopt a value for one of a deck's immutable facts (`pilot`,
-#                  `placement`, `createdAt`), where upstream rewrote it in a later
-#                  fetch and the rewrite is right. Carried into every snapshot
-#                  that holds the deck, so the gate reads one fact instead of
-#                  flagging the rewrite and pinning the old value.
+#                  `placement`, `createdAt`, `decklist`), where upstream rewrote
+#                  it in a later fetch and the rewrite is right. Carried into
+#                  every snapshot that holds the deck, so the gate reads one fact
+#                  instead of flagging the rewrite and pinning the old value.
 #     decks = ["<deckId>"]
 #     fact = "pilot"
 #     value = "<pilotId>"
+#                  A decklist's value is both boards, by card canon as the
+#                  source's card index spells it:
+#     value = { Main = ["<canon>", ...], Side = ["<canon>", ...] }
 #
 # Every kind also takes:
 #     reason = "one line"
