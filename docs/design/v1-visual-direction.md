@@ -1018,7 +1018,7 @@ head's caption (§12) and "subject once" (§14).
 Decided 2026-11-16, after the maintainer looked at three layouts on the running app
 (today's page, a side panel, a card floating over a full-width graph) and chose the
 side panel. Measured on the running app at 390, 1440 and 1920px before and after.
-The prototype is kept on the branch `prototype/330-graph-side-panel`.
+The prototype is kept as the tag `archive/prototype-330-graph-side-panel`.
 
 - **Two columns.** A graph sits beside a panel at one height: the graph about two
   thirds of the card (2.2 to 1), the panel the rest, never under 300px. It was alone
@@ -1102,8 +1102,8 @@ and that with only the best-connected nodes named at rest) and chose the second 
 shown. Measured
 on the running app at 390, 1440 and 1920px before and after, on Brainstorm's usage
 graph (106 nodes), a 181-node pilot neighbourhood and the head-to-head of the two
-top-ranked pilots (47 nodes). The prototype is kept on the branch
-`prototype/331-subject-and-focus`.
+top-ranked pilots (47 nodes). The prototype is kept as the tag
+`archive/prototype-331-subject-and-focus`.
 
 - **The subject stands out.** The node a graph was asked about is a larger dot with
   a larger name: 40 of vis.js's units against the 25 of every other dot, and 15px
@@ -1468,7 +1468,7 @@ before and after. The reasoning is ADR 0013's amendment of the same date.
 Decided 2026-11-17. A new first tab, "Community", which is the tab the site opens
 on: one line on what the format and the app are, then the community's own numbers,
 which no other tab shows. The maintainer picked its look from a rendered prototype
-on 2026-11-15 (#339, branch `prototype/community-landing-339`, variant A), and this
+on 2026-11-15 (#339, tag `archive/prototype-community-landing-339`, variant A), and this
 is that page rebuilt on the build's figures. Measured on the running app over the
 real record at 390, 1440 and 1920px. The date argument is ADR 0013's amendment of
 the same date, and the wording rule is `CONTEXT.md`'s "On record".
@@ -1575,7 +1575,7 @@ drawn as dashed lines over four yearly points, under a "Top 25 / 50 / 75%" contr
 and beside a "focus on specific archetypes" search. To learn who was most played a
 reader found the highest marker in the last column and traced its colour to a legend.
 The maintainer picked its replacement from a rendered prototype on the real record
-(branch `prototype/334-meta-share-ranked-list`: the chart as it was, a ranked list,
+(tag `archive/prototype-334-meta-share-ranked-list`: the chart as it was, a ranked list,
 and the chart restyled with its legend under it as chips), and this is the list
 built fresh. Measured on the running app over the real record at 390, 1440 and
 1920px, before (main at `93f2d3f`) and after. The reasoning is ADR 0013's amendment
@@ -1652,7 +1652,7 @@ light and unreadable where events are dense: two archetypes' 84 shared events as
 interleaved dashed lines on a date axis, one archetype's 112 as a dashed line filled
 down to zero, and under each a 44px accent slab reading "Time range filter (drag to
 slice)". The maintainer picked the pair chart's form from a rendered prototype on the
-real record (branch `prototype/335-finish-timelines`: the chart as it was, a bar per
+real record (tag `archive/prototype-335-finish-timelines`: the chart as it was, a bar per
 event for the gap between the two finishes, and the two lines over evenly spaced
 events), and this is that form built fresh, on the archetype comparison and the pilot
 head-to-head alike. Measured on the running app over the real record at 390, 1440 and
