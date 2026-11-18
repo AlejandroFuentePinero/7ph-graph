@@ -500,11 +500,13 @@ def test_shape_shifted_response_hard_fails(tmp_path):
         load_checked(tmp_path)
 
 
-def _repairable_snapshot(path, decks, events=None):
+def _repairable_snapshot(path, decks, events=None, lists=None):
     """``decks`` as ``(deck_id, pilot)``, all at event E, so a pilot rewrite between
     two snapshots is the immutable-fact change the gate flags. ``events`` maps a
-    deck id to the ``(event, eventId)`` the source files it at instead."""
+    deck id to the ``(event, eventId)`` the source files it at instead, and
+    ``lists`` to the main board it carries instead of a lone Island."""
     events = events or {}
+    lists = lists or {}
     path.mkdir(parents=True)
 
     def record(did, pilot):
@@ -518,11 +520,13 @@ def _repairable_snapshot(path, decks, events=None):
             "engineTagLabels": {}, "primaryTag": "", "primaryTagWeights": {},
         }
     (path / "decks.json").write_text(json.dumps([record(did, pilot) for did, pilot in decks]))
+    canons = sorted({"island", *(c for main in lists.values() for c in main)})
     (path / "cards_index.json").write_text(json.dumps({
         "v": 2,
-        "cards": [{"canon": "island", "name": "Island", "type": "Lands",
-                   "manaValue": 0.0, "reserved": False, "points": 0, "pointsCompanion": 0}],
-        "decks": {did: {"m": [0], "s": []} for did, _ in decks},
+        "cards": [{"canon": c, "name": c.title(), "type": "Lands", "manaValue": 0.0,
+                   "reserved": False, "points": 0, "pointsCompanion": 0} for c in canons],
+        "decks": {did: {"m": [canons.index(c) for c in lists.get(did, ["island"])], "s": []}
+                  for did, _ in decks},
     }))
 
 
@@ -589,6 +593,42 @@ as_of = "20260201T000000Z"
         "dead": [{"kind": "hold_out", "deck": "d9", "detail": "held out: extra deck"}],
         "moved": [],
     }
+
+
+def test_an_adopted_decklist_clears_the_rewrite_and_reaches_the_graph(tmp_path, monkeypatch):
+    # The source's first list for d1 was another deck's and a later fetch fixed
+    # it (issue #372). Without a ruling the gate flags the rewrite and pins the
+    # first list; the adopt carries the fix into both snapshots, so the gate
+    # reads one list and the graph holds it. d2 keeps every card in both card
+    # indexes, as the corpus does, so no card drops out between the two.
+    root = tmp_path / "snapshots"
+    _repairable_snapshot(root / "20260101T000000Z", [("d1", "p1"), ("d2", "p2")],
+                         lists={"d1": ["grief"], "d2": ["grief", "swamp"]})
+    _repairable_snapshot(root / "20260201T000000Z", [("d1", "p1"), ("d2", "p2")],
+                         lists={"d1": ["island", "swamp"], "d2": ["grief", "swamp"]})
+    db = tmp_path / "graph"
+
+    report, _ = ingest(root, db)
+    assert [(f.kind, f.id) for f in report.flags] == [("changed", "d1")]
+
+    repairs = tmp_path / "repairs.toml"
+    repairs.write_text('''
+[[adopt]]
+decks = ["d1"]
+fact = "decklist"
+value = { Main = ["island", "swamp"], Side = [] }
+reason = "the first list was another deck's"
+as_of = "20260201T000000Z"
+''')
+    monkeypatch.setattr("graph7ph.ingest.load_repairs",
+                        functools.partial(load_repairs, repairs))
+
+    report, _ = ingest(root, db)
+
+    assert report.flags == []
+    assert sorted(canon for canon, in rows(open_for_reading(db).execute(
+        "MATCH (:Deck {deckId: 'd1'})-[:CONTAINS]->(c:Card) RETURN c.canon"
+    ))) == ["island", "swamp"]
 
 
 def test_a_refiled_deck_upstream_moves_itself_is_reported_as_moved_under_the_repair(
