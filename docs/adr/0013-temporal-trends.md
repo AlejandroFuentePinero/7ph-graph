@@ -362,7 +362,7 @@ The Metagame tab's lead card answered "who is played" with the meta share chart:
 
 ## Amended 2026-11-17 (#335): a pair's events are spaced evenly, a solo timeline is points, and the range control is a plain strip
 
-Both pair charts (two archetypes, two pilots) placed each shared event at its registration date, and the archetype timeline drew one archetype as a dashed line filled down to zero. Where the format was busiest the events packed together: Grixis and Walks share 84, 42 of them in the ten months of 2026 on record, and that half of the chart was unreadable. Two forms of the pair chart were prototyped side by side on the real record, at 390 and 1440px, and the maintainer chose between them (issue #335; the prototype is on the branch `prototype/335-finish-timelines`).
+Both pair charts (two archetypes, two pilots) placed each shared event at its registration date, and the archetype timeline drew one archetype as a dashed line filled down to zero. Where the format was busiest the events packed together: Grixis and Walks share 84, 42 of them in the ten months of 2026 on record, and that half of the chart was unreadable. Two forms of the pair chart were prototyped side by side on the real record, at 390 and 1440px, and the maintainer chose between them (issue #335; the prototype is kept as the tag `archive/prototype-335-finish-timelines`).
 
 **The two lines stay, over evenly spaced events.** The other form was one bar per shared event for the gap between the two finishes. The maintainer's reason for refusing it: a gap makes only the difference obvious. Two finishes near a win and two near last place draw the same short bar, and a tournament both nearly won matters to the comparison at least as much as one that split them. So the pair keeps both finishes on the 0-to-1 score, the band between them and the 0.5 line.
 
@@ -377,3 +377,11 @@ Both pair charts (two archetypes, two pilots) placed each shared event at its re
 **The tools are untouched.** `archetype_timeline` and `head_to_head_timeline` return what they returned, the captions count what they counted, and a finish the source never scored is still drawn at its bound with its own mark (ADR 0024). That mark keeps 9px where a long pair's rings shrink to 6, so the triangle still reads apart from them.
 
 **The dashed join on the pair chart stays.** #334's amendment kept the dash "where it is honest", for a few yearly values, and a pair chart joins up to 84 per-event values with it, so whether that join still earned its place was left to the maintainer. He ruled on 2026-11-17: leave it. On the pair chart the dashed lines tie each side's points together and give the band its edges, and he approved that form at his look.
+
+## Amended 2026-11-18 (#340): two archetypes' head states their means without the interval
+
+The rule above, and #332's amendment, state no mean without its interval. With two archetypes picked, the head of the Archetypes page is the comparison, and its "Mean finish" tile states the two means side by side, "0.56 vs 0.55", over "First place = 1" and nothing else. That is the maintainer's ruling at his look at the whole app: each tile of the comparison says only what it is, and the evidence sits elsewhere. The interval is not withheld from the reader, it is one click away: each archetype's own page states its mean with the 90% range, and the landscape draws it as a bar. A single archetype's tile is unchanged.
+
+The same head names the archetype that finished better more often over the events both were placed at. A name reads as a lead, so the tile carries the coin check the timeline caption already applies (issue #175): where a fair coin produces the split, its note ends ", a split a coin could produce".
+
+Its "Events played" tile, and the single archetype's fourth tile, count the events a deck of the archetype was at, placed or not (`trends.archetype_events_played`). That is not the events a finish is read from (ADR 0022): in 2026 Grixis was played at 75 and placed at 63.

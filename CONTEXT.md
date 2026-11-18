@@ -35,7 +35,7 @@ Every Deck on file for one Pilot, one per Event they entered, newest first: what
 _Avoid_: Results, history, career
 
 **Major**:
-An Event with a Field Size over 64 that published its field and not just a top cut. The events the player leaderboard scores, and the only events the Community page names. One function says which they are (`trends.major_events`), so the two pages count the same ones (issue #346).
+An Event with a Field Size over 64 that published its field and not just a top cut. The events the player leaderboard scores, and the ones the Community page draws solid and names in its largest-field figure (every event is named under the pointer on its own dot since issue #340). One function says which they are (`trends.major_events`), so the two pages count the same ones (issue #346).
 _Avoid_: Big event, premier event (a size alone does not make one: a published bracket of 80 is not a major)
 
 **On record**:
