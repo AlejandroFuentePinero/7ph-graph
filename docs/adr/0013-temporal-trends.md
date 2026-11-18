@@ -377,3 +377,11 @@ Both pair charts (two archetypes, two pilots) placed each shared event at its re
 **The tools are untouched.** `archetype_timeline` and `head_to_head_timeline` return what they returned, the captions count what they counted, and a finish the source never scored is still drawn at its bound with its own mark (ADR 0024). That mark keeps 9px where a long pair's rings shrink to 6, so the triangle still reads apart from them.
 
 **The dashed join on the pair chart stays.** #334's amendment kept the dash "where it is honest", for a few yearly values, and a pair chart joins up to 84 per-event values with it, so whether that join still earned its place was left to the maintainer. He ruled on 2026-11-17: leave it. On the pair chart the dashed lines tie each side's points together and give the band its edges, and he approved that form at his look.
+
+## Amended 2026-11-18 (#340): two archetypes' head states their means without the interval
+
+The rule above, and #332's amendment, state no mean without its interval. With two archetypes picked, the head of the Archetypes page is the comparison, and its "Mean finish" tile states the two means side by side, "0.56 vs 0.55", over "First place = 1" and nothing else. That is the maintainer's ruling at his look at the whole app: each tile of the comparison says only what it is, and the evidence sits elsewhere. The interval is not withheld from the reader, it is one click away: each archetype's own page states its mean with the 90% range, and the landscape draws it as a bar. A single archetype's tile is unchanged.
+
+The same head names the archetype that finished better more often over the events both were placed at. A name reads as a lead, so the tile carries the coin check the timeline caption already applies (issue #175): where a fair coin produces the split, its note ends ", a split a coin could produce".
+
+Its "Events played" tile, and the single archetype's fourth tile, count the events a deck of the archetype was at, placed or not (`trends.archetype_events_played`). That is not the events a finish is read from (ADR 0022): in 2026 Grixis was played at 75 and placed at 63.

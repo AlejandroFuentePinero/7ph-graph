@@ -1234,6 +1234,60 @@ def test_cards_opens_on_examples_that_draw_in_one_click_and_pilots_offers_none(p
     assert page.locator(".examples").locator("visible=true").count() == 0
 
 
+def test_archetypes_offers_the_most_played_to_try_and_two_picked_are_the_comparison(
+    chromium, record
+):
+    # Issue #340, on the real record, since no archetype of the suite's snapshot has
+    # a page. Archetypes opened as two empty boxes: it offers the five most played
+    # archetypes to try, read here a second way, off the first five rows of
+    # Metagame's list. A chip is a pick like any other. With a second archetype the
+    # head is the comparison: named for the pair, every tile both sides' value.
+    page = _loaded(chromium, record)
+    try:
+        listed = page.locator(".share-list a[data-opens=archetype]").locator(
+            "visible=true").all_inner_texts()[:5]
+        shots.tab(page, "Archetypes")
+        names = _example_chips(page).all_inner_texts()
+        assert len(listed) == 5 and names == listed
+
+        _example_chips(page).first.click()
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        head = page.locator("#archetype-page .page-head").locator("visible=true")
+        assert head.locator(".page-name").inner_text() == names[0]
+        assert shots.field(page, "Archetype").input_value().startswith(names[0] + " (")
+        assert _example_chips(page).count() == 0
+        alone = head.locator(".tile-label").all_inner_texts()
+
+        shots.pick(page, "Second archetype (optional)", names[1])
+        head.locator(".page-name").filter(
+            has_text=f"{names[0]} vs {names[1]}").wait_for(timeout=30_000)
+        _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
+        labels = head.locator(".tile-label").all_inner_texts()
+        values = head.locator(".tile-value").all_inner_texts()
+        assert [label.upper() for label in labels] == [
+            alone[0].upper(), alone[2].upper(), alone[3].upper(), "FINISHED BETTER"]
+        assert all(re.fullmatch(r"\S+ vs \S+", value) for value in values[:3]), values
+        assert values[3] in (names[0], names[1], "Level"), values
+        # No tile runs out of the head, at this width or a phone's.
+        for width in (1440, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.wait_for_timeout(400)
+            box = head.bounding_box()
+            for tile in head.locator(".tile-value").all():
+                at = tile.bounding_box()
+                assert at["x"] >= box["x"] - 1, width
+                assert at["x"] + at["width"] <= box["x"] + box["width"] + 1, width
+        assert page.evaluate("document.documentElement.scrollWidth") <= 390
+
+        # The chips are back when the first archetype is cleared.
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.locator("button.clear-btn").locator("visible=true").first.click()
+        _example_chips(page).first.wait_for()
+        assert _example_chips(page).all_inner_texts() == names
+    finally:
+        page.close()
+
+
 def _controls(page) -> list[dict]:
     """The box of every control in the open tab's control panel, in page order: a
     field with its label, or a button that acts. A field's clear button is part of
@@ -1601,8 +1655,8 @@ def test_a_drawn_archetype_page_runs_head_then_share_then_finishes(chromium, rec
         alone = _lines_named(page)
 
         shots.pick(page, "Second archetype (optional)", shots.ARCHETYPE_B)
-        page.locator(".page-descriptor").locator("visible=true").filter(
-            has_text=f"compared with {shots.ARCHETYPE_B}").wait_for(timeout=30_000)
+        page.locator(".page-name").locator("visible=true").filter(
+            has_text=f"{shots.ARCHETYPE} vs {shots.ARCHETYPE_B}").wait_for(timeout=30_000)
         _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
         compared = _lines_named(page)
     finally:
@@ -2705,8 +2759,8 @@ def test_an_archetype_in_a_pilots_record_opens_its_page_on_the_real_record(
         _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
         assert shots.field(page, "Archetype").input_value().startswith(archetype + " (")
         assert shots.field(page, "Second archetype (optional)").input_value() == ""
-        assert "compared with" not in page.locator(
-            "#archetype-page .page-descriptor").locator("visible=true").inner_text()
+        assert page.locator("#archetype-page .page-name").locator(
+            "visible=true").inner_text() == archetype
     finally:
         page.close()
 
@@ -3262,13 +3316,15 @@ def test_a_dot_a_month_and_a_part_of_a_bar_each_say_their_value_under_the_pointe
     chromium, served
 ):
     # AC (#346): hovering each kind of mark shows its value. An event says its
-    # players and its year, and its name only if it is a major: never a date. The
+    # players, its name and its year, major or not (issue #340): never a date. The
     # running count says where the line is, and the month under it how many events
     # it holds. A part of a year's bar says its pilots and what share they are.
     url, held = served
     with _community_page(chromium, url, "desktop") as page:
-        # The dots are drawn in the record's order, so the first is the first event.
-        page.locator("circle.cm-event").first.hover()
+        # The dots are drawn in the record's order. The one hovered is the first
+        # that is no major, the kind that went unnamed until issue #340.
+        at = next(i for i, event in enumerate(held["events"]) if not event["major"])
+        page.locator("circle.cm-event").nth(at).hover()
         dot = page.evaluate(_TIP)
 
         # Past the last date on record the line stays at its last count.
@@ -3283,10 +3339,9 @@ def test_a_dot_a_month_and_a_part_of_a_bar_each_say_their_value_under_the_pointe
         page.mouse.move(2, 2)
         gone = page.evaluate(_TIP)
 
-    first = held["events"][0]
-    year = first["date"][:4]
-    assert dot == [f"{first['players']:,} players",
-                   f"{first['major']} · {year}" if first["major"] else year]
+    event = held["events"][at]
+    assert dot == [f"{event['players']:,} players",
+                   f"{event['name']} · {event['date'][:4]}"]
     last_month, events = held["events_by_month"][-1]
     assert last_month == held["through"][:7]
     assert month == [
@@ -3463,8 +3518,8 @@ def test_a_long_rivalry_opens_on_its_latest_events_on_a_phone_on_the_real_record
         shots.tab(page, "Archetypes")
         shots.pick(page, "Archetype", shots.ARCHETYPE)
         shots.pick(page, "Second archetype (optional)", shots.ARCHETYPE_B)
-        page.locator(".page-descriptor").locator("visible=true").filter(
-            has_text=f"compared with {shots.ARCHETYPE_B}").wait_for(timeout=30_000)
+        page.locator(".page-name").locator("visible=true").filter(
+            has_text=f"{shots.ARCHETYPE} vs {shots.ARCHETYPE_B}").wait_for(timeout=30_000)
         _card_titled(page, "Finishes over time").wait_for(timeout=30_000)
         page.wait_for_timeout(2000)
         read = page.evaluate(

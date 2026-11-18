@@ -1,9 +1,10 @@
 """The Community page: what is on record, drawn from a bundle's figures (issue #346).
 
-The landing page. One line on what the format and the app are, then the community's
-own numbers, which no other tab shows: six figures, every event as a dot, the pilots
-on record over the events of each month, each year's pilots by the year they first
-played, and a doorway to each content tab.
+The landing page. The title, then the community's own numbers, which no other tab
+shows: six figures, every event as a dot, the pilots on record over the events of
+each month, each year's pilots by the year they first played, and a doorway to each
+content tab. The line on what the format and the app are went on 2026-11-18 (issue
+#340): the maintainer ruled the page needs only its title over its figures.
 
 Pure markup and one page script. :func:`page` takes the ``community`` block of the
 figures file (``figures._community``) and returns the HTML the app sets in a
@@ -11,8 +12,9 @@ figures file (``figures._community``) and returns the HTML the app sets in a
 class looks like is the stylesheet's (:func:`graph7ph.theme.build_css`).
 
 The wording rule (``CONTEXT.md``): counts are of what is "on record", no sentence
-says the community grew, and the source is named once. No pilot is named, and no
-event but a major.
+says the community grew, and the source is named once. No pilot is named. An event
+is named under the pointer on its dot, and the largest field names its event only
+where that is a major.
 """
 
 import html
@@ -23,11 +25,6 @@ from graph7ph import numfmt, palette, parts, theme
 from graph7ph.render import _KIND_COLOURS
 
 TITLE = "Australian 7 Point Highlander"
-LEDE = (
-    "7 Point Highlander is a singleton Magic format run by the people who play it. "
-    "This app maps the tournament results they report: events, pilots, decks and "
-    "cards, with some extra depth for the Spikes among us."
-)
 SOURCE = "Built from results the community reports on Moxfield."
 
 # A doorway to each content tab: the tab's own label, which is what a click opens
@@ -63,7 +60,8 @@ def _figures(record: dict) -> str:
         )
 
     largest = record["largest_field"]
-    # Only a major is named, so a largest field that is none shows its year alone.
+    # This figure names its event only where that is a major, so a largest field
+    # that is none shows its year alone.
     where = ", ".join(str(part) for part in (largest["major"], largest["year"]) if part)
     return (
         "<section class='cm-figures' aria-label='The record in six numbers'>"
@@ -204,7 +202,7 @@ def _chart_data(record: dict) -> str:
 
     Numbers, so the page carries each once and small: a date is its day since
     1970, a month its place counted from the first January on record, and an event
-    is its day, its players, and its name where it is a major.
+    is its day, its players, its name, and whether it is a major.
     """
     first = record["years"][0]
 
@@ -218,7 +216,8 @@ def _chart_data(record: dict) -> str:
     data = {
         "years": record["years"],
         "through": day(record["through"]),
-        "events": [[day(event["date"]), event["players"], event["major"]]
+        "events": [[day(event["date"]), event["players"], event["name"],
+                    int(event["major"])]
                    for event in record["events"]],
         "pilots": [[day(when), pilots] for when, pilots in record["pilots_on_record"]],
         "months": [[month(when), events] for when, events in record["events_by_month"]],
@@ -234,7 +233,7 @@ def page(record: dict) -> str:
         "<section class='cm-intro'>"
         # The format's name keeps its last three words on one line.
         f"<h2 class='page-name'>{TITLE.replace(' ', '&nbsp;').replace('&nbsp;', ' ', 1)}</h2>"
-        f"<p class='t-lede'>{LEDE}</p></section>"
+        "</section>"
         f"{_figures(record)}"
         f"<p class='cm-source'>{SOURCE}</p>"
         + _events_card(record) + _pair_card(record) + _years_card(record)
@@ -329,8 +328,8 @@ const drawEvents = () => {
   const W = host.clientWidth;
   if (!W) return;
   const k = Math.max(0.52, Math.min(1, W / 1100)), x = scale(W), GAP = 1.5;
-  const dots = D.events.map(([day, players, major]) => ({
-    day, players, major, x: x(day), y: 0, r: Math.max(2.2, Math.sqrt(players) * 0.95 * k),
+  const dots = D.events.map(([day, players, name, major]) => ({
+    day, players, name, major, x: x(day), y: 0, r: Math.max(2.2, Math.sqrt(players) * 0.95 * k),
   }));
   const placed = [];
   for (const dot of [...dots].sort((a, b) => b.r - a.r)) {
@@ -373,10 +372,10 @@ const drawEvents = () => {
       if (away < gap) { gap = away; hit = dot; }
     }
     if (!hit) return hush();
-    // An event says its players and its year, and its name only if it is a major.
+    // An event says its players, its name and its year, major or not (#340).
     const year = new Date(hit.day * 864e5).getUTCFullYear();
     say(box.left + hit.x, box.top + line + hit.y - hit.r, `${fmt(hit.players)} players`,
-        hit.major ? `${hit.major} · ${year}` : `${year}`,
+        `${hit.name} · ${year}`,
         () => hit.mark.classList.remove('cm-hot'));
     hit.mark.classList.add('cm-hot');
   };

@@ -445,7 +445,7 @@ neighbourhood. See "The subject, and a node in focus (#331)"._
 - **Cold start** lands on a drawn default or 2–3 one-click examples (which one is
   a child-level decision), never an empty canvas. _Amended 2026-11-15 (#328): Cards
   takes the examples, three chips under its controls. Pilots takes neither: see
-  "The controls (#328)"._
+  "The controls (#328)"._ _Amended 2026-11-18 (#340): Archetypes takes five._
 - **Provenance / credit** on screen: a coverage row (108 events, 1,083 pilots,
   4,591 decks, 4,995 cards, 2023–2026) and which snapshot the artifact was built
   from; a real favicon and social preview. _Amended 2026-07-26: the links to the
@@ -881,7 +881,10 @@ panel's padding (§13), and where the invitation and the year's scope are stated
   to try in one click: the three cards in the most decks, lands left out, since the
   eight cards in the most decks of all are fetch lands and three of those would be
   one example three times. They leave once a card is picked and return when it is
-  cleared.
+  cleared. _Added 2026-11-18 (#340): Archetypes opens on five chips of the same
+  kind, the five most played archetypes of the record's latest year in the order
+  Metagame lists them, read off the same shares, so they follow the meta from one
+  build to the next._
 - **No person is named.** No placeholder and no example names a pilot. Pilots has the
   count-only placeholder and no examples: an example there is a person put on show
   without having asked to be.
@@ -914,9 +917,15 @@ head's caption (§12) and "subject once" (§14).
   most-played archetype, the best finish. No tile averages a pilot's finishes; that
   reading stays in the performance chart's caption, beside the sample it rests on.
   The most-played tile says when others are level with it, and the best finish is the
-  lowest place, with how often.
+  lowest place, with how often. _Amended 2026-11-18 (#340), at the maintainer's look:_
+  events played carries its share of every event on record, "33 (20.37%)" over "of 162
+  on record", so the count has a whole to be read against.
 - **Card tiles.** Adoption in the record's latest year, the change from the year
-  before (§4), the decks running it, the archetypes running it.
+  before (§4), the decks running it, the archetypes running it. _Amended 2026-11-18
+  (#340), at the maintainer's look:_ the last two carry their share of the whole on
+  record, "470 (7.12%)" of 6,597 decks and "48 (34.53%)" of 139 archetypes. The 139
+  are the archetypes that are the primary tag of a deck, the rule the count running
+  the card is taken on; a few archetype nodes never are.
 - **Two cards get a head about the pair.** _Added 2026-11-16, after the maintainer's
   look at the running page._ With a second card chosen, Co-occurrence is about the
   decks running both, and its head described the first card alone. It names both
@@ -1194,7 +1203,13 @@ the header's one-row width (§11), and the year's scope (§14).
   finish rests on (with the scored decks). Archetypes on as many decks share a
   rank, and the tile says how many are level: 23 deck counts are held by more than
   one of 2026's 131 archetypes. An archetype with no deck in the latest year (6 of
-  the 137 offered) says so in every tile.
+  the 137 offered) says so in every tile. _Amended 2026-11-18 (#340), at the
+  maintainer's look: the fourth tile is the events the archetype was played at that
+  year with the share of the year's events they are, "75 (86.21%)" over "of 87
+  events" for Grixis, so the count reads against the season. It was the events the
+  finish rests on (63 for Grixis), which leave out events where none of its decks
+  was placed; he asked for the events it was registered at. The scored decks behind
+  the finish are still in the landscape's hover._
 - **The mean carries its interval.** The finish tile's note is the 90% range the
   landscape draws as that dot's bar ("90% range 0.50 to 0.62, 1 = first"), since no
   mean is stated without one (ADR 0013, amended for this tile). In 2026, 110 of the
@@ -1214,6 +1229,22 @@ the header's one-row width (§11), and the year's scope (§14).
   check, as before. The tiles stay the first archetype's. A pair that never met
   refuses in the finishes card alone: the head and the share chart need no shared
   event.
+  _Reversed 2026-11-18 (#340), at the maintainer's look at the whole app: with a
+  second archetype the head is the comparison, as two cards' head is about the
+  pair (#329). It is named "A vs B", in the order picked, and its tiles keep both
+  sides' value in that order and never their gap. After a second look the same day
+  he ruled that each tile says only what it is, with no deck counts or intervals
+  under it: "Share in 2026" 7.45% vs 3.15%; "Mean finish in 2026" 0.56 vs 0.55
+  over "First place = 1" (the 90% intervals are on each archetype's own page, an
+  exception to ADR 0013 amended the same day); "Events played in 2026" 75 vs 48.
+  The fourth, "Finished better", names the archetype that finished ahead more often
+  over the events both were placed at, over every year: "Walks" over "Ahead of
+  Grixis at 53.57% of shared events (45 of 84)", with ", a split a coin could
+  produce" where a fair coin produces it (issue #175, the chart headline's words),
+  "Level" where neither leads, and where the timeline refuses the pair, how many
+  events the two share. Two means level to within float error are level, which the
+  chart headline's count now holds to as well (one meeting on the real record was
+  counted as a win by 5e-17). One archetype's head keeps its own tiles._
 - **One colour down the page.** The page's two charts draw an archetype in the same
   hue, the palette's first for the subject and second for the one it is compared
   with. So the hue is the page's, not the one the archetype carries on Metagame's
@@ -1291,6 +1322,11 @@ after.
   gem was found in.
 - **Where it is not.** A name is a link only when its picker could draw it. Six
   archetypes of the real record have no finishes line and so no page, and stay text.
+  _Amended 2026-11-18 (#340), at the maintainer's look:_ that text is set in the muted
+  ink. In a card's archetype table a thin archetype (Ketramose) sat under its broad
+  class (Control) in the same ink as the heading, and read as one more heading; grey
+  says it has no page, wherever such a name is drawn, a gems group heading included.
+  A page's own subject has a page, the one open, and stays plain.
   A page never links to itself: on a pilot's or a card's overview, that pilot or
   card is text in its own graphs' panels, where a link would open what is already
   open. A head-to-head's two pilots and the cards a co-occurrence graph starts from
@@ -1437,7 +1473,13 @@ is that page rebuilt on the build's figures. Measured on the running app over th
 real record at 390, 1440 and 1920px. The date argument is ADR 0013's amendment of
 the same date, and the wording rule is `CONTEXT.md`'s "On record".
 
-- **Seven parts, top to bottom.** The format's name and the one line. Six figures
+_Amended 2026-11-18 (#340), at the maintainer's look at the whole app:_ the one line
+on what the format and the app are is gone, so the title stands straight over the
+figures; and every event's dot states its name under the pointer, where only a
+major's did. Both are his rulings. The two bullets they change are marked below.
+
+- **Seven parts, top to bottom.** The format's name and the one line (_the line went
+  on 2026-11-18, #340: six parts_). Six figures
   in a row, each with the newest year's beneath: pilots, events, decks, cards,
   archetypes and the largest field, each label with the dot of its kind in the
   graph's own colour (§5). The source line, once. Every event on record as a dot.
@@ -1455,7 +1497,9 @@ the same date, and the wording rule is `CONTEXT.md`'s "On record".
   three, at 390 and at 1440. The running count and the months are two panels with
   one hover line through both, not one plot with two y axes.
 - **A major is the leaderboard's.** Solid where a major, a ring where not, and only
-  a major is named. 27 events have a field over 64 and 25 are majors: the two that
+  a major is named (_since 2026-11-18, #340, every dot names its event under the
+  pointer; the largest-field figure still names its event only where that is a
+  major_). 27 events have a field over 64 and 25 are majors: the two that
   published a bracket are rings. So the key gives the leaderboard's own rule, "a
   field over 64 that published its standings", where the prototype said "a field
   over 64". At a teams event the field counts teams, so its players are the pilots

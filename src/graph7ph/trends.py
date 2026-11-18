@@ -1291,6 +1291,31 @@ def meta_share_over_time(conn: ladybug.Connection) -> Series:
     return Series(cells=cells)
 
 
+def archetype_events_played(
+    conn: ladybug.Connection, year: int
+) -> tuple[dict[str, int], int]:
+    """How many events each archetype was played at in ``year``, by tag, and how
+    many events the year holds (issue #340).
+
+    An event counts once for an archetype that had a deck at it by its primary
+    archetype (ADR 0023), placed or not, a bracket's included: the same decks the
+    meta share counts (:func:`meta_share_over_time`), counted by event rather than
+    by deck. So it is not the landscape's events, which are those a finish is read
+    from (ADR 0022): on the real record in 2026 the two differ for 27 of the 32 most
+    played archetypes, Grixis played at 75 events and placed at 63. An archetype
+    with no deck that year is absent, a real zero. The year's events are every
+    event it holds, the base a count here is a share of, and the count the
+    landscape's caption states (:func:`_year_shape`).
+    """
+    played = dict(rows(conn.execute(
+        """MATCH (d:Deck)-[:HAS_ARCHETYPE {isPrimary: true}]->(a:Archetype),
+                 (d)-[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(:Year {year: $year})
+           RETURN a.tag, count(DISTINCT e)""",
+        {"year": year},
+    )))
+    return played, _year_shape(conn, year)[1]
+
+
 def card_adoption_over_time(
     conn: ladybug.Connection, canon: str, board: str | None = None
 ) -> Series:

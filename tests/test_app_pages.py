@@ -17,7 +17,10 @@ from graph7ph import numfmt
 from graph7ph.app import (
     Pages,
     _archetype_card,
+    _archetype_pair_tiles,
+    _example_archetypes,
     _archetype_tiles,
+    _archetype_timeline_figure,
     _landscape_figure,
     _landscape_top,
     _card_tiles,
@@ -43,9 +46,11 @@ from graph7ph.query import (
     Node,
     PilotDeck,
     Subgraph,
+    archetypes_on_record,
     card_cooccurrence_subgraph,
     card_deck_counts,
     card_usage_subgraph,
+    coverage,
     deck_records,
     pilot_affinity_subgraph,
     pilot_record,
@@ -53,9 +58,12 @@ from graph7ph.query import (
 )
 from graph7ph.trends import (
     AdoptionCell,
+    ArchetypeTimelinePoint,
     LandscapeCell,
+    NotEnoughHistory,
     Series,
     SeriesCell,
+    archetype_events_played,
     archetype_landscape,
     archetype_timeline,
     archetypes_with_history,
@@ -79,10 +87,11 @@ def test_a_pilots_tiles_are_four_neutral_facts(tmp_path, snapshot_dir, built_gra
 
     tiles = _pilot_tiles(pilot_subgraph(conn, "Jordan C"),
                          pilot_affinity_subgraph(conn, "Jordan C"),
-                         pilot_record(conn, "Jordan C"))
+                         pilot_record(conn, "Jordan C"), coverage(conn).events)
 
+    # The fixture holds two events, PogNov25 and CFWAT25, and Jordan C played both.
     assert _facts(tiles) == [
-        ("Events played", "2", None),
+        ("Events played", "2 (100%)", "of 2 on record"),
         ("Archetypes played", "1", "in 1 broad class"),
         ("Most-played archetype", "Grixis", "at 2 events"),
         ("Best finish", "5th", "once"),
@@ -121,7 +130,7 @@ def test_the_best_finish_is_the_lowest_place_and_says_how_often():
         record = [_deck(placement=place, placement_imputed=rule, deck_id=f"d{i}")
                   for i, (place, rule) in enumerate(finishes)]
         return _facts(_pilot_tiles(
-            _neighbourhood(len(record)), _affinity(("Grixis", 1)), record))[3]
+            _neighbourhood(len(record)), _affinity(("Grixis", 1)), record, 10))[3]
 
     # 2nd beats 11th and 21st: places compare as numbers, not as text.
     assert best((11, None), (2, None), (21, None), (2, None)) == (
@@ -139,7 +148,7 @@ def test_the_most_played_archetype_says_when_others_are_level_with_it():
     tiles = _pilot_tiles(
         _neighbourhood(3),
         _affinity(("Grixis", 1), ("Storm", 1), ("Lands", 1), macros=2),
-        [_deck()],
+        [_deck()], 10,
     )
 
     assert _facts(tiles)[1:3] == [
@@ -230,12 +239,17 @@ def _place(label: str) -> int:
     return int(label.rstrip(numfmt.IMPUTED_MARK)[:-2])
 
 
-def _assert_the_page_agrees(conn, pilot: str, played: dict) -> None:
+def _events_on_record(conn) -> int:
+    return next(rows(conn.execute("MATCH (e:Event) RETURN count(e)")))[0]
+
+
+def _assert_the_page_agrees(conn, pilot: str, played: dict, on_record: int) -> None:
     """The tiles, the record table's rows and the two graphs, for one pilot."""
     neighbourhood = pilot_subgraph(conn, pilot)
     affinity = pilot_affinity_subgraph(conn, pilot)
     record = pilot_record(conn, pilot)
-    events, archetypes, most, best = _pilot_tiles(neighbourhood, affinity, record)
+    events, archetypes, most, best = _pilot_tiles(neighbourhood, affinity, record,
+                                                  on_record)
 
     # The table against the neighbourhood: the same events, the same decks, and the
     # same place on each deck's placement node.
@@ -252,7 +266,9 @@ def _assert_the_page_agrees(conn, pilot: str, played: dict) -> None:
             assert label.endswith(numfmt.IMPUTED_MARK) == (r.placement_imputed is not None)
 
     # The tiles. Events against the table, a second query's reading of the record.
-    assert events.value == f"{len({r.event for r in record}):,}", pilot
+    attended = len({r.event for r in record})
+    assert events.value == f"{attended:,} ({numfmt.share(attended / on_record)})", pilot
+    assert events.note == f"of {on_record:,} on record", pilot
     # The two archetype tiles against the graph's raw rows.
     counts = sorted((len(at) for _, at in played.values()), reverse=True)
     assert archetypes.value == f"{len(counts):,}", pilot
@@ -280,8 +296,9 @@ def _assert_the_page_agrees(conn, pilot: str, played: dict) -> None:
 def test_a_pilots_tiles_table_and_graphs_agree(tmp_path, snapshot_dir, built_graph):
     conn = built_graph(tmp_path, snapshot_dir)
     played = _archetype_events(conn)
+    on_record = _events_on_record(conn)
     for pilot in _every_pilot(conn):
-        _assert_the_page_agrees(conn, pilot, played.get(pilot, {}))
+        _assert_the_page_agrees(conn, pilot, played.get(pilot, {}), on_record)
 
 
 def test_every_pilots_tiles_table_and_graphs_agree_on_the_real_record(live_graph):
@@ -290,8 +307,9 @@ def test_every_pilots_tiles_table_and_graphs_agree_on_the_real_record(live_graph
     pilots = _every_pilot(live_graph)
     assert len(pilots) > 1000
     played = _archetype_events(live_graph)
+    on_record = _events_on_record(live_graph)
     for pilot in pilots:
-        _assert_the_page_agrees(live_graph, pilot, played.get(pilot, {}))
+        _assert_the_page_agrees(live_graph, pilot, played.get(pilot, {}), on_record)
 
 
 def test_a_cards_tiles_are_its_adoption_its_change_its_decks_and_its_archetypes(
@@ -301,14 +319,17 @@ def test_a_cards_tiles_are_its_adoption_its_change_its_decks_and_its_archetypes(
     # decks of 2025, the record's only year.
     conn = built_graph(tmp_path, snapshot_dir)
 
+    # The record's archetypes are Grixis and Storm, each the primary tag of a deck.
+    assert archetypes_on_record(conn) == 2
+
     tiles = _card_tiles(card_usage_subgraph(conn, "daze"),
-                        card_adoption_over_time(conn, "daze"))
+                        card_adoption_over_time(conn, "daze"), archetypes_on_record(conn))
 
     assert _facts(tiles) == [
         ("Adoption in 2025", "66.67%", "2 / 3 decks"),
         ("Change from last year", "n/a", "No earlier year on record"),
-        ("Decks", "2", "of 3 on record"),
-        ("Archetypes running it", "1", "in 1 broad class"),
+        ("Decks", "2 (66.67%)", "of 3 on record"),
+        ("Archetypes running it", "1 (50%)", "of 2 on record, in 1 broad class"),
     ]
 
 
@@ -323,7 +344,7 @@ _A_CARD = Subgraph(nodes=[Node("card:x", "X (5% of meta)", "Card", decks=50, tot
 
 def test_a_cards_change_is_the_latest_years_share_less_the_year_befores():
     tiles = _card_tiles(_A_CARD, _adoption((2024, 1, 100), (2025, 3181, 10000),
-                                           (2026, 3412, 10000)))
+                                           (2026, 3412, 10000)), 40)
 
     assert _facts(tiles)[:2] == [
         ("Adoption in 2026", "34.12%", "3,412 / 10,000 decks"),
@@ -508,6 +529,10 @@ def test_a_cards_tiles_lists_and_pictures_agree_on_the_real_record(live_graph):
     totals = dict(rows(conn.execute(
         "MATCH (a:Archetype)<-[:HAS_ARCHETYPE {isPrimary: true}]-(d:Deck) "
         "RETURN a.tag, count(DISTINCT d)")))
+    # The whole each count is a share of: every deck, and every archetype that is the
+    # primary tag of one (the archetype nodes include a few that never are).
+    deck_total = next(rows(conn.execute("MATCH (d:Deck) RETURN count(d)")))[0]
+    assert archetypes_on_record(conn) == len(totals)
     cards = _real_cards(conn)
     assert len(cards) > 100
 
@@ -515,10 +540,11 @@ def test_a_cards_tiles_lists_and_pictures_agree_on_the_real_record(live_graph):
         for board in (None, "Main", "Side"):
             usage = card_usage_subgraph(conn, canon, board)
             adoption = card_adoption_over_time(conn, canon, board)
-            _, _, decks, archetypes = _card_tiles(usage, adoption)
+            _, _, decks, archetypes = _card_tiles(usage, adoption, len(totals))
             where = (canon, board)
 
-            assert decks.value == f"{sum(cell.count for cell in adoption.cells):,}", where
+            counted = sum(cell.count for cell in adoption.cells)
+            assert decks.value == f"{counted:,} ({numfmt.share(counted / deck_total)})", where
 
             running = list(rows(conn.execute(
                 "MATCH (a:Archetype)<-[:HAS_ARCHETYPE {isPrimary: true}]-(d:Deck)"
@@ -527,7 +553,8 @@ def test_a_cards_tiles_lists_and_pictures_agree_on_the_real_record(live_graph):
                 + "RETURN a.tag, a.name, count(DISTINCT d)",
                 {"canon": canon, "board": board} if board else {"canon": canon},
             )))
-            assert archetypes.value == f"{len(running):,}", where
+            assert archetypes.value == (
+                f"{len(running):,} ({numfmt.share(len(running) / len(totals))})"), where
             assert sorted(_archetype_rows(_archetype_card(usage))) == sorted(
                 (name, numfmt.count_of(n, totals[tag]), numfmt.share(n / totals[tag]))
                 for tag, name, n in running
@@ -536,8 +563,9 @@ def test_a_cards_tiles_lists_and_pictures_agree_on_the_real_record(live_graph):
         # One card's view has no board: a rate is a share of every deck running it.
         played_with = _played_with(card_cooccurrence_subgraph(conn, canon))
         either = _card_tiles(card_usage_subgraph(conn, canon),
-                             card_adoption_over_time(conn, canon))[2]
-        assert f"<span class='figure'>{either.value}</span> decks" in played_with, canon
+                             card_adoption_over_time(conn, canon), len(totals))[2]
+        count = either.value.split(" (")[0]
+        assert f"<span class='figure'>{count}</span> decks" in played_with, canon
 
 
 # --- What a clicked node answers with, in the panel beside its graph (issue #330) ---
@@ -929,24 +957,27 @@ def test_an_archetypes_tiles_are_its_latest_years_share_rank_finish_and_events()
     # four archetypes played, level with one other. Its four scored decks, at two
     # events, average 0.3 from the top: a finish of 0.70. The landscape puts that
     # mean's 90% interval at 0.2 to 0.45, which flipped is 0.55 to 0.80, and no mean
-    # is stated without it (ADR 0013).
+    # is stated without it (ADR 0013). Grixis was played at three of the year's nine
+    # events, one more than it was placed at (a bracket that cut no Grixis deck):
+    # 33.33% of the season (issue #340).
     landscape = _landscape(
         2024, 200,
         ("grixis", 12, 0.3, 4, 2, 0.2, 0.45), ("storm", 30, 0.5, 20, 6, 0.4, 0.6),
         ("lands", 12, 0.6, 9, 4, 0.5, 0.7), ("zoo", 3, None, 0, 0, None, None),
     )
 
-    assert _facts(_archetype_tiles("grixis", _shares(*_SHARES), landscape)) == [
+    assert _facts(_archetype_tiles("grixis", _shares(*_SHARES), landscape, 3, 9)) == [
         ("Share in 2024", "6%", "12 / 200 decks"),
         ("Rank in 2024", "2nd", "of 4 archetypes by share, level with 1 other"),
         ("Mean finish in 2024", "0.70", "90% range 0.55 to 0.80, 1 = first"),
-        ("Events in 2024", "2", "4 scored decks"),
+        ("Events played in 2024", "3 (33.33%)", "of 9 events"),
     ]
-    # Played that year and scored nowhere: a share and a rank, and no finish.
-    assert _facts(_archetype_tiles("zoo", _shares(*_SHARES), landscape))[1:] == [
+    # Played that year and scored nowhere: a share, a rank and the events it was at,
+    # and no finish.
+    assert _facts(_archetype_tiles("zoo", _shares(*_SHARES), landscape, 1, 9))[1:] == [
         ("Rank in 2024", "4th", "of 4 archetypes by share"),
         ("Mean finish in 2024", "n/a", "No scored deck in 2024"),
-        ("Events in 2024", "0", "0 scored decks"),
+        ("Events played in 2024", "1 (11.11%)", "of 9 events"),
     ]
 
 
@@ -959,12 +990,207 @@ def test_an_archetype_that_sat_the_latest_year_out_says_so_in_every_tile():
         ("Share in 2024", "0%", "0 / 200 decks"),
         ("Rank in 2024", "n/a", "No deck in 2024"),
         ("Mean finish in 2024", "n/a", "No scored deck in 2024"),
-        ("Events in 2024", "0", "0 scored decks"),
+        ("Events played in 2024", "0 (0%)", "of 9 events"),
     ]
 
-    assert _facts(_archetype_tiles("jund", _shares(*_SHARES), landscape)) == sat_out
+    assert _facts(_archetype_tiles("jund", _shares(*_SHARES), landscape, 0, 9)) == sat_out
     # A year too thin to place on a landscape at all has no finish to state either.
-    assert _facts(_archetype_tiles("jund", _shares(*_SHARES), None)) == sat_out
+    assert _facts(_archetype_tiles("jund", _shares(*_SHARES), None, 0, 9)) == sat_out
+
+
+def test_the_archetypes_to_try_are_the_most_played_the_picker_offers_five_at_most():
+    # Issue #340. In 2024, the record's latest year, Storm has 30 decks and Grixis
+    # and Lands 12 each, listed in that order as Metagame lists them (level
+    # archetypes by tag). Zoo's 3 of 200 is over the 1% Metagame lists from, but
+    # the picker does not offer it here, and a chip is a pick: it is no example.
+    # Jund has no deck that year. Read off the shares, so a year that reorders the
+    # meta reorders the chips.
+    labels = {"grixis": "Grixis", "storm": "Storm", "lands": "Lands", "jund": "Jund"}
+
+    assert _example_archetypes(_shares(*_SHARES), labels) == [
+        ("Storm", "storm"), ("Grixis", "grixis"), ("Lands", "lands")]
+    assert _example_archetypes(
+        _shares(*_SHARES, ("jund", 2025, 40, 60), ("storm", 2025, 20, 60)),
+        labels) == [("Jund", "jund"), ("Storm", "storm")]
+    # Five at most, of however many are played.
+    many = _shares(*[(f"deck{i}", 2024, 20 - i, 100) for i in range(8)])
+    assert [tag for _, tag in _example_archetypes(
+        many, {f"deck{i}": f"Deck {i}" for i in range(8)})] == [
+        "deck0", "deck1", "deck2", "deck3", "deck4"]
+    assert _example_archetypes(_shares(), labels) == []
+
+
+def _meetings(*rows: tuple) -> Series:
+    """A pair's timeline from ``(mean a, mean b)`` rows, one event each, a ``None``
+    being a side the event did not score."""
+    return Series(cells=[
+        ArchetypeTimelinePoint(event=f"E{at}", date=datetime(2024, 1, 1 + at),
+                               mean_norm_a=a, decks_a=int(a is not None),
+                               mean_norm_b=b, decks_b=int(b is not None))
+        for at, (a, b) in enumerate(rows)
+    ])
+
+
+_PAIR_LANDSCAPE = (
+    ("grixis", 12, 0.3, 4, 2, 0.2, 0.45), ("storm", 30, 0.5, 20, 6, 0.4, 0.6),
+    ("lands", 12, 0.6, 9, 4, 0.5, 0.7), ("zoo", 3, None, 0, 0, None, None),
+)
+
+
+def test_two_archetypes_tiles_keep_both_sides_of_each_figure_and_count_the_meetings():
+    # Worked by hand (issue #340). In 2024, the record's latest year, Grixis is 12
+    # of 200 decks (6%) and Storm 30 (15%). Grixis's four scored decks at two events
+    # average 0.3 from the top, a finish of 0.70 with a 90% interval of 0.55 to
+    # 0.80; Storm's twenty at six events average 0.5, a finish of 0.50 between 0.40
+    # and 0.60. They were both scored at five events: Grixis finished nearer the top
+    # at three (a lower norm is a better finish), Storm at one, and they were level
+    # at one. A sixth event scored Grixis alone and bounds nothing, so it is no
+    # meeting. Grixis was played at three events and Storm at seven. Every value
+    # reads Grixis first, the order the two were given in, and says only what it is
+    # (the maintainer's ruling, 2026-11-18): no deck counts, no intervals. The
+    # meetings name who finished better more often: Grixis, 3 of 5, which a fair
+    # coin produces, so the note says so (issue #175).
+    landscape = _landscape(2024, 200, *_PAIR_LANDSCAPE)
+    played = {"grixis": 3, "storm": 7}
+    finishes = _meetings((0.1, 0.4), (0.2, 0.6), (0.3, 0.3), (0.5, 0.2), (0.25, 0.9),
+                         (0.4, None))
+
+    tiles = _archetype_pair_tiles([("grixis", "Grixis"), ("storm", "Storm")],
+                                  _shares(*_SHARES), landscape, played, finishes)
+
+    assert _facts(tiles) == [
+        ("Share in 2024", "6% vs 15%", None),
+        ("Mean finish in 2024", "0.70 vs 0.50", "First place = 1"),
+        ("Events played in 2024", "3 vs 7", None),
+        ("Finished better", "Grixis",
+         "Ahead of Storm at 60% of shared events (3 of 5), a split a coin could produce"),
+    ]
+    # Two means that are level are level, whatever their last bit: on the real
+    # record one deck 38th of 77 met two at 37th and 39th, whose mean came out 5e-17
+    # under it, and that is no win for either side.
+    level = _archetype_pair_tiles(
+        [("grixis", "Grixis"), ("storm", "Storm")], _shares(*_SHARES), landscape, played,
+        _meetings((38 / 77, (37 / 77 + 39 / 77) / 2), (0.1, 0.4)))
+    assert 38 / 77 != (37 / 77 + 39 / 77) / 2
+    assert _facts(level)[3] == (
+        "Finished better", "Grixis",
+        "Ahead of Storm at 50% of shared events (1 of 2), a split a coin could produce")
+    # The other way round is the same comparison read from the other side: the
+    # values swap, and the one ahead is still Grixis.
+    swapped = _archetype_pair_tiles(
+        [("storm", "Storm"), ("grixis", "Grixis")], _shares(*_SHARES), landscape, played,
+        _meetings((0.4, 0.1), (0.6, 0.2), (0.3, 0.3), (0.2, 0.5), (0.9, 0.25)))
+    assert [tile.value for tile in swapped] == [
+        "15% vs 6%", "0.50 vs 0.70", "7 vs 3", "Grixis"]
+    assert swapped[3].note == _facts(tiles)[3][2]
+    # Twelve meetings all to Storm is no split a coin produces, so no hedge; and
+    # one each is no lead at all.
+    swept = _archetype_pair_tiles(
+        [("grixis", "Grixis"), ("storm", "Storm")], _shares(*_SHARES), landscape, played,
+        _meetings(*[(0.6, 0.1)] * 12))
+    assert _facts(swept)[3] == (
+        "Finished better", "Storm", "Ahead of Grixis at 100% of shared events (12 of 12)")
+    even = _archetype_pair_tiles(
+        [("grixis", "Grixis"), ("storm", "Storm")], _shares(*_SHARES), landscape, played,
+        _meetings((0.1, 0.4), (0.4, 0.1)))
+    assert _facts(even)[3] == (
+        "Finished better", "Level", "Each ahead at 1 of 2 shared events")
+
+
+def test_two_archetypes_tiles_say_what_one_side_or_the_pair_has_no_figure_for():
+    # Zoo was played in 2024, at one event, and scored nowhere: it has a share and
+    # events, and no finish to set beside Grixis's. Jund sat the year out, so it has
+    # a real zero share, no events and nothing else. And a pair the timeline
+    # refused has no meetings to count: it says how many events the two share,
+    # which is why (one, or none at all).
+    landscape = _landscape(2024, 200, *_PAIR_LANDSCAPE)
+    shares = _shares(*_SHARES)
+    played = {"grixis": 3, "storm": 7, "zoo": 1}
+
+    with_zoo = _archetype_pair_tiles([("grixis", "Grixis"), ("zoo", "Zoo")],
+                                     shares, landscape, played, None, met=1)
+    assert _facts(with_zoo) == [
+        ("Share in 2024", "6% vs 1.5%", None),
+        ("Mean finish in 2024", "0.70 vs n/a", "First place = 1"),
+        ("Events played in 2024", "3 vs 1", None),
+        ("Finished better", "n/a", "Both placed at only 1 event"),
+    ]
+    neither = _archetype_pair_tiles([("zoo", "Zoo"), ("jund", "Jund")],
+                                    shares, landscape, played, None)
+    assert _facts(neither) == [
+        ("Share in 2024", "1.5% vs 0%", None),
+        ("Mean finish in 2024", "n/a vs n/a", "No scored deck in 2024"),
+        ("Events played in 2024", "1 vs 0", None),
+        ("Finished better", "n/a", "Never both placed at one event"),
+    ]
+    # A year too thin to place on a landscape has no finish for either side.
+    assert _facts(_archetype_pair_tiles(
+        [("grixis", "Grixis"), ("storm", "Storm")], shares, None, played, None))[1:3] == [
+        ("Mean finish in 2024", "n/a vs n/a", "No scored deck in 2024"),
+        ("Events played in 2024", "3 vs 7", None),
+    ]
+
+
+def test_two_archetypes_tiles_agree_with_each_ones_own_and_with_the_chart(live_graph):
+    # Issue #340, over the real record's ten most played archetypes, every pair of
+    # them in both orders. The first three tiles are each side's own tile's figure,
+    # the two side by side. The fourth is read a second way, off the chart drawn
+    # under the head: the events at which one line is over the other, a higher
+    # point being a better finish, of the events both lines have a point at.
+    shares = meta_share_over_time(live_graph)
+    landscape = archetype_landscape(live_graph, latest_deck_year(shares))
+    played, year_events = archetype_events_played(live_graph, latest_deck_year(shares))
+    names = {tag: name for name, tag, _ in archetypes_with_history(live_graph)}
+    top = [tag for tag in most_played(shares) if tag in names][:10]
+    own = {tag: _archetype_tiles(tag, shares, landscape, played.get(tag, 0), year_events)
+           for tag in top}
+
+    drew = refused = level = 0
+    for a in top:
+        for b in top:
+            if a == b:
+                continue
+            try:
+                finishes, met = archetype_timeline(live_graph, a, b), 0
+            except NotEnoughHistory as refusal:
+                finishes, met = None, refusal.found
+                refused += 1
+            share, finish, events, meetings = _archetype_pair_tiles(
+                [(a, names[a]), (b, names[b])], shares, landscape, played, finishes, met)
+            assert share.value == f"{own[a][0].value} vs {own[b][0].value}", (a, b)
+            assert finish.value == f"{own[a][2].value} vs {own[b][2].value}", (a, b)
+            assert finish.note == "First place = 1", (a, b)
+            assert events.value == " vs ".join(
+                own[side][3].value.split()[0] for side in (a, b)), (a, b)
+            assert share.note is None and events.note is None, (a, b)
+            if finishes is None:
+                assert meetings.value == "n/a", (a, b)
+                continue
+            drew += 1
+            figure = _archetype_timeline_figure(names[a], names[b], finishes)
+            line = {trace.name: dict(zip(trace.x, trace.y)) for trace in figure.data
+                    if trace.name in (names[a], names[b]) and trace.mode
+                    and "markers" in trace.mode}
+            both = [at for at, y in line[names[a]].items()
+                    if y is not None and line[names[b]].get(at) is not None]
+            gaps = [line[names[a]][at] - line[names[b]][at] for at in both]
+            ahead = sum(gap > 1e-9 for gap in gaps)
+            behind = sum(gap < -1e-9 for gap in gaps)
+            level += len(both) - ahead - behind
+            if ahead == behind:
+                assert meetings.value == "Level", (a, b)
+                continue
+            leader, other, led = ((names[a], names[b], ahead) if ahead > behind
+                                  else (names[b], names[a], behind))
+            assert meetings.value == leader, (a, b)
+            assert meetings.note.startswith(
+                f"Ahead of {other} at {numfmt.share(led / len(both))} of shared events "
+                f"({led} of {len(both)})"), (a, b)
+
+    # Both branches graded, and the level meetings that keep the two counts from
+    # adding up to the total are in what was graded.
+    assert drew >= 60 and len(top) == 10
+    assert drew + refused == 90
 
 
 def test_every_archetypes_tiles_agree_with_the_landscape_and_its_timeline(live_graph):
@@ -986,15 +1212,33 @@ def test_every_archetypes_tiles_agree_with_the_landscape_and_its_timeline(live_g
                in zip(drawn, dots.customdata, dots.y, dots.error_y.array,
                       dots.error_y.arrayminus)}
     offered = archetypes_with_history(live_graph)
+    # The events played, read a second way (issue #340): every deck of the year
+    # with its primary archetype and its event, grouped here rather than counted
+    # by the query, over the year's events counted off the Event nodes.
+    played, year_events = archetype_events_played(live_graph, year)
+    regrouped: dict[str, set] = {}
+    for tag, event in rows(live_graph.execute(
+        "MATCH (d:Deck)-[r:HAS_ARCHETYPE]->(a:Archetype), "
+        "(d)-[:PLAYED_AT]->(e:Event)-[:IN_YEAR]->(y:Year) "
+        "WHERE r.isPrimary AND y.year = $year RETURN a.tag, e.event", {"year": year},
+    )):
+        regrouped.setdefault(tag, set()).add(event)
+    ((held,),) = rows(live_graph.execute(
+        "MATCH (e:Event)-[:IN_YEAR]->(:Year {year: $year}) RETURN count(e)", {"year": year}))
+    assert year_events == held
 
     absent = 0
     for _, tag, _ in offered:
-        share, rank, finish, events = _archetype_tiles(tag, shares, landscape)
+        share, rank, finish, events = _archetype_tiles(
+            tag, shares, landscape, played.get(tag, 0), year_events)
         points = [point for point in archetype_timeline(live_graph, tag).cells
                   if point.date.year == year and point.mean_norm_a is not None]
         scored = sum(point.decks_a for point in points)
-        assert events.value == str(len(points)), tag
-        assert events.note.split()[0] == str(scored), tag
+        at = len(regrouped.get(tag, ()))
+        assert events.value == f"{at:,} ({numfmt.share(at / held)})", tag
+        assert events.note == f"of {held:,} events", tag
+        # Every event a finish is read from is one it was played at.
+        assert len(points) <= at, tag
         if tag not in cells:
             # No deck that year, so the landscape holds no cell and the timeline no
             # point: there is nothing to agree with but the zero.
@@ -1014,9 +1258,9 @@ def test_every_archetypes_tiles_agree_with_the_landscape_and_its_timeline(live_g
         if tag in printed:
             (_, hover_share, hover_decks, hover_finish, hover_scored, hover_events, _), \
                 best, worst = printed[tag]
-            assert (share.value, share.note, finish.value, events.value) == (
-                hover_share, hover_decks, hover_finish, str(hover_events)), tag
-            assert events.note == f"{hover_scored} scored decks", tag
+            assert (share.value, share.note, finish.value) == (
+                hover_share, hover_decks, hover_finish), tag
+            assert (hover_events, hover_scored) == (len(points), scored), tag
             assert finish.note == f"90% range {worst:.2f} to {best:.2f}, 1 = first", tag
 
     # Every branch graded: some archetypes sat the year out, every offered archetype
@@ -1058,6 +1302,8 @@ def test_a_drawn_pilot_page_opens_with_its_head_and_closes_with_its_record(demo)
             < head.index("Pilot, on record in 2025.") < head.index("tile-label"))
     assert _tile_labels(head) == [
         "Events played", "Archetypes played", "Most-played archetype", "Best finish"]
+    # Both of the fixture's two events, read against the record's whole (#340).
+    assert "2 (100%)" in head and "of 2 on record" in head
     assert not re.search(r"average|mean", head, re.IGNORECASE)
     # The record is the last thing on the page: every result, in a table.
     assert "Record" in record and "CFWAT25" in record and "PogNov25" in record
@@ -1072,15 +1318,18 @@ def test_a_drawn_card_page_opens_with_its_head_and_lists_its_archetypes(demo):
             < head.index("Card, counted on the main board.") < head.index("tile-label"))
     assert _tile_labels(head) == [
         "Adoption in 2025", "Change from last year", "Decks", "Archetypes running it"]
+    # Each count against the record's whole (#340): of its two archetypes, Grixis.
+    assert "of 2 on record, in 1 broad class" in head
     # Daze is in both Grixis decks, which are the fixture's whole tempo class.
     assert _table_rows(archetypes) == [
         ["Tempo", "2 / 2", "100%"],
         ["Grixis", "2 / 2", "100%"],
     ]
     # And the tiles are the same reading, under the same board: Daze is in the main
-    # board of 2 of the 3 decks of 2025, both of the one archetype in the table.
+    # board of 2 of the 3 decks of 2025, both of the one archetype in the table,
+    # which is 1 of the record's 2 archetypes.
     assert re.findall(r"<div class='tile-value'>(.*?)</div>", head) == [
-        "66.67%", "n/a", "2", "1"]
+        "66.67%", "n/a", "2 (66.67%)", "1 (50%)"]
 
 
 def test_a_cards_played_with_list_is_on_the_view_that_draws_those_cards(demo):
@@ -1409,7 +1658,10 @@ def test_a_records_archetype_is_the_way_to_its_page_where_it_has_one():
     table = _record_table(record, pages)
 
     assert _opened(table) == [("archetype", "grixis", "Grixis")]
-    assert [row[2] for row in _table_rows(table)][1:] == ["Soul Sisters", ""]
+    # The one with no page is set in the muted ink, told apart from a link (#340);
+    # a deck with no archetype has an empty cell, with nothing to set apart.
+    assert [row[2] for row in _table_rows(table)][1:] == [
+        "<span class='no-page'>Soul Sisters</span>", ""]
     # The card under the same table, and the panel's short copy of it beside the graph.
     assert _opened(_record_card(record, pages)) == [("archetype", "grixis", "Grixis")]
     decks = _results(2)
@@ -1449,9 +1701,12 @@ def test_an_archetype_listed_on_a_pilots_or_a_cards_page_is_the_way_to_its_page(
     assert _opened(played) == [("archetype", "grixis", "Grixis")]
     assert _opened(by_share) == _opened(under_the_plots) == [("archetype", "storm", "Storm")]
     for listed in (played, by_share, under_the_plots):
-        assert ">Soul Sisters<" in listed
-    # A broad class heads its archetypes and is no subject: it has no page to open.
+        assert "<span class='no-page'>Soul Sisters</span>" in listed
+    # A broad class heads its archetypes and is no subject: it has no page to open,
+    # and is not set as a name missing one, so the heading and the thin archetype
+    # under it do not read alike (#340).
     assert ">Combo<" in under_the_plots
+    assert under_the_plots.count("no-page") == 1
 
 
 def test_a_clicked_node_names_the_subjects_it_can_open():
@@ -1518,6 +1773,12 @@ def test_a_page_never_links_to_itself(tmp_path, snapshot_dir, built_graph):
     assert rivals == {grixis, storm, jordan, tom}
     assert beside == {("card", "brainstorm", "Brainstorm"), ("card", "daze", "Daze"),
                       ("card", "ponder", "Ponder")}
+    # The subject is not a link, but it has a page, the one open: it is not set in
+    # the muted ink that marks a name with no page (#340).
+    own = _drawn_card("pilot_neighbourhood", {"pilot": "Jordan C", "pilot2": None},
+                      pilot_subgraph(conn, "Jordan C"),
+                      _on_record(conn, pilot_subgraph(conn, "Jordan C")), pages)
+    assert "Jordan C" in own and "no-page" not in own
 
 
 def test_the_built_page_answers_a_clicked_name_on_the_controls_that_draw_its_page(demo):
@@ -1657,7 +1918,7 @@ def test_every_listed_share_and_change_is_the_one_the_share_chart_draws(live_gra
                    in zip(line.x, line.customdata)]
         assert row["years"] == printed, tag
         assert line.name == row["name"], tag
-        _, rank, _, _ = _archetype_tiles(tag, shares, None)
+        _, rank, _, _ = _archetype_tiles(tag, shares, None, 0, 1)
         assert re.match(r"\d+", rank.value).group() == row["rank"], tag
         now, before = line.customdata[-1][0], line.customdata[-2][0]
         assert row["share"] == now and row["from"] == f"from {before}", tag

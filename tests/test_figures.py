@@ -342,7 +342,7 @@ def test_the_community_totals_count_what_is_on_record_and_what_the_newest_year_h
         "played_before": 3}
 
 
-def test_each_event_is_placed_at_its_first_registration_and_named_only_if_a_major(
+def test_each_event_is_placed_at_its_first_registration_named_and_marked_if_a_major(
     tmp_path,
 ):
     # The swarm's dots (issue #346). An event sits at the earliest registration
@@ -351,16 +351,17 @@ def test_each_event_is_placed_at_its_first_registration_and_named_only_if_a_majo
     # except at the Teams event, whose field of 2 counts teams: there it is the
     # four pilots on record. A major is the leaderboard's: a field over 64 that
     # published its standings, so Major25 is one (46 of 90) and Bracket26, a top
-    # eight of 80, is not. Only the major's name is written.
+    # eight of 80, is not. Every event's name is written (issue #340), and the
+    # largest field's only because it is the major.
     community = _community(tmp_path)
 
     assert community["events"] == [
-        {"date": "2024-03-10", "players": 12, "major": None},
-        {"date": "2024-03-25", "players": 10, "major": None},
-        {"date": "2025-07-05", "players": 90, "major": "Major25"},
-        {"date": "2025-09-01", "players": 4, "major": None},
-        {"date": "2026-01-15", "players": 80, "major": None},
-        {"date": "2026-02-20", "players": 9, "major": None},
+        {"date": "2024-03-10", "players": 12, "name": "Open24", "major": False},
+        {"date": "2024-03-25", "players": 10, "name": "Cup24", "major": False},
+        {"date": "2025-07-05", "players": 90, "name": "Major25", "major": True},
+        {"date": "2025-09-01", "players": 4, "name": "Teams25", "major": False},
+        {"date": "2026-01-15", "players": 80, "name": "Bracket26", "major": False},
+        {"date": "2026-02-20", "players": 9, "name": "Open26", "major": False},
     ]
     assert community["majors"] == 1
     assert community["other_events"] == 5
@@ -517,7 +518,7 @@ def test_the_community_page_and_the_leaderboard_count_the_same_majors(live_graph
     leaderboard = player_leaderboard(live_graph).cells[0].major_events
 
     assert community["majors"] == leaderboard
-    assert sum(1 for event in community["events"] if event["major"]) == leaderboard
+    assert sum(event["major"] for event in community["events"]) == leaderboard
     assert community["majors"] + community["other_events"] == len(community["events"])
     # And each event the page names is one whose field is over the line, read off
     # the Event node: the half of the rule a count settles.
@@ -525,5 +526,8 @@ def test_the_community_page_and_the_leaderboard_count_the_same_majors(live_graph
 
     over = {event for event, in rows(live_graph.execute(
         "MATCH (e:Event) WHERE e.fieldSize > 64 RETURN e.event"))}
-    named = {event["major"] for event in community["events"] if event["major"]}
+    named = {event["name"] for event in community["events"] if event["major"]}
     assert named <= over and len(named) == leaderboard
+    # Every event carries its own name, once (issue #340).
+    assert sorted(event["name"] for event in community["events"]) == sorted(
+        event for event, in rows(live_graph.execute("MATCH (e:Event) RETURN e.event")))
