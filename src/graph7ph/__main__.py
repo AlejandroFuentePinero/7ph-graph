@@ -130,12 +130,31 @@ def _build(args: argparse.Namespace) -> None:
         print(f"  {len({r['deck'] for r in repaired['moved']})} of them upstream has moved "
               f"under since the ruling (read source_repairs.moved in the report)")
     # An archetype ruling upstream has moved under steps aside and its decks go
-    # back to upstream's tagging (issue #374): counted for the same reason.
+    # back to upstream's tagging (issues #374, #381): counted for the same reason.
     aside = [d for d in recon["dead_entries"]
-             if d["kind"] in ("archetype_alias", "deck_archetype")]
+             if d["kind"] in ("archetype_alias", "deck_archetype", "archetype_family")]
     if aside:
         print(f"  {len(aside)} archetype ruling(s) in {CURATION_PATH} applied to nothing: "
               f"upstream has moved under them (read dead_entries in the report)")
+    # The archetype families the rule and the rulings grouped (issue #381). The
+    # report lists each; the codes left alone with two parents wait on a ruling,
+    # so they are named, and so is every code that moved since the previous build,
+    # with its decks: upstream re-filing the same decks back and forth (Flood Moon
+    # in and out of Dimir three times in nine refreshes) must read as a line, not
+    # a count to read past.
+    families = recon["archetype_families"]
+    print(f"  archetype families: {len(families['families'])} grouping "
+          f"{sum(len(f['members']) for f in families['families'])} other code(s) "
+          f"(listed in the report)")
+    if families["two_parents"]:
+        print(f"  {len(families['two_parents'])} code(s) with two parents stand alone "
+              f"until ruled: {', '.join(c['label'] for c in families['two_parents'])}")
+    if changed := families.get("changed"):
+        print(f"  {len(changed)} code(s) changed archetype family since the previous build:")
+        for c in changed:
+            left, joined = ("its own" if side["code"] == c["code"] else side["label"]
+                            for side in (c["was"], c["now"]))
+            print(f"    {c['label']}: {left} -> {joined} ({c['decks']} decks)")
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

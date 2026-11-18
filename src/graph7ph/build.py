@@ -10,6 +10,7 @@ callers can assert they match the source.
 """
 
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -150,6 +151,14 @@ MIN_CUT_FIELD = 24
 # sat 28 days from its own), which stays the sole-winner guard's catch.
 MAX_REGISTRATION_SPREAD = 90
 
+# The archetype family rule (issue #381): a code joins a parent when at least
+# this share of the decks it is primary on carry the parent tag, judged only
+# where it is primary on at least this many decks. Ruled by the owner on
+# 2026-11-18 over upstream's own parent tags (the (95, 5) pattern
+# `docs/archetype-merge-heuristics.md` calls declared containment).
+FAMILY_SHARE = 0.95
+FAMILY_FLOOR = 5
+
 # Which Card fields land as node properties. This list drives both the CREATE
 # Cypher and the row projection, so the two never drift (the DDL above still
 # declares the column types separately). Deck can't use this reflective path
@@ -195,6 +204,7 @@ def build_graph(
     curation: Curation | None = None,
     snapshot_decks: dict[str, frozenset[str]] | None = None,
     source_repairs: dict | None = None,
+    previous_families: dict | None = None,
 ) -> BuildCounts:
     """Build a fresh artifact bundle at ``artifact`` and return its counts.
 
@@ -221,6 +231,11 @@ def build_graph(
     report carries no section rather than an empty one that would read as "no
     repairs were on file".
 
+    ``previous_families`` is the archetype family section of the report the
+    bundle this build replaces carries, which is what the family membership
+    that changed is graded against (issue #381). Only :func:`ingest.ingest`
+    knows which bundle that is; a build with none lists no changes.
+
     Everything that can reject the data runs before the bundle is touched, so a
     build that aborts (a year straddle, a bad curation dictionary) leaves no
     half-made bundle behind and cannot damage an artifact it was pointed at.
@@ -232,7 +247,8 @@ def build_graph(
     # this build never read.
     from_disk = curation is None
     curation = curation if curation is not None else load_curation()
-    snapshot, pilots = reconcile(snapshot, curation, snapshot_decks)
+    snapshot, pilots, family_report = reconcile(
+        snapshot, curation, snapshot_decks, previous_families)
     # The direct signal of a merge goes first, so a merged event aborts naming
     # what happened rather than a year it cannot be dated; above the drop for
     # the reason the straddle guard gives below.
@@ -288,7 +304,8 @@ def build_graph(
             asdict(pilots.report)
             | {"imputed_values": _imputed_values(conn),
                "field_evidence": [{k: v for k, v in asdict(f).items() if k != "stated"}
-                                  for f in fields.values() if f.rule]}
+                                  for f in fields.values() if f.rule],
+               "archetype_families": family_report}
             | ({"source_repairs": source_repairs} if source_repairs is not None else {})
         )
         reconciliation_path(artifact).write_text(json.dumps(reconciliation, indent=2))
@@ -368,14 +385,18 @@ def graph_counts(conn: ladybug.Connection) -> BuildCounts:
 
 
 def reconcile(
-    snapshot: Snapshot, curation: Curation, snapshot_decks: dict[str, frozenset[str]] | None
-) -> tuple[Snapshot, PilotResolution]:
+    snapshot: Snapshot, curation: Curation, snapshot_decks: dict[str, frozenset[str]] | None,
+    previous_families: dict | None = None,
+) -> tuple[Snapshot, PilotResolution, dict]:
     """The curated snapshot and its pilots resolved, as the build reads them.
 
     The one spelling of "apply the dictionary, then resolve", so the review
     brief can ask what the build would have written from an older sequence
     (:func:`ingest.previous_reconciliation`, issue #271) and get the same answer
-    the build gave, not a re-derivation that drifts from it.
+    the build gave, not a re-derivation that drifts from it. The snapshot comes
+    back with every deck filed under its archetype family, and the third value
+    is what the family step decided, for the report (issue #381), with the
+    membership that changed since ``previous_families`` where one is given.
 
     Before any entry is applied, every entry whose id upstream has handed to
     someone else is refused (:func:`pilots.refuse_moved`, issue #283), read off
@@ -389,16 +410,55 @@ def reconcile(
     # an override's `source` states.
     filed = {d.deck_id: d.primary_tag for d in snapshot.decks}
     snapshot, aliases_aside = _apply_archetype_aliases(snapshot, curation)
+    # Upstream's tags with its spelling splits folded, before any per-deck
+    # override collapses a deck onto one engine: what families are read from.
+    tagged = snapshot.decks
     snapshot, overrides_aside = _apply_deck_archetypes(snapshot, curation, filed)
     snapshot = _apply_deck_events(snapshot, curation)
     pilots = resolve_pilots(
         snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
     )
-    dead = sorted(pilots.report.dead_entries + aliases_aside + overrides_aside,
-                  key=lambda d: (d.kind, d.key))
+    # Grouped only once identity is resolved: its rules compare decks on one
+    # primary archetype and score them against archetype-and-colour stranger
+    # pools (ADR 0028), which must keep reading upstream's codes (issue #381).
+    families, families_aside = _file_under_families(
+        [d for d in tagged if d.deck_id not in pilots.dropped_decks], curation)
+    report = _families_report(
+        [d for d in snapshot.decks if d.deck_id not in pilots.dropped_decks], families,
+        previous_families)
+    snapshot = _recode(snapshot, families.filed)
+    dead = sorted(
+        pilots.report.dead_entries + aliases_aside + overrides_aside + families_aside,
+        key=lambda d: (d.kind, d.key))
     pilots = replace(pilots, report=replace(
         pilots.report, refused_entries=refused, dead_entries=dead))
-    return snapshot, pilots
+    return snapshot, pilots, report
+
+
+def _membership_changes(
+    previous: dict, filed: dict[str, str], labels: dict[str, str], primary: dict[str, int]
+) -> list[dict]:
+    """Every code whose family differs from the previous build's report (#381).
+
+    A code standing alone is its own family, the convention a ruling uses, so
+    joining a family, leaving one and moving between two all read as ``was``
+    and ``now``, each by code and label: the family a code left may hold no deck
+    in this build to name it by, so the previous report's label stands in.
+    ``decks`` are the code's own in this build, the decks that move with it.
+    """
+    was = {m["code"]: f["code"] for f in previous["families"] for m in f["members"]}
+    named = {row["code"]: row["label"] for f in previous["families"]
+             for row in (f, *f["members"])} | labels
+
+    def family(code: str) -> dict:
+        return {"code": code, "label": named[code]}
+
+    return [
+        {"code": code, "label": named[code], "decks": primary.get(code, 0),
+         "was": family(was.get(code, code)), "now": family(filed.get(code, code))}
+        for code in sorted(was.keys() | filed.keys(), key=named.__getitem__)
+        if was.get(code, code) != filed.get(code, code)
+    ]
 
 
 def _decklists(containments: list[Containment]) -> dict[str, tuple]:
@@ -447,31 +507,185 @@ def _apply_archetype_aliases(
                 f"folds into {archetype}, but no deck carries {' or '.join(gone)}"))
         else:
             aliases[alias] = archetype
-    if not aliases:
-        return snapshot, aside
-    labels: dict[str, str] = {}
-    for d in snapshot.decks:
-        for tag, label in d.engine_tag_labels.items():
-            labels.setdefault(tag, label)
+    return _recode(snapshot, aliases), aside
+
+
+def _recode(snapshot: Snapshot, codes: dict[str, str]) -> Snapshot:
+    """Every deck's archetype tags re-coded through ``codes`` (issues #374, #381).
+
+    A deck carrying a code ``codes`` names carries its target instead, under the
+    label the target's own decks give it; a deck carrying both sums the two
+    weights, and its primary follows. Tags ``codes`` does not name are left as
+    they were. How an alias folds a spelling split and how a version joins its
+    archetype's family, so the two folds cannot drift apart.
+    """
+    if not codes:
+        return snapshot
+    labels = _labels(snapshot.decks)
     decks = []
     for d in snapshot.decks:
-        if aliases.keys().isdisjoint(d.engine_tags):
+        if codes.keys().isdisjoint(d.engine_tags):
             decks.append(d)
             continue
         weights: dict[str, int] = {}
         for tag, weight in d.primary_tag_weights.items():
-            folded = aliases.get(tag, tag)
+            folded = codes.get(tag, tag)
             weights[folded] = weights.get(folded, 0) + weight
-        tags = list(dict.fromkeys(aliases.get(tag, tag) for tag in d.engine_tags))
+        tags = list(dict.fromkeys(codes.get(tag, tag) for tag in d.engine_tags))
         decks.append(d.model_copy(update={
             "engine_tags": tags,
             "engine_tag_labels": {tag: labels[tag] for tag in tags},
-            "primary_tag": aliases.get(d.primary_tag, d.primary_tag),
+            "primary_tag": codes.get(d.primary_tag, d.primary_tag),
             "primary_tag_weights": weights,
         }))
-    return Snapshot(
-        cards=snapshot.cards, decks=decks, containments=snapshot.containments
+    return Snapshot(cards=snapshot.cards, decks=decks, containments=snapshot.containments)
+
+
+def _labels(decks: list[Deck]) -> dict[str, str]:
+    """Each archetype code's label, as the first deck carrying it gives it."""
+    labels: dict[str, str] = {}
+    for d in decks:
+        for tag, label in d.engine_tag_labels.items():
+            labels.setdefault(tag, label)
+    return labels
+
+
+def _primary_on(decks: list[Deck]) -> dict[str, list[Deck]]:
+    """The decks each code is primary on, as the graph serves a primary: a deck
+    whose primary upstream does not also tag it with is primary on nothing there,
+    the shape a deck upstream left without a primary takes (one on the record)."""
+    primary: dict[str, list[Deck]] = {}
+    for d in decks:
+        if d.primary_tag in d.engine_tags:
+            primary.setdefault(d.primary_tag, []).append(d)
+    return primary
+
+
+def _family_codes(decks: list[Deck]) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """Each code upstream's own tags file under a parent, and each with two or more.
+
+    Upstream tags a version of a deck with its parent as a second, low-weight tag
+    (a Bus Stop Grixis deck carries Grixis at 5 beside its own code at 95). A
+    code joins a parent when at least ``FAMILY_SHARE`` of the decks it is primary
+    on carry that parent, judged only where it is primary on ``FAMILY_FLOOR``
+    decks or more (issue #381). A code with two such parents joins neither:
+    which family it belongs to is the owner's to rule, so it is returned apart,
+    as code -> its parents, for the report to list. A code is judged on the
+    decks the graph serves it as primary on (:func:`_primary_on`).
+    """
+    families: dict[str, str] = {}
+    two_parents: dict[str, list[str]] = {}
+    for code, own in _primary_on(decks).items():
+        if len(own) < FAMILY_FLOOR:
+            continue
+        carried = Counter(tag for d in own for tag in set(d.engine_tags) if tag != code)
+        parents = [tag for tag, n in carried.items() if n / len(own) >= FAMILY_SHARE]
+        if len(parents) == 1:
+            families[code] = parents[0]
+        elif parents:
+            two_parents[code] = sorted(parents)
+    return families, two_parents
+
+
+@dataclass(frozen=True)
+class Families:
+    """What the family step decided (issue #381).
+
+    ``filed`` maps every code served under another to the family it lands in,
+    ``ruled`` the codes whose own placement an ``[[archetype_family]]`` decided,
+    and ``two_parents`` the codes the rule left alone with two or more parents
+    and no ruling, each with its parents.
+    """
+
+    filed: dict[str, str]
+    ruled: frozenset[str]
+    two_parents: dict[str, list[str]]
+
+
+def _file_under_families(
+    decks: list[Deck], curation: Curation
+) -> tuple[Families, list[DeadEntry]]:
+    """Each code filed under another, by the rule and then the owner's rulings (#381).
+
+    A ruling wins over the rule: ``[[archetype_family]]`` files a code under the
+    family it names, or keeps it out of any where it names the code itself. Like
+    an alias, it applies only while some deck carries each code it names, and
+    otherwise steps aside and is returned for the report: upstream's later
+    tagging is the long-term answer, and a missing ruling never fails a build.
+    """
+    families, two_parents = _family_codes(decks)
+    carried = {tag for d in decks for tag in d.engine_tags}
+    ruled: set[str] = set()
+    aside: list[DeadEntry] = []
+    for code, family in curation.archetype_families.items():
+        if gone := [c for c in dict.fromkeys((code, family)) if c not in carried]:
+            ruling = f"keeps {code} apart" if family == code else f"files {code} under {family}"
+            aside.append(DeadEntry(
+                "archetype_family", code,
+                f"{ruling}, but no deck carries {' or '.join(gone)}"))
+            continue
+        ruled.add(code)
+        if family == code:
+            families.pop(code, None)
+        else:
+            families[code] = family
+    filed = {code: root for code in families
+             if (root := _family_root(code, families)) != code}
+    return Families(
+        filed, frozenset(ruled),
+        {code: parents for code, parents in two_parents.items() if code not in ruled},
     ), aside
+
+
+def _families_report(decks: list[Deck], families: Families, previous: dict | None) -> dict:
+    """Each family with its members, the codes left alone with two parents, and
+    the membership that changed since ``previous``, the last build's report.
+
+    Read off the decks as they stand before the family fold, so each code's
+    ``decks`` is what it was primary on before it joined a family, counted as
+    the graph serves it (:func:`_primary_on`). Sorted by label, so the report
+    diffs cleanly between builds. With no previous build there is nothing to
+    have changed, and no ``changed`` at all.
+    """
+    primary = {code: len(own) for code, own in _primary_on(decks).items()}
+    labels = _labels(decks)
+    members: dict[str, list[str]] = {}
+    for code, family in families.filed.items():
+        members.setdefault(family, []).append(code)
+
+    def row(code: str) -> dict:
+        return {"code": code, "label": labels[code], "decks": primary.get(code, 0)}
+
+    report = {
+        "families": [
+            row(family) | {"members": [
+                row(code) | {"by": "ruling" if code in families.ruled else "rule"}
+                for code in sorted(codes, key=labels.__getitem__)]}
+            for family, codes in sorted(members.items(), key=lambda kv: labels[kv[0]])
+        ],
+        "two_parents": [
+            row(code) | {"parents": parents}
+            for code, parents in sorted(families.two_parents.items(),
+                                        key=lambda kv: labels[kv[0]])
+        ],
+    }
+    if previous is not None:
+        report["changed"] = _membership_changes(previous, families.filed, labels, primary)
+    return report
+
+
+def _family_root(code: str, families: dict[str, str]) -> str:
+    """The family ``code`` lands in once every step of its chain is followed.
+
+    A code ruled under a version that the rule files under its own parent lands
+    with the parent, or the re-coding would split one family across two codes.
+    A chain that comes back on itself has no root, and each code on it stands
+    alone rather than the build looping.
+    """
+    seen = {code}
+    while (code := families.get(code, code)) not in seen:
+        seen.add(code)
+    return code
 
 
 def _apply_deck_archetypes(

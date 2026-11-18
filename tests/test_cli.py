@@ -259,10 +259,11 @@ as_of = "20260101T000000Z"
 def test_a_build_announces_an_archetype_ruling_upstream_has_moved_under(
     tmp_path, capsys, monkeypatch
 ):
-    # An archetype ruling steps aside once upstream moves under it (issue #374),
-    # and the deck then goes back to upstream's tagging without a word. Counted
-    # on the terminal like a moved repair, never only in the report: here the
-    # alias's codes are gone and upstream no longer files d1 under `source`.
+    # An archetype ruling steps aside once upstream moves under it (issues #374,
+    # #381), and the deck then goes back to upstream's tagging without a word.
+    # Counted on the terminal like a moved repair, never only in the report:
+    # here the alias's and the family ruling's codes are gone and upstream no
+    # longer files d1 under `source`.
     _snapshot(tmp_path / "snapshots" / "20260101T000000Z",
               [("d1", "2026-01-01T00:00:00+00:00")])
     curation = tmp_path / "pilots.toml"
@@ -270,6 +271,11 @@ def test_a_build_announces_an_archetype_ruling_upstream_has_moved_under(
 [[archetype_alias]]
 alias = "engine:gf_storm"
 archetype = "engine:gluten_free_storm"
+as_of = "20260101T000000Z"
+
+[[archetype_family]]
+code = "engine:breachbond"
+family = "engine:breach"
 as_of = "20260101T000000Z"
 
 [[deck_archetype]]
@@ -286,9 +292,60 @@ names = { "d1" = "d1" }
 
     _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
 
-    assert ("2 archetype ruling(s) in curation/pilots.toml applied to nothing: "
+    assert ("3 archetype ruling(s) in curation/pilots.toml applied to nothing: "
             "upstream has moved under them (read dead_entries in the report)"
             ) in capsys.readouterr().out
+
+
+def _tag(snapshot, tags):
+    """Give each deck in ``snapshot`` its archetype tags, as deck id -> code -> weight."""
+    labels = {"engine:grixis": "Grixis", "engine:bus_stop_grixis": "Bus Stop Grixis",
+              "engine:breach": "Breach", "engine:jeskai": "Jeskai",
+              "engine:jeskai_breach": "Jeskai Breach"}
+    decks = json.loads((snapshot / "decks.json").read_text())
+    for d in decks:
+        weights = tags[d["deckId"]]
+        d |= {"engineTags": list(weights), "primaryTagWeights": weights,
+              "primaryTag": max(weights, key=weights.get),
+              "engineTagLabels": {c: labels[c] for c in weights}}
+    (snapshot / "decks.json").write_text(json.dumps(decks))
+
+
+def test_a_build_summarises_the_archetype_families_and_what_waits_on_a_ruling(
+    tmp_path, capsys, monkeypatch
+):
+    # The report lists every family; the terminal, where the owner stands,
+    # says how many, names the codes standing alone until he rules on their two
+    # parents, and counts what moved since the previous build (issue #381).
+    snapshot = tmp_path / "snapshots" / "20260101T000000Z"
+    _snapshot(snapshot, [(f"d{n}", "2026-01-01T00:00:00+00:00") for n in range(11)])
+    _tag(snapshot, {"d0": {"engine:grixis": 100}}
+         | {f"d{n}": {"engine:bus_stop_grixis": 95, "engine:grixis": 5} for n in range(1, 6)}
+         | {f"d{n}": {"engine:jeskai_breach": 90, "engine:breach": 5, "engine:jeskai": 5}
+            for n in range(6, 11)})
+    curation = tmp_path / "pilots.toml"
+    curation.write_text("")
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, curation))
+    args = argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "graph")
+
+    _build(args)
+
+    out = capsys.readouterr().out
+    assert "  archetype families: 1 grouping 1 other code(s) (listed in the report)\n" in out
+    assert "  1 code(s) with two parents stand alone until ruled: Jeskai Breach\n" in out
+    assert "changed archetype family" not in out
+
+    curation.write_text('[[archetype_family]]\ncode = "engine:bus_stop_grixis"\n'
+                        'family = "engine:bus_stop_grixis"\nas_of = "20260101T000000Z"\n')
+    _build(args)
+
+    # Each change by name, with the decks that move with it: upstream re-filing
+    # the same decks back and forth reads as a line, not a count to read past.
+    out = capsys.readouterr().out
+    assert "  archetype families: 0 grouping 0 other code(s) (listed in the report)\n" in out
+    assert ("  1 code(s) changed archetype family since the previous build:\n"
+            "    Bus Stop Grixis: Grixis -> its own (5 decks)\n") in out
 
 
 def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):

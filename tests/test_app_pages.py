@@ -1265,8 +1265,11 @@ def test_every_archetypes_tiles_agree_with_the_landscape_and_its_timeline(live_g
 
     # Every branch graded: some archetypes sat the year out, every offered archetype
     # with a deck that year was scored there, and every drawn dot of the landscape
-    # is an archetype the picker offers.
-    assert len(offered) > 100 and absent
+    # is an archetype the picker offers. The picker offers 99 once families are
+    # served (issue #381): the 135 the frozen main of #380 offered, less the 37
+    # versions now filed under a family, plus Ascendancy, which only its version's
+    # decks put on the record.
+    assert len(offered) > 90 and absent
     assert set(printed) <= {tag for _, tag, _ in offered} and len(printed) == 25
 
 

@@ -332,6 +332,44 @@ def test_ingest_unions_all_snapshots_and_promotes_with_a_backup(tmp_path):
     assert reconciliation_path(backup).exists()
 
 
+def _grixis_files(versions):
+    """One Grixis deck and ``versions`` Bus Stop Grixis decks that carry Grixis at 5."""
+    labels = {"engine:grixis": "Grixis", "engine:bus_stop_grixis": "Bus Stop Grixis"}
+    version = {"engine:bus_stop_grixis": 95, "engine:grixis": 5}
+    tags = [{"engine:grixis": 100}] + [version] * versions
+    ids = [f"d{n}" for n in range(len(tags))]
+    decks = json.loads(_snapshot_files(ids)[0])
+    for d, weights in zip(decks, tags):
+        d |= {"engineTags": list(weights), "primaryTagWeights": weights,
+              "primaryTag": max(weights, key=weights.get),
+              "engineTagLabels": {c: labels[c] for c in weights}}
+    return json.dumps(decks), _snapshot_files(ids)[1]
+
+
+def test_the_report_lists_family_membership_that_changed_since_the_previous_build(tmp_path):
+    # A fetch can move a code into a family or out of one, as can a ruling, and
+    # the build is where the owner reads it (issue #381). Graded against the
+    # bundle the build replaces; a first build has none and says nothing. Each
+    # change carries the decks that move with the code, and both families by
+    # name, since the one it left may hold nothing in this build to name it by.
+    root = tmp_path / "snapshots"
+    db = tmp_path / "graph"
+    decks, index = _grixis_files(4)  # four Bus Stop Grixis decks: under the floor
+    _write_snapshot_dir(root / "20260101T000000Z", decks=decks, cards_index=index)
+    ingest(root, db)
+    assert "changed" not in json.loads(reconciliation_path(db).read_text())["archetype_families"]
+
+    decks, index = _grixis_files(5)  # the fifth brings it to the floor
+    _write_snapshot_dir(root / "20260201T000000Z", decks=decks, cards_index=index)
+    ingest(root, db)
+
+    assert json.loads(reconciliation_path(db).read_text())["archetype_families"]["changed"] == [
+        {"code": "engine:bus_stop_grixis", "label": "Bus Stop Grixis", "decks": 5,
+         "was": {"code": "engine:bus_stop_grixis", "label": "Bus Stop Grixis"},
+         "now": {"code": "engine:grixis", "label": "Grixis"}},
+    ]
+
+
 def test_promote_moves_the_graph_and_its_reports_as_one_bundle(tmp_path):
     # F13: the reports live inside the graph directory, so the single directory
     # rename promotes graph + both reports together. A promote can never leave a

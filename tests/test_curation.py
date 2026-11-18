@@ -476,6 +476,76 @@ def test_an_alias_missing_a_field_is_refused_at_load(tmp_path, entry):
         load_curation(path)
 
 
+def test_an_archetype_family_ruling_files_a_code_under_a_family_or_keeps_it_apart(tmp_path):
+    # The owner rules only on exceptions to the family rule (issue #381): a
+    # code put in a named family (Breachbond, which upstream gives no parent
+    # tag, into Breach), or kept out of the one its tags suggest, which is a
+    # code ruled into its own family (Red Esper, which plays a fourth colour).
+    path = _write(tmp_path, """
+        [[archetype_family]]
+        code = "engine:breachbond"
+        family = "engine:breach"
+        as_of = "20261118T000557Z"
+
+        [[archetype_family]]
+        code = "engine:red_esper"
+        family = "engine:red_esper"
+        as_of = "20261118T000557Z"
+    """)
+    assert load_curation(path).archetype_families == {
+        "engine:breachbond": "engine:breach", "engine:red_esper": "engine:red_esper"}
+
+
+@pytest.mark.parametrize("second, refusal", [
+    # One code ruled two ways: file order would decide its family.
+    ('code = "engine:breachbond"\nfamily = "engine:breachbond"', "twice"),
+    # The family is itself ruled into another one: rule the code there directly.
+    ('code = "engine:breach"\nfamily = "engine:storm"', "itself ruled"),
+])
+def test_a_family_ruling_that_contradicts_another_is_refused_at_load(
+    tmp_path, second, refusal
+):
+    path = _write(tmp_path, f"""
+        [[archetype_family]]
+        code = "engine:breachbond"
+        family = "engine:breach"
+        as_of = "20261118T000557Z"
+
+        [[archetype_family]]
+        {second}
+        as_of = "20261118T000557Z"
+    """)
+    with pytest.raises(CurationError, match=refusal):
+        load_curation(path)
+
+
+def test_a_code_ruled_into_a_family_ruled_its_own_loads(tmp_path):
+    # Not a chain: Breach ruled its own family is where Breachbond lands.
+    path = _write(tmp_path, """
+        [[archetype_family]]
+        code = "engine:breachbond"
+        family = "engine:breach"
+        as_of = "20261118T000557Z"
+
+        [[archetype_family]]
+        code = "engine:breach"
+        family = "engine:breach"
+        as_of = "20261118T000557Z"
+    """)
+    assert load_curation(path).archetype_families["engine:breachbond"] == "engine:breach"
+
+
+@pytest.mark.parametrize("entry", [
+    'family = "engine:breach"\nas_of = "20261118T000557Z"',
+    'code = "engine:breachbond"\nas_of = "20261118T000557Z"',
+    'code = "engine:breachbond"\nfamily = "engine:breach"',
+])
+def test_a_family_ruling_missing_a_field_is_refused_at_load(tmp_path, entry):
+    path = _write(tmp_path, f"[[archetype_family]]\n{entry}\n")
+    with pytest.raises(CurationError, match=r"\[\[archetype_family\]\]"):
+        load_curation(path)
+
+
 _OVERRIDE = """
     [[deck_archetype]]
     deck = "d1"

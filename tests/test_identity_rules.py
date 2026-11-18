@@ -641,7 +641,7 @@ def record():
 def _ruled(snapshot, curation):
     from graph7ph.build import reconcile
 
-    _, pilots = reconcile(snapshot, curation, None)
+    _, pilots, _ = reconcile(snapshot, curation, None)
     return pilots
 
 

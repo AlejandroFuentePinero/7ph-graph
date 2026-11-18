@@ -20,6 +20,11 @@ proof and the recapture is data alone, and the recapture is accepted on that
 record rather than on a reading; it is refused when the code moved unproven
 (issue #272, and the gate section below).
 
+After `build`, read the line naming each archetype code that changed family since
+the previous build: a code that switches family more than once, as Flood Moon did
+three times in its first nine refreshes, gets an `[[archetype_family]]` ruling
+(issue #381).
+
 The snapshots under `snapshots/` are the project's only primary data: gitignored,
 append-only, and on one machine, so a disk loss would lose the ability to rebuild
 any graph. The mirror copies every snapshot directory the build would read into a
