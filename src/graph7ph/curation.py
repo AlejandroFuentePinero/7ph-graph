@@ -8,9 +8,10 @@ of which come from the source and never change. Nothing keys on a derived value
 -- not a display name (a majority vote that new decks can flip), not a synthetic
 key like ``nan:darcy`` or ``LunarRedFalcon#2`` (which the resolution mints). That
 is what makes a decision timeless: recorded once, it applies identically to every
-future ingestion, so the pipeline always runs in the same direction. The one
-exception is an archetype alias, keyed on the two archetype codes it folds:
-upstream can retire a code, so the alias steps aside when it does (issue #374).
+future ingestion, so the pipeline always runs in the same direction. The two
+exceptions key on archetype codes: an archetype alias on the two codes it folds
+(issue #374) and an archetype family ruling on a code and its family (issue
+#381). Upstream can retire a code, so each steps aside when it does.
 
 The file is TOML because a human writes it: it takes comments, and ``tomllib`` is
 in the standard library, so reading it costs no dependency.
@@ -22,16 +23,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
 
-# The nine kinds of recorded decision, one per TOML entry type (repo idiom:
+# The ten kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
 DeadKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype",
-    "deck_event", "hold", "archetype_alias",
+    "deck_event", "hold", "archetype_alias", "archetype_family",
 ]
 
 # The seven kinds that apply to the graph through an id, each of which carries its
-# provenance (issue #283). `archetype_alias` applies through two archetype codes
-# and carries `as_of` alone; `hold` applies nothing, so it carries no names.
+# provenance (issue #283). `archetype_alias` and `archetype_family` apply through
+# archetype codes and carry `as_of` alone; `hold` applies nothing, so it carries
+# no names.
 AppliedKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype", "deck_event",
 ]
@@ -155,13 +157,16 @@ class Curation:
     reaches its real owner. ``deck_archetypes`` reclassifies one deck the source
     filed under the wrong archetype, while the source still files it there.
     ``archetype_aliases`` folds a code the source mints only for a second
-    spelling of one deck into the other (issue #374). ``deck_events`` reassigns one deck to
+    spelling of one deck into the other (issue #374). ``archetype_families``
+    files a code under the family a human ruled, an exception to the family
+    rule the build derives from upstream's tags, with a code ruled its own
+    family kept out of any (issue #381). ``deck_events`` reassigns one deck to
     the event code it was really played at, which is how a deck the source
     stranded at a malformed event rejoins its cohort. ``splits`` holds id pairs
     that share a display name but are different people, which keeps the
     identical-name join (ADR 0007) from folding them into one node -- the
     inverse of a ``merge``. ``holds`` maps a single id onto the :class:`Hold` a
-    human left against it: alone among the nine kinds it decides nothing and
+    human left against it: alone among the ten kinds it decides nothing and
     applies nothing, it only records that the id's own several names were
     examined (issue #232). It held pairs too until issue #273, which left every
     candidate pair's state to the build (:mod:`graph7ph.identity_rules`).
@@ -185,6 +190,7 @@ class Curation:
     deck_events: dict[str, str] = field(default_factory=dict)
     holds: dict[frozenset[str], Hold] = field(default_factory=dict)
     archetype_aliases: dict[str, str] = field(default_factory=dict)
+    archetype_families: dict[str, str] = field(default_factory=dict)
     entries: tuple[Entry, ...] = ()
     tables: dict[str, list[dict]] = field(default_factory=dict)
 
@@ -284,6 +290,7 @@ def _assemble(raw: dict, path: Path) -> Curation:
         splits=splits,
         deck_events=_deck_map(raw.get("deck_event", []), path, "deck_event", "event"),
         archetype_aliases=_archetype_aliases(raw.get("archetype_alias", []), path),
+        archetype_families=_archetype_families(raw.get("archetype_family", []), path),
         entries=_entries(raw, path),
         tables=raw,
     )
@@ -714,3 +721,38 @@ def _archetype_aliases(entries: list[dict], path: Path) -> dict[str, str]:
                 f"directly, or not at all"
             )
     return aliases
+
+
+def _archetype_families(entries: list[dict], path: Path) -> dict[str, str]:
+    """Every ruled code as code -> the family it is filed under (#381).
+
+    A code ruled its own family stands alone, whatever its tags suggest. A code
+    ruled twice would land in whichever family file order said, and one ruled
+    into a family that is itself ruled into another reads as two rulings where
+    one is meant, so both are refused where the author can still see them.
+    """
+    families: dict[str, str] = {}
+    for entry in entries:
+        code, family = entry.get("code"), entry.get("family")
+        if not code or not family:
+            raise CurationError(
+                f"{path}: an [[archetype_family]] entry needs `code`, the archetype "
+                f"code ruled on, and `family`, the code it is filed under (itself "
+                f"to keep it out of any family)"
+            )
+        _as_of(entry, path, "archetype_family")
+        if code in families:
+            raise CurationError(
+                f"{path}: [[archetype_family]] rules on {code!r} twice, into "
+                f"{families[code]!r} and {family!r}; keep the one that supersedes "
+                f"and delete the other"
+            )
+        families[code] = family
+    for code, family in families.items():
+        if families.get(family, family) != family:
+            raise CurationError(
+                f"{path}: [[archetype_family]] files {code!r} under {family!r}, "
+                f"which is itself ruled into {families[family]!r}; file it there "
+                f"directly"
+            )
+    return families

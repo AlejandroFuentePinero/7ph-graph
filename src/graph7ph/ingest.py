@@ -16,7 +16,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from graph7ph.build import BuildCounts, build_graph, reconcile
+from graph7ph.build import BuildCounts, build_graph, reconcile, reconciliation_path
 from graph7ph.curation import Curation
 from graph7ph.db import remove_artifact
 from graph7ph.models import Card, Containment, Deck, Snapshot, load_snapshot
@@ -337,7 +337,7 @@ def previous_reconciliation(
         return None
     repairs = load_repairs()
     snapshots = [apply_repairs(load_checked(d), repairs)[0] for d in dirs]
-    _, pilots = reconcile(
+    _, pilots, _ = reconcile(
         gate_sequence(snapshots).snapshot, curation, _deck_history(dirs, snapshots)
     )
     return asdict(pilots.report)
@@ -385,9 +385,16 @@ def ingest(snapshots_root: Path, artifact: Path) -> tuple[GateReport, BuildCount
     # reports, and the database staying a file inside the bundle keeps it that way.
     incoming = artifact.with_name(artifact.name + ".incoming")
     remove_artifact(incoming)
+    # The families of the bundle this build replaces, which the report's
+    # membership changes are graded against (issue #381). A bundle built before
+    # families existed served every code apart, which is an empty section.
+    live = reconciliation_path(artifact)
+    previous_families = (json.loads(live.read_text()).get("archetype_families", {"families": []})
+                         if live.exists() else None)
     counts = build_graph(  # writes reconciliation_path(incoming)
         result.snapshot, incoming, snapshot_decks=_deck_history(dirs, snapshots),
         source_repairs=repairs_report(repairs, applied, [d.name for d in dirs]),
+        previous_families=previous_families,
     )
     ingest_report_path(incoming).write_text(json.dumps(asdict(result.report), indent=2))
 

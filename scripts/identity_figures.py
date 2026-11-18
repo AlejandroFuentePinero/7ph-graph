@@ -53,7 +53,7 @@ def main() -> None:
     merged = {frozenset(p) for ids in groups.values() for p in itertools.combinations(sorted(ids), 2)}
     apart = on_file.rejected | on_file.splits
 
-    _, replay = reconcile(snapshot, Curation.empty(), None)
+    _, replay, _ = reconcile(snapshot, Curation.empty(), None)
     ruled = {frozenset(p.pilots): p for p in replay.report.ruled_pairs}
     label = {k: "merge" if k in merged else "reject" if k in apart else "open" for k in ruled}
     print(f"pairs the heuristics raise with an empty dictionary: {len(ruled)}, "
@@ -78,7 +78,7 @@ def main() -> None:
           [(p.names, p.overlap) for p in labelled_merges
            if p.state == "watching" and not p.shared_events and _bar_alone(p)])
 
-    _, live = reconcile(snapshot, on_file, None)
+    _, live, _ = reconcile(snapshot, on_file, None)
     print("\nwith the dictionary on file:", dict(collections.Counter(p.state for p in live.report.ruled_pairs)))
     for p in live.report.ruled_pairs:
         if p.state != "watching":

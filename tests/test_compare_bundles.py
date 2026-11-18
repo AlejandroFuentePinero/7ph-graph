@@ -71,6 +71,13 @@ def test_a_fold_conserves_decks(storm_into_grixis):
     assert storm_into_grixis.conservation == []
 
 
+def test_a_fold_drawn_by_the_sites_own_queries_adds_up_figure_by_figure(storm_into_grixis):
+    # The checks restate what each query computes (a sum, a mean weighted by the
+    # decks it averages, a union of events), so a fold through the real queries is
+    # where a check that misread its query would show (issue #381).
+    assert storm_into_grixis.figure_breaks == []
+
+
 @pytest.fixture(scope="module")
 def renamed(tmp_path_factory, snapshot_dir, reference):
     """The suite's record with one pilot's display name pinned to another spelling."""
@@ -275,8 +282,13 @@ def _verdicts(result) -> dict:
     return {(d.section, d.key, d.field): (d.verdict, d.reason) for d in result.differences}
 
 
+def _share(n: int) -> dict:
+    """A share-by-year row as a capture holds it, every field the comparison reads."""
+    return {"n": n, "share": n / 100}
+
+
 def _shares(**n: int) -> dict:
-    return {(tag, 2025): {"n": count} for tag, count in n.items()}
+    return {(tag, 2025): _share(count) for tag, count in n.items()}
 
 
 def test_a_rank_that_moved_because_another_archetype_grew_is_allowed():
@@ -370,12 +382,14 @@ def test_a_broad_class_drawn_only_above_a_moved_archetype_may_leave_with_it():
     before_decks = _filed(grixis=2, storm=1)
     before = _capture(
         before_decks,
-        card_usage={("brainstorm", "any", "storm"): {"macro": "combo"},
-                    ("brainstorm", "any", "grixis"): {"macro": "tempo"}},
+        card_usage={("brainstorm", "any", "storm"): {"macro": "combo", "decks": 1, "total": 1},
+                    ("brainstorm", "any", "grixis"): {"macro": "tempo", "decks": 2,
+                                                      "total": 2}},
         card_usage_macros={("brainstorm", "any", "combo"): {"decks": 1, "total": 1}})
     after = _capture(
         _refiled(before_decks, storm="grixis"),
-        card_usage={("brainstorm", "any", "grixis"): {"macro": "tempo"}})
+        card_usage={("brainstorm", "any", "grixis"): {"macro": "tempo", "decks": 3,
+                                                      "total": 3}})
 
     assert _verdicts(bundles.compare(before, after))[
         ("card_usage_macros", ("brainstorm", "any", "combo"), None)][0] == "explained"
@@ -385,7 +399,7 @@ def test_a_broad_class_whose_own_usage_moved_is_a_regression():
     # Even above an archetype that moved: a class's share of its own decks is
     # counted over decks, which no fold refiles out of their class.
     before_decks = _filed(grixis=2, storm=1)
-    usage = {("brainstorm", "any", "grixis"): {"macro": "tempo"}}
+    usage = {("brainstorm", "any", "grixis"): {"macro": "tempo", "decks": 2, "total": 2}}
     before = _capture(before_decks, card_usage=usage, card_usage_macros={
         ("brainstorm", "any", "tempo"): {"decks": 2, "total": 2}})
     after = _capture(_refiled(before_decks, storm="grixis"), card_usage=usage,
@@ -429,6 +443,217 @@ def test_a_fold_that_files_whole_archetypes_conserves_decks():
     assert bundles.compare(_capture(before_decks), _capture(after_decks)).conservation == []
 
 
+def _rakdos_fold() -> tuple[dict, dict]:
+    """Rakdos Eclipse (4 decks) folded into Rakdos (3), Grixis (5) untouched, with
+    every figure a family's members add up to written out on both sides by hand:
+    Rakdos after is what the two held before (issue #381)."""
+    before_decks = _filed(grixis=5, rakdos=3, rakdos_eclipse=4)
+    after_decks = _refiled(before_decks, rakdos_eclipse="rakdos")
+    at = {"rakdos_eclipse3": (2025, "E2", "P1")}  # every other deck at E1
+    names = {"grixis": "Grixis", "rakdos": "Rakdos", "rakdos_eclipse": "Rakdos Eclipse"}
+
+    def archetypes(decks):
+        held = {tag: list(decks.values()).count(tag) for tag in set(decks.values())}
+        return {(tag,): {"name": names[tag], "decks": n} for tag, n in held.items()}
+
+    before = _capture(
+        before_decks, at=at, archetypes=archetypes(before_decks),
+        meta_share={("grixis", 2025): {"n": 5, "share": 5 / 12},
+                    ("rakdos", 2025): {"n": 3, "share": 3 / 12},
+                    ("rakdos_eclipse", 2025): {"n": 4, "share": 4 / 12}},
+        landscape={("grixis", 2025): {"n": 5, "share": 5 / 12, "scored": 5,
+                                      "mean_norm": 0.3, "events": 2},
+                   ("rakdos", 2025): {"n": 3, "share": 3 / 12, "scored": 2,
+                                      "mean_norm": 0.2, "events": 2},
+                   ("rakdos_eclipse", 2025): {"n": 4, "share": 4 / 12, "scored": 4,
+                                              "mean_norm": 0.5, "events": 3}},
+        events_played={("grixis", 2025): 2, ("rakdos", 2025): 2, ("rakdos_eclipse", 2025): 3},
+        finishes={("rakdos", "E1"): {"decks": 1, "mean_norm": 0.2},
+                  ("rakdos_eclipse", "E1"): {"decks": 3, "mean_norm": 0.6},
+                  ("rakdos_eclipse", "E2"): {"decks": 1, "mean_norm": 0.5}},
+        card_usage={("bolt", "any", "rakdos"): {"macro": "aggro", "decks": 2, "total": 3},
+                    ("bolt", "any", "rakdos_eclipse"): {"macro": "aggro", "decks": 1,
+                                                        "total": 4},
+                    ("duress", "any", "rakdos_eclipse"): {"macro": "aggro", "decks": 2,
+                                                          "total": 4}},
+        affinity={("P1", "rakdos"): 1, ("P1", "rakdos_eclipse"): 2},
+        affinity_edges={("P1", "aggro", "rakdos"): 1, ("P1", "aggro", "rakdos_eclipse"): 2},
+        records={("P1", "rakdos_eclipse0"): {"archetype": "Rakdos Eclipse"}},
+    )
+    after = _capture(
+        after_decks, at=at, archetypes=archetypes(after_decks),
+        meta_share={("grixis", 2025): {"n": 5, "share": 5 / 12},
+                    ("rakdos", 2025): {"n": 7, "share": 7 / 12}},
+        # Scored 2 at 0.2 and 4 at 0.5 is 6 at 0.4; 4 events lies between the 3 the
+        # larger member played and the 5 the two played between them.
+        landscape={("grixis", 2025): {"n": 5, "share": 5 / 12, "scored": 5,
+                                      "mean_norm": 0.3, "events": 2},
+                   ("rakdos", 2025): {"n": 7, "share": 7 / 12, "scored": 6,
+                                      "mean_norm": 0.4, "events": 4}},
+        events_played={("grixis", 2025): 2, ("rakdos", 2025): 4},
+        # One deck at 0.2 and three at 0.6 is four at 0.5.
+        finishes={("rakdos", "E1"): {"decks": 4, "mean_norm": 0.5},
+                  ("rakdos", "E2"): {"decks": 1, "mean_norm": 0.5}},
+        # Total is the family's decks, 7, even on the card Rakdos itself never ran.
+        card_usage={("bolt", "any", "rakdos"): {"macro": "aggro", "decks": 3, "total": 7},
+                    ("duress", "any", "rakdos"): {"macro": "aggro", "decks": 2, "total": 7}},
+        affinity={("P1", "rakdos"): 3},
+        affinity_edges={("P1", "aggro", "rakdos"): 3},
+        records={("P1", "rakdos_eclipse0"): {"archetype": "Rakdos"}},
+    )
+    return before, after
+
+
+def test_a_family_whose_figures_add_up_to_its_members_breaks_nothing():
+    before, after = _rakdos_fold()
+
+    result = bundles.compare(before, after)
+
+    assert {d.verdict for d in result.differences} == {"explained"}
+    assert result.conservation == [] and result.figure_breaks == []
+
+
+def _set(capture, section, key, field, value):
+    raw = json.dumps(list(key))
+    if value is bundles.ABSENT:
+        del capture[section][raw]
+    elif field is None:
+        capture[section][raw] = value
+    else:
+        capture[section][raw] = capture[section][raw] | {field: value}
+
+
+@pytest.mark.parametrize("section, key, field, value", [
+    ("meta_share", ("rakdos", 2025), "n", 8),
+    ("meta_share", ("rakdos", 2025), "share", 8 / 12),
+    ("landscape", ("rakdos", 2025), "n", 8),
+    ("landscape", ("rakdos", 2025), "share", 8 / 12),
+    ("landscape", ("rakdos", 2025), "scored", 7),
+    ("landscape", ("rakdos", 2025), "mean_norm", 0.41),
+    ("landscape", ("rakdos", 2025), "events", 6),   # more than the two played
+    ("landscape", ("rakdos", 2025), "events", 2),   # fewer than one of them alone
+    ("events_played", ("rakdos", 2025), None, 6),
+    ("events_played", ("rakdos", 2025), None, 2),
+    ("finishes", ("rakdos", "E1"), "decks", 5),
+    ("finishes", ("rakdos", "E1"), "mean_norm", 0.51),
+    ("finishes", ("rakdos", "E2"), None, bundles.ABSENT),  # a member's event lost
+    ("finishes", ("rakdos", "E3"), None, {"decks": 1, "mean_norm": 0.5}),  # gained
+    ("card_usage", ("bolt", "any", "rakdos"), "decks", 4),
+    ("card_usage", ("duress", "any", "rakdos"), "total", 8),
+    ("affinity", ("P1", "rakdos"), None, 4),
+    ("affinity_edges", ("P1", "aggro", "rakdos"), None, 4),
+    ("records", ("P1", "rakdos_eclipse0"), "archetype", "Rakdos Eclipse"),
+])
+def test_a_family_figure_off_from_its_members_is_a_conservation_break(
+    section, key, field, value
+):
+    before, after = _rakdos_fold()
+    _set(after, section, key, field, value)
+
+    result = bundles.compare(before, after)
+
+    assert [(b.section, b.key, b.field) for b in result.figure_breaks] == [
+        (section, key, field)]
+
+
+@pytest.mark.parametrize("scored, mean", [
+    ({"rakdos": 2, "rakdos_eclipse": 0}, 0.2),  # the unscored member weighs nothing
+    ({"rakdos": 0, "rakdos_eclipse": 0}, None),  # nothing scored, no mean to draw
+])
+def test_a_member_whose_finish_is_unknown_adds_nothing_to_the_familys(scored, mean):
+    # An archetype played in a year with no scored deck has no mean and a weight of
+    # zero (trends.LandscapeCell), so the family's mean is the scored members'.
+    before, after = _rakdos_fold()
+    for tag, n in scored.items():
+        _set(before, "landscape", (tag, 2025), "scored", n)
+        if not n:
+            _set(before, "landscape", (tag, 2025), "mean_norm", None)
+    _set(after, "landscape", ("rakdos", 2025), "scored", sum(scored.values()))
+    _set(after, "landscape", ("rakdos", 2025), "mean_norm", mean)
+
+    assert bundles.compare(before, after).figure_breaks == []
+
+
+def test_a_family_named_for_a_code_that_held_no_decks_adds_up_to_its_members():
+    # Ascendancy is primary on no deck and Amber Ascendancy's carry it as their
+    # parent (the record's own case): the family's every deck is a member's, so
+    # its card usage total is what Amber Ascendancy held before the fold.
+    before_decks = _filed(amber_ascendancy=3)
+    after_decks = _refiled(before_decks, amber_ascendancy="ascendancy")
+    before = _capture(before_decks, archetypes={
+        ("amber_ascendancy",): {"name": "Amber Ascendancy", "decks": 3}}, card_usage={
+        ("lotus", "any", "amber_ascendancy"): {"macro": "combo", "decks": 1, "total": 3}})
+    after = _capture(after_decks, archetypes={
+        ("ascendancy",): {"name": "Ascendancy", "decks": 3}}, card_usage={
+        ("lotus", "any", "ascendancy"): {"macro": "combo", "decks": 1, "total": 3}})
+
+    assert bundles.compare(before, after).figure_breaks == []
+
+
+def test_an_archetype_that_moved_no_decks_is_graded_by_its_verdict_alone():
+    # Grixis gained and lost nothing: a figure of it that moved is a regression,
+    # and not a second report as a family that does not add up.
+    before, after = _rakdos_fold()
+    _set(before, "records", ("P1", "grixis0"), None, {"archetype": "Grixis"})
+    _set(after, "records", ("P1", "grixis0"), None, {"archetype": "Mardu"})
+    _set(after, "affinity", ("P1", "grixis"), None, 9)
+    _set(before, "affinity", ("P1", "grixis"), None, 5)
+
+    result = bundles.compare(before, after)
+
+    assert result.figure_breaks == []
+    assert _verdicts(result)[("affinity", ("P1", "grixis"), None)][0] == "regression"
+
+
+def test_the_report_names_a_figure_that_does_not_add_up_and_both_values():
+    before, after = _rakdos_fold()
+    _set(after, "finishes", ("rakdos", "E1"), "decks", 5)
+    _set(after, "events_played", ("rakdos", 2025), None, 6)
+
+    lines = bundles.report(bundles.compare(before, after)).splitlines()
+
+    assert "Figures do not add up for 2 entries:" in lines
+    assert ("  Finishes over time, rakdos E1, decks: 5, where the archetypes filed "
+            "under it give 4") in lines
+    assert ("  Events played in the latest year, rakdos 2025: 6, where the archetypes "
+            "filed under it give between 3 and 5") in lines
+
+
+def test_a_figure_that_does_not_add_up_fails_the_command(
+    tmp_path, snapshot_dir, snapshots, capsys
+):
+    # The suite's one Storm deck re-filed under Grixis by upstream (every
+    # difference explained, as in the alias fold above), against a reference
+    # whose Storm affinity was off by one: nothing regressed, and the command
+    # still fails, on the figure alone.
+    target = tmp_path / "reference"
+    bundles.freeze(_fresh(tmp_path / "a", snapshot_dir), target, snapshots, "ec84585")
+    frozen = json.loads((target / "capture.json").read_text())
+    frozen["affinity"][json.dumps(["AmberTealViper", "storm"])] += 1
+    (target / "capture.json").write_text(json.dumps(frozen))
+    refiled = tmp_path / "refiled"
+    refiled.mkdir()
+    (refiled / "cards_index.json").write_text((snapshot_dir / "cards_index.json").read_text())
+    decks = json.loads((snapshot_dir / "decks.json").read_text())
+    for deck in decks:
+        if deck["primaryTag"] == "engine:storm":
+            deck |= {"engineTags": ["engine:grixis"], "primaryTag": "engine:grixis",
+                     "engineTagLabels": {"engine:grixis": "Grixis"},
+                     "primaryTagWeights": {"engine:grixis": 100}}
+    (refiled / "decks.json").write_text(json.dumps(decks))
+
+    with pytest.raises(SystemExit) as exit_:
+        bundles.main(["compare", "--reference", str(target),
+                      "--db", str(_fresh(tmp_path / "b", refiled)),
+                      "--snapshots", str(snapshots)])
+
+    lines = capsys.readouterr().out.splitlines()
+    assert exit_.value.code == 1
+    assert lines[0].endswith("0 regressions.")
+    assert "  Pilot archetype affinity, AmberTealViper grixis: 1, where the archetypes " \
+           "filed under it give 2" in lines
+
+
 def test_a_deck_whose_line_changed_archetype_without_moving_is_a_regression():
     decks = _filed(grixis=1)
     before = _capture(decks, records={("Jordan C", "grixis0"): {"archetype": "Grixis"}})
@@ -445,9 +670,9 @@ def test_an_archetype_that_moved_in_one_year_explains_nothing_about_another():
     late = {deck: (2026, "E2", "P1")
             for deck in ("rakdos2", "rakdos_eclipse0", "rakdos_eclipse1")}
     before = _capture(before_decks, at=late, meta_share={
-        ("rakdos", 2025): {"n": 2}, ("rakdos", 2026): {"n": 1}})
+        ("rakdos", 2025): _share(2), ("rakdos", 2026): _share(1)})
     after = _capture(_refiled(before_decks, rakdos_eclipse="rakdos"), at=late,
-                     meta_share={("rakdos", 2025): {"n": 3}, ("rakdos", 2026): {"n": 3}})
+                     meta_share={("rakdos", 2025): _share(3), ("rakdos", 2026): _share(3)})
 
     verdicts = _verdicts(bundles.compare(before, after))
 
@@ -462,11 +687,11 @@ def test_an_archetype_new_to_the_record_brings_its_zero_years_with_it():
     before_decks = _filed(gluten_free_storm=3)
     late = {"gluten_free_storm2": (2026, "E2", "P1")}
     before = _capture(before_decks, at=late, meta_share={
-        ("gluten_free_storm", 2025): {"n": 2}, ("gluten_free_storm", 2026): {"n": 1}})
+        ("gluten_free_storm", 2025): _share(2), ("gluten_free_storm", 2026): _share(1)})
     after = _capture(before_decks | {"gluten_free_storm2": "gf_storm"}, at=late,
-                     meta_share={("gluten_free_storm", 2025): {"n": 2},
-                                 ("gluten_free_storm", 2026): {"n": 0},
-                                 ("gf_storm", 2025): {"n": 0}, ("gf_storm", 2026): {"n": 1}})
+                     meta_share={("gluten_free_storm", 2025): _share(2),
+                                 ("gluten_free_storm", 2026): _share(0),
+                                 ("gf_storm", 2025): _share(0), ("gf_storm", 2026): _share(1)})
 
     verdicts = _verdicts(bundles.compare(before, after))
 
@@ -479,11 +704,11 @@ def test_a_year_with_decks_in_one_build_only_needs_decks_moved_that_year():
     before_decks = _filed(gluten_free_storm=3)
     late = {"gluten_free_storm2": (2026, "E2", "P1")}
     before = _capture(before_decks, at=late, meta_share={
-        ("gluten_free_storm", 2025): {"n": 2}, ("gluten_free_storm", 2026): {"n": 1}})
+        ("gluten_free_storm", 2025): _share(2), ("gluten_free_storm", 2026): _share(1)})
     after = _capture(before_decks | {"gluten_free_storm2": "gf_storm"}, at=late,
-                     meta_share={("gluten_free_storm", 2025): {"n": 2},
-                                 ("gluten_free_storm", 2026): {"n": 0},
-                                 ("gf_storm", 2025): {"n": 1}, ("gf_storm", 2026): {"n": 1}})
+                     meta_share={("gluten_free_storm", 2025): _share(2),
+                                 ("gluten_free_storm", 2026): _share(0),
+                                 ("gf_storm", 2025): _share(1), ("gf_storm", 2026): _share(1)})
 
     assert _verdicts(bundles.compare(before, after))[
         ("meta_share", ("gf_storm", 2025), None)][0] == "regression"
@@ -496,9 +721,11 @@ def test_an_archetype_that_moved_at_one_event_explains_nothing_about_another():
     at = {"rakdos0": (2025, "E1", "P1"), "rakdos1": (2025, "E2", "P2"),
           "rakdos_eclipse0": (2025, "E2", "P3")}
     before = _capture(before_decks, at=at, finishes={
-        ("rakdos", "E1"): {"mean_norm": 0.2}, ("rakdos", "E2"): {"mean_norm": 0.5}})
+        ("rakdos", "E1"): {"mean_norm": 0.2, "decks": 1},
+        ("rakdos", "E2"): {"mean_norm": 0.5, "decks": 1}})
     after = _capture(_refiled(before_decks, rakdos_eclipse="rakdos"), at=at, finishes={
-        ("rakdos", "E1"): {"mean_norm": 0.3}, ("rakdos", "E2"): {"mean_norm": 0.4}})
+        ("rakdos", "E1"): {"mean_norm": 0.3, "decks": 1},
+        ("rakdos", "E2"): {"mean_norm": 0.4, "decks": 2}})
 
     verdicts = _verdicts(bundles.compare(before, after))
 

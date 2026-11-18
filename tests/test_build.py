@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime
 
 import ladybug
@@ -790,6 +791,286 @@ def test_a_deck_archetype_steps_aside_once_upstream_refiles_the_deck(tmp_path):
     (row,) = [d for d in report["dead_entries"] if d["kind"] == "deck_archetype"]
     assert row["key"] == "d1"
     assert "engine:izzet_tempo" in row["detail"] and "engine:blue_moon" in row["detail"]
+
+
+_FAMILY_LABELS = {
+    "engine:grixis": "Grixis", "engine:bus_stop_grixis": "Bus Stop Grixis",
+    "engine:breach": "Breach", "engine:jeskai": "Jeskai",
+    "engine:jeskai_breach": "Jeskai Breach", "engine:breachbond": "Breachbond",
+    "engine:dimir": "Dimir", "engine:flood_moon": "Flood Moon",
+    "engine:lurrus_breach": "Lurrus Breach",
+} | _STORM_LABELS
+
+
+def _tagged(deck_id, placement, weights, event="E", **overrides):
+    """A deck tagged with ``weights`` (code -> weight), its top weight primary."""
+    return _deck(deck_id, event, "2026-04-25T00:00:00+00:00", placement=placement,
+                 engineTags=list(weights), primaryTagWeights=weights,
+                 primaryTag=max(weights, key=weights.get),
+                 engineTagLabels={c: _FAMILY_LABELS[c] for c in weights}, **overrides)
+
+
+def _versions(code, count, parents, first=1):
+    """``count`` decks with ``code`` primary, each carrying every one of ``parents`` at 5."""
+    weights = {code: 100 - 5 * len(parents)} | {p: 5 for p in parents}
+    return [_tagged(f"{code.split(':')[1]}{n}", n, weights)
+            for n in range(first, first + count)]
+
+
+def test_a_version_is_served_under_the_archetype_its_decks_name_as_parent(tmp_path):
+    # Upstream tags a version with its parent as a second, low-weight tag (Bus
+    # Stop Grixis carries Grixis at 5), so when 95% of the decks a code is
+    # primary on carry one parent, the code joins that parent's family (issue
+    # #381). Its decks are re-coded the way an alias folds them: weights summed,
+    # the primary following, under the parent's label, and the version's own
+    # code is gone from the graph.
+    _write_snapshot(tmp_path, [
+        _tagged("g1", 1, {"engine:grixis": 100}),
+        *_versions("engine:bus_stop_grixis", 5, ["engine:grixis"], first=2),
+    ])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", Curation.empty())
+    conn = open_for_reading(tmp_path / "graph")
+
+    assert _archetype_edges(conn) == {
+        deck: {"Grixis": (100, True)}
+        for deck in ["g1", *(f"bus_stop_grixis{n}" for n in range(2, 7))]
+    }
+    assert {name for (name,) in rows(conn.execute(
+        "MATCH (a:Archetype) RETURN a.name"))} == {"Grixis"}
+
+
+def _primaries(conn):
+    """Every deck's primary archetype label, as deck id -> label."""
+    return dict(rows(conn.execute(
+        """MATCH (d:Deck)-[r:HAS_ARCHETYPE]->(a:Archetype) WHERE r.isPrimary
+           RETURN d.deckId, a.name""")))
+
+
+@pytest.mark.parametrize("decks, carrying, joins", [
+    (4, 4, False),    # under the deck floor: too few decks to judge
+    (20, 19, True),   # exactly 95% carry the parent
+    (20, 18, False),  # 90%: the parent is not what upstream declares
+])
+def test_a_version_joins_its_parent_only_on_enough_decks_that_carry_it(
+    tmp_path, decks, carrying, joins
+):
+    versions = (_versions("engine:bus_stop_grixis", carrying, ["engine:grixis"])
+                + _versions("engine:bus_stop_grixis", decks - carrying, [], first=carrying + 1))
+    _write_snapshot(tmp_path, versions)
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", Curation.empty())
+
+    served = set(_primaries(open_for_reading(tmp_path / "graph")).values())
+    assert served == ({"Grixis"} if joins else {"Bus Stop Grixis"})
+
+
+def test_a_primary_upstream_does_not_tag_the_deck_with_is_no_code_to_judge(tmp_path):
+    # A deck upstream left without a primary names one it does not tag the deck
+    # with, so the graph files it under nothing (the suite's `engine:__none__`
+    # fixtures; one Rakdos Aggro deck on the record). Five such decks carrying
+    # Grixis are no version of Grixis: the rule judges a code on the decks the
+    # graph serves it as primary on.
+    _write_snapshot(tmp_path, [
+        _tagged(f"x{n}", n, {"engine:grixis": 100}) | {"primaryTag": "engine:__none__"}
+        for n in range(1, 6)])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", Curation.empty())
+
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    assert report["archetype_families"] == {"families": [], "two_parents": []}
+
+
+def test_a_code_with_two_parents_stands_alone(tmp_path):
+    # Jeskai Breach decks carry both Breach and Jeskai: upstream declares two
+    # parents, and which family it belongs to is the owner's to rule, so until
+    # then it is its own (issue #381).
+    _write_snapshot(tmp_path, _versions(
+        "engine:jeskai_breach", 5, ["engine:breach", "engine:jeskai"]))
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", Curation.empty())
+
+    served = set(_primaries(open_for_reading(tmp_path / "graph")).values())
+    assert served == {"Jeskai Breach"}
+
+
+def test_a_spelling_split_is_judged_as_the_one_code_its_alias_folds_it_into(tmp_path):
+    # The rule reads tags after the spelling aliases fold (issue #381): three GF
+    # Storm and two Gluten Free Storm decks are each under the floor apart, and
+    # five decks of one code once the alias folds them.
+    _write_snapshot(tmp_path,
+                    _versions("engine:gf_storm", 3, ["engine:storm"])
+                    + _versions("engine:gluten_free_storm", 2, ["engine:storm"], first=4))
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", _GF_STORM)
+
+    served = set(_primaries(open_for_reading(tmp_path / "graph")).values())
+    assert served == {"Storm"}
+
+
+def test_a_family_is_read_off_upstreams_tags_and_holds_the_decks_overridden_onto_it(
+    tmp_path,
+):
+    # Five Flood Moon decks carry Dimir as their parent. A sixth upstream filed
+    # under Dimir is reclassified onto Flood Moon by a [[deck_archetype]], which
+    # leaves it one engine and no parent tag. The rule reads upstream's tags, so
+    # the override cannot vote Flood Moon out of the family (a sixth without the
+    # parent would be 83%), and the overridden deck is grouped like any other
+    # Flood Moon deck (issue #381).
+    _write_snapshot(tmp_path, [
+        *_versions("engine:flood_moon", 5, ["engine:dimir"]),
+        _tagged("m1", 6, {"engine:dimir": 100}, deckName="Dimir"),
+    ])
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        deck_archetypes={"m1": ArchetypeOverride(
+            deck_name="Flood Moon", engine="engine:flood_moon",
+            engine_label="Flood Moon", source="engine:dimir")},
+    )
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", curation)
+    conn = open_for_reading(tmp_path / "graph")
+
+    assert set(_primaries(conn).values()) == {"Dimir"}
+    assert _scalar(conn, "MATCH (d:Deck {deckId: 'm1'}) RETURN d.deckName") == "Flood Moon"
+
+
+def _ruled(families):
+    return replace(Curation.empty(), archetype_families=families)
+
+
+@pytest.mark.parametrize("decks, families, served", [
+    # A grouping the rule misses: upstream gives Breachbond no parent tag.
+    ([*_versions("engine:breachbond", 5, []), _tagged("b0", 9, {"engine:breach": 100})],
+     {"engine:breachbond": "engine:breach"}, {"Breach"}),
+    # A grouping the rule makes that the owner keeps apart.
+    (_versions("engine:bus_stop_grixis", 5, ["engine:grixis"]),
+     {"engine:bus_stop_grixis": "engine:bus_stop_grixis"}, {"Bus Stop Grixis"}),
+    # Two parents, settled by a ruling for one of them.
+    (_versions("engine:jeskai_breach", 5, ["engine:breach", "engine:jeskai"]),
+     {"engine:jeskai_breach": "engine:breach"}, {"Breach"}),
+    # Ruled under a version the rule files under its own parent: one family,
+    # not decks split between the version's code and the parent's.
+    ([*_versions("engine:breachbond", 5, []),
+      *_versions("engine:lurrus_breach", 5, ["engine:breach"], first=6)],
+     {"engine:breachbond": "engine:lurrus_breach"}, {"Breach"}),
+])
+def test_a_family_ruling_decides_where_the_rule_cannot_or_gets_it_wrong(
+    tmp_path, decks, families, served
+):
+    # The owner rules only on exceptions (issue #381), and a ruling wins over
+    # whatever the rule would have made of the code's tags.
+    _write_snapshot(tmp_path, decks)
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", _ruled(families))
+
+    assert set(_primaries(open_for_reading(tmp_path / "graph")).values()) == served
+
+
+@pytest.mark.parametrize("families, gone", [
+    ({"engine:breachbond": "engine:grixis"}, "engine:breachbond"),
+    ({"engine:bus_stop_grixis": "engine:breach"}, "engine:breach"),
+    ({"engine:breachbond": "engine:breachbond"}, "engine:breachbond"),
+])
+def test_a_family_ruling_steps_aside_once_upstream_stops_carrying_a_code_it_names(
+    tmp_path, families, gone
+):
+    # Upstream's later tagging is the long-term answer, as for an alias: a
+    # ruling naming a code no deck carries applies nothing, the build goes on
+    # under the rule, and the report lists the ruling so it can be retired.
+    _write_snapshot(tmp_path, _versions("engine:bus_stop_grixis", 5, ["engine:grixis"]))
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", _ruled(families))
+
+    assert set(_primaries(open_for_reading(tmp_path / "graph")).values()) == {"Grixis"}
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    (row,) = [d for d in report["dead_entries"] if d["kind"] == "archetype_family"]
+    assert row["key"] == next(iter(families)) and gone in row["detail"]
+
+
+def test_the_report_lists_each_family_with_its_members_and_the_codes_with_two_parents(
+    tmp_path,
+):
+    # Every build lists what it grouped and what it could not (issue #381):
+    # each family with the decks each member brings, whether the rule or a
+    # ruling put it there, and the codes left alone with two parents, which
+    # wait on the owner. None of it stops the build. A deck counts where the
+    # graph serves it: one upstream names Bus Stop Grixis as primary without
+    # tagging it so (a shape the record holds once) is primary on nothing.
+    _write_snapshot(tmp_path, [
+        _tagged("g1", 1, {"engine:grixis": 100}),
+        _tagged("b0", 2, {"engine:breach": 100}),
+        _tagged("odd", 30, {"engine:grixis": 100}) | {"primaryTag": "engine:bus_stop_grixis"},
+        *_versions("engine:bus_stop_grixis", 5, ["engine:grixis"], first=3),
+        *_versions("engine:breachbond", 6, [], first=8),
+        *_versions("engine:jeskai_breach", 7, ["engine:breach", "engine:jeskai"], first=14),
+    ])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph",
+                _ruled({"engine:breachbond": "engine:breach"}))
+
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    assert report["archetype_families"] == {
+        "families": [
+            {"code": "engine:breach", "label": "Breach", "decks": 1, "members": [
+                {"code": "engine:breachbond", "label": "Breachbond", "decks": 6,
+                 "by": "ruling"}]},
+            {"code": "engine:grixis", "label": "Grixis", "decks": 1, "members": [
+                {"code": "engine:bus_stop_grixis", "label": "Bus Stop Grixis", "decks": 5,
+                 "by": "rule"}]},
+        ],
+        "two_parents": [
+            {"code": "engine:jeskai_breach", "label": "Jeskai Breach", "decks": 7,
+             "parents": ["engine:breach", "engine:jeskai"]},
+        ],
+    }
+
+
+def test_the_record_files_the_versions_the_tickets_name_as_they_measured(live_graph):
+    # The cases issues #381 and #382 measured on 20261118T000557Z before any
+    # ruling: versions the rule groups (some the owner may yet keep apart), the
+    # one grouping it misses (upstream gives Breachbond no parent tag) and the
+    # two codes it leaves alone with two parents. A ruling that moves one of
+    # these updates this test in the ticket that records it.
+    report = json.loads(reconciliation_path(artifact_path()).read_text())["archetype_families"]
+    filed = {m["label"]: f["label"] for f in report["families"] for m in f["members"]}
+    named = {
+        "Bus Stop Grixis": "Grixis", "Lurrus Breach": "Breach", "Flood Moon": "Dimir",
+        "Blue Tron": "Tron", "Red Esper": "Esper", "Iron Man": "Jeskai",
+        "Mardu Lurrus": "Mardu", "Rakdos Eclipse": "Rakdos", "Rakdos Aggro": "Rakdos",
+        "Orzhov Taxes": "Orzhov", "Warps": "Bant", "Amulet Titan": "Simic",
+        "Breachbond": None,
+    }
+
+    assert {code: filed.get(code) for code in named} == named
+    assert {c["label"]: c["parents"] for c in report["two_parents"]} == {
+        "Jeskai Breach": ["engine:breach", "engine:jeskai"],
+        "Breakfast": ["engine:bant", "engine:nadu"],
+    }
+    # Served under the family: no version the rule grouped is left in the graph.
+    assert set(filed) & {name for (name,) in rows(live_graph.execute(
+        "MATCH (a:Archetype) RETURN a.name"))} == set()
+
+
+def test_pilot_identity_compares_decks_on_upstreams_codes_not_their_families(tmp_path):
+    # Identity rules compare two ids' closest decks on one primary archetype
+    # (ADR 0028), so families are grouped only after identity resolves (issue
+    # #381). Joseph M and Jospeh M (one transposition apart) ran the same list
+    # at different events, one as Grixis and one as Bus Stop Grixis: on
+    # upstream's codes they share no archetype and stay watching, while read
+    # through the family they would clear the typo bar and merge two people.
+    joseph = _tagged("a1", 1, {"engine:grixis": 100}, event="E1", pilot="pa",
+                     name="1st Joseph M - Grixis - E1")
+    jospeh, *others = _versions("engine:bus_stop_grixis", 5, ["engine:grixis"])
+    jospeh |= {"pilot": "pb", "name": "1st Jospeh M - Bus Stop Grixis - E"}
+    _write_snapshot(tmp_path, [joseph, jospeh, *others])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", Curation.empty())
+
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    (pair,) = [p for p in report["ruled_pairs"] if set(p["pilots"]) == {"pa", "pb"}]
+    assert (pair["state"], pair["archetype"]) == ("watching", None)
+    assert set(_primaries(open_for_reading(tmp_path / "graph")).values()) == {"Grixis"}
 
 
 def test_the_held_ids_sitting_on_a_joined_node_are_the_five_on_the_record(live_graph):

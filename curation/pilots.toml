@@ -4,24 +4,26 @@
 # decision recorded once holds for all time. Every entry keys on a STABLE
 # upstream identifier: a pilot id or a deck id. Never key on a display name or a
 # synthetic key (nan:darcy, LunarRedFalcon#2): those shift when the data changes.
-# The one exception is [[archetype_alias]], keyed on two archetype codes, which
-# steps aside if upstream retires either (issue #374).
+# The two exceptions are [[archetype_alias]] and [[archetype_family]], keyed on
+# archetype codes, which step aside if upstream retires one they name (issues
+# #374, #381).
 #
 # Wave 1 policy: only decisions grounded on a hard fact go here. When two names
 # could reasonably be two different people, they stay separate and remain a
 # proposal in the reconciliation report until a human confirms them (the second
 # sweep). See docs/adr/0004-pilot-identity.md.
 #
-# Nine kinds of entry. Eight record a decision; [[hold]] records that one could
+# Ten kinds of entry. Nine record a decision; [[hold]] records that one could
 # not be reached. Upstream reuses a pilot id for a different person (issue #261),
 # so each of the seven keyed on an id also carries the snapshot it was written on
 # and the display name each of its ids recovered then (the name the deck titles
 # gave, not a pinned one; for a deck id, its own title's name); [[archetype_alias]]
-# names no id and carries `as_of` alone. The build refuses an entry whose id
-# no longer recovers that name's family (a handle or bare first name, the string),
-# applies it to nothing, and lists it under a banner (issue #283). Both fields are
-# required; `uv run python scripts/entry_provenance.py` fills them in for every
-# entry lacking them, from the earliest snapshot holding its ids.
+# and [[archetype_family]] name no id and carry `as_of` alone. The build refuses
+# an entry whose id no longer recovers that name's family (a handle or bare first
+# name, the string), applies it to nothing, and lists it under a banner (issue
+# #283). Both fields are required; `uv run python scripts/entry_provenance.py`
+# fills them in for every entry lacking them, from the earliest snapshot holding
+# its ids.
 #
 #     as_of = "20260713T232944Z"
 #     names = { "A" = "Alex W", "B" = "Alexander W" }
@@ -64,10 +66,20 @@
 #   [[archetype_alias]] fold an archetype code upstream mints only because
 #                    pilots spell one deck two ways ("GF Storm" / "Gluten Free
 #                    Storm"): every deck carrying the alias carries the archetype
-#                    instead, weights summed. Not for versions of a deck (#99).
+#                    instead, weights summed. Not for versions of a deck, which
+#                    are grouped into families (below).
 #                    Steps aside, and is reported, once either code is gone.
 #     alias = "engine:gf_storm"
 #     archetype = "engine:gluten_free_storm"
+#     as_of = "20261118T000557Z"
+#
+#   [[archetype_family]] an exception to the family rule the build derives
+#                    from upstream's parent tags (issue #381): file a code under
+#                    a named family, or, naming the code itself, keep it out of
+#                    any. Applied after pilot identity, like the rule. Steps
+#                    aside, and is reported, once either code is gone.
+#     code = "engine:breachbond"
+#     family = "engine:breach"
 #     as_of = "20261118T000557Z"
 #
 #   [[deck_event]]   return one deck to the event it was really played at (e.g.

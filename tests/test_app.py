@@ -3784,6 +3784,23 @@ def test_every_placeholder_is_filled_whatever_the_bundle_holds():
         faq_entries({k: v for k, v in _FIGURES_2026_11_04.items() if k != "events"})
 
 
+def test_no_surface_calls_an_archetype_a_family(live_graph):
+    # The site serves archetype families everywhere and still says "archetype"
+    # (issue #381), the way the Macro is shown as a "broad class": not in a FAQ
+    # question or answer, not on the Community page, not as an archetype's name.
+    from graph7ph import community
+    from graph7ph.db import artifact_path, rows
+    from graph7ph.figures import figures_path
+
+    figures = json.loads(figures_path(artifact_path()).read_text())
+    said = ([q for _, _, q, _ in faq_entries(figures)]
+            + [a for _, _, _, a in faq_entries(figures)]
+            + [community.page(figures["community"])]
+            + [name for (name,) in rows(live_graph.execute("MATCH (a:Archetype) RETURN a.name"))])
+
+    assert [text for text in said if "famil" in text.lower()] == []
+
+
 def test_no_corpus_figure_is_typed_into_the_faq_templates():
     # AC (#265): every number the templates still carry is design or illustration,
     # listed here with its reason, so a corpus figure typed back into the prose

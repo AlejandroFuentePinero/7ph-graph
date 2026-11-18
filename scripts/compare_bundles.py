@@ -17,7 +17,10 @@ which archetypes gained or lost decks, and every difference is sorted:
   leaderboard included.
 
 It also checks conservation: each archetype's decks after are the decks, before, of
-the archetypes now filed under it.
+the archetypes now filed under it, and every figure of one that gained or lost decks
+that its members add up to (its shares, its finishes and their means, its card usage,
+its pilots' affinity, each deck's line) is what they add up to (issue #381), so an
+explained difference is also a checked one wherever a sum can check it.
 
 ``freeze`` copies a bundle aside with its capture, the commit it was built at and
 the snapshots it was built from, so the reference is the site as main served it, read
@@ -135,17 +138,47 @@ class Break:
     held: int
 
 
+@dataclass(frozen=True)
+class Between:
+    """What a count of distinct events may be once archetypes are filed together:
+    at least the most any one of them played, at most all of theirs added up."""
+
+    least: int
+    most: int
+
+    def __str__(self) -> str:
+        return f"between {self.least} and {self.most}"
+
+
+@dataclass(frozen=True)
+class FigureBreak:
+    """A figure of an archetype that gained or lost decks that is not what the
+    archetypes now filed under it add up to (issue #381): ``after`` against
+    ``expected``, their sum, their mean weighted by what each averaged over, or the
+    :class:`Between` a count of distinct events may be. ``field`` is ``None`` where
+    the entry is one value or where it is on record on one side only, the other
+    side then :data:`ABSENT` (or, before, the members' own entries)."""
+
+    section: str
+    key: tuple
+    field: str | None
+    after: object
+    expected: object
+
+
 @dataclass
 class Comparison:
     """``moved`` is every archetype whose decks changed, as its deck count before and
     after. ``transitions`` counts the decks that changed archetype, by the pair they
-    moved between. ``conservation`` is every archetype that breaks conservation.
-    ``names`` is each archetype's display name, by code."""
+    moved between. ``conservation`` is every archetype whose decks break conservation
+    and ``figure_breaks`` every figure of one that does not add up. ``names`` is each
+    archetype's display name, by code."""
 
     differences: list[Difference]
     moved: dict[str, tuple[int, int]]
     transitions: dict[tuple[str | None, str | None], int]
     conservation: list[Break]
+    figure_breaks: list[FigureBreak]
     names: dict[str | None, str]
 
 
@@ -461,11 +494,17 @@ def _context(before: dict, after: dict) -> _Context:
     )
 
 
-def _conservation(old: dict, new: dict) -> list[Break]:
-    counted_before, counted_after = Counter(old.values()), Counter(new.values())
+def _filed_under(old: dict, new: dict) -> dict[str | None, set]:
+    """Each archetype after, as the archetypes its decks were filed under before."""
     filed: dict[str | None, set] = {}
     for raw in old.keys() & new.keys():
         filed.setdefault(new[raw], set()).add(old[raw])
+    return filed
+
+
+def _conservation(old: dict, new: dict) -> list[Break]:
+    counted_before, counted_after = Counter(old.values()), Counter(new.values())
+    filed = _filed_under(old, new)
     breaks = []
     for tag in sorted(counted_after.keys() | filed.keys(), key=str):
         sources = tuple(sorted(filed.get(tag, set()), key=str))
@@ -479,6 +518,102 @@ def _same(a: object, b: object) -> bool:
     if isinstance(a, float) and isinstance(b, float):
         return abs(a - b) <= TOLERANCE
     return a == b
+
+
+def _field(entry, field: str | None):
+    return entry if field is None else entry[field]
+
+
+def _sum(field: str | None):
+    """A count, or a share of a total no fold moves, is its members' added up."""
+    return lambda entries, held: sum(_field(e, field) for e in entries)
+
+
+def _mean(field: str, weight: str):
+    """A mean over decks is its members' means weighted by the decks each averaged
+    over, a member that averaged over none weighing nothing."""
+    def expect(entries, held):
+        weighed = [(e[field], e[weight]) for e in entries if e[weight]]
+        total = sum(w for _, w in weighed)
+        return sum(m * w for m, w in weighed) / total if total else None
+    return expect
+
+
+def _union_of_events(field: str | None):
+    """Distinct events are a union of the members', not a sum of them."""
+    return lambda entries, held: Between(max(_field(e, field) for e in entries),
+                                         sum(_field(e, field) for e in entries))
+
+
+def _members_decks(entries, held):
+    """An archetype's total of decks, read off the members' own deck counts, since a
+    member that never ran the card has no entry to read it from."""
+    return held
+
+
+# Every figure a family's members add up to (issue #381): the position of the
+# archetype in the section's key, and each field's expectation from the members'
+# entries (and their decks between them). Ranks, intervals, the year's spread,
+# finish bounds and gems are not sums and keep the verdicts the sections give them.
+ADDS_UP = {
+    "meta_share": (0, {"n": _sum("n"), "share": _sum("share")}),
+    "landscape": (0, {"n": _sum("n"), "share": _sum("share"), "scored": _sum("scored"),
+                      "mean_norm": _mean("mean_norm", "scored"),
+                      "events": _union_of_events("events")}),
+    "events_played": (0, {None: _union_of_events(None)}),
+    "finishes": (0, {"decks": _sum("decks"), "mean_norm": _mean("mean_norm", "decks")}),
+    "card_usage": (2, {"decks": _sum("decks"), "total": _members_decks}),
+    "affinity": (1, {None: _sum(None)}),
+    "affinity_edges": (2, {None: _sum(None)}),
+}
+
+
+def _agrees(value, expected) -> bool:
+    if isinstance(expected, Between):
+        return expected.least <= value <= expected.most
+    return _same(value, expected)
+
+
+def _figure_breaks(before: dict, after: dict, ctx: _Context) -> list[FigureBreak]:
+    """Every figure of an archetype that gained or lost decks checked against what
+    the archetypes now filed under it held before, and each deck's line against the
+    archetype it is now filed under. An entry is on record after exactly when one of
+    the members' was before."""
+    old, new = ctx.deck_archetype
+    families = {tag: members for tag, members in _filed_under(old, new).items()
+                if tag is not None and tag in ctx.moved}
+    families_of: dict[str | None, list[str]] = {}
+    for family, members in families.items():
+        for member in members:
+            families_of.setdefault(member, []).append(family)
+    held = {family: sum(before["archetypes"].get(_key(member), {}).get("decks", 0)
+                        for member in members)
+            for family, members in families.items()}
+    breaks = []
+    for section, (at, checks) in ADDS_UP.items():
+        gathered: dict[tuple, list] = {}
+        for raw, entry in before[section].items():
+            key = json.loads(raw)
+            for family in families_of.get(key[at], ()):
+                gathered.setdefault(tuple(key[:at] + [family] + key[at + 1:]), []).append(entry)
+        drawn = {key: entry for raw, entry in after[section].items()
+                 if (key := tuple(json.loads(raw)))[at] in families}
+        for key in sorted(gathered.keys() | drawn.keys(), key=str):
+            entries, entry = gathered.get(key), drawn.get(key, ABSENT)
+            if entries is None or entry is ABSENT:
+                breaks.append(FigureBreak(section, key, None, entry, entries or ABSENT))
+                continue
+            for field, expect in checks.items():
+                expected = expect(entries, held[key[at]])
+                if not _agrees(value := _field(entry, field), expected):
+                    breaks.append(FigureBreak(section, key, field, value, expected))
+    names = {json.loads(raw)[0]: entry["name"] for raw, entry in after["archetypes"].items()}
+    for raw, line in after["records"].items():
+        pilot, deck = json.loads(raw)
+        if (tag := new.get(_key(deck))) in families and line["archetype"] != names[tag]:
+            breaks.append(FigureBreak("records", (pilot, deck), "archetype",
+                                      line["archetype"], names[tag]))
+    return breaks
 
 
 def _diff(section: str, before: dict, after: dict) -> list[Difference]:
@@ -719,6 +854,7 @@ def compare(before: dict, after: dict) -> Comparison:
         transitions=dict(Counter((old[raw], new[raw]) for raw in old.keys() & new.keys()
                                  if old[raw] != new[raw])),
         conservation=_conservation(old, new),
+        figure_breaks=_figure_breaks(before, after, ctx),
         names={None: "no archetype"} | {
             json.loads(raw)[0]: entry["name"]
             for capture in (before, after) for raw, entry in capture["archetypes"].items()},
@@ -763,6 +899,12 @@ def _break_line(b: Break, names: dict) -> str:
             f"but the archetypes now filed under it ({filed}) held {b.held}")
 
 
+def _figure_break_line(b: FigureBreak) -> str:
+    label, _ = SECTIONS[b.section]
+    where = ", ".join([label, " ".join(map(str, b.key))] + ([b.field] if b.field else []))
+    return f"  {where}: {b.after}, where the archetypes filed under it give {b.expected}"
+
+
 def report(result: Comparison) -> str:
     """The comparison for a person: how many differences of each kind and which
     archetypes moved, then every regression and every allowance in full, then the
@@ -783,6 +925,13 @@ def report(result: Comparison) -> str:
     else:
         lines.append(
             "Every archetype holds the decks of the archetypes now filed under it.")
+    if result.figure_breaks:
+        lines.append(f"Figures do not add up for "
+                     f"{_counted(len(result.figure_breaks), 'entry', 'entries')}:")
+        lines += [_figure_break_line(b) for b in result.figure_breaks]
+    elif result.moved:
+        lines.append("Every figure of an archetype that gained or lost decks adds up "
+                     "to the archetypes now filed under it.")
     if result.moved:
         lines.append(f"{_counted(len(result.moved), 'archetype')} gained or lost decks:")
         lines += _moved_lines(result)
@@ -899,7 +1048,8 @@ def main(argv: list[str] | None = None) -> None:
     print(f"\nReference: {args.reference}, frozen from commit {recorded['commit']} over "
           f"{_counted(len(recorded['snapshots']), 'snapshot')} "
           f"({recorded['snapshots'][0]} to {recorded['snapshots'][-1]}).")
-    if result.conservation or any(d.verdict == REGRESSION for d in result.differences):
+    if (result.conservation or result.figure_breaks
+            or any(d.verdict == REGRESSION for d in result.differences)):
         raise SystemExit(1)
 
 
