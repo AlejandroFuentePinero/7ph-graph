@@ -38,7 +38,10 @@ jobs:
     # packages by name, and those names move between Ubuntu releases, so the image changes
     # in a commit here and not on the day the label is repointed.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Room for a slow runner, still short enough to stop a hung run. The test step takes
+    # 10.5 to 11.7 minutes and the browser install 23 seconds to over 3 minutes, so 15 left
+    # under a minute on a bad day and cancelled a passing run (#376).
+    timeout-minutes: 25
     steps:
       # Actions are pinned to a commit, because a tag can be moved to code nobody reviewed;
       # Dependabot keeps the pins and their version comments current.
