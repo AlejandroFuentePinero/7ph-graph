@@ -125,3 +125,104 @@ fact = "pilot"
 value = "FrostyGoldDolphin"
 reason = "upstream re-keyed the pilot to FrostyGoldDolphin in the 2026-11-04 fetch; adopted as the person's id"
 as_of = "20261104T091012Z"
+
+[[adopt]]
+# Upstream re-keyed this deck's pilot from LuckyRedEagle ('Zewwok', one other
+# deck) to FrostyMaroonOtter0F1 ('Zac J') in the 2026-11-18 fetch, renaming the
+# title to match. The deck is BG Cradlehoof, the archetype Zac J's id has
+# registered all year across 21 other decks. Adopted as upstream's correction
+# (ADR 0028, as amended 2026-11-18).
+decks = ["gR7f26xrwkOXlB_X43T-Vw"]
+fact = "pilot"
+value = "FrostyMaroonOtter0F1"
+reason = "upstream re-keyed the pilot to FrostyMaroonOtter0F1 (Zac J) in the 2026-11-18 fetch; the deck is his Cradlehoof"
+as_of = "20261118T000557Z"
+
+[[adopt]]
+# This deck (02nd Thomas B, Bant Nadu, AIDWALotus) arrived in the 2026-11-06
+# fetch carrying the Rakdos Midrange list that won the same event: the same 75
+# as 01st Chris T (ojg3UQgHmEuV27UgUqJOSw), registered in the same minute, so
+# coloured BR. Upstream replaced it on 2026-11-06 with the Bant Nadu list below
+# (WUG), which matches the deck's name and the pilot's year of Nadu decks. The
+# first decklist rewrite on record (issue #372).
+decks = ["w4tivRgyNk-7Q2v4m5e-6Q"]
+fact = "decklist"
+value = { Main = [
+    "avatar of burgeoning echoes",
+    "badgermole cub",
+    "birds of paradise",
+    "boseiju, who endures",
+    "brainstorm",
+    "breeding pool",
+    "chord of calling",
+    "daze",
+    "delighted halfling",
+    "dryad arbor",
+    "eladamri's call",
+    "eldritch evolution",
+    "elvish mystic",
+    "endurance",
+    "finale of devastation",
+    "flash",
+    "flooded strand",
+    "forest",
+    "formidable speaker",
+    "fyndhorn elves",
+    "gaea's cradle",
+    "green sun's zenith",
+    "hedge maze",
+    "horizon canopy",
+    "ignoble hierarch",
+    "invasion of ikoria // zilortha, apex of ikoria",
+    "lightning greaves",
+    "llanowar elves",
+    "loki, god of mischief",
+    "lórien revealed",
+    "mental misstep",
+    "misty rainforest",
+    "mole man, moloid master",
+    "nadu, winged wisdom",
+    "natural order",
+    "nature's rhythm",
+    "noble hierarch",
+    "nomads en-kor",
+    "once upon a time",
+    "otawara, soaring city",
+    "ouroboroid",
+    "polluted delta",
+    "protean hulk",
+    "savannah",
+    "scalding tarn",
+    "shaman en-kor",
+    "spellseeker",
+    "springheart nantuko",
+    "summoner's pact",
+    "temple garden",
+    "torsten, founder of benalia",
+    "tropical island",
+    "tundra",
+    "veil of summer",
+    "verdant catacombs",
+    "waterlogged grove",
+    "windswept heath",
+    "wooded foothills",
+    "worldly tutor",
+], Side = [
+    "blue elemental blast",
+    "carpet of flowers",
+    "collector ouphe",
+    "consign to memory",
+    "dismember",
+    "force of vigor",
+    "harbinger of the seas",
+    "hydroblast",
+    "keen-eyed curator",
+    "lavinia, azorius renegade",
+    "mystical dispute",
+    "stifle",
+    "submerge",
+    "swords to plowshares",
+    "teferi, time raveler",
+] }
+reason = "the first list upstream published was the event winner's Rakdos list; adopted upstream's fix, the deck's own Bant Nadu list"
+as_of = "20261118T000557Z"
