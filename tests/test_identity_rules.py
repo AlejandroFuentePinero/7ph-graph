@@ -365,6 +365,27 @@ def test_a_deck_moved_off_an_id_beats_a_rule_merge_back_onto_it():
     ]
 
 
+def test_two_decks_moved_off_one_id_are_still_judged_against_each_other():
+    # A deck moved off an id leaves that id behind (issue #378), so no ruling on
+    # the id travels with it, the split its move implies included. Two strangers
+    # peeled off one regular's id are judged against each other like any pair,
+    # so deck evidence can still join them later.
+    decks = [
+        _deck("r1", "Regular", "1st Toby M - Lands - E1", "E1", None),
+        _deck("s1", "Regular", "3rd Christopher T - Zirda - E3", "E3", None, days=60),
+        _deck("s2", "Regular", "4th Chris T - Bant - E4", "E4", None, days=90),
+    ]
+    decklists = {"r1": _cards(70), "s1": _cards(70, 100), "s2": _cards(70, 200)}
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={"s1": "s1", "s2": "s2"},
+    )
+
+    res = _resolve(decks, decklists, curation)
+
+    assert [p.pilots for p in res.report.ruled_pairs] == [["s1", "s2"]]
+    assert res.report.curated == 0
+
+
 def test_a_deck_moved_from_no_owner_keeps_its_owner_from_no_one():
     # A null-pilot deck moved onto its owner left no person behind, so the move
     # implies no separation (issue #378). The rules still merge the owner with a

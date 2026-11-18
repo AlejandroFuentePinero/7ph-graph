@@ -138,12 +138,14 @@ def rule_states(
         node = deck_pilot[deck.deck_id]
         if node in decks_of:
             decks_of[node].append(deck)
-            raw_ids[node].add(deck.pilot)
+            raw_ids[node].add(curation.deck_pilots.get(deck.deck_id, deck.pilot))
     strangers = _Strangers(decks_of, cards)
 
     def kept_apart_by(a: str, b: str) -> str | None:
         # A reject or split is recorded on raw ids, and the join or a merge may
-        # have folded one into its node: the ruling travels with the raw id.
+        # have folded one into its node: the ruling travels with the raw id. A
+        # deck the dictionary moved carries the id it was moved to, never the
+        # one it left, whose rulings are about someone else (issue #378).
         for kind, is_kept in (("reject", curation.is_rejected), ("split", curation.is_split)):
             if any(is_kept(x, y) for x in raw_ids[a] for y in raw_ids[b]):
                 return kind
