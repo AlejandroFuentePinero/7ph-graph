@@ -343,6 +343,51 @@ def test_a_reject_beats_a_rule_merge_and_a_merge_beats_the_separator_both_listed
     assert res.report.curated == 2
 
 
+def test_a_deck_moved_off_an_id_beats_a_rule_merge_back_onto_it():
+    # A [[deck_pilot]] moving a deck off an id keeps its owner apart from that id
+    # as a [[split]] would (issue #378), so the rules cannot fold it back either:
+    # here the moved deck is the id's own list under a handle, which the bar
+    # would merge. Listed as an override, as a split's is.
+    decks = [
+        _deck("d1", "RealName", "1st Toby M - Lands - E1", "E1", None),
+        _deck("d2", "RealName", "3rd Toby M - Lands - E2", "E2", None, days=60),
+        _deck("d3", "RealName", "5th TobM7 - Lands - E3", "E3", None, days=120),
+    ]
+    decklists = {"d1": _cards(70), "d2": _cards(70), "d3": _cards(70)}
+    curation = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={"d3": "d3"})
+
+    res = _resolve(decks, decklists, curation)
+
+    assert res.deck_pilot["d3"] == "d3"
+    assert res.report.ruled_pairs == []
+    assert [(p.pilots, p.state, p.overridden_by) for p in res.report.rule_overrides] == [
+        (["RealName", "d3"], "merged", "split"),
+    ]
+
+
+def test_a_deck_moved_from_no_owner_keeps_its_owner_from_no_one():
+    # A null-pilot deck moved onto its owner left no person behind, so the move
+    # implies no separation (issue #378). The rules still merge the owner with a
+    # handle whose node took in a null orphan of its own.
+    decks = [
+        _deck("d0", "nan", "2nd Toby M - Lands - E0", "E0", None),
+        _deck("d1", "RealName", "1st Toby M - Lands - E1", "E1", None, days=30),
+        _deck("d2", "RealName", "3rd Toby M - Lands - E2", "E2", None, days=60),
+        _deck("d3", "Handle", "5th TobM7 - Lands - E3", "E3", None, days=120),
+        _deck("d4", "nan", "6th TobM7 - Lands - E4", "E4", None, days=150),
+    ]
+    decklists = {d.deck_id: _cards(70) for d in decks}
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={"d0": "RealName"},
+    )
+
+    res = _resolve(decks, decklists, curation)
+
+    assert _state(res, "RealName", "Handle").state == "merged"
+    assert {res.deck_pilot[d.deck_id] for d in decks} == {"RealName"}
+    assert res.report.rule_overrides == []
+
+
 @pytest.mark.parametrize("kind", ["reject", "split"])
 def test_a_ruling_on_a_raw_id_the_name_join_folded_still_keeps_the_pair_apart(kind):
     # The rules read the node after the identical-name join, and a [[reject]]

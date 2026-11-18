@@ -710,6 +710,49 @@ def test_split_a_trio_three_ways():
     assert {p.pilot for p in res.pilots} == {"A", "B", "C"}
 
 
+def test_a_deck_moved_off_a_pilot_stays_off_him_under_an_identical_name():
+    # Upstream keys a pseudonym per spelling, not per person (issue #378), so a
+    # stranger who registers as "Chris T" lands on the id of the regular who
+    # also does, here an id merged into the regular's other one. The
+    # [[deck_pilot]] moving the stranger's deck onto its own id says the deck is
+    # not that person's, so the identical-name join (ADR 0007) must not fold it
+    # back onto him: the move keeps the two apart as a [[split]] would. Logged.
+    decks = [
+        _deck("r1", "LongId", "01st Chris T - Grixis - E1", event="E1"),
+        _deck("r2", "ShortId", "02nd Chris T - Grixis - E2", event="E2"),
+        _deck("s1", "ShortId", "04th Chris T - Bant Nadu - E3", event="E3"),
+    ]
+    curation = Curation(
+        merges={"ShortId": "LongId"}, rejected=frozenset(), names={},
+        deck_pilots={"s1": "s1"},
+    )
+
+    res = resolve_pilots(decks, curation)
+
+    assert res.deck_pilot["s1"] == "s1"
+    assert res.deck_pilot["r1"] == res.deck_pilot["r2"] == "LongId"
+    assert res.report.joined_names == []
+    split = next(s for s in res.report.name_splits if s.display_name == "Chris T")
+    assert sorted(split.people) == ["LongId", "s1"]
+
+
+def test_a_third_id_rejoining_a_moved_deck_names_the_move_in_the_abort():
+    # A third "Chris T" id apart from neither side rejoins the two the move
+    # keeps apart: under-specified, as a split would be, and the abort names the
+    # move so the maintainer does not hunt the file for a [[split]].
+    decks = [
+        _deck("r1", "LongId", "01st Chris T - Grixis - E1", event="E1"),
+        _deck("s1", "LongId", "04th Chris T - Bant Nadu - E3", event="E3"),
+        _deck("t1", "ThirdId", "05th Chris T - Storm - E4", event="E4"),
+    ]
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={"s1": "s1"},
+    )
+
+    with pytest.raises(CurationError, match=r"\[\[deck_pilot\]\]"):
+        resolve_pilots(decks, curation)
+
+
 def test_pinned_display_name_beats_the_majority_vote():
     # The vote would pick the opaque handle "alejandrofp"; the dictionary pins
     # the real name against it.

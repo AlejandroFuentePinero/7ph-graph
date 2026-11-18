@@ -10,7 +10,7 @@ the data cannot resolve on its own.
 
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
@@ -436,9 +436,11 @@ def resolve_pilots(
     # Display name is the player identity: ids that recovered the same name are
     # one person, so fold them onto a single id before anything downstream runs
     # (ADR 0007). A same-name collision inside one event survives this and is
-    # separated again by the event split below.
+    # separated again by the event split below. A deck the dictionary moved off
+    # an id keeps its owner apart from that id here (issue #378).
+    apart = _moves_kept_apart(decks, curation)
     pilots, joined_names, name_splits = _join_identical_names(
-        real_pilots + null_pilots, deck_pilot, curation
+        real_pilots + null_pilots, deck_pilot, apart
     )
     real_joined = [p for p in pilots if not p.pilot.startswith("nan:")]
 
@@ -449,7 +451,7 @@ def resolve_pilots(
     # grammar, and this is the one place they are called.
     from graph7ph.identity_rules import fold_merges, rule_states
 
-    verdicts = rule_states(real_joined, decks, deck_pilot, decklists, curation)
+    verdicts = rule_states(real_joined, decks, deck_pilot, decklists, apart)
     folded = fold_merges(
         verdicts.pairs, {p.pilot: p.display_name for p in real_joined},
         Counter(deck_pilot.values()),
@@ -492,6 +494,27 @@ def resolve_pilots(
         deck_pilot=deck_pilot, pilots=pilots, report=report,
         dropped_decks=frozenset(gone),
     )
+
+
+def _moves_kept_apart(decks, curation: Curation) -> Curation:
+    """The dictionary with every deck it moved off an id read as a split too.
+
+    A ``[[deck_pilot]]`` that moves a deck off an upstream id says the deck's
+    owner is not that id's person (issue #378). Upstream keys a pseudonym per
+    spelling, not per person, so a stranger who shares a regular's spelling
+    lands on the regular's id, and once the two read the same name the
+    identical-name join would fold the moved deck straight back onto him. Read
+    as a split between the owner and the pilot the deck left, each resolved
+    through the merges, the move holds whatever either is called later. A deck
+    moved off a null pilot left no one, so its move implies nothing.
+    """
+    moved = {
+        frozenset({curation.canonical(owner), curation.canonical(deck.pilot)})
+        for deck in decks
+        if (owner := curation.deck_pilots.get(deck.deck_id))
+        and not _is_null_pilot(deck.pilot)
+    }
+    return replace(curation, splits=curation.splits | {p for p in moved if len(p) == 2})
 
 
 def _multi_name_id(
@@ -665,8 +688,10 @@ def _partition_by_split(
 
     Absent any separator the whole group is one person (ADR 0007). A ``[[split]]``
     declares two of its ids strangers (issue #35); a ``[[reject]]`` records the
-    same "different people" judgement from the merge-candidate review (issue #74).
-    Either keeps a pair apart: names are not stable identity, so a rejected pair
+    same "different people" judgement from the merge-candidate review (issue #74),
+    and a deck the dictionary moved off an id is read as a split between its
+    owner and that id (issue #378, :func:`_moves_kept_apart`).
+    Any of them keeps a pair apart: names are not stable identity, so a rejected pair
     one edit apart can converge on a later fetch, and the join must not then fuse
     ids a human recorded as distinct. The group is partitioned: every pair is
     unioned *unless* a split or reject keeps it apart. A separated pair that still
@@ -706,10 +731,10 @@ def _partition_by_split(
         for b in real_ids[i + 1:]:
             if apart(a, b) and find(a) == find(b):
                 raise CurationError(
-                    f"[[split]]/[[reject]] of {a!r} and {b!r} "
-                    f"(both {group[0].display_name!r}) is under-specified: another "
-                    "real id transitively rejoins them; separate that id from one "
-                    "side too"
+                    f"the [[split]], [[reject]] or [[deck_pilot]] move keeping {a!r} "
+                    f"and {b!r} apart (both {group[0].display_name!r}) is "
+                    "under-specified: another real id transitively rejoins them; "
+                    "separate that id from one side too"
                 )
 
     by_root: dict[str, list[ResolvedPilot]] = {}

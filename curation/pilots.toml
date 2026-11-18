@@ -44,7 +44,11 @@
 #     pilot = "CleverBlueWhale"
 #     display_name = "Alejandro D"
 #
-#   [[deck_pilot]]   reassign one deck to its real pilot id (e.g. a null deck)
+#   [[deck_pilot]]   reassign one deck to its real pilot id (e.g. a null deck).
+#                    A deck moved off a real id stays apart from that id's person
+#                    whatever either is later called, as a [[split]] keeps them
+#                    (issue #378); one moved onto its own id is a stranger peeled
+#                    off a shared pseudonym.
 #     deck = "<deckId>"
 #     pilot = "<pilotId>"
 #
