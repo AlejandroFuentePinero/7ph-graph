@@ -129,6 +129,13 @@ def _build(args: argparse.Namespace) -> None:
     if repaired["moved"]:
         print(f"  {len({r['deck'] for r in repaired['moved']})} of them upstream has moved "
               f"under since the ruling (read source_repairs.moved in the report)")
+    # An archetype ruling upstream has moved under steps aside and its decks go
+    # back to upstream's tagging (issue #374): counted for the same reason.
+    aside = [d for d in recon["dead_entries"]
+             if d["kind"] in ("archetype_alias", "deck_archetype")]
+    if aside:
+        print(f"  {len(aside)} archetype ruling(s) in {CURATION_PATH} applied to nothing: "
+              f"upstream has moved under them (read dead_entries in the report)")
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

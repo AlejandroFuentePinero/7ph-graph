@@ -17,7 +17,9 @@ from pathlib import Path
 import ladybug
 from pydantic import BaseModel
 
-from graph7ph.curation import Curation, CurationError, load_curation
+from graph7ph.curation import (
+    ArchetypeOverride, Curation, CurationError, DeadEntry, load_curation,
+)
 from graph7ph.db import open_for_writing, remove_artifact, rows
 from graph7ph.figures import write_figures
 from graph7ph.models import (
@@ -377,14 +379,25 @@ def reconcile(
 
     Before any entry is applied, every entry whose id upstream has handed to
     someone else is refused (:func:`pilots.refuse_moved`, issue #283), read off
-    the raw ids the snapshot carries; the refusals ride into the report.
+    the raw ids the snapshot carries; the refusals ride into the report. An
+    archetype ruling upstream has since moved under steps aside the same way,
+    and is listed with the dead entries, which ask for the same retirement
+    (issue #374).
     """
     curation, refused = refuse_moved(curation, snapshot.decks)
-    snapshot = _apply_deck_events(_apply_deck_archetypes(snapshot, curation), curation)
+    # Upstream's own filing, read before the aliases fold it, since that is what
+    # an override's `source` states.
+    filed = {d.deck_id: d.primary_tag for d in snapshot.decks}
+    snapshot, aliases_aside = _apply_archetype_aliases(snapshot, curation)
+    snapshot, overrides_aside = _apply_deck_archetypes(snapshot, curation, filed)
+    snapshot = _apply_deck_events(snapshot, curation)
     pilots = resolve_pilots(
         snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
     )
-    pilots = replace(pilots, report=replace(pilots.report, refused_entries=refused))
+    dead = sorted(pilots.report.dead_entries + aliases_aside + overrides_aside,
+                  key=lambda d: (d.kind, d.key))
+    pilots = replace(pilots, report=replace(
+        pilots.report, refused_entries=refused, dead_entries=dead))
     return snapshot, pilots
 
 
@@ -405,7 +418,65 @@ def _decklists(containments: list[Containment]) -> dict[str, tuple]:
     }
 
 
-def _apply_deck_archetypes(snapshot: Snapshot, curation: Curation) -> Snapshot:
+def _apply_archetype_aliases(
+    snapshot: Snapshot, curation: Curation
+) -> tuple[Snapshot, list[DeadEntry]]:
+    """Fold each archetype code upstream mints for a second spelling (#374).
+
+    Upstream names an archetype off the pilot's title, so one deck titled two
+    ways ("GF Storm", "Gluten Free Storm") becomes two codes. Every deck carrying
+    an ``[[archetype_alias]]``'s code carries its archetype instead, under the
+    label the archetype's own decks give it; a deck carrying both sums the two
+    weights, and its primary follows the fold. Tags the alias does not name are
+    left as upstream gave them.
+
+    Upstream's later ruling is the long-term answer, so an alias applies only
+    while some deck carries each of its two codes. Once upstream folds the alias
+    itself, or folds the other way and retires the target, the alias steps
+    aside and is returned for the report rather than forcing decks onto a code
+    upstream no longer uses. Never an abort: the graph upstream gave is the safe
+    one.
+    """
+    carried = {tag for d in snapshot.decks for tag in d.engine_tags}
+    aliases: dict[str, str] = {}
+    aside: list[DeadEntry] = []
+    for alias, archetype in curation.archetype_aliases.items():
+        if gone := [code for code in (alias, archetype) if code not in carried]:
+            aside.append(DeadEntry(
+                "archetype_alias", alias,
+                f"folds into {archetype}, but no deck carries {' or '.join(gone)}"))
+        else:
+            aliases[alias] = archetype
+    if not aliases:
+        return snapshot, aside
+    labels: dict[str, str] = {}
+    for d in snapshot.decks:
+        for tag, label in d.engine_tag_labels.items():
+            labels.setdefault(tag, label)
+    decks = []
+    for d in snapshot.decks:
+        if aliases.keys().isdisjoint(d.engine_tags):
+            decks.append(d)
+            continue
+        weights: dict[str, int] = {}
+        for tag, weight in d.primary_tag_weights.items():
+            folded = aliases.get(tag, tag)
+            weights[folded] = weights.get(folded, 0) + weight
+        tags = list(dict.fromkeys(aliases.get(tag, tag) for tag in d.engine_tags))
+        decks.append(d.model_copy(update={
+            "engine_tags": tags,
+            "engine_tag_labels": {tag: labels[tag] for tag in tags},
+            "primary_tag": aliases.get(d.primary_tag, d.primary_tag),
+            "primary_tag_weights": weights,
+        }))
+    return Snapshot(
+        cards=snapshot.cards, decks=decks, containments=snapshot.containments
+    ), aside
+
+
+def _apply_deck_archetypes(
+    snapshot: Snapshot, curation: Curation, filed: dict[str, str]
+) -> tuple[Snapshot, list[DeadEntry]]:
     """Reclassify decks the curation dictionary corrects (issue #9).
 
     The source tags a deck's archetype off its title, so a mistitled list (e.g.
@@ -413,10 +484,28 @@ def _apply_deck_archetypes(snapshot: Snapshot, curation: Curation) -> Snapshot:
     archetype. A ``[[deck_archetype]]`` entry replaces that classification with
     the human-confirmed one, collapsing the deck onto the single corrected
     engine so it joins that archetype's convention.
+
+    Only while upstream still files the deck where it did when the ruling was
+    written (``filed``, its primary code before any alias, against the entry's
+    ``source``). Upstream re-tags decks, and its re-filing is the long-term
+    answer, so an entry it has moved under steps aside and is returned for the
+    report with the code upstream moved the deck to (issue #374). An entry whose
+    deck is absent is not returned: ``dead_entries`` already reports it.
     """
-    overrides = curation.deck_archetypes
+    overrides: dict[str, ArchetypeOverride] = {}
+    aside: list[DeadEntry] = []
+    for deck, override in curation.deck_archetypes.items():
+        if deck not in filed:
+            continue
+        if filed[deck] == override.source:
+            overrides[deck] = override
+        else:
+            aside.append(DeadEntry(
+                "deck_archetype", deck,
+                f"reclassifies as {override.deck_name} from {override.source}, "
+                f"but upstream now files it under {filed[deck]}"))
     if not overrides:
-        return snapshot
+        return snapshot, aside
     decks = []
     for d in snapshot.decks:
         override = overrides.get(d.deck_id)
@@ -432,7 +521,7 @@ def _apply_deck_archetypes(snapshot: Snapshot, curation: Curation) -> Snapshot:
         }))
     return Snapshot(
         cards=snapshot.cards, decks=decks, containments=snapshot.containments
-    )
+    ), aside
 
 
 def _apply_deck_events(snapshot: Snapshot, curation: Curation) -> Snapshot:

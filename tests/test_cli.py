@@ -256,6 +256,41 @@ as_of = "20260101T000000Z"
     assert "1 of them upstream has moved under since the ruling (read source_repairs.moved in the report)" in out
 
 
+def test_a_build_announces_an_archetype_ruling_upstream_has_moved_under(
+    tmp_path, capsys, monkeypatch
+):
+    # An archetype ruling steps aside once upstream moves under it (issue #374),
+    # and the deck then goes back to upstream's tagging without a word. Counted
+    # on the terminal like a moved repair, never only in the report: here the
+    # alias's codes are gone and upstream no longer files d1 under `source`.
+    _snapshot(tmp_path / "snapshots" / "20260101T000000Z",
+              [("d1", "2026-01-01T00:00:00+00:00")])
+    curation = tmp_path / "pilots.toml"
+    curation.write_text('''
+[[archetype_alias]]
+alias = "engine:gf_storm"
+archetype = "engine:gluten_free_storm"
+as_of = "20260101T000000Z"
+
+[[deck_archetype]]
+deck = "d1"
+deck_name = "UR Prowess"
+engine = "engine:izzet_prowess"
+engine_label = "Izzet Prowess"
+source = "engine:blue_moon"
+as_of = "20260101T000000Z"
+names = { "d1" = "d1" }
+''')
+    monkeypatch.setattr("graph7ph.build.load_curation",
+                        functools.partial(load_curation, curation))
+
+    _build(argparse.Namespace(snapshots=tmp_path / "snapshots", db=tmp_path / "graph"))
+
+    assert ("2 archetype ruling(s) in curation/pilots.toml applied to nothing: "
+            "upstream has moved under them (read dead_entries in the report)"
+            ) in capsys.readouterr().out
+
+
 def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):
     # Promotion renames the directory a running app opened, so it goes on serving
     # the old graph with no error at all. The build is the moment the developer is

@@ -427,6 +427,80 @@ def test_deck_event_entry_missing_either_half_raises(tmp_path, entry):
         load_curation(path)
 
 
+def test_an_archetype_alias_folds_one_code_into_another(tmp_path):
+    # Upstream mints an archetype per title spelling, so "GF Storm" and "Gluten
+    # Free Storm" are two codes for one deck. The alias names the code to fold
+    # and the code it folds into (issue #374).
+    path = _write(tmp_path, """
+        [[archetype_alias]]
+        alias = "engine:gf_storm"
+        archetype = "engine:gluten_free_storm"
+        as_of = "20261118T000557Z"
+    """)
+    assert load_curation(path).archetype_aliases == {
+        "engine:gf_storm": "engine:gluten_free_storm"}
+
+
+@pytest.mark.parametrize("second, refusal", [
+    # One code folded two ways: file order would decide where its decks land.
+    ('alias = "engine:gf_storm"\narchetype = "engine:storm"', "twice"),
+    # A chain: the target is itself folded away, so the decks land on a code
+    # no deck keeps.
+    ('alias = "engine:gluten_free_storm"\narchetype = "engine:storm"', "itself aliased"),
+    # A code folded into itself, the chain's shortest form.
+    ('alias = "engine:scales"\narchetype = "engine:scales"', "itself aliased"),
+])
+def test_an_alias_that_contradicts_another_is_refused_at_load(tmp_path, second, refusal):
+    path = _write(tmp_path, f"""
+        [[archetype_alias]]
+        alias = "engine:gf_storm"
+        archetype = "engine:gluten_free_storm"
+        as_of = "20261118T000557Z"
+
+        [[archetype_alias]]
+        {second}
+        as_of = "20261118T000557Z"
+    """)
+    with pytest.raises(CurationError, match=refusal):
+        load_curation(path)
+
+
+@pytest.mark.parametrize("entry", [
+    'archetype = "engine:gluten_free_storm"\nas_of = "20261118T000557Z"',
+    'alias = "engine:gf_storm"\nas_of = "20261118T000557Z"',
+    'alias = "engine:gf_storm"\narchetype = "engine:gluten_free_storm"',
+])
+def test_an_alias_missing_a_field_is_refused_at_load(tmp_path, entry):
+    path = _write(tmp_path, f"[[archetype_alias]]\n{entry}\n")
+    with pytest.raises(CurationError, match=r"\[\[archetype_alias\]\]"):
+        load_curation(path)
+
+
+_OVERRIDE = """
+    [[deck_archetype]]
+    deck = "d1"
+    deck_name = "UR Prowess"
+    engine = "engine:izzet_prowess"
+    engine_label = "Izzet Prowess"
+    as_of = "20260713T232944Z"
+    names = { "d1" = "Alex W" }
+"""
+
+
+def test_a_deck_archetype_records_the_code_upstream_filed_the_deck_under(tmp_path):
+    # The override applies only while upstream still files the deck where it
+    # did when the ruling was written, so the ruling names that code (#374).
+    path = _write(tmp_path, _OVERRIDE + 'source = "engine:blue_moon"\n')
+    override = load_curation(path).deck_archetypes["d1"]
+    assert (override.engine, override.source) == ("engine:izzet_prowess", "engine:blue_moon")
+
+
+def test_a_deck_archetype_without_its_source_is_refused_at_load(tmp_path):
+    path = _write(tmp_path, _OVERRIDE)
+    with pytest.raises(CurationError, match=r"\[\[deck_archetype\]\].*`source`"):
+        load_curation(path)
+
+
 def test_the_checked_in_dictionary_holds_no_contradiction():
     # The guards above are worth nothing if the dictionary they grade cannot pass
     # them, and the record is the only place the contradictions were real: three
@@ -454,7 +528,7 @@ def _mixed_curation() -> Curation:
         }),
         names={"deadName": "X", "liveName": "Y"},
         deck_pilots={"deadDeck": "p1", "liveDeck": "p2"},
-        deck_archetypes={"deadDeck2": ArchetypeOverride("N", "engine:e", "L")},
+        deck_archetypes={"deadDeck2": ArchetypeOverride("N", "engine:e", "L", "engine:s")},
         deck_events={"deadDeck3": "E", "liveDeck": "E"},
         splits=frozenset({
             frozenset({"deadS", "liveB"}),   # deadS absent -> pair can't fire
@@ -585,7 +659,7 @@ STAMP = "20260713T232944Z"
     ("split", 'ids = ["A", "B"]'),
     ("name", 'pilot = "A"\ndisplay_name = "Alex W"'),
     ("deck_pilot", 'deck = "d1"\npilot = "A"'),
-    ("deck_archetype", 'deck = "d1"\ndeck_name = "N"\nengine = "engine:e"\nengine_label = "L"'),
+    ("deck_archetype", 'deck = "d1"\ndeck_name = "N"\nengine = "engine:e"\nengine_label = "L"\nsource = "engine:s"'),
     ("deck_event", 'deck = "d1"\nevent = "CBR3"'),
 ])
 @pytest.mark.parametrize("missing", ["as_of", "names"])

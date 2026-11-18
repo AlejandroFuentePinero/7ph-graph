@@ -9,11 +9,20 @@ The test for "timeless" is narrow: a heuristic passes only if it carries no
 parameter fitted to the current card pool, so that a rotation cannot silently
 change what it decides.
 
-**Status: nothing here is applied.** #24 closed as grilled and #99 closed as
-deferred without landing: archetypes reach the graph exactly as the source tags
-them. This is kept as the *failure record*, so the heuristics under "Fails" are
-not retried from scratch. Two corrections found after it was written are at the
-bottom.
+**Status: no version merge is applied.** #24 closed as grilled and #99 closed as
+deferred without landing: a version of a deck reaches the graph exactly as the
+source tags it. This is kept as the *failure record*, so the heuristics under
+"Fails" are not retried from scratch. Two corrections found after it was written
+are at the bottom.
+
+Since #374 one narrower case is folded: a code upstream mints only because pilots
+spell one deck two ways, where the names say the same thing *and* the cards
+cannot tell the two apart. Three are on file as `[[archetype_alias]]` in
+`curation/pilots.toml` (GF Storm into Gluten Free Storm, Scales into Hardened
+Scales, Green Eldrazi into Eldrazi), each with its evidence on #374. An alias is
+a ruling, not a heuristic: nothing here proposes one, and it steps aside once
+upstream stops carrying either of its codes, since upstream's later tagging is
+the long-term answer.
 
 The scripts that produced these measurements live in `scratch/archetype/`, which
 is gitignored and local to one machine, so treat any reference to them as

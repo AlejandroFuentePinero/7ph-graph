@@ -8,7 +8,9 @@ of which come from the source and never change. Nothing keys on a derived value
 -- not a display name (a majority vote that new decks can flip), not a synthetic
 key like ``nan:darcy`` or ``LunarRedFalcon#2`` (which the resolution mints). That
 is what makes a decision timeless: recorded once, it applies identically to every
-future ingestion, so the pipeline always runs in the same direction.
+future ingestion, so the pipeline always runs in the same direction. The one
+exception is an archetype alias, keyed on the two archetype codes it folds:
+upstream can retire a code, so the alias steps aside when it does (issue #374).
 
 The file is TOML because a human writes it: it takes comments, and ``tomllib`` is
 in the standard library, so reading it costs no dependency.
@@ -20,15 +22,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
 
-# The eight kinds of recorded decision, one per TOML entry type (repo idiom:
+# The nine kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
 DeadKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype",
-    "deck_event", "hold",
+    "deck_event", "hold", "archetype_alias",
 ]
 
-# The seven kinds that apply to the graph, each of which carries its provenance
-# (issue #283). `hold` is the eighth: it applies nothing, so it carries none.
+# The seven kinds that apply to the graph through an id, each of which carries its
+# provenance (issue #283). `archetype_alias` applies through two archetype codes
+# and carries `as_of` alone; `hold` applies nothing, so it carries no names.
 AppliedKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype", "deck_event",
 ]
@@ -62,11 +65,17 @@ class ArchetypeOverride:
     on the wrong archetype. This replaces that classification with the
     human-confirmed one: a display name and the single engine the deck belongs
     to (its code and label).
+
+    ``source`` is the primary code upstream filed the deck under when the ruling
+    was written. Upstream re-tags decks, and its later filing is the long-term
+    answer, so the override applies only while upstream still says ``source``
+    and otherwise steps aside to be retired (issue #374).
     """
 
     deck_name: str
     engine: str  # the engine code, e.g. "engine:izzet_prowess"
     engine_label: str  # its display label, e.g. "Izzet Prowess"
+    source: str  # upstream's primary code at `as_of`, e.g. "engine:blue_moon"
 
 
 @dataclass(frozen=True)
@@ -121,10 +130,15 @@ class DeadEntry:
     against, so a typo'd id or an upstream-reissued pseudonym leaves an entry
     that silently fires nothing (ADR 0005). Surfaced in the reconciliation
     report -- never fatal -- so a maintainer can retire or repair it.
+
+    An archetype ruling upstream has moved under is reported the same way, its
+    deck or codes still present (issue #374): an alias one of whose codes no
+    deck carries, or a ``deck_archetype`` whose deck upstream no longer files
+    under its ``source``.
     """
 
     kind: DeadKind
-    key: str  # the pilot id, deck id or snapshot stamp the build does not hold
+    key: str  # the pilot id, deck id, alias code or snapshot stamp it keys on
     detail: str  # what the dead entry was trying to do
 
 
@@ -138,14 +152,16 @@ class Curation:
     same person, which suppresses them from the candidate report for good.
     ``names`` pins a display name against the majority vote. ``deck_pilots``
     reassigns one deck to an upstream pilot id, which is how a null-pilot deck
-    reaches its real owner. ``deck_archetypes`` reclassifies one deck whose
-    source title mislabelled its archetype. ``deck_events`` reassigns one deck to
+    reaches its real owner. ``deck_archetypes`` reclassifies one deck the source
+    filed under the wrong archetype, while the source still files it there.
+    ``archetype_aliases`` folds a code the source mints only for a second
+    spelling of one deck into the other (issue #374). ``deck_events`` reassigns one deck to
     the event code it was really played at, which is how a deck the source
     stranded at a malformed event rejoins its cohort. ``splits`` holds id pairs
     that share a display name but are different people, which keeps the
     identical-name join (ADR 0007) from folding them into one node -- the
     inverse of a ``merge``. ``holds`` maps a single id onto the :class:`Hold` a
-    human left against it: alone among the eight kinds it decides nothing and
+    human left against it: alone among the nine kinds it decides nothing and
     applies nothing, it only records that the id's own several names were
     examined (issue #232). It held pairs too until issue #273, which left every
     candidate pair's state to the build (:mod:`graph7ph.identity_rules`).
@@ -168,6 +184,7 @@ class Curation:
     splits: frozenset[frozenset[str]] = field(default_factory=frozenset)
     deck_events: dict[str, str] = field(default_factory=dict)
     holds: dict[frozenset[str], Hold] = field(default_factory=dict)
+    archetype_aliases: dict[str, str] = field(default_factory=dict)
     entries: tuple[Entry, ...] = ()
     tables: dict[str, list[dict]] = field(default_factory=dict)
 
@@ -266,6 +283,7 @@ def _assemble(raw: dict, path: Path) -> Curation:
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
         splits=splits,
         deck_events=_deck_map(raw.get("deck_event", []), path, "deck_event", "event"),
+        archetype_aliases=_archetype_aliases(raw.get("archetype_alias", []), path),
         entries=_entries(raw, path),
         tables=raw,
     )
@@ -651,12 +669,48 @@ def _deck_archetypes(entries: list[dict], path: Path) -> dict[str, ArchetypeOver
         deck_name = entry.get("deck_name")
         engine = entry.get("engine")
         engine_label = entry.get("engine_label")
-        if not (deck and deck_name and engine and engine_label):
+        source = entry.get("source")
+        if not (deck and deck_name and engine and engine_label and source):
             raise CurationError(
                 f"{path}: a [[deck_archetype]] entry needs `deck`, `deck_name`, "
-                "`engine`, and `engine_label`"
+                "`engine`, `engine_label`, and `source` (the primary code upstream "
+                "filed the deck under at `as_of`)"
             )
         decks[deck] = ArchetypeOverride(
-            deck_name=deck_name, engine=engine, engine_label=engine_label
+            deck_name=deck_name, engine=engine, engine_label=engine_label,
+            source=source,
         )
     return decks
+
+
+def _archetype_aliases(entries: list[dict], path: Path) -> dict[str, str]:
+    """Every folded archetype code as alias code -> the code it folds into (#374).
+
+    A code folded twice would land its decks wherever file order said, and a code
+    folded into one that is itself folded would land them on a code no deck
+    keeps, so both are refused where the author can still see the entry.
+    """
+    aliases: dict[str, str] = {}
+    for entry in entries:
+        alias, archetype = entry.get("alias"), entry.get("archetype")
+        if not alias or not archetype:
+            raise CurationError(
+                f"{path}: an [[archetype_alias]] entry needs `alias`, the code to "
+                f"fold, and `archetype`, the code it folds into"
+            )
+        _as_of(entry, path, "archetype_alias")
+        if alias in aliases:
+            raise CurationError(
+                f"{path}: [[archetype_alias]] folds {alias!r} twice, into "
+                f"{aliases[alias]!r} and {archetype!r}; keep the one that "
+                f"supersedes and delete the other"
+            )
+        aliases[alias] = archetype
+    for alias, archetype in aliases.items():
+        if archetype in aliases:
+            raise CurationError(
+                f"{path}: [[archetype_alias]] folds {alias!r} into {archetype!r}, "
+                f"which is itself aliased; fold it into {aliases[archetype]!r} "
+                f"directly, or not at all"
+            )
+    return aliases

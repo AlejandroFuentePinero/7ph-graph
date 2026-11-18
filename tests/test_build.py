@@ -672,7 +672,7 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
         merges={}, rejected=frozenset(), names={}, deck_pilots={},
         deck_archetypes={"d1": ArchetypeOverride(
             deck_name="UR Prowess", engine="engine:izzet_prowess",
-            engine_label="Izzet Prowess")},
+            engine_label="Izzet Prowess", source="engine:blue_moon")},
     )
 
     db_path = tmp_path / "graph"
@@ -689,6 +689,107 @@ def test_deck_archetype_override_reclassifies_a_mistitled_deck(tmp_path):
                RETURN a.name, r.weight, r.isPrimary"""))
     }
     assert edges == {"Izzet Prowess": (100, True)}
+
+
+def _storm(deck_id, placement, weights, labels):
+    """A deck tagged with ``weights`` (code -> weight), its top weight primary."""
+    return _deck(deck_id, "E", "2026-04-25T00:00:00+00:00", placement=placement,
+                 engineTags=list(weights), primaryTagWeights=weights,
+                 primaryTag=max(weights, key=weights.get),
+                 engineTagLabels={c: labels[c] for c in weights})
+
+
+_STORM_LABELS = {"engine:gf_storm": "Gf Storm",
+                 "engine:gluten_free_storm": "Gluten Free Storm",
+                 "engine:storm": "Storm"}
+_GF_STORM = Curation(merges={}, rejected=frozenset(), names={}, deck_pilots={},
+                     archetype_aliases={"engine:gf_storm": "engine:gluten_free_storm"})
+
+
+def _archetype_edges(conn):
+    """Every deck's archetypes as deck id -> {label: (weight, is primary)}."""
+    edges: dict[str, dict] = {}
+    for deck, name, weight, primary in rows(conn.execute(
+            """MATCH (d:Deck)-[r:HAS_ARCHETYPE]->(a:Archetype)
+               RETURN d.deckId, a.name, r.weight, r.isPrimary""")):
+        edges.setdefault(deck, {})[name] = (weight, primary)
+    return edges
+
+
+def test_an_archetype_alias_folds_a_spelling_split_into_one_archetype(tmp_path):
+    # "GF Storm" and "Gluten Free Storm" are one deck that upstream files under
+    # two codes by title spelling (issue #374). Every deck carrying the alias
+    # carries the archetype instead, under the archetype's own label; a deck
+    # carrying both sums the two weights, and its primary follows the fold.
+    # Tags the alias does not name are left as upstream gave them.
+    _write_snapshot(tmp_path, [
+        _storm("g1", 1, {"engine:gf_storm": 100}, _STORM_LABELS),
+        _storm("g2", 2, {"engine:gf_storm": 60, "engine:gluten_free_storm": 35,
+                         "engine:storm": 5}, _STORM_LABELS),
+        _storm("t1", 3, {"engine:gluten_free_storm": 100}, _STORM_LABELS),
+    ])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", _GF_STORM)
+    conn = open_for_reading(tmp_path / "graph")
+
+    assert _archetype_edges(conn) == {
+        "g1": {"Gluten Free Storm": (100, True)},
+        "g2": {"Gluten Free Storm": (95, True), "Storm": (5, False)},
+        "t1": {"Gluten Free Storm": (100, True)},
+    }
+    assert {name for (name,) in rows(conn.execute(
+        "MATCH (a:Archetype) RETURN a.name"))} == {"Gluten Free Storm", "Storm"}
+
+
+@pytest.mark.parametrize("weights, gone, label", [
+    # Upstream folded the alias itself: no deck carries it any more.
+    ({"engine:gluten_free_storm": 100}, "engine:gf_storm", "Gluten Free Storm"),
+    # Upstream folded the other way: the target is the code it retired, and
+    # forcing decks onto it would overrule upstream's own ruling.
+    ({"engine:gf_storm": 100}, "engine:gluten_free_storm", "Gf Storm"),
+])
+def test_an_alias_steps_aside_once_upstream_moves_under_it(tmp_path, weights, gone, label):
+    # Upstream's later ruling is the long-term answer (issue #374): an alias
+    # applies only while some deck carries each of its two codes. Otherwise the
+    # decks stay as upstream tagged them, the build goes on, and the report
+    # lists the alias so it can be retired.
+    _write_snapshot(tmp_path, [_storm("d1", 1, weights, _STORM_LABELS)])
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", _GF_STORM)
+    conn = open_for_reading(tmp_path / "graph")
+
+    assert _archetype_edges(conn) == {"d1": {label: (100, True)}}
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    (row,) = [d for d in report["dead_entries"] if d["kind"] == "archetype_alias"]
+    assert row["key"] == "engine:gf_storm" and gone in row["detail"]
+
+
+def test_a_deck_archetype_steps_aside_once_upstream_refiles_the_deck(tmp_path):
+    # The override was written while upstream filed the deck under Blue Moon.
+    # Upstream has since re-tagged it, and its re-filing is the long-term answer
+    # (issue #374): the deck stays as upstream now tags it, title included, and
+    # the report names the code upstream moved it to so the entry is retired.
+    _write_snapshot(tmp_path, [_deck(
+        "d1", "E", "2026-04-25T00:00:00+00:00", deckName="Blue Moon",
+        engineTags=["engine:izzet_tempo"], primaryTag="engine:izzet_tempo",
+        engineTagLabels={"engine:izzet_tempo": "Izzet Tempo"},
+        primaryTagWeights={"engine:izzet_tempo": 100})])
+    curation = Curation(
+        merges={}, rejected=frozenset(), names={}, deck_pilots={},
+        deck_archetypes={"d1": ArchetypeOverride(
+            deck_name="UR Prowess", engine="engine:izzet_prowess",
+            engine_label="Izzet Prowess", source="engine:blue_moon")},
+    )
+
+    build_graph(load_snapshot(tmp_path), tmp_path / "graph", curation)
+    conn = open_for_reading(tmp_path / "graph")
+
+    assert _scalar(conn, "MATCH (d:Deck {deckId: 'd1'}) RETURN d.deckName") == "Blue Moon"
+    assert _archetype_edges(conn) == {"d1": {"Izzet Tempo": (100, True)}}
+    report = json.loads(reconciliation_path(tmp_path / "graph").read_text())
+    (row,) = [d for d in report["dead_entries"] if d["kind"] == "deck_archetype"]
+    assert row["key"] == "d1"
+    assert "engine:izzet_tempo" in row["detail"] and "engine:blue_moon" in row["detail"]
 
 
 def test_the_held_ids_sitting_on_a_joined_node_are_the_five_on_the_record(live_graph):

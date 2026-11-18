@@ -4,17 +4,20 @@
 # decision recorded once holds for all time. Every entry keys on a STABLE
 # upstream identifier: a pilot id or a deck id. Never key on a display name or a
 # synthetic key (nan:darcy, LunarRedFalcon#2): those shift when the data changes.
+# The one exception is [[archetype_alias]], keyed on two archetype codes, which
+# steps aside if upstream retires either (issue #374).
 #
 # Wave 1 policy: only decisions grounded on a hard fact go here. When two names
 # could reasonably be two different people, they stay separate and remain a
 # proposal in the reconciliation report until a human confirms them (the second
 # sweep). See docs/adr/0004-pilot-identity.md.
 #
-# Eight kinds of entry. Seven record a decision; the eighth records that one could
+# Nine kinds of entry. Eight record a decision; [[hold]] records that one could
 # not be reached. Upstream reuses a pilot id for a different person (issue #261),
-# so each of the seven also carries the snapshot it was written on and the display
-# name each of its ids recovered then (the name the deck titles gave, not a pinned
-# one; for a deck id, its own title's name). The build refuses an entry whose id
+# so each of the seven keyed on an id also carries the snapshot it was written on
+# and the display name each of its ids recovered then (the name the deck titles
+# gave, not a pinned one; for a deck id, its own title's name); [[archetype_alias]]
+# names no id and carries `as_of` alone. The build refuses an entry whose id
 # no longer recovers that name's family (a handle or bare first name, the string),
 # applies it to nothing, and lists it under a banner (issue #283). Both fields are
 # required; `uv run python scripts/entry_provenance.py` fills them in for every
@@ -50,6 +53,18 @@
 #     deck_name = "UR Prowess"          # the corrected display name
 #     engine = "engine:izzet_prowess"   # the single engine it belongs to
 #     engine_label = "Izzet Prowess"    # that engine's label
+#     source = "engine:blue_moon"       # upstream's primary at as_of; the
+#                                       # entry steps aside once upstream files
+#                                       # the deck elsewhere (issue #374)
+#
+#   [[archetype_alias]] fold an archetype code upstream mints only because
+#                    pilots spell one deck two ways ("GF Storm" / "Gluten Free
+#                    Storm"): every deck carrying the alias carries the archetype
+#                    instead, weights summed. Not for versions of a deck (#99).
+#                    Steps aside, and is reported, once either code is gone.
+#     alias = "engine:gf_storm"
+#     archetype = "engine:gluten_free_storm"
+#     as_of = "20261118T000557Z"
 #
 #   [[deck_event]]   return one deck to the event it was really played at (e.g.
 #                    a deck the source stranded at a malformed event). The event
@@ -2191,6 +2206,7 @@ deck = "NEAr5sy1kEy5cwFUGhEa_A"
 deck_name = "UR Prowess"
 engine = "engine:izzet_prowess"
 engine_label = "Izzet Prowess"
+source = "engine:blue_moon"
 as_of = "20260713T232944Z"
 names = { "NEAr5sy1kEy5cwFUGhEa_A" = "alejandrofp" }
 
@@ -2212,8 +2228,367 @@ deck = "J4CqDvaCPkO4LeCxJgBydQ"
 deck_name = "Amber Ascendancy"
 engine = "engine:amber_ascendancy"
 engine_label = "Amber Ascendancy"
+source = "engine:ascendancy"
 as_of = "20260815T140746Z"
 names = { "J4CqDvaCPkO4LeCxJgBydQ" = "Henry F" }
+
+# --- Decks titled "Flood Moon" that upstream files under Dimir or Rogue (issue #374) ---
+#
+# 31 decks titled exactly "Flood Moon" sit under engine:dimir (16) or
+# engine:rogue (15), each at weight 100, on 20261118T000557Z. Their lists are
+# Flood Moon's: mean pairwise overlap of maindeck non-land cards 0.550 against
+# Flood Moon's own decks, which overlap 0.557 among themselves (format baseline
+# 0.108); the Dimir ones overlap 0.402 with the rest of Dimir. Upstream itself
+# filed every one of them under Flood Moon at some snapshot and has moved most
+# back and forth since (Flood Moon, Dimir, Flood Moon, Dimir), the last move on
+# 20261104T091012Z or 20261106T054750Z. Dimir and Rogue hold other decks, so this
+# is one entry per deck. Each steps aside once upstream files its deck anywhere
+# but its `source`: back under Flood Moon it needs no entry, and between Dimir
+# and Rogue it needs its `source` rewritten. "Mono U Flood Moon" (one deck under
+# Rogue) is mono-blue against Flood Moon's UB and overlaps it 0.276, so it stays.
+
+[[deck_archetype]]
+# BazaarInvi, 2025-11-17.
+deck = "XAcLQDBF3kOSJBWsWbYhEw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "XAcLQDBF3kOSJBWsWbYhEw" = "Kyle G" }
+
+[[deck_archetype]]
+# BazaarInvi, 2025-11-17.
+deck = "yghXcogDbUewGSSgtF4GCA"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "yghXcogDbUewGSSgtF4GCA" = "Michael K" }
+
+[[deck_archetype]]
+# ETEAE, 2025-11-19.
+deck = "vsM6thBL5UaD2uPNexamKg"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "vsM6thBL5UaD2uPNexamKg" = "Michael K" }
+
+[[deck_archetype]]
+# RadClaus, 2025-12-22.
+deck = "V8NJxpQ-2ECZMufCw_aH2Q"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "V8NJxpQ-2ECZMufCw_aH2Q" = "Freya N" }
+
+[[deck_archetype]]
+# TABGHC2025, 2025-12-28.
+deck = "YA4yA76hKkKZr3CrZwBKAw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "YA4yA76hKkKZr3CrZwBKAw" = "Liam W" }
+
+[[deck_archetype]]
+# POGWADiamond, 2026-01-05.
+deck = "K_Pc1rcGdUabfOesg9ulUQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "K_Pc1rcGdUabfOesg9ulUQ" = "Liam W" }
+
+[[deck_archetype]]
+# NHC26, 2026-01-27.
+deck = "O4kcCcxjBk2ZakWXBo_9Og"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "O4kcCcxjBk2ZakWXBo_9Og" = "Kyle G" }
+
+[[deck_archetype]]
+# NHC26, 2026-01-27.
+deck = "q4U_FI4CmUqFmavM2Aqf0g"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "q4U_FI4CmUqFmavM2Aqf0g" = "Charlie B" }
+
+[[deck_archetype]]
+# NHC26, 2026-01-27.
+deck = "GDIALiV2q0ORtb9RhtEu0A"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "GDIALiV2q0ORtb9RhtEu0A" = "Tony D" }
+
+[[deck_archetype]]
+# MazeWATrop, 2026-04-01.
+deck = "9U_XOzX3tk6yFBUV72fpmA"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "9U_XOzX3tk6yFBUV72fpmA" = "Rick P" }
+
+[[deck_archetype]]
+# HighlanderWorlds26, 2026-04-25.
+deck = "PiO2V7E0okSZeprK2DTFtQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "PiO2V7E0okSZeprK2DTFtQ" = "Jin P" }
+
+[[deck_archetype]]
+# PogAug26, 2026-08-22.
+deck = "RMspPlNDgU-xT56QJUG8Cw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "RMspPlNDgU-xT56QJUG8Cw" = "George H" }
+
+[[deck_archetype]]
+# MazeIQ26, 2026-09-13.
+deck = "DMGyR2oOi0WAeyk6F74HHg"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "DMGyR2oOi0WAeyk6F74HHg" = "Fraser W" }
+
+[[deck_archetype]]
+# GGCSC26, 2026-09-13.
+deck = "pHlCdFQs6Eq1wxmnNJW5Fw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "pHlCdFQs6Eq1wxmnNJW5Fw" = "Zac E" }
+
+[[deck_archetype]]
+# MMIQ26, 2026-09-19.
+deck = "O6np7oyC3UGrApSWEsff3A"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "O6np7oyC3UGrApSWEsff3A" = "Raechel M" }
+
+[[deck_archetype]]
+# DNAIQ, 2026-09-20.
+deck = "SaO39OJUHUW8kvpMdB03nw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:dimir"
+as_of = "20261118T000557Z"
+names = { "SaO39OJUHUW8kvpMdB03nw" = "Ben S4" }
+
+[[deck_archetype]]
+# GGMIQ, 2025-11-08.
+deck = "xO2nxZZZz0u2j3uK7Rz1tg"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "xO2nxZZZz0u2j3uK7Rz1tg" = "Lachlan C" }
+
+[[deck_archetype]]
+# RadClaus, 2025-12-22.
+deck = "Yb12_IzQy02RKQvDkhV0QA"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "Yb12_IzQy02RKQvDkhV0QA" = "Meia P" }
+
+[[deck_archetype]]
+# TABGHC2025, 2025-12-28.
+deck = "Yef6xYzO5UydGpbtSwPAFw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "Yef6xYzO5UydGpbtSwPAFw" = "Meia P" }
+
+[[deck_archetype]]
+# POGWADiamond, 2026-01-05.
+deck = "uannXbIiEEyMyMKIlBZrcw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "uannXbIiEEyMyMKIlBZrcw" = "Freya N" }
+
+[[deck_archetype]]
+# POGWADiamond, 2026-01-05.
+deck = "xFKGGSJp9kSFG-82u6IBqQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "xFKGGSJp9kSFG-82u6IBqQ" = "Emily P" }
+
+[[deck_archetype]]
+# POGTeams26, 2026-01-08.
+deck = "5pjkMnSOT0WACuTBZb75iQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "5pjkMnSOT0WACuTBZb75iQ" = "Meia P" }
+
+[[deck_archetype]]
+# NHC26, 2026-01-27.
+deck = "OiENYRITlUqYNaVMydWong"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "OiENYRITlUqYNaVMydWong" = "Freya N" }
+
+[[deck_archetype]]
+# NHC26, 2026-01-27.
+deck = "IVwuRABzt0WkMddxtOdoAw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "IVwuRABzt0WkMddxtOdoAw" = "Lachlan C" }
+
+[[deck_archetype]]
+# HighlanderWorlds26, 2026-04-25.
+deck = "q7WsKKzayUe3yhA4SFxz3A"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "q7WsKKzayUe3yhA4SFxz3A" = "Philipp D" }
+
+[[deck_archetype]]
+# ChromaticInvi, 2026-08-22.
+deck = "4Pqjy4_J3US35UgOcX0wVQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "4Pqjy4_J3US35UgOcX0wVQ" = "Allan B" }
+
+[[deck_archetype]]
+# PogAug26, 2026-08-22.
+deck = "Pb4RJ2OI4kS1bDY9MRw3hQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "Pb4RJ2OI4kS1bDY9MRw3hQ" = "Chris C" }
+
+[[deck_archetype]]
+# SSB, 2026-08-28.
+deck = "mmiTo0S90Uq51GCBuoBNQw"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "mmiTo0S90Uq51GCBuoBNQw" = "Chris C" }
+
+[[deck_archetype]]
+# GGCSC26, 2026-09-13.
+deck = "OEbmZyYnMUOhLSZEeEL1VQ"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "OEbmZyYnMUOhLSZEeEL1VQ" = "Kyle M" }
+
+[[deck_archetype]]
+# MazeIQ26, 2026-09-13.
+deck = "cM8nQkwPlEm1m4hV2lATFg"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "cM8nQkwPlEm1m4hV2lATFg" = "Jonathan N" }
+
+[[deck_archetype]]
+# AGIQ, 2026-09-27.
+deck = "F9on6p6MgkW0nIUOjpQa3w"
+deck_name = "Flood Moon"
+engine = "engine:flood_moon"
+engine_label = "Flood Moon"
+source = "engine:rogue"
+as_of = "20261118T000557Z"
+names = { "F9on6p6MgkW0nIUOjpQa3w" = "Raechel M" }
+
+# --- Archetype codes upstream mints for a second spelling of one deck (issue #374) ---
+#
+# Upstream names an archetype off the title the pilot typed, so one deck titled
+# two ways becomes two codes. Folded only where the names say the same thing and
+# the cards cannot tell the two apart: card overlap is the mean pairwise Jaccard
+# of maindeck non-land cards on 20261118T000557Z (format baseline 0.108). Versions
+# of a deck (Bus Stop Grixis, Lurrus Breach) stay as tagged: that is #99. Each
+# alias steps aside once upstream stops carrying either code.
+
+[[archetype_alias]]
+# GF is the abbreviation: 25 primaries titled "GF Storm", 32 "Gluten Free Storm",
+# 7 pilots in both. Overlap across the two 0.601, within each 0.611 / 0.620.
+alias = "engine:gf_storm"
+archetype = "engine:gluten_free_storm"
+as_of = "20261118T000557Z"
+
+[[archetype_alias]]
+# Named after the card, which 19 of the 21 Scales primaries run; same colour
+# spread. Overlap across 0.448, within each 0.451 / 0.471.
+alias = "engine:scales"
+archetype = "engine:hardened_scales"
+as_of = "20261118T000557Z"
+
+[[archetype_alias]]
+# Mono-green Eldrazi splits by wording: 26 titled "Mono G Eldrazi" / "G Eldrazi" /
+# "Eldrazi" sit under Eldrazi, 37 titled "Green Eldrazi" under Green Eldrazi.
+# Mono-green overlap across 0.587, within each 0.543 / 0.657; the RG decks sit as
+# close to Green Eldrazi as to each other (0.506 vs 0.507). Upstream already folds
+# colour-prefixed variants into the bare name (grixis_madness into Madness).
+alias = "engine:green_eldrazi"
+archetype = "engine:eldrazi"
+as_of = "20261118T000557Z"
 
 # --- Decks stranded at a malformed event, returned to their cohort (issue #167) ---
 

@@ -1206,6 +1206,7 @@ def test_a_deck_keyed_entry_is_refused_on_the_name_its_title_now_carries(tmp_pat
         deck_name = "UR Prowess"
         engine = "engine:izzet_prowess"
         engine_label = "Izzet Prowess"
+        source = "engine:grixis"
         as_of = "20260713T232944Z"
         names = { "d2" = "AarY1" }
     """)
