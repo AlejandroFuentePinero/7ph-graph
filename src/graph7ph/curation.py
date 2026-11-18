@@ -8,7 +8,9 @@ of which come from the source and never change. Nothing keys on a derived value
 -- not a display name (a majority vote that new decks can flip), not a synthetic
 key like ``nan:darcy`` or ``LunarRedFalcon#2`` (which the resolution mints). That
 is what makes a decision timeless: recorded once, it applies identically to every
-future ingestion, so the pipeline always runs in the same direction.
+future ingestion, so the pipeline always runs in the same direction. The one
+exception is an archetype alias, keyed on the two archetype codes it folds:
+upstream can retire a code, so the alias steps aside when it does (issue #374).
 
 The file is TOML because a human writes it: it takes comments, and ``tomllib`` is
 in the standard library, so reading it costs no dependency.
@@ -27,8 +29,9 @@ DeadKind = Literal[
     "deck_event", "hold", "archetype_alias",
 ]
 
-# The seven kinds that apply to the graph, each of which carries its provenance
-# (issue #283). `hold` is the eighth: it applies nothing, so it carries none.
+# The seven kinds that apply to the graph through an id, each of which carries its
+# provenance (issue #283). `archetype_alias` applies through two archetype codes
+# and carries `as_of` alone; `hold` applies nothing, so it carries no names.
 AppliedKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype", "deck_event",
 ]
@@ -127,10 +130,15 @@ class DeadEntry:
     against, so a typo'd id or an upstream-reissued pseudonym leaves an entry
     that silently fires nothing (ADR 0005). Surfaced in the reconciliation
     report -- never fatal -- so a maintainer can retire or repair it.
+
+    An archetype ruling upstream has moved under is reported the same way, its
+    deck or codes still present (issue #374): an alias one of whose codes no
+    deck carries, or a ``deck_archetype`` whose deck upstream no longer files
+    under its ``source``.
     """
 
     kind: DeadKind
-    key: str  # the pilot id, deck id or snapshot stamp the build does not hold
+    key: str  # the pilot id, deck id, alias code or snapshot stamp it keys on
     detail: str  # what the dead entry was trying to do
 
 
@@ -144,14 +152,16 @@ class Curation:
     same person, which suppresses them from the candidate report for good.
     ``names`` pins a display name against the majority vote. ``deck_pilots``
     reassigns one deck to an upstream pilot id, which is how a null-pilot deck
-    reaches its real owner. ``deck_archetypes`` reclassifies one deck whose
-    source title mislabelled its archetype. ``deck_events`` reassigns one deck to
+    reaches its real owner. ``deck_archetypes`` reclassifies one deck the source
+    filed under the wrong archetype, while the source still files it there.
+    ``archetype_aliases`` folds a code the source mints only for a second
+    spelling of one deck into the other (issue #374). ``deck_events`` reassigns one deck to
     the event code it was really played at, which is how a deck the source
     stranded at a malformed event rejoins its cohort. ``splits`` holds id pairs
     that share a display name but are different people, which keeps the
     identical-name join (ADR 0007) from folding them into one node -- the
     inverse of a ``merge``. ``holds`` maps a single id onto the :class:`Hold` a
-    human left against it: alone among the eight kinds it decides nothing and
+    human left against it: alone among the nine kinds it decides nothing and
     applies nothing, it only records that the id's own several names were
     examined (issue #232). It held pairs too until issue #273, which left every
     candidate pair's state to the build (:mod:`graph7ph.identity_rules`).

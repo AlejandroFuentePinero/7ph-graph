@@ -17,7 +17,9 @@ from pathlib import Path
 import ladybug
 from pydantic import BaseModel
 
-from graph7ph.curation import Curation, CurationError, DeadEntry, load_curation
+from graph7ph.curation import (
+    ArchetypeOverride, Curation, CurationError, DeadEntry, load_curation,
+)
 from graph7ph.db import open_for_writing, remove_artifact, rows
 from graph7ph.figures import write_figures
 from graph7ph.models import (
@@ -386,13 +388,13 @@ def reconcile(
     # Upstream's own filing, read before the aliases fold it, since that is what
     # an override's `source` states.
     filed = {d.deck_id: d.primary_tag for d in snapshot.decks}
-    snapshot, folded = _apply_archetype_aliases(snapshot, curation)
-    snapshot, overridden = _apply_deck_archetypes(snapshot, curation, filed)
+    snapshot, aliases_aside = _apply_archetype_aliases(snapshot, curation)
+    snapshot, overrides_aside = _apply_deck_archetypes(snapshot, curation, filed)
     snapshot = _apply_deck_events(snapshot, curation)
     pilots = resolve_pilots(
         snapshot.decks, curation, _decklists(snapshot.containments), snapshot_decks
     )
-    dead = sorted(pilots.report.dead_entries + folded + overridden,
+    dead = sorted(pilots.report.dead_entries + aliases_aside + overrides_aside,
                   key=lambda d: (d.kind, d.key))
     pilots = replace(pilots, report=replace(
         pilots.report, refused_entries=refused, dead_entries=dead))
@@ -458,7 +460,8 @@ def _apply_archetype_aliases(
             continue
         weights: dict[str, int] = {}
         for tag, weight in d.primary_tag_weights.items():
-            weights[aliases.get(tag, tag)] = weights.get(aliases.get(tag, tag), 0) + weight
+            folded = aliases.get(tag, tag)
+            weights[folded] = weights.get(folded, 0) + weight
         tags = list(dict.fromkeys(aliases.get(tag, tag) for tag in d.engine_tags))
         decks.append(d.model_copy(update={
             "engine_tags": tags,
@@ -489,7 +492,7 @@ def _apply_deck_archetypes(
     report with the code upstream moved the deck to (issue #374). An entry whose
     deck is absent is not returned: ``dead_entries`` already reports it.
     """
-    overrides: dict = {}
+    overrides: dict[str, ArchetypeOverride] = {}
     aside: list[DeadEntry] = []
     for deck, override in curation.deck_archetypes.items():
         if deck not in filed:

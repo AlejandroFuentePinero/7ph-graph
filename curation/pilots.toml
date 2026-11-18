@@ -4,17 +4,20 @@
 # decision recorded once holds for all time. Every entry keys on a STABLE
 # upstream identifier: a pilot id or a deck id. Never key on a display name or a
 # synthetic key (nan:darcy, LunarRedFalcon#2): those shift when the data changes.
+# The one exception is [[archetype_alias]], keyed on two archetype codes, which
+# steps aside if upstream retires either (issue #374).
 #
 # Wave 1 policy: only decisions grounded on a hard fact go here. When two names
 # could reasonably be two different people, they stay separate and remain a
 # proposal in the reconciliation report until a human confirms them (the second
 # sweep). See docs/adr/0004-pilot-identity.md.
 #
-# Eight kinds of entry. Seven record a decision; the eighth records that one could
+# Nine kinds of entry. Eight record a decision; [[hold]] records that one could
 # not be reached. Upstream reuses a pilot id for a different person (issue #261),
-# so each of the seven also carries the snapshot it was written on and the display
-# name each of its ids recovered then (the name the deck titles gave, not a pinned
-# one; for a deck id, its own title's name). The build refuses an entry whose id
+# so each of the seven keyed on an id also carries the snapshot it was written on
+# and the display name each of its ids recovered then (the name the deck titles
+# gave, not a pinned one; for a deck id, its own title's name); [[archetype_alias]]
+# names no id and carries `as_of` alone. The build refuses an entry whose id
 # no longer recovers that name's family (a handle or bare first name, the string),
 # applies it to nothing, and lists it under a banner (issue #283). Both fields are
 # required; `uv run python scripts/entry_provenance.py` fills them in for every
