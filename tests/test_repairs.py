@@ -109,6 +109,43 @@ def test_an_adopted_fact_replaces_the_source_value_on_every_snapshot_holding_the
     assert source_held == {"d1": {"pilot": "BraveIndigoLynx"}}
 
 
+DECKLIST = '''
+[[adopt]]
+decks = ["d1"]
+fact = "decklist"
+value = { Main = ["swamp", "island"], Side = ["plains"] }
+reason = "upstream replaced a list copied from another deck"
+as_of = "20261118T000557Z"
+'''
+
+
+def test_an_adopted_decklist_replaces_the_source_list_on_every_snapshot_holding_the_deck(
+    tmp_path
+):
+    # The first decklist rewrite on record (issue #372): the source's first list
+    # for the deck was another deck's, and its fix is adopted the way a re-keyed
+    # pilot is, so the gate reads one list on every snapshot.
+    source = snap(deck("d1"), deck("d2")).model_copy(
+        update={"cards": [card("island"), card("swamp"), card("plains")]})
+
+    snapshot, source_held = apply_repairs(source, repairs(tmp_path, DECKLIST))
+
+    assert sorted((c.deck_id, c.canon, c.board) for c in snapshot.containments) == [
+        ("d1", "island", "Main"), ("d1", "plains", "Side"), ("d1", "swamp", "Main"),
+        ("d2", "island", "Main")]
+    assert source_held == {"d1": {"decklist": {"Main": ["island"], "Side": []}}}
+
+
+def test_an_adopted_decklist_naming_a_card_the_snapshot_lacks_is_refused(tmp_path):
+    # A misspelt canon would otherwise point the deck at a card no snapshot
+    # holds. Only a snapshot holding the deck is asked.
+    with pytest.raises(RepairError, match="plains"):
+        apply_repairs(snap(deck("d1")), repairs(tmp_path, DECKLIST))
+
+    snapshot, _ = apply_repairs(snap(deck("d2")), repairs(tmp_path, DECKLIST))
+    assert [c.deck_id for c in snapshot.containments] == ["d2"]
+
+
 def test_a_refile_whose_event_the_source_later_uses_is_refused_even_where_nothing_is_refiled(
     tmp_path
 ):
@@ -149,6 +186,15 @@ def test_a_refile_onto_an_event_the_source_has_is_refused(tmp_path):
     REFILE.replace("field = 49", "field = 0"),
     ADOPT.replace('fact = "pilot"', 'fact = "event"'),
     ADOPT.replace('fact = "pilot"', 'fact = "placement"'),  # a str for an int
+    # A decklist is a table of both boards, each a list of distinct canons, the
+    # main board never empty.
+    DECKLIST.replace('{ Main = ["swamp", "island"], Side = ["plains"] }', '"swamp"'),
+    DECKLIST.replace('Side = ["plains"]', 'Sideboard = ["plains"]'),
+    DECKLIST.replace(', Side = ["plains"]', ""),
+    DECKLIST.replace('Main = ["swamp", "island"]', "Main = []"),
+    DECKLIST.replace('Main = ["swamp", "island"]', 'Main = ["swamp", "swamp"]'),
+    DECKLIST.replace('Main = ["swamp", "island"]', 'Main = ["swamp", ""]'),
+    DECKLIST.replace('Main = ["swamp", "island"]', 'Main = ["swamp", 3]'),
     # Self-contradictions: a held-out deck named by another entry, a deck refiled
     # twice, a fact adopted twice for one deck, two refiles to one event that
     # disagree about it.
@@ -156,6 +202,7 @@ def test_a_refile_onto_an_event_the_source_has_is_refused(tmp_path):
     HOLD_OUT + ADOPT.replace('decks = ["d1"]', 'decks = ["d2"]'),
     REFILE + REFILE.replace('event = "E26"', 'event = "E27"'),
     ADOPT + ADOPT.replace("FrostyGoldDolphin", "SomeoneElse"),
+    DECKLIST + DECKLIST.replace('Side = ["plains"]', "Side = []"),
     REFILE + REFILE.replace('decks = ["d2", "d3"]', 'decks = ["d4"]')
     .replace("field = 49", "field = 50"),
     REFILE + REFILE.replace('decks = ["d2", "d3"]', 'decks = ["d4"]')
@@ -223,6 +270,28 @@ def test_the_rewrite_an_adopt_was_written_to_accept_is_not_a_move(tmp_path):
         [S1, S2])
 
     assert section["moved"] == []
+
+
+def test_an_adopted_decklist_the_source_rewrites_again_after_the_ruling_is_moved(tmp_path):
+    copied = {"Main": ["grief"], "Side": []}
+    fixed = {"Main": ["island", "swamp"], "Side": ["plains"]}
+    again = {"Main": ["island"], "Side": []}
+
+    section = repairs_report(
+        repairs(tmp_path, DECKLIST.replace("20261118T000557Z", S2)),
+        {"d1": [(S1, {"decklist": copied}), (S2, {"decklist": fixed}),
+                (S3, {"decklist": again})]},
+        [S1, S2, S3])
+
+    # The list is too long to read inline, so the detail counts it; the two
+    # sides of the move carry it whole.
+    assert section["moved"] == [{
+        "kind": "adopt", "deck": "d1",
+        "detail": "adopts decklist of 2 main and 1 side cards: upstream replaced a list "
+                  "copied from another deck",
+        "from": {"snapshot": S2, "decklist": fixed},
+        "to": {"snapshot": S3, "decklist": again},
+    }]
 
 
 HELD_OUT_DETAIL = "held out: the event seats 25 decks for 24 players; this is the extra one"

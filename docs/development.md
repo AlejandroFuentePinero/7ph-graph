@@ -236,7 +236,12 @@ to follow: gate green on the previous bundle first, then recapture (issue #272).
 After a
 render-side change the previous bundle is `data/graph.backup` and can be graded
 as it stands; a build-input change makes that bundle stale too, so move the
-newest snapshot aside, build and prove, then put it back and build again. With
+newest snapshot aside, build and prove, then put it back and build again. Set
+aside the round's own new rulings too, since they move the old answers on
+purpose: `build --snapshots` and `baseline --db` take paths, so the proof can
+run from a scratch folder holding links to the older snapshots and the
+committed `curation/` files, with nothing in the checkout moved (the
+2026-11-18 round, issue #372). With
 no baseline on disk, `--capture` just writes. A baseline that exists but cannot
 be graded (a corrupt oracle) is a refusal too, not a clean slate: pass `--force`
 to replace it.

@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from graph7ph.curation import SNAPSHOT_STAMP
-from graph7ph.models import Deck, Snapshot
+from graph7ph.models import Containment, Deck, Snapshot
 
 # Checked in beside the pilot dictionary: both are human judgement, neither is
 # source data nor a derived artifact.
@@ -68,13 +68,19 @@ class Refile:
 # the deck and pins it at the first-seen value, so adopting the rewrite is the
 # one way a human's acceptance of it reaches the graph. The event is not among
 # them, because a deck that belongs at an event the source has is a
-# `[[deck_event]]` in the pilot dictionary and one it does not is a `[[refile]]`;
-# nor is the decklist, which nothing has ever rewritten.
+# `[[deck_event]]` in the pilot dictionary and one it does not is a `[[refile]]`.
 ADOPTABLE: dict[str, tuple[type, str]] = {
     "pilot": (str, "pilot"),
     "placement": (int, "placement"),
     "createdAt": (datetime, "created_at"),
 }
+
+# The projection's other half, the decklist, is adopted too, as the list itself:
+# a table of both boards, each a list of card canons as the source's card index
+# spells them. It rides on the snapshot's containments rather than on the deck,
+# so it is kept apart from the scalars (issue #372, the first rewrite on record).
+DECKLIST = "decklist"
+BOARDS = ("Main", "Side")
 
 
 @dataclass(frozen=True)
@@ -85,14 +91,15 @@ class Adopt:
     right (a pilot re-keyed to the person's real id). The gate would flag the
     rewrite and pin the old value for good; carrying the adopted value into every
     snapshot that holds the deck makes the sequence read one fact, so the gate
-    stays quiet and the graph carries the value the owner chose.
+    stays quiet and the graph carries the value the owner chose. A decklist is
+    adopted the same way (a list first published as another deck's, then fixed).
     """
 
     decks: tuple[str, ...]
     reason: str
     as_of: str
-    fact: str  # a key of ADOPTABLE
-    value: object
+    fact: str  # a key of ADOPTABLE, or DECKLIST
+    value: object  # for DECKLIST, {board: [canon, ...]} over BOARDS
 
 
 @dataclass(frozen=True)
@@ -180,10 +187,21 @@ def _refuse_contradictions(repairs: Repairs, path: Path) -> None:
 
 def _adopt(entry: dict, path: Path) -> Adopt:
     fact, value = entry.get("fact"), entry.get("value")
+    if fact == DECKLIST:
+        if not (isinstance(value, dict) and set(value) == set(BOARDS) and value["Main"]
+                and all(isinstance(cards, list) and all(isinstance(c, str) and c for c in cards)
+                        and len(set(cards)) == len(cards)
+                        for cards in value.values())):
+            raise RepairError(
+                f"{path}: [[adopt]] states {value!r} for the decklist, which takes a "
+                f"table of both boards, each a list of distinct card canons, the main "
+                f'board not empty: {{ Main = ["island", ...], Side = [...] }}'
+            )
+        return Adopt(**_common(entry, path, "adopt"), fact=fact, value=value)
     if fact not in ADOPTABLE:
         raise RepairError(
             f"{path}: [[adopt]] names the fact {fact!r}; the facts a ruling can adopt a "
-            f"value for are {sorted(ADOPTABLE)}"
+            f"value for are {sorted([*ADOPTABLE, DECKLIST])}"
         )
     if type(value) is not ADOPTABLE[fact][0]:
         raise RepairError(
@@ -273,9 +291,13 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, dict[
     held = {d for entry in repairs.hold_outs for d in entry.decks}
     refiled = {d: entry for entry in repairs.refiles for d in entry.decks}
     adopted: dict[str, dict[str, object]] = {}
+    lists: dict[str, dict[str, list[str]]] = {}
     for entry in repairs.adopts:
         for d in entry.decks:
-            adopted.setdefault(d, {})[ADOPTABLE[entry.fact][1]] = entry.value
+            if entry.fact == DECKLIST:
+                lists[d] = entry.value
+            else:
+                adopted.setdefault(d, {})[ADOPTABLE[entry.fact][1]] = entry.value
     # The event a refile builds must be one the source does not have in any
     # snapshot, this one included even if nothing here is refiled: seating the
     # ruling's type and field beside the source's own decks would leave the
@@ -290,6 +312,20 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, dict[
                 f"there ({d.deck_id!r}); a deck that belongs at an event the source has is a "
                 f"[[deck_event]] in the pilot dictionary"
             )
+    # An adopted list must name cards the snapshot holds, or the deck would point
+    # at a card that is not there: the likeliest cause is a misspelt canon.
+    canons = {c.canon for c in snapshot.cards}
+    listed = {d.deck_id for d in snapshot.decks} & lists.keys()
+    for d in sorted(listed):
+        if missing := sorted({c for cards in lists[d].values() for c in cards} - canons):
+            raise RepairError(
+                f"[[adopt]] gives deck {d!r} a decklist naming {missing}, which the "
+                f"snapshot's card index does not hold; a canon is spelt as the index spells it"
+            )
+    source_lists: dict[str, dict[str, list[str]]] = {d: {b: [] for b in BOARDS} for d in listed}
+    for c in snapshot.containments:
+        if c.deck_id in listed:
+            source_lists[c.deck_id][c.board].append(c.canon)
     source_held: dict[str, dict] = {}
     decks = []
     for d in snapshot.decks:
@@ -302,16 +338,31 @@ def apply_repairs(snapshot: Snapshot, repairs: Repairs) -> tuple[Snapshot, dict[
                 for fact, (_, field) in ADOPTABLE.items() if field in adopted[d.deck_id]
             )
             d = d.model_copy(update=adopted[d.deck_id])
+        if d.deck_id in listed:
+            source_held.setdefault(d.deck_id, {})[DECKLIST] = {
+                board: sorted(cards) for board, cards in source_lists[d.deck_id].items()}
         if d.deck_id in refiled:
             source_held.setdefault(d.deck_id, {}).update(event=d.event, eventId=d.event_id)
             d = _refiled(d, refiled[d.deck_id])
         decks.append(d)
     if not source_held:
         return snapshot, {}
+    replaced = held | listed
     return Snapshot(
         cards=snapshot.cards, decks=decks,
-        containments=[c for c in snapshot.containments if c.deck_id not in held],
+        containments=[c for c in snapshot.containments if c.deck_id not in replaced] + [
+            Containment(deck_id=d, canon=canon, board=board)
+            for d in sorted(listed) for board, cards in lists[d].items() for canon in cards
+        ],
     ), source_held
+
+
+def _describe_adopt(entry: Adopt) -> str:
+    # A list of 75 cards does not read inline; the moved row carries it whole.
+    if entry.fact == DECKLIST:
+        return (f"adopts decklist of {len(entry.value['Main'])} main and "
+                f"{len(entry.value['Side'])} side cards")
+    return f"adopts {entry.fact} = {entry.value!r}"
 
 
 def _json_ready(value: object) -> object:
@@ -371,7 +422,7 @@ def repairs_report(
     for kind, entries, describe in (
         ("hold_out", repairs.hold_outs, lambda e: "held out"),
         ("refile", repairs.refiles, lambda e: f"refiled to {e.event}"),
-        ("adopt", repairs.adopts, lambda e: f"adopts {e.fact} = {e.value!r}"),
+        ("adopt", repairs.adopts, _describe_adopt),
     ):
         for entry in entries:
             detail = f"{describe(entry)}: {entry.reason}"
