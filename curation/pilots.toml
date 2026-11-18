@@ -50,6 +50,18 @@
 #     deck_name = "UR Prowess"          # the corrected display name
 #     engine = "engine:izzet_prowess"   # the single engine it belongs to
 #     engine_label = "Izzet Prowess"    # that engine's label
+#     source = "engine:blue_moon"       # upstream's primary at as_of; the
+#                                       # entry steps aside once upstream files
+#                                       # the deck elsewhere (issue #374)
+#
+#   [[archetype_alias]] fold an archetype code upstream mints only because
+#                    pilots spell one deck two ways ("GF Storm" / "Gluten Free
+#                    Storm"): every deck carrying the alias carries the archetype
+#                    instead, weights summed. Not for versions of a deck (#99).
+#                    Steps aside, and is reported, once either code is gone.
+#     alias = "engine:gf_storm"
+#     archetype = "engine:gluten_free_storm"
+#     as_of = "20261118T000557Z"
 #
 #   [[deck_event]]   return one deck to the event it was really played at (e.g.
 #                    a deck the source stranded at a malformed event). The event
@@ -2191,6 +2203,7 @@ deck = "NEAr5sy1kEy5cwFUGhEa_A"
 deck_name = "UR Prowess"
 engine = "engine:izzet_prowess"
 engine_label = "Izzet Prowess"
+source = "engine:blue_moon"
 as_of = "20260713T232944Z"
 names = { "NEAr5sy1kEy5cwFUGhEa_A" = "alejandrofp" }
 
@@ -2212,6 +2225,7 @@ deck = "J4CqDvaCPkO4LeCxJgBydQ"
 deck_name = "Amber Ascendancy"
 engine = "engine:amber_ascendancy"
 engine_label = "Amber Ascendancy"
+source = "engine:ascendancy"
 as_of = "20260815T140746Z"
 names = { "J4CqDvaCPkO4LeCxJgBydQ" = "Henry F" }
 

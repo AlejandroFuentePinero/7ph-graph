@@ -20,11 +20,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
 
-# The eight kinds of recorded decision, one per TOML entry type (repo idiom:
+# The nine kinds of recorded decision, one per TOML entry type (repo idiom:
 # ingest.py `FlagKind`). A dead entry names which kind quietly stopped firing.
 DeadKind = Literal[
     "merge", "reject", "split", "name", "deck_pilot", "deck_archetype",
-    "deck_event", "hold",
+    "deck_event", "hold", "archetype_alias",
 ]
 
 # The seven kinds that apply to the graph, each of which carries its provenance
@@ -62,11 +62,17 @@ class ArchetypeOverride:
     on the wrong archetype. This replaces that classification with the
     human-confirmed one: a display name and the single engine the deck belongs
     to (its code and label).
+
+    ``source`` is the primary code upstream filed the deck under when the ruling
+    was written. Upstream re-tags decks, and its later filing is the long-term
+    answer, so the override applies only while upstream still says ``source``
+    and otherwise steps aside to be retired (issue #374).
     """
 
     deck_name: str
     engine: str  # the engine code, e.g. "engine:izzet_prowess"
     engine_label: str  # its display label, e.g. "Izzet Prowess"
+    source: str  # upstream's primary code at `as_of`, e.g. "engine:blue_moon"
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,7 @@ class Curation:
     splits: frozenset[frozenset[str]] = field(default_factory=frozenset)
     deck_events: dict[str, str] = field(default_factory=dict)
     holds: dict[frozenset[str], Hold] = field(default_factory=dict)
+    archetype_aliases: dict[str, str] = field(default_factory=dict)
     entries: tuple[Entry, ...] = ()
     tables: dict[str, list[dict]] = field(default_factory=dict)
 
@@ -266,6 +273,7 @@ def _assemble(raw: dict, path: Path) -> Curation:
         deck_archetypes=_deck_archetypes(raw.get("deck_archetype", []), path),
         splits=splits,
         deck_events=_deck_map(raw.get("deck_event", []), path, "deck_event", "event"),
+        archetype_aliases=_archetype_aliases(raw.get("archetype_alias", []), path),
         entries=_entries(raw, path),
         tables=raw,
     )
@@ -651,12 +659,48 @@ def _deck_archetypes(entries: list[dict], path: Path) -> dict[str, ArchetypeOver
         deck_name = entry.get("deck_name")
         engine = entry.get("engine")
         engine_label = entry.get("engine_label")
-        if not (deck and deck_name and engine and engine_label):
+        source = entry.get("source")
+        if not (deck and deck_name and engine and engine_label and source):
             raise CurationError(
                 f"{path}: a [[deck_archetype]] entry needs `deck`, `deck_name`, "
-                "`engine`, and `engine_label`"
+                "`engine`, `engine_label`, and `source` (the primary code upstream "
+                "filed the deck under at `as_of`)"
             )
         decks[deck] = ArchetypeOverride(
-            deck_name=deck_name, engine=engine, engine_label=engine_label
+            deck_name=deck_name, engine=engine, engine_label=engine_label,
+            source=source,
         )
     return decks
+
+
+def _archetype_aliases(entries: list[dict], path: Path) -> dict[str, str]:
+    """Every folded archetype code as alias code -> the code it folds into (#374).
+
+    A code folded twice would land its decks wherever file order said, and a code
+    folded into one that is itself folded would land them on a code no deck
+    keeps, so both are refused where the author can still see the entry.
+    """
+    aliases: dict[str, str] = {}
+    for entry in entries:
+        alias, archetype = entry.get("alias"), entry.get("archetype")
+        if not alias or not archetype:
+            raise CurationError(
+                f"{path}: an [[archetype_alias]] entry needs `alias`, the code to "
+                f"fold, and `archetype`, the code it folds into"
+            )
+        _as_of(entry, path, "archetype_alias")
+        if alias in aliases:
+            raise CurationError(
+                f"{path}: [[archetype_alias]] folds {alias!r} twice, into "
+                f"{aliases[alias]!r} and {archetype!r}; keep the one that "
+                f"supersedes and delete the other"
+            )
+        aliases[alias] = archetype
+    for alias, archetype in aliases.items():
+        if archetype in aliases:
+            raise CurationError(
+                f"{path}: [[archetype_alias]] folds {alias!r} into {archetype!r}, "
+                f"which is itself aliased; fold it into {aliases[archetype]!r} "
+                f"directly, or not at all"
+            )
+    return aliases
