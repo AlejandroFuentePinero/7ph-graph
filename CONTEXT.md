@@ -16,7 +16,7 @@ A second, narrower exception (issue #346): the Community page says an event's **
 The surface was called the "Best player race" until it was renamed: **best** asserted precisely what ADR 0017 measured and refused, that the board identifies the best pilots (only 4.9 of the top 8 survive a resample, and rank 7's honest interval runs 1 to 40). The code keeps its race vocabulary (`RaceCell`, `RACE_*`, `_race_*`) as the internal name for the running-score trajectory the tab's chart draws; only `player_leaderboard`/`PlayerLeaderboard` took the new name, because those carried the word the rename was for.
 
 **Display Name**:
-The human-readable name for a Pilot, recovered from deck titles. The primary player identity (ADR 0007): ids that recover an identical name (case-insensitively) are the same person, joined automatically on every build, unless a curated `[[split]]` or `[[reject]]` keeps them apart (ADR 0009). Not the graph key: the node keeps a canonical upstream id.
+The human-readable name for a Pilot, recovered from deck titles. The primary player identity (ADR 0007): ids that recover an identical name (case-insensitively) are the same person, joined automatically on every build, unless a curated `[[split]]` or `[[reject]]` keeps them apart (ADR 0009); a deck a `[[deck_pilot]]` moved off a real id also stays apart from that id (issue #378). Not the graph key: the node keeps a canonical upstream id.
 _Avoid_: Real name, player name (as a key)
 
 **Candidate pair**:

@@ -62,3 +62,14 @@ that should not join a real person of that name is handled there, before the vot
 runs. Split is never automatic: only a maintainer's dictionary entry separates
 ids, so a real person who plays different decks at different events stays one
 node.
+
+> **Amended by issue #378.** Peeling a deck off a real id now also implies a
+> split. Upstream keys a pseudonym per spelling, not per person, so a stranger who
+> registers under a regular's spelling lands on the regular's id. The peeled deck
+> keeps that spelling, and once the regular's own vote reaches it, the join folded
+> the deck straight back onto him. So a `[[deck_pilot]]` moving a deck off a real
+> id is read as a split between the deck's owner and the pilot it left (each
+> resolved through the merges), in the join and against a rule merge, and logged
+> as one. A move off a null pilot left no one and implies nothing. A maintainer's
+> entry still does the separating: the move is the ruling, and the split is what
+> it already says.

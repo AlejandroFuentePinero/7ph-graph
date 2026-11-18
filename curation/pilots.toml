@@ -44,7 +44,11 @@
 #     pilot = "CleverBlueWhale"
 #     display_name = "Alejandro D"
 #
-#   [[deck_pilot]]   reassign one deck to its real pilot id (e.g. a null deck)
+#   [[deck_pilot]]   reassign one deck to its real pilot id (e.g. a null deck).
+#                    A deck moved off a real id stays apart from that id's person
+#                    whatever either is later called, as a [[split]] keeps them
+#                    (issue #378); one moved onto its own id is a stranger peeled
+#                    off a shared pseudonym.
 #     deck = "<deckId>"
 #     pilot = "<pilotId>"
 #
@@ -3000,3 +3004,47 @@ ids = ["SilentJadeDolphin", "WildCyanDolphin"]
 canonical = "WildCyanDolphin"
 as_of = "20260901T071551Z"
 names = { "SilentJadeDolphin" = "Tallula V", "WildCyanDolphin" = "Talulla V" }
+
+# --- Decks under Chris Tong's two ids that he did not play (issue #378) ---
+#
+# Upstream gives a codename per spelling, not per person: every deck titled
+# "Chris T" is CleverTealOtter and every deck titled "Christopher T" is
+# SilentGreenLynx, so another Chris T's decks land on the two ids the July merge
+# above joins. Chris Tong went through every deck under both on 2026-11-18,
+# through the maintainer: all are his but these three. Each moves onto its own
+# id, which the build also reads as a split from him, so no later vote over his
+# name can fold one back. The two titled "Chris T" join each other by name;
+# nothing says whether they and the "Christopher T" deck are one stranger or
+# several, and their lists share almost nothing (0.01 between each pair).
+
+[[deck_pilot]]
+# "139th Chris T - Bant Nadu Enchantress - NHC26", upstream CleverTealOtter.
+deck = "KO4JLI-nHEy57sukqrXQAA"
+pilot = "KO4JLI-nHEy57sukqrXQAA"
+as_of = "20260713T232944Z"
+names = { "KO4JLI-nHEy57sukqrXQAA" = "Chris T" }
+
+[[deck_pilot]]
+# "101st Chris T - BR Aggro - HighlanderWorlds26", upstream CleverTealOtter: the
+# second deck under that id at the event beside his own Grixis, the collision
+# that split him into "Christopher T 1" and "Christopher T 2".
+deck = "3zddv2XYiEmTo4LK0PXByg"
+pilot = "3zddv2XYiEmTo4LK0PXByg"
+as_of = "20260713T232944Z"
+names = { "3zddv2XYiEmTo4LK0PXByg" = "Chris T" }
+
+[[deck_pilot]]
+# "17th Christopher T - Zirda Combo - RGIQ", upstream SilentGreenLynx.
+deck = "FczLR4jcO0CavQlXcykwIQ"
+pilot = "FczLR4jcO0CavQlXcykwIQ"
+as_of = "20261017T043734Z"
+names = { "FczLR4jcO0CavQlXcykwIQ" = "Christopher T" }
+
+[[name]]
+# His full name, which he agreed to show on the public site. It also keeps his
+# label off the vote between "Christopher T" and "Chris T" (15 to 11 of his
+# titles today, but 6 of his 8 decks in 2026 are titled "Chris T").
+pilot = "SilentGreenLynx"
+display_name = "Chris Tong"
+as_of = "20260713T232944Z"
+names = { "SilentGreenLynx" = "Christopher T" }
