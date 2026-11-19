@@ -1,5 +1,7 @@
+import importlib.util
 import json
 from collections import Counter, defaultdict
+from pathlib import Path
 
 import pytest
 
@@ -820,7 +822,7 @@ def test_a_gem_is_a_rare_card_that_crowds_its_own_archetype_s_best_decks(
     # The rule is entirely within one archetype: rank the archetype's ranked decks,
     # take its best fifth, and ask how unlikely it is that a card this rare landed
     # this much of itself in there. `tech` and `spread` are equally rare (8 of 200
-    # decks, inside the 5% ceiling and on the 8-deck floor) and finish differently:
+    # decks, at the 4% ceiling and on the 8-deck floor) and finish differently:
     # tech's eight decks are the archetype's eight best, spread's eight are scattered
     # down the field. Only concentration in the top cut is evidence.
     decks = _slice("x", 200, {"tech": range(8),
@@ -879,20 +881,21 @@ def test_a_card_the_same_few_pilots_keep_running_is_not_a_gem(tmp_path, built_gr
     # since ADR 0004 puts one deck per pilot per event and the correlation lives
     # across events.
     #
-    # The two hundred decks are spread over forty events of five, so the cut of forty is
-    # exactly one deck per event and every stratum is the same shape. Both cards below
+    # The 230 decks are spread over forty-six events of five, so the cut of forty-six is
+    # exactly one deck per event and every stratum is the same shape (230 rather than
+    # 200 so that nine decks sit under the 4% ceiling, ADR 0031). Both cards below
     # sit in nine decks at nine distinct events with six of them in the cut, so both
     # reach the same tail of 0.0031 and both would be gems on the decks alone. They
     # differ only in who was holding them: `crowd` is nine players, `habit` is two.
     # The repeat has to span events because ADR 0004 gives a pilot one deck per event,
     # which is also exactly why stratifying by event cannot catch this.
-    decks = _slice("x", 200, {
-        "crowd": [0, 1, 2, 3, 4, 5, 46, 47, 48],
-        "habit": [6, 7, 8, 9, 10, 11, 52, 53, 54],
+    decks = _slice("x", 230, {
+        "crowd": [0, 1, 2, 3, 4, 5, 52, 53, 54],
+        "habit": [6, 7, 8, 9, 10, 11, 58, 59, 60],
     })
     for position, deck in enumerate(decks):
-        deck["event"] = f"e{position % 40}"
-    for position in (6, 7, 8, 9, 10, 11, 52, 53, 54):
+        deck["event"] = f"e{position % 46}"
+    for position in (6, 7, 8, 9, 10, 11, 58, 59, 60):
         decks[position]["pilot"] = "regular" if position % 2 else "friend"
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
@@ -934,8 +937,9 @@ def test_a_gem_is_drawn_between_its_archetype_and_its_best_decks(tmp_path, built
     # and on the other the decks that back it, which are the ones in the cut. The
     # decks outside the cut are counted (they are the card's rarity) and not drawn:
     # they are not what the claim rests on, and drawing them would put the reader's
-    # eye on the decks the rule discounted.
-    decks = _slice("x", 200, {"tech": [*range(9), 80]})
+    # eye on the decks the rule discounted. Ten decks need a slice of 250 to sit under
+    # the 4% ceiling (ADR 0031), and the cut of fifty still ends well before deck 80.
+    decks = _slice("x", 250, {"tech": [*range(9), 80]})
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
 
@@ -959,8 +963,8 @@ def test_a_drawn_gem_deck_names_the_event_it_was_played_at(tmp_path, built_graph
     # A drawn deck is labelled by pilot and finish alone, so one pilot who placed the
     # same at two events is two nodes with one label. The event is what tells them
     # apart, and it rides on the node rather than in the label, which stays short so
-    # the picture stays readable.
-    decks = _slice("x", 200, {"tech": range(10)})
+    # the picture stays readable. A slice of 250 keeps ten decks under the 4% ceiling.
+    decks = _slice("x", 250, {"tech": range(10)})
     for position, deck in enumerate(decks):
         deck["event"] = "spring" if position % 2 else "autumn"
     _write_snapshot(tmp_path, decks, _canons(decks))
@@ -981,7 +985,8 @@ def test_a_gem_draws_every_deck_it_counts(tmp_path, built_graph):
     # a card gets the column back. A cap here was carried while the list was long
     # enough to threaten the node budget; the budget cuts whole gems instead, so the
     # evidence behind a drawn one is never a sample the reader cannot see the edge of.
-    decks = _slice("x", 200, {"tech": range(10)})
+    # A slice of 250 keeps ten decks under the 4% ceiling.
+    decks = _slice("x", 250, {"tech": range(10)})
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
 
@@ -1413,17 +1418,24 @@ def test_pilot_affinity_of_a_pilot_with_no_decks_is_the_pilot_alone(tmp_path, sn
 
 
 def test_the_drawn_list_qualifies_under_the_sweeps_own_bar(live_graph):
-    # The sweep that picked the constants qualifies a cell only if no more than half
-    # its list is expected by luck (ADR 0020: the half is a floor on being a finding
-    # at all, not a target). The constants are a measurement of the corpus, so the
-    # corpus can move out from under them silently: on the 2026-09-01 corpus the
-    # 0.15/5 cell drifted to 3.7 luck in a list of 6 and stopped being a finding
-    # (issue #247). Needs the live graph: the bar is a property of the whole record,
-    # and any hand fixture would only restate the constants it was built to.
+    # The sweep that picked the constants qualifies a cell only if no more of its list
+    # than its bar is expected by luck (ADR 0020 set the bar at half, a floor on being
+    # a finding at all and not a target; ADR 0031 raised it to 60%). Read from the
+    # sweep itself, so the bar has one home. The constants are a measurement of the
+    # corpus, so the corpus can move out from under them silently: on the 2026-09-01
+    # corpus the 0.15/5 cell drifted to 3.7 luck in a list of 6 and stopped being a
+    # finding (issue #247). Needs the live graph: the bar is a property of the whole
+    # record, and any hand fixture would only restate the constants it was built to.
+    # ``scripts`` is not a package, so the sweep is loaded from its file.
+    path = Path(__file__).resolve().parents[1] / "scripts" / "gem_sweep.py"
+    spec = importlib.util.spec_from_file_location("gem_sweep", path)
+    sweep = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sweep)
+
     sub = hidden_gems_subgraph(live_graph)
 
     drawn = sum(1 for n in sub.nodes if n.kind == "Card")
-    assert sub.expected_by_luck <= drawn / 2
+    assert sub.expected_by_luck <= drawn * sweep.MAX_LUCK_FRACTION
 
 
 def test_the_luck_count_is_the_same_number_on_every_call(live_graph):
