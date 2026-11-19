@@ -77,9 +77,12 @@ FLOORS = (5, 6, 8, 10)
 LUCKS = (0.05, 0.01, 0.005, 0.001)
 
 # A cell whose list is more than this fraction luck is not a finding, whatever its
-# count. The bar is deliberately weak: it rejects the degenerate corners of the grid,
-# and the cell that wins on `found - luck` clears it with room to spare.
-MAX_LUCK_FRACTION = 0.5
+# count. It was half until 2026-11-19, when the owner ruled 60% as a general
+# acceptance of uncertainty for the system: the format is noisy, and a list may be
+# more than half luck so long as it says so. It is a principle, not a setting for
+# the list it first admitted, so it holds whatever list a later corpus gives
+# (ADR 0031).
+MAX_LUCK_FRACTION = 0.6
 
 # How many cells to print. The ranking is what the choice rests on, and the tail of it
 # is uninformative once the shape of the leaders is visible.

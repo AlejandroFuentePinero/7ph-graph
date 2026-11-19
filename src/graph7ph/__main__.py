@@ -152,9 +152,9 @@ def _build(args: argparse.Namespace) -> None:
     if changed := families.get("changed"):
         print(f"  {len(changed)} code(s) changed archetype family since the previous build:")
         for c in changed:
-            left, joined = ("its own" if side["code"] == c["code"] else side["label"]
-                            for side in (c["was"], c["now"]))
-            print(f"    {c['label']}: {left} -> {joined} ({c['decks']} decks)")
+            was, now = ("its own" if side["code"] == c["code"] else side["label"]
+                        for side in (c["was"], c["now"]))
+            print(f"    {c['label']}: {was} -> {now} ({c['decks']} decks)")
     if dupes:
         print(f"  {dupes} duplicate registration(s) dropped (logged in the report)")
     if joined:

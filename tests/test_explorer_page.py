@@ -1172,8 +1172,8 @@ def _placeholders(page) -> dict[str, str]:
 # Every search in the app: its tab, the chip that brings it on screen where it is
 # not there on open, its label, and what it searches.
 SEARCHES = [
-    ("Archetypes", None, "Archetype", "archetypes"),
-    ("Archetypes", None, "Second archetype (optional)", "archetypes"),
+    ("Archetypes", None, "Archetype", "archetypes with 2+ events"),
+    ("Archetypes", None, "Second archetype (optional)", "archetypes with 2+ events"),
     ("Cards", None, "Card", "cards"),
     ("Cards", "Co-occurrence", "Second card (optional)", "cards"),
     ("Pilots", None, "Pilot", "pilots"),
@@ -2904,16 +2904,43 @@ def _hovered(page, index: int, *, tap: bool = False) -> str:
 # its dot: each side is another archetype's dot.
 _ROW = _crowd(("Grixis", 400, 0.6), ("Oracle", 200, 0.5), ("Blue Moon", 190, 0.5),
               ("Walks", 180, 0.5))
+# The same row with two more archetypes on the middle one's share, a fiftieth of a
+# finish above and below it: 23px on a desktop, where a dot is 9px round, so the
+# middle one's name fits on no side of its dot.
+_BOXED = [*_ROW, *_crowd(("Death", 190, 0.52), ("Storm", 190, 0.48))]
 
 
-def test_a_name_with_another_dot_on_both_sides_is_left_to_the_hover(chromium):
+@pytest.mark.parametrize("dot_above", [False, True])
+def test_a_name_with_another_dot_on_both_sides_is_set_above_or_below_its_dot(
+    chromium, dot_above
+):
+    # Issue #382: on a phone the 2025 field left to the hover every name its two
+    # sides could not hold, though there was room above or below the dot for two
+    # more names in every year. A name whose sides are both taken is set above its
+    # dot, centred on it, or below it where another archetype's dot is above.
+    cells = [*_ROW, *_crowd(("Death", 190, 0.52))] if dot_above else _ROW
+    with _landscape_of(chromium, cells) as page:
+        read = page.evaluate(_LANDSCAPE_NAMES)
+
+    assert "Blue Moon" in _drawn(read)
+    _assert_every_drawn_name_is_legible(read)
+    name, dot = read["names"][2]["box"], read["dots"][2]
+    if dot_above:
+        assert name["top"] >= dot["bottom"]
+    else:
+        assert name["bottom"] <= dot["top"]
+    assert (name["left"] + name["right"]) / 2 == pytest.approx(
+        (dot["left"] + dot["right"]) / 2, abs=1)
+
+
+def test_a_name_with_another_dot_on_every_side_is_left_to_the_hover(chromium):
     # A name printed across a neighbour's ring reads as neither archetype's. It is
     # not drawn, and its dot still says whose it is under the pointer.
-    with _landscape_of(chromium, _ROW) as page:
+    with _landscape_of(chromium, _BOXED) as page:
         read = page.evaluate(_LANDSCAPE_NAMES)
         said = _hovered(page, 2)
 
-    assert _drawn(read) == ["Grixis", "Oracle", "Walks"]
+    assert _drawn(read) == ["Grixis", "Oracle", "Walks", "Death", "Storm"]
     _assert_every_drawn_name_is_legible(read)
     assert said.startswith("Blue Moon · share 19%")
 
@@ -2938,7 +2965,7 @@ def _drag_the_filter(page, handle: str, to: float) -> None:
 def test_opening_the_crowded_end_with_the_range_filter_brings_its_names_back(chromium):
     # The filter is how a reader opens a crowd (ADR 0013). A name left out for want
     # of room is drawn once the drag has made the room.
-    cells = [*_ROW, *_crowd(("Jund", 390, 0.6))]
+    cells = [*_BOXED, *_crowd(("Jund", 390, 0.6))]
     with _landscape_of(chromium, cells) as page:
         before = _drawn(page.evaluate(_LANDSCAPE_NAMES))
         _drag_the_filter(page, "max", 0.6)
@@ -2951,11 +2978,11 @@ def test_opening_the_crowded_end_with_the_range_filter_brings_its_names_back(chr
     assert "Blue Moon" not in before
     # Grixis and Jund are off the right of the filtered range, where the chart
     # draws nothing.
-    assert _drawn(read) == ["Oracle", "Blue Moon", "Walks"]
+    assert _drawn(read) == ["Oracle", "Blue Moon", "Walks", "Death", "Storm"]
     _assert_every_drawn_name_is_legible(read)
     # Two dots the chart no longer draws are not on one spot, and no dot's hover
     # says they are.
-    assert stood_in_for == [""] * 5
+    assert stood_in_for == [""] * 7
 
 
 def _assert_a_plain_strip(strip: dict, words: list[str]) -> None:
@@ -3055,7 +3082,8 @@ def test_an_archetype_whose_name_is_not_drawn_gives_it_on_hover_on_the_real_reco
 ):
     # The names left out are not lost: the pointer on the middle of a dot gets a
     # box with its archetype's name in it, and so does a finger on a phone, where
-    # most of the names are left out (59 over the four years, against 18 at 1440).
+    # half the names are left out (50 over the four years since #382, against 9 at
+    # 1440 and 1920).
     # Every year, at the three widths. In 2024 the dots of Grixis and of Boros
     # Moonshine are 1px apart and the box over the middle of Grixis is Boros
     # Moonshine's, so the one box names both.
@@ -3074,7 +3102,9 @@ def test_an_archetype_whose_name_is_not_drawn_gives_it_on_hover_on_the_real_reco
     finally:
         page.close()
 
-    assert sum(len(left_out) for left_out in said.values()) >= 10
+    # Enough names left out that the hover is tried at all: about half the fewest
+    # any width leaves out (9), so a shift of a few pixels does not trip it.
+    assert sum(len(left_out) for left_out in said.values()) >= 5
     for year, left_out in said.items():
         for name, box in left_out.items():
             assert box.startswith(f"{name} · share ") or re.search(

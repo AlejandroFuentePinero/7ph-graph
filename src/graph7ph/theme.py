@@ -1673,11 +1673,17 @@ def chart_names_js(card: str, also: str) -> str:
     filter, which is how a reader opens a crowd and gets its names back.
 
     The names are taken most played first, by the dot's place on the share axis. Each
-    is set to the right of its dot, or to the left where the right is not free, and
-    is not drawn where neither is. A spot is free when the name stays inside the
+    is set to the right of its dot, or failing that to its left, above it or below
+    it, and is not drawn where none of the four is free. Above and below came with
+    archetype families (issue #382): on a phone the 2025 field crowds into a few
+    archetypes and the rest into a strip, every name the two sides left out was
+    blocked there by another dot or the plot's edge, and above or below had room for
+    two more names in every year. A spot is free when the name stays inside the
     plot, clear of every name already set and of every other archetype's dot: a name
     across a neighbour's ring reads as neither's. A name not drawn is hidden, not
-    removed, so the next drawing starts from all of them.
+    removed, so the next drawing starts from all of them. The chart library sets
+    every name to the right; a name moved above or below keeps where that was, since
+    its own offset no longer says.
 
     A name left out is on the hover, so the hover has to reach every dot. The chart
     library answers for one dot, the smallest the pointer is inside, and of equal
@@ -1730,27 +1736,38 @@ def chart_names_js(card: str, also: str) -> str:
       const group = name.parentElement;
       const offset = group.transform.baseVal.getItem(0).matrix;
       const box = name.getBoundingClientRect();
-      const onRight = name.getAttribute('text-anchor') === 'start';
-      const reach = Math.abs(offset.e);
-      const across = (onRight ? -1 : 1) * (2 * reach + box.width);
-      const spots = [true, false].map(toRight => {{
-        const by = toRight === onRight ? 0 : across;
-        return {{toRight, left: box.left + by, right: box.right + by,
-                top: box.top, bottom: box.bottom}};
-      }});
+      const w = box.width, h = box.height;
+      const anchor = name.getAttribute('text-anchor');
+      const own = dots.find(dot => dot.index === name.__data__.i);
+      // Where the library set the name: `reach` to the right of the dot's middle,
+      // `rise` down from it.
+      const [reach, rise] = anchor === 'middle' ? JSON.parse(name.dataset.home)
+        : [Math.abs(offset.e), offset.f];
+      name.dataset.home = JSON.stringify([reach, rise]);
+      // The name's top, measured from where its offset puts it, and its left edge
+      // and top when it sits beside the dot on the right.
+      const ascent = box.top - own.y - offset.f;
+      const atRight = {{start: box.left, end: box.left + 2 * reach + w,
+                       middle: own.x + reach}}[anchor];
+      const top = own.y + rise + ascent;
+      const spots = [
+        {{anchor: 'start', e: reach, f: rise, left: atRight, top}},
+        {{anchor: 'end', e: -reach, f: rise, left: atRight - 2 * reach - w, top}},
+        {{anchor: 'middle', e: 0, f: -reach - h - ascent, left: own.x - w / 2,
+         top: own.y - reach - h}},
+        {{anchor: 'middle', e: 0, f: reach - ascent, left: own.x - w / 2,
+         top: own.y + reach}},
+      ].map(spot => ({{...spot, right: spot.left + w, bottom: spot.top + h}}));
       const spot = spots.find(spot =>
         spot.left >= plot.left && spot.right <= plot.right
         && spot.top >= plot.top && spot.bottom <= plot.bottom
         && !placed.some(other => hit(spot, other))
-        && !dots.some(dot => dot.index !== name.__data__.i && hit(spot, dot.box)));
+        && !dots.some(dot => dot !== own && hit(spot, dot.box)));
       name.style.visibility = spot ? '' : 'hidden';
       if (!spot) continue;
       placed.push(spot);
-      if (spot.toRight !== onRight) {{
-        group.setAttribute('transform',
-          `translate(${{spot.toRight ? reach : -reach}},${{offset.f}})`);
-        name.setAttribute('text-anchor', spot.toRight ? 'start' : 'end');
-      }}
+      group.setAttribute('transform', `translate(${{spot.e}},${{spot.f}})`);
+      name.setAttribute('text-anchor', spot.anchor);
     }}
   }};
   const find = () => document.querySelector(`#${{card}} .js-plotly-plot`);

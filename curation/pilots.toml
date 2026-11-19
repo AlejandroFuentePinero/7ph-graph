@@ -2579,8 +2579,9 @@ names = { "F9on6p6MgkW0nIUOjpQa3w" = "Raechel M" }
 # two ways becomes two codes. Folded only where the names say the same thing and
 # the cards cannot tell the two apart: card overlap is the mean pairwise Jaccard
 # of maindeck non-land cards on 20261118T000557Z (format baseline 0.108). Versions
-# of a deck (Bus Stop Grixis, Lurrus Breach) stay as tagged: that is #99. Each
-# alias steps aside once upstream stops carrying either code.
+# of a deck (Bus Stop Grixis, Lurrus Breach) are not aliases: they are grouped into
+# families (issue #381, below). Each alias steps aside once upstream stops carrying
+# either code.
 
 [[archetype_alias]]
 # GF is the abbreviation: 25 primaries titled "GF Storm", 32 "Gluten Free Storm",
@@ -2604,6 +2605,210 @@ as_of = "20261118T000557Z"
 # colour-prefixed variants into the bare name (grixis_madness into Madness).
 alias = "engine:green_eldrazi"
 archetype = "engine:eldrazi"
+as_of = "20261118T000557Z"
+
+# --- Archetype family exceptions: the owner's rulings on the family rule (issue #382) ---
+#
+# The build files a version under its parent when 95% of its decks carry the
+# parent's tag (issue #381). These are the cases that rule cannot settle or gets
+# wrong. The test behind them: a code joins a family when its decks are built on
+# that family's engine. It is a test of codes, not of single decks: a deck that
+# runs an engine inside another archetype stays where upstream filed it. Counts
+# are the decks the graph served each code as primary on 20261118T000557Z.
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): Breach is named for Underworld Breach, and its family is the
+# codes whose decks are built on its combo (Underworld Breach with Lion's Eye Diamond and
+# Brain Freeze). All 13 Jeskai Breach decks run all three; none of the 146 Jeskai decks
+# runs Underworld Breach, so Jeskai Control and its kin stay out. Jeskai is the shell.
+code = "engine:jeskai_breach"
+family = "engine:breach"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): Nadu's family is the codes whose decks are built on its engine,
+# Nadu, Winged Wisdom with en-Kor targeting. All 5 Breakfast decks run Nadu, Nomads en-Kor
+# and Shaman en-Kor. Bant is not part of Nadu: as a tag it names the colours, and 17 of
+# its 19 decks run no Nadu.
+code = "engine:breakfast"
+family = "engine:nadu"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): Flood Moon is the Dimir tempo deck with a Back to Basics and
+# Harbinger of the Seas lock added. It shares Dimir's core (15 non-land cards in 70%+ of
+# both), a Flood Moon deck overlaps a Dimir deck (0.432) more than two Dimir decks overlap
+# each other (0.389), and upstream calls 89% of it tempo. The lock is a support package
+# several archetypes run (Blue Moon 157 decks), not an engine of its own, and 10 of 16
+# bare Dimir decks ran it in 2025. Filed under Dimir, which also stops upstream's
+# re-tagging from moving these decks between archetypes. The 16 overrides from Dimir no
+# longer change what is served; the 15 from Rogue still do.
+code = "engine:flood_moon"
+family = "engine:dimir"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): different engines. Iron Man is an artifact combo deck (Iron Man,
+# Painter's Servant with Grindstone, Auriok Salvagers with Lion's Eye Diamond, all in each
+# of its 5 decks) that no Jeskai deck runs: its overlap with Jeskai (0.153) is at the format
+# baseline and none of its decks is Jeskai's WUR. Kept apart, as #99 held it. Goblin
+# Welder is one piece of its engine, not its family.
+code = "engine:iron_man"
+family = "engine:iron_man"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same colours, different engine. Bare Orzhov names the colours, not
+# a deck: it is primary on 7% of the decks carrying it, and its 8 decks are four builds.
+# Orzhov Taxes is its own deck (Ocelot Pride, Grief, Guide of Souls, Ephemerate, Skyclave
+# Apparition in 90%+ of its 72 decks; overlap within 0.554) and shares nothing distinctive
+# with Orzhov Soul Sisters (overlap 0.239). Kept apart.
+code = "engine:orzhov_taxes"
+family = "engine:orzhov_taxes"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same colours, different engine. Orzhov Soul Sisters is a lifegain
+# deck (Soul Warden, Amalia Benavides Aguirre and Skullclamp in all 7 decks) that runs none
+# of the Orzhov Taxes core; bare Orzhov names the colours (see Orzhov Taxes above). Kept apart.
+code = "engine:orzhov_soul_sisters"
+family = "engine:orzhov_soul_sisters"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): different engine. Warps is a Time Warp recursion loop (Time Warp,
+# Soulherder, Eternal Witness, Timeless Witness, Spellseeker in all 5 decks, none in Bant).
+# Bant names the colours: primary on 10% of the decks carrying it, overlap with Warps 0.212.
+# Nadu is a recent addition in two lists, not what the deck is built on. Kept apart.
+code = "engine:warps"
+family = "engine:warps"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): different engine. Amulet Titan is built on Amulet of Vigor and
+# Primeval Titan (with Arboreal Grazer, Cultivator Colossus, Tiller Engine in all 5 decks;
+# overlap within 0.721). Simic names the colours: primary on 6% of the decks carrying it,
+# its 5 decks four builds, overlap with Amulet Titan 0.204. Kept apart.
+code = "engine:amulet_titan"
+family = "engine:amulet_titan"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same engine, same family. All 80 Breachbond decks run the Breach
+# combo (Underworld Breach, Lion's Eye Diamond, Brain Freeze, Intuition) and Breach's blue
+# shell; overlap with Breach 0.414. What it borrows from Lands is the Fastbond fuel package
+# (Fastbond, Zuran Orb, Crucible of Worlds), none of what Lands wins with (Dark Depths,
+# Thespian's Stage, Exploration all 0%); overlap with Lands 0.119, below the format
+# baseline. Lands is its own family, with no Underworld Breach. Upstream gives Breachbond no
+# parent tag, so the rule cannot find this; #99 held it as a hybrid.
+code = "engine:breachbond"
+family = "engine:breach"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same engine. Both codes are built on the card Jeskai Ascendancy,
+# in every deck of each. Amber Ascendancy (8 decks) joins Ascendancy by the rule, through
+# its parent tag; Jeskai Ascendancy (3 decks) is under the rule's floor, so the rule would
+# leave it apart and serve "Ascendancy" beside "Jeskai Ascendancy", two names for two
+# groups. One family, Ascendancy, 11 decks.
+code = "engine:jeskai_ascendancy"
+family = "engine:ascendancy"
+as_of = "20261118T000557Z"
+
+# The cases below came from a second sweep: every archetype standing alone, and every code
+# the rule filed that the owner had not ruled on, against every other by shared cards and
+# upstream's tags.
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Fantasticar. Both codes are built on the card
+# The Fantasticar (all 3 Car decks, 6 of 7 Fantasticar decks, main deck in each) on one
+# artifact core (Emry, Mox Opal, Urza's Saga, Lotus Petal, both Baubles); 4 of the 7
+# Fantasticar decks carry the Car tag. They finish differently (Car adds Basalt Monolith
+# and Manifold Key, Fantasticar adds Clown Car, Kappa Cannoneer and Goblin Welder) and
+# share 0.19 of their cards against 0.37 within each, so the rule cannot see it, and Car's
+# 3 decks are under its floor.
+code = "engine:car"
+family = "engine:fantasticar"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Esper. Ketramose is an Esper deck running
+# Ketramose, the New Dawn as a threat: its 4 decks (4 pilots, one event in March 2025)
+# share 0.47 of their cards with the Esper family against 0.50 within it, and Esper Control
+# and Esper Midrange sit closer to it than to bare Esper. What it adds (Ketramose, Vanishing
+# Verse, Murktide Regent, Tamiyo) is a build; what it lacks (Quantum Riddler, Moonshadow,
+# Aang, Flow State) was not yet played at its event. The card is in 218 decks across the
+# record, a card the format plays rather than one deck's engine. Under the rule's floor.
+code = "engine:ketramose"
+family = "engine:esper"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Mono Red. Reckless Red is one pilot's Mono Red
+# aggro list (6 decks at 6 events, all mono red, titled "Reckless Red (Mono R Aggro)" among
+# others): a deck of it shares 0.39 of its cards with a Mono Red deck, more than two Mono
+# Red decks share (0.34). What sets it apart (Seasoned Pyromancer, Rakdos Cackler, Shock,
+# Searing Spear, Skullclamp) are cards Mono Red runs at some rate, a build and not an engine.
+code = "engine:reckless_red"
+family = "engine:mono_red"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Iron Man. Bomberman (2024 to 2025) and Iron Man
+# (2025 to 2026) are one deck across the printing of Iron Man, Titan of Innovation: the same
+# engine in both (Auriok Salvagers, Lion's Eye Diamond and Phyrexian Dragon Engine in every
+# deck; Goblin Welder, Oswald Fiddlebender, Painter's Servant with Grindstone in nearly all),
+# one pilot in both, and a Bomberman deck shares 0.38 of its cards with an Iron Man deck,
+# as much as two Bomberman decks share. Named for what the deck is called now.
+code = "engine:bomberman"
+family = "engine:iron_man"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Hammer, against the rule. Every Boros Equipment
+# deck carries the Boros tag, so the rule files it under Boros, but it is built on Hammer's
+# engine: Colossus Hammer (92%), Sigarda's Aid and Steelshaper's Gift (100%), against 3% of
+# Boros decks for each. It shares 0.28 of its cards with Hammer and 0.19 with Boros, whose
+# own core (Phlage, Guide of Souls, Ragavan) it does not run, and pilots title it "Hammer
+# Time" as often as "Equipment". The Dwarf package and the Moxen are its build.
+code = "engine:boros_equipment"
+family = "engine:hammer"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Jund. Icetill is Jund midrange running Icetill
+# Explorer as a value creature: Lightning Bolt, Pyrogoyf and Ignoble Hierarch in 93% of its
+# decks, and 60% carry the Jund tag. Its 9 decks in Jund colours share 0.48 of their cards
+# with Jund, more than two Jund decks share (0.45). It is not a Lands deck: Lands runs Icetill
+# Explorer too (79%), but Icetill runs none of the Lands engine (Dark Depths, Thespian's
+# Stage, Exploration, Crop Rotation, Fastbond all 0%) and shares 0.15 with Lands, the format
+# baseline. The code holds 6 Gruul and Sultai decks nearer Delirium; a ruling moves the code
+# whole, so they are counted as Jund.
+code = "engine:icetill"
+family = "engine:jund"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Izzet Prowess, against the rule. Every Temur
+# Prowess deck carries the Temur tag, so the rule files it under Temur, but it is built on
+# the prowess engine (Monastery Swiftspear 100%, Sprite Dragon 94%, Soul-Scar Mage 88%,
+# Delver 81%) that Temur does not run (Hierarchs, Mawloc, Endurance instead). It shares
+# 0.46 of its cards with Izzet Prowess and 0.30 with the rest of Temur, and Izzet Prowess
+# already holds 49 decks in Temur colours. One prowess family across both colourings.
+code = "engine:temur_prowess"
+family = "engine:izzet_prowess"
+as_of = "20261118T000557Z"
+
+[[archetype_family]]
+# Ruled 2026-11-19 (#382): same family, under Cradlehoof, against the rule. Every Golgari
+# Cradle deck carries the Golgari tag, so the rule files it under Golgari, but it is built on
+# the Cradlehoof engine: Gaea's Cradle in every deck of both, with Craterhoof Behemoth, Fiend
+# Artisan, Elvish Reclaimer, Vibrance and the mana elves (65 to 80%, against 0 to 5% of bare
+# Golgari, whose core is Fatal Push and Thoughtseize). It shares 0.62 of its cards with
+# Cradlehoof and 0.43 with the rest of Golgari, and Cradlehoof already holds 29 decks in
+# Golgari colours. Atraxa, Sowing Mycospawn and The One Ring are its build.
+code = "engine:golgari_cradle"
+family = "engine:cradlehoof"
 as_of = "20261118T000557Z"
 
 # --- Decks stranded at a malformed event, returned to their cohort (issue #167) ---

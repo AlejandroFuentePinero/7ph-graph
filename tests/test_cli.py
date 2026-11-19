@@ -346,6 +346,9 @@ def test_a_build_summarises_the_archetype_families_and_what_waits_on_a_ruling(
     assert "  archetype families: 0 grouping 0 other code(s) (listed in the report)\n" in out
     assert ("  1 code(s) changed archetype family since the previous build:\n"
             "    Bus Stop Grixis: Grixis -> its own (5 decks)\n") in out
+    # Naming a change leaves the identity lines below it reading their own counts:
+    # no id group was joined on a display name here, so that line stays silent.
+    assert "id group(s) joined" not in out
 
 
 def test_a_build_tells_the_developer_to_restart_a_running_app(tmp_path, capsys):

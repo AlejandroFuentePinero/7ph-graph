@@ -9,11 +9,14 @@ The test for "timeless" is narrow: a heuristic passes only if it carries no
 parameter fitted to the current card pool, so that a rotation cannot silently
 change what it decides.
 
-**Status: no version merge is applied.** #24 closed as grilled and #99 closed as
-deferred without landing: a version of a deck reaches the graph exactly as the
-source tags it. This is kept as the *failure record*, so the heuristics under
-"Fails" are not retried from scratch. Two corrections found after it was written
-are at the bottom.
+**Status: versions are grouped into families, and no heuristic here decides
+one (ADR 0031).** #24 closed as grilled and #99 closed as deferred without
+landing. Since #381 the site serves each archetype's family, read off the
+source's own tags (a version carries its parent as a second tag), and since #382
+the owner rules the cases those tags cannot settle by the engine a code is built
+on. Neither uses a heuristic from this page. This is kept as the *failure
+record*, so the heuristics under "Fails" are not retried from scratch. Two
+corrections found after it was written are at the bottom.
 
 Since #374 one narrower case is folded: a code upstream mints only because pilots
 spell one deck two ways, where the names say the same thing *and* the cards
