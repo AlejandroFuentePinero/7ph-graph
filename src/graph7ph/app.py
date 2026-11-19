@@ -1968,7 +1968,9 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "faq-meta",
         "Archetypes",
         'How is "Meta share" calculated?',
-        "Each deck counts once, under its main archetype. An archetype's share in a "
+        "Each deck counts once, under its main archetype. The versions of one archetype "
+        "that the source names apart count as that archetype: Bus Stop Grixis and "
+        "Grixis Oko decks count as Grixis. An archetype's share in a "
         "year is its decks that year divided by every deck that year. Small numbers are "
         "kept rather than hidden: a thin share is a real sign of an archetype arriving "
         "or leaving, and a year with none is a real zero, not a gap.\n\n"
@@ -2165,7 +2167,7 @@ _FAQ_ENTRIES: list[tuple[str, str, str, str]] = [
         "belongs to (aggro, control and the like). Every dot and every link is measured "
         "in separate events rather than "
         "decks, so a day the pilot entered several variants counts once.\n\n"
-        "About half the decks on record carry more than one archetype "
+        "Many of the decks on record carry more than one archetype "
         "({decks_multi_archetype} of {decks}), each weighted, and a deck counts only "
         "under its main one. So a "
         "pilot who played a Grixis deck with a little Storm in it is drawn playing "
@@ -3786,10 +3788,10 @@ def _landscape_figure(cells: list[LandscapeCell]) -> pgo.Figure:
     browser, which knows both: the most played archetypes keep their names, and a
     name that would land on another name, on another archetype's dot or outside the
     plot is left to the hover, which every dot has. Each name is sent to the right of
-    its dot, where the page starts from; it moves a name to the left where only that
-    side is free. Until #337 the sides alternated along the share axis
-    (``_label_sides``), which kept neighbours apart and no more, and with the page
-    placing the names it kept none the page does not keep without it.
+    its dot, where the page starts from; it moves a name to the left, above or below
+    where the right is not free (#382). Until #337 the sides alternated along the
+    share axis (``_label_sides``), which kept neighbours apart and no more, and with
+    the page placing the names it kept none the page does not keep without it.
 
     The hover is what makes leaving a name out safe, so it has to reach every dot,
     and Plotly's answers for one dot at a time: where two overlap, the smaller. In
