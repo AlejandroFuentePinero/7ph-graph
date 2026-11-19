@@ -1027,26 +1027,36 @@ def test_the_report_lists_each_family_with_its_members_and_the_codes_with_two_pa
 
 
 def test_the_record_files_the_versions_the_tickets_name_as_they_measured(live_graph):
-    # The cases issues #381 and #382 measured on 20261118T000557Z before any
-    # ruling: versions the rule groups (some the owner may yet keep apart), the
-    # one grouping it misses (upstream gives Breachbond no parent tag) and the
-    # two codes it leaves alone with two parents. A ruling that moves one of
-    # these updates this test in the ticket that records it.
+    # Every case issues #381 and #382 named on 20261118T000557Z, as the owner ruled
+    # it (ADR 0031): each code the family it is served under, or None where it
+    # heads its own. The rulings that file a code against its tags (Golgari Cradle,
+    # Temur Prowess, Boros Equipment) and those that keep one apart (Iron Man,
+    # Orzhov Taxes, Warps, Amulet Titan) are the ones the rule alone gets wrong, so
+    # they are what this pins; a later ruling that moves one updates this test in
+    # the ticket that records it.
     report = json.loads(reconciliation_path(artifact_path()).read_text())["archetype_families"]
     filed = {m["label"]: f["label"] for f in report["families"] for m in f["members"]}
     named = {
-        "Bus Stop Grixis": "Grixis", "Lurrus Breach": "Breach", "Flood Moon": "Dimir",
-        "Blue Tron": "Tron", "Red Esper": "Esper", "Iron Man": "Jeskai",
-        "Mardu Lurrus": "Mardu", "Rakdos Eclipse": "Rakdos", "Rakdos Aggro": "Rakdos",
-        "Orzhov Taxes": "Orzhov", "Warps": "Bant", "Amulet Titan": "Simic",
-        "Breachbond": None,
+        # The first round: the cases #381 measured.
+        "Bus Stop Grixis": "Grixis", "Grixis Oko": "Grixis", "Lurrus Breach": "Breach",
+        "Jeskai Breach": "Breach", "Breachbond": "Breach", "Breakfast": "Nadu",
+        "Flood Moon": "Dimir", "Blue Tron": "Tron", "Red Esper": "Esper",
+        "Esper Control": "Esper", "Esper Midrange": "Esper", "Mardu Lurrus": "Mardu",
+        "Rakdos Eclipse": "Rakdos", "Rakdos Aggro": "Rakdos",
+        "Amber Ascendancy": "Ascendancy", "Jeskai Ascendancy": "Ascendancy",
+        "Iron Man": None, "Orzhov Taxes": None, "Orzhov Soul Sisters": None,
+        "Warps": None, "Amulet Titan": None,
+        # The second sweep.
+        "Car": "Fantasticar", "Ketramose": "Esper", "Reckless Red": "Mono Red",
+        "Bomberman": "Iron Man", "Boros Equipment": "Hammer", "Icetill": "Jund",
+        "Temur Prowess": "Izzet Prowess", "Golgari Cradle": "Cradlehoof",
+        "Trackworks Golgari": "Golgari", "Twin Moon": None, "Shops": None,
     }
 
     assert {code: filed.get(code) for code in named} == named
-    assert {c["label"]: c["parents"] for c in report["two_parents"]} == {
-        "Jeskai Breach": ["engine:breach", "engine:jeskai"],
-        "Breakfast": ["engine:bant", "engine:nadu"],
-    }
+    # The two codes the rule left with two parents, Jeskai Breach and Breakfast,
+    # are ruled, and no other code has two.
+    assert report["two_parents"] == []
     # Served under the family: no version the rule grouped is left in the graph.
     assert set(filed) & {name for (name,) in rows(live_graph.execute(
         "MATCH (a:Archetype) RETURN a.name"))} == set()
