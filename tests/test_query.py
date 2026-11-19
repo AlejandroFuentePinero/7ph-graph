@@ -1052,7 +1052,7 @@ def test_a_gem_must_be_rare_in_its_archetype_and_attested_by_enough_of_it(
 ):
     # The two bounds answer different questions, which is why only one is a share
     # (ADR 0012). `thin` is one deck under the floor and `staple` one deck over the
-    # ceiling (5% of 200 is 10); both put every one of their decks in the cut, so the
+    # ceiling (4% of 200 is 8); both put every one of their decks in the cut, so the
     # odds alone would admit them well inside the bar. Neither is a gem: one is not
     # attested, the other is not rare. Both are counted off the constants, so a swept
     # floor moves the fixture with it rather than turning the bound it tests into a
@@ -1068,7 +1068,7 @@ def test_a_gem_must_be_rare_in_its_archetype_and_attested_by_enough_of_it(
 
     cards = _gem_cards(hidden_gems_subgraph(conn))
 
-    assert "card:x:keeper" in cards  # 8 decks: on the floor, under the ceiling
+    assert "card:x:keeper" in cards  # 8 decks: on the floor and at the ceiling
     assert "card:x:thin" not in cards
     assert "card:x:staple" not in cards
 
@@ -1081,8 +1081,8 @@ def test_an_archetype_too_small_to_ask_is_skipped_rather_than_answered_for(
     # every deck it is in, in both archetypes; only the size of the archetype around it
     # differs, by one deck across the crossover. There is no dropdown to refuse from
     # any more, so the small slice is simply not hunted in.
-    decks = (_slice("small", 159, {"tech": range(8)})
-             + _slice("big", 160, {"tech": range(8)}))
+    decks = (_slice("small", MIN_GEM_SLICE - 1, {"tech": range(MIN_GEM_DECKS)})
+             + _slice("big", MIN_GEM_SLICE, {"tech": range(MIN_GEM_DECKS)}))
     _write_snapshot(tmp_path, decks, _canons(decks))
     conn = built_graph(tmp_path, tmp_path)
 
