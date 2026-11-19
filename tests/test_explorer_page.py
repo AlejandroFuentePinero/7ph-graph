@@ -1172,8 +1172,8 @@ def _placeholders(page) -> dict[str, str]:
 # Every search in the app: its tab, the chip that brings it on screen where it is
 # not there on open, its label, and what it searches.
 SEARCHES = [
-    ("Archetypes", None, "Archetype", "archetypes"),
-    ("Archetypes", None, "Second archetype (optional)", "archetypes"),
+    ("Archetypes", None, "Archetype", "archetypes with 2+ events"),
+    ("Archetypes", None, "Second archetype (optional)", "archetypes with 2+ events"),
     ("Cards", None, "Card", "cards"),
     ("Cards", "Co-occurrence", "Second card (optional)", "cards"),
     ("Pilots", None, "Pilot", "pilots"),

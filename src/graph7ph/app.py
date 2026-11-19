@@ -86,6 +86,7 @@ from graph7ph.trends import (
     NotEnoughHistory,
     PairAdoptionOverTime,
     MAJOR_FIELD_SIZE,
+    MIN_ARCHETYPE_EVENTS,
     MIN_LISTED_SHARE,
     PerformanceCell,
     PilotPerformanceOverTime,
@@ -5023,14 +5024,18 @@ def build_app(artifact: Path) -> gr.Blocks:
                 "One archetype: how much it is played and how it finishes.",
                 elem_classes="t-lede",
             )
+            # The searches hold the archetypes with a run to draw, not every one on
+            # record as Community counts them, so they say which (#382): an archetype
+            # seen at one event is on Community's count and in neither search.
+            searched = f"archetypes with {MIN_ARCHETYPE_EVENTS}+ events"
             with gr.Group(elem_classes="control-panel"):
                 timeline_a, _ = search(
-                    "timeline-archetype", "archetypes",
+                    "timeline-archetype", searched,
                     choices=timeline_archetypes, value=None, label="Archetype",
                     elem_classes="primary-control",
                 )
                 timeline_b, _ = search(
-                    "timeline-second-archetype", "archetypes",
+                    "timeline-second-archetype", searched,
                     choices=timeline_archetypes, value=None,
                     label="Second archetype (optional)",
                 )
