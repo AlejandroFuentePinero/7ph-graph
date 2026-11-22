@@ -274,12 +274,11 @@ def recording(app_kwargs: dict, *, views: frozenset[str]) -> dict:
 # One function wired to several controls is numbered by Gradio (`draw_cards_3`).
 _WIRING_SUFFIX = re.compile(r"_\d+$")
 
-_COLUMNS = ("Pages", "Navigations", "Stylesheets", "Draws", "Visits that drew")
+_COLUMNS = ("Pages", "Visits", "Draws", "Visits that drew")
 
 _LEGEND = """\
-Pages: every time the page was served. Navigations: of those, the ones a browser
-asked for as a page. Stylesheets: page loads whose script then ran. The last two
-are two readings of "a real browser"; neither is settled as the measure yet."""
+Pages: every time the page was served, scanners and link previews included.
+Visits: of those, the loads whose script then ran in a browser."""
 
 
 def _called(line: dict) -> str:
@@ -329,7 +328,6 @@ def report(folder: Path, *, by: str) -> str:
         drawn = [line for line in draws if period(line) == when]
         figures = (
             in_period[when, "page"],
-            sum(period(line) == when and line["dest"] == "document" for line in pages),
             in_period[when, "browser"],
             len(drawn),
             len({line["session"] for line in drawn} - {None}),

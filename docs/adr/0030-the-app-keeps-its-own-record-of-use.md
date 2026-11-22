@@ -42,7 +42,7 @@ Recording is off unless `GRAPH7PH_USAGE_DIR` names a folder that exists, which i
 - Every deploy adds one page load, because the deploy's check opens the site in a browser.
 - The record is read by `graph7ph usage` over a local copy of the bucket (`docs/development.md`). Nothing of it appears in the app.
 - `tests/test_usage.py` holds the three rules: the real page and config are the same bytes recorded or not, a pilot looked up in the real app is in no recorded line, and a folder that cannot be written never reaches a request.
-- The report shows two readings of "a real browser", navigations and stylesheet requests. Which one stays is decided on a week of real lines (#356).
+- The report counts a visit as a page load whose script then ran (the stylesheet request). Counting the loads a browser asked for as a page was dropped on six days of real lines (#356): the two disagreed on 51 of 353 page loads, in both directions. The dropped reading missed 13 loads whose script ran, from browsers that do not say they are asking for a page, and counted 38 whose script never ran.
 
 ## What would reopen this
 
