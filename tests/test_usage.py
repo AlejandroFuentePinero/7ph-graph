@@ -374,8 +374,8 @@ def _write(folder: Path, name: str, lines: list[dict]) -> None:
 def test_the_report_counts_a_copy_of_the_folder_by_week(tmp_path):
     """Expected figures counted by hand from the lines below.
 
-    Week of Monday 2026-11-02: three pages (two navigations, one stylesheet), two
-    draws by one visit. Week of 2026-11-09: one page, one draw by another visit.
+    Week of Monday 2026-11-02: three pages (one whose script ran), two draws by
+    one visit. Week of 2026-11-09: one page, one draw by another visit.
     A function wired to several controls is counted under its one name, and the
     line each start of the app writes is not a visit.
     A listing runs from the most to the fewest, and equal counts in label order.
@@ -404,13 +404,12 @@ def test_the_report_counts_a_copy_of_the_folder_by_week(tmp_path):
     assert usage.report(tmp_path, by="week") == """\
 Usage by week (UTC), 2026-11-03 to 2026-11-09
 
-Week of     Pages  Navigations  Stylesheets  Draws  Visits that drew
-2026-11-02      3            2            1      2                 1
-2026-11-09      1            1            0      1                 1
+Week of     Pages  Visits  Draws  Visits that drew
+2026-11-02      3       1      2                 1
+2026-11-09      1       0      1                 1
 
-Pages: every time the page was served. Navigations: of those, the ones a browser
-asked for as a page. Stylesheets: page loads whose script then ran. The last two
-are two readings of "a real browser"; neither is settled as the measure yet.
+Pages: every time the page was served, scanners and link previews included.
+Visits: of those, the loads whose script then ran in a browser.
 
 Address
   www.7phgraph.com                  3
@@ -445,9 +444,9 @@ def test_the_report_counts_by_day_when_asked(tmp_path):
     table = usage.report(tmp_path, by="day").split("\n\n")[1]
 
     assert table == """\
-Day         Pages  Navigations  Stylesheets  Draws  Visits that drew
-2026-11-03      1            0            0      0                 0
-2026-11-04      1            0            0      0                 0"""
+Day         Pages  Visits  Draws  Visits that drew
+2026-11-03      1       0      0                 0
+2026-11-04      1       0      0                 0"""
 
 
 def test_the_report_says_so_when_the_folder_holds_nothing(tmp_path):

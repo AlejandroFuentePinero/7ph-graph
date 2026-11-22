@@ -176,14 +176,17 @@ gitignored: the record is for the maintainer, and this repository is public.
 Read the Space's Analytics panel on the Hub beside the report (all time, last
 month, last week). It is the only other count of the same visits and has no API,
 so it is read by eye. The two will not agree to the visit, because the Hub does
-not publish what it counts, but they should move together. A record that falls
+not publish what it counts, but they should move together. The panel sits near
+the report's Pages, not its Visits: on 2026-11-22 its last week read 312 against
+353 pages and 140 visits over the six days recorded (#356). A record that falls
 away while the panel does not is a recorder that has stopped: look for
 `USAGE RECORD` in the Space's run log.
 
 The report's own counts are deliberately plain. "Pages" is every time the page
-was served, scanners and link previews included. "Navigations" and "Stylesheets"
-are two readings of how many of those were a person's browser, kept side by side
-until real data says which to trust.
+was served, scanners and link previews included. "Visits" is the page loads whose
+script then ran, which a fetcher that runs no script never does. It was chosen
+over counting the loads a browser asked for as a page, which misses browsers that
+do not say so and counts pages fetched ahead of a click (#356).
 
 ## Tests
 
